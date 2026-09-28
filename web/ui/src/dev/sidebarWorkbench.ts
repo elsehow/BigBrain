@@ -7,6 +7,8 @@ import { searchPresentation } from '../lib/floatingSearch.svelte';
 import { watchSystemTheme, setChoice, type BuiltIn } from '../lib/theme';
 
 searchPresentation.includeAgents = new URLSearchParams(location.search).get('layout') === 'original';
+// Captured before any fixture replaces the page's transport.
+const networkFetch = window.fetch.bind(window);
 
 
 import { installGraphFixture } from './graphFixture';
@@ -26,6 +28,10 @@ if (new URLSearchParams(location.search).has('scenario')) {
 if (new URLSearchParams(location.search).has('vaultScope')) {
   const { installVaultScopeFixture } = await import('./vaultScopeFixture');
   installVaultScopeFixture();
+}
+if (new URLSearchParams(location.search).has('pilotNetwork')) {
+  const { installPilotNetworkFixture } = await import('./pilotNetworkFixture');
+  installPilotNetworkFixture(networkFetch);
 }
 if (new URLSearchParams(location.search).has('unreadSearch')) {
   const { installUnreadSearchFixture } = await import('./unreadSearchFixture');
