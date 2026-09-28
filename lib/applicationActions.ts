@@ -138,8 +138,8 @@ export class ApplicationActions {
     return prior?.fingerprint === sha256hex(canonicalAction([request.operation, request.scope, request.payload])) ? prior : undefined;
   }
   /** Durable evidence of the effect settles an uncertain receipt. Nothing is executed or replayed. */
-  resolve(receipt: ActionReceipt, result: unknown): ActionReceipt {
-    if (receipt.status !== "uncertain" || this.running.has(receipt.id)) return receipt;
+  resolve(receipt: ActionReceipt, result: unknown): ActionReceipt { return receipt.status !== "uncertain" || this.running.has(receipt.id) ? receipt : this.settle(receipt, result); }
+  private settle(receipt: ActionReceipt, result: unknown): ActionReceipt {
     const next: ActionReceipt = { ...structuredClone(receipt), status: "completed", result, updated: this.at() };
     delete next.error; this.save(next); return next;
   }
@@ -163,7 +163,7 @@ export class ApplicationActions {
       if (prior?.status === "completed") return structuredClone(prior.result) as T;
       if (prior?.status === "uncertain") {
         const recovered = host.recover?.(prior);
-        if (recovered !== undefined) return structuredClone(this.resolve(prior, recovered).result) as T;
+        if (recovered !== undefined) return structuredClone(this.settle(prior, recovered).result) as T;
       }
       if (prior && ["uncertain", "executing"].includes(prior.status)) throw new ActionOutcomeError(prior);
       const at = this.at();

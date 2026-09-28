@@ -210,6 +210,11 @@ export class PilotChats {
     this.loadIssues.push(...(options.work?.loadIssues ?? []));
     if (options.work) this.migrateWorkers();
     options.external?.setReporter(report => this.externalReport(report));
+    // An uncertain launch whose worker was durably recorded settles to it. Nothing is relaunched.
+    if (options.external) for (const { id } of options.external.list()) {
+      const job = options.external.get(id), action = job.origin.action;
+      if (action) try { this.settle(job.origin.pilot, this.actions.owned({ kind: "pilot", id: job.origin.pilot }, action)); } catch { /* An unreadable receipt stays blocked for inspection. */ }
+    }
     // Reconcile a crash between saving a worker decision and publishing its resolution.
     if (options.external) for (const summary of this.summaries()) for (const n of summary.notifications ?? []) {
       if (!n.workerRequest || n.resolved) continue;
@@ -763,7 +768,7 @@ export class PilotChats {
       scope: [s.id, ...(typeof a.agent === "string" ? [a.agent] : []), ...(typeof a.project === "string" ? [a.project] : []), ...(name === "inbox_set_unread" ? [String(a.ref)] : [])], payload: args };
     const external = this.options.external;
     try {
-      return await this.actions.execute(request, { signal, authorize, legacy: this.conversation(s.id).actions?.[key], recover: r => this.recovered(s, r),
+      return await this.actions.execute(request, { signal, authorize, legacy: this.conversation(s.id).actions?.[key], recover: r => this.recovered(s.id, r),
         validate: async () => {
           if (name === "message_agent") external!.validateMessage(a.agent, a.text);
           if (["launch_agent", "revise_agent_environment"].includes(name) && a.model) await this.requireConnected(a.model);
@@ -788,15 +793,15 @@ export class PilotChats {
     }
   }
   /** An uncertain launch whose worker was durably recorded settles to that worker. Nothing is relaunched. */
-  private recovered(s: PilotChatSession, receipt: ActionReceipt): unknown {
+  private recovered(pilot: string, receipt: ActionReceipt): unknown {
     if (receipt.operation !== "launch_agent" || receipt.status !== "uncertain" || !this.options.external) return;
     const external = this.options.external, observed = receipt.observed?.agent;
-    const job = external.forAction(s.id, receipt.id) ?? (observed && external.has(observed) && external.get(observed).origin.pilot === s.id ? external.get(observed) : undefined);
+    const job = external.forAction(pilot, receipt.id) ?? (observed && external.has(observed) && external.get(observed).origin.pilot === pilot ? external.get(observed) : undefined);
     return job && launchResult(job);
   }
-  private settle(s: PilotChatSession, receipt: ActionReceipt): ActionReceipt {
-    const result = this.recovered(s, receipt);
-    try { return result === undefined ? receipt : this.actions.resolve(receipt, result); } catch { return receipt; }
+  private settle(pilot: string, receipt: ActionReceipt | undefined): ActionReceipt | undefined {
+    const result = receipt && this.recovered(pilot, receipt);
+    try { return result === undefined ? receipt : this.actions.resolve(receipt!, result); } catch { return receipt; }
   }
   private async requireConnected(model: unknown): Promise<void> {
     const selected = validateModelChoice(model);
@@ -809,7 +814,7 @@ export class PilotChats {
     if (typeof request !== "string" || !/^[a-f0-9]{64}$/.test(request)) throw new PilotError("Provide a request ID from a tool reply.");
     const receipt = this.actions.owned({ kind: "pilot", id: s.id }, request);
     if (!receipt) throw new PilotError("No action with that request ID belongs to this Pilot.");
-    const view = actionReceiptView(this.settle(s, receipt)), agent = view.observations.find(o => o.kind === "agent")?.target;
+    const view = actionReceiptView(this.settle(s.id, receipt)!), agent = view.observations.find(o => o.kind === "agent")?.target;
     const job = agent && this.options.external?.has(agent) ? this.options.external.get(agent) : undefined;
     return { action: view, ...(job && job.origin.pilot === s.id ? { agent: { id: job.id, title: job.title, status: job.status } } : {}) };
   }
@@ -827,7 +832,7 @@ export class PilotChats {
     const limit = query.limit ?? 30;
     // Validate limits and obtain current damage diagnostics even on legacy pages.
     const history = this.actions.list(actor, { limit, cursor: modern });
-    const receipts: (ReturnType<typeof actionReceiptView> | { id: string; operation: string; status: string })[] = legacy === undefined ? history.receipts.map(r => actionReceiptView(this.settle(s, r))) : [];
+    const receipts: (ReturnType<typeof actionReceiptView> | { id: string; operation: string; status: string })[] = legacy === undefined ? history.receipts.map(actionReceiptView) : [];
     const encode = (value: object) => Buffer.from(JSON.stringify({ context, ...value })).toString("base64url");
     if (legacy === undefined && history.nextCursor) return { ...history, receipts, nextCursor: encode({ modern: history.nextCursor }) };
     const historical = Object.entries(this.conversation(s.id).actions ?? {}).sort(([a], [b]) => a.localeCompare(b))
