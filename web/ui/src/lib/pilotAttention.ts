@@ -4,6 +4,7 @@ import { ARCHIVED_STATUS, pilotStatusView, pilotVisualPhase, type PilotStatusVie
 import { agentStatusView } from "./agentAppearance";
 import { parseMentions, mentionText } from "../../../../lib/pilotMentions";
 import { pilotMessageCount } from "../../../../lib/pilotChatSummary";
+import { bySessionOrder } from "./sessionOrder";
 import type { PilotViewData } from "./pilotChatSync";
 import type { PilotNotification } from '../../../../lib/pilotNotifications';
 
@@ -20,7 +21,7 @@ export interface PilotRosterEntry {
 
 export function pilotRoster(sessions: PilotViewData[], includeArchived = false): PilotRosterEntry[] {
   // Keep the roster in creation order even when activity reorders the source.
-  return [...sessions].sort((a, b) => a.created.localeCompare(b.created) || a.id.localeCompare(b.id)).flatMap<PilotRosterEntry>(s => {
+  return [...sessions].sort(bySessionOrder).flatMap<PilotRosterEntry>(s => {
     // Explicitly closed sessions keep their history, not an active request badge.
     if (!isActivePilot(s)) return includeArchived ? [{ id:s.id, lastMessageAt:lastMessageAt(s), title:s.title, model:s.backend?.model ?? s.model,
       archived:true, phase:'idle' as const, state:'idle' as const, requests:[], unread:false }] : [];
