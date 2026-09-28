@@ -92,8 +92,12 @@ test("four-hour freshness and conditional revalidation; offline errors preserve 
 });
 test("hostile metadata, unsupported adapters, duplicates and corrupted persisted models fail closed", async () => {
   const f = await fixture();
-  for (const change of [{ api: "new-protocol" }, { baseUrl: "https://attacker.invalid" }, { contextWindow: -1 }, { maxTokens: Infinity }, { instructions: "execute" }, { compat: { newProtocol: true } }, { cost: { input: -1 } }]) {
+  for (const change of [{ contextWindow: -1 }, { maxTokens: Infinity }, { instructions: "execute" }, { cost: { input: -1 } }, { headers: { authorization: "hostile" } }, { type: 7 }, { cost: undefined }, { cost: { ...f.model.cost, input: -1_000_000 } }, { cost: { ...f.model.cost, tiers: [{ ...f.model.cost, inputTokensAbove: -1 }] } }, { cost: { ...f.model.cost, tiers: "cheap" } }]) {
     expect(() => validateCatalog([{ ...f.model, ...change }], f.provider)).toThrow();
+  }
+  // Semantics the installed adapter lacks are skipped per record, never adapted.
+  for (const change of [{ api: "new-protocol" }, { baseUrl: "https://attacker.invalid" }, { compat: { newProtocol: true } }, { type: "embedding" }]) {
+    expect(validateCatalog([{ ...f.model, ...change }, f.model].map((m, i) => ({ ...m, id: `${m.id}-${i}` })), f.provider).map(m => m.id)).toEqual([`${f.model.id}-1`]);
   }
   expect(() => validateCatalog([f.model, f.model], f.provider)).toThrow();
   writeFileSync(join(f.root, "store.json"), JSON.stringify({ "openai-codex": { models: [{ ...f.model, baseUrl: "https://attacker.invalid" }] } }));
@@ -175,4 +179,52 @@ test("different runtime accounts share public metadata, never configured auth or
   await initializeCatalog(disconnected, owner, false);
   expect(disconnected.getModel("openai-codex", f.model.id)?.id).toBe(f.model.id);
   expect(disconnected.getAvailableSnapshot().some(m => m.id === f.model.id)).toBe(false);
+});
+
+test("the live pi.dev record shape is accepted without its unread metadata, and never adds a fallback model", async () => {
+  const f = await fixture();
+  // Shape observed on https://pi.dev/api/models/providers/* on 2026-09-28 (fabricated values).
+  const live = { ...f.model, type: "chat", promptCache: { short: 300, long: 3600 }, inputLimits: { maxRequestBytes: 1024, images: { maxPerRequest: 2 } } };
+  const [accepted] = validateCatalog({ [live.id]: live }, f.provider);
+  expect(accepted).toEqual({ ...f.model, provider: "openai-codex" });
+  // Tiered pricing is installed Pi semantics (ModelCost.tiers) and is kept.
+  const tiered = { ...f.model.cost, tiers: [{ ...f.model.cost, input: 9, inputTokensAbove: 200_000 }] };
+  expect(validateCatalog([{ ...live, cost: tiered }], f.provider)[0]?.cost).toEqual(tiered);
+  // An installed sentinel price is restated verbatim, never invented for a new model.
+  const router = f.runtime.getProvider("openrouter")!, sentinel = router.getModels().find(m => m.cost.input < 0)!;
+  expect(validateCatalog([sentinel], router).map(m => m.id)).toEqual([sentinel.id]);
+  expect(() => validateCatalog([{ ...sentinel, id: "fabricated/router" }], router)).toThrow();
+  const anthropic = f.runtime.getProvider("anthropic")!;
+  const installed = anthropic.getModels().find(m => (m.compat as { allowedFallbackModels?: unknown } | undefined)?.allowedFallbackModels)!;
+  const fallback = (installed.compat as { allowedFallbackModels: unknown[] }).allowedFallbackModels;
+  // An installed record's exact fallback list may be refreshed; a new model may not borrow it.
+  expect(validateCatalog([installed], anthropic).map(m => m.id)).toEqual([installed.id]);
+  expect(validateCatalog([{ ...installed, id: "fabricated-borrower" }], anthropic)).toEqual([]);
+  expect(validateCatalog([{ ...installed, compat: { ...installed.compat, allowedFallbackModels: [...fallback, { provider: "anthropic", model: "fabricated-other", cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }] } }], anthropic)).toEqual([]);
+});
+
+test("real fetch: ETag revalidation keeps the snapshot on 304 and redirects are refused", async () => {
+  const f = await fixture(); let now = Date.now(), mode = "body";
+  const server = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch(request) {
+    if (mode === "redirect") return new Response(null, { status: 302, headers: { location: "https://attacker.invalid/catalog" } });
+    if (request.headers.get("if-none-match") === '"fixture"') return new Response(null, { status: 304, headers: { etag: '"fixture"' } });
+    return Response.json([f.model], { headers: { etag: '"fixture"' } });
+  } });
+  try {
+    const seen: RequestInit[] = [];
+    // Bun's real fetch, pointed at a loopback stand-in for the fixed catalog origin.
+    const owner = new CatalogRefresh((async (url, init) => { seen.push(init!); return fetch(`http://127.0.0.1:${server.port}${new URL(String(url)).pathname}`, init); }) as typeof fetch, () => now);
+    await initializeCatalog(f.runtime, owner, false);
+    delete process.env.PI_OFFLINE;
+    expect((await exactCatalogModel(f.runtime, "openai-codex", f.model.id))?.id).toBe(f.model.id);
+    now += CATALOG_INTERVAL + 61_000;
+    expect((await f.runtime.refresh({ providers: ["openai-codex"], allowNetwork: true })).errors.size).toBe(0);
+    expect(new Headers(seen.at(-1)!.headers).get("if-none-match")).toBe('"fixture"');
+    const saved = JSON.parse(readFileSync(join(f.root, "store.json"), "utf8"))["openai-codex"];
+    expect(saved.checkedAt).toBe(now);
+    mode = "redirect"; now += CATALOG_INTERVAL + 61_000;
+    expect((await f.runtime.refresh({ providers: ["openai-codex"], allowNetwork: true })).errors.size).toBe(1);
+    expect(f.runtime.getModel("openai-codex", f.model.id)?.id).toBe(f.model.id);
+    expect(JSON.parse(readFileSync(join(f.root, "store.json"), "utf8"))["openai-codex"].models).toEqual(saved.models);
+  } finally { server.stop(true); }
 });

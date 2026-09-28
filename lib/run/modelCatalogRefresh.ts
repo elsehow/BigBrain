@@ -8,27 +8,48 @@ import type { CreateModelRuntimeOptions, ModelRuntime } from "@earendil-works/pi
 
 export const CATALOG_INTERVAL = 4 * 60 * 60_000;
 const MAX_BYTES = 4 * 1024 * 1024;
-const keys = new Set(["id", "name", "provider", "api", "baseUrl", "reasoning", "input", "cost", "contextWindow", "maxTokens", "compat", "thinkingLevelMap"]);
+const keys = new Set(["id", "name", "provider", "api", "baseUrl", "reasoning", "input", "cost", "contextWindow", "maxTokens", "compat", "thinkingLevelMap", "headers"]);
+// Newer pi.dev metadata that the installed adapters never read: dropping it is
+// exactly what the installed runtime does with it.
+const descriptive = new Set(["type", "inputLimits", "promptCache"]);
 const finite = (n: unknown) => typeof n === "number" && Number.isFinite(n) && n >= 0;
 const text = (s: unknown) => typeof s === "string" && s.length > 0 && s.length <= 256 && !/[\x00-\x1f\x7f]/.test(s);
 const equal = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+const rates = (c: unknown, extra: string[] = []) => !!c && typeof c === "object" && !Array.isArray(c)
+  && Object.keys(c).sort().join() === ["cacheRead", "cacheWrite", "input", "output", ...extra].sort().join() && Object.values(c).every(finite);
+// Pi prices a request by its highest matching input tier (ModelCost.tiers).
+const validCost = (c: unknown) => { if (!c || typeof c !== "object") return false; const { tiers, ...base } = c as { tiers?: unknown };
+  return rates(base) && (tiers === undefined || Array.isArray(tiers) && tiers.length <= 16 && tiers.every(t => rates(t, ["inputTokensAbove"]))); };
+/** Hostile or malformed records reject the whole shard (last good stays). Records the
+ * installed adapter cannot serve as published are skipped one by one, never adapted. */
 export function validateCatalog(value: unknown, provider: Provider): Model<Api>[] {
   const entries = Array.isArray(value) ? value : value && typeof value === "object"
     ? ("models" in value ? value.models : Object.values(value)) : undefined;
   if (!Array.isArray(entries) || entries.length > 5000) throw new Error("Invalid catalog");
   const baseline = provider.getModels(), ids = new Set<string>();
-  return entries.map(m => {
-    if (!m || typeof m !== "object" || Object.keys(m).some(k => !keys.has(k)) || !text(m.id) || !text(m.name)
+  return entries.flatMap(record => {
+    if (!record || typeof record !== "object" || Array.isArray(record)) throw new Error("Invalid catalog model");
+    const m = Object.fromEntries(Object.entries(record).filter(([k]) => !descriptive.has(k))) as Record<string, any>;
+    // Installed sentinel prices (e.g. a router's variable-price marker) may be restated verbatim.
+    const installed = typeof m.id === "string" ? baseline.find(b => b.id === m.id) : undefined;
+    if (Object.keys(m).some(k => !keys.has(k)) || !text(m.id) || !text(m.name)
       || ids.has(m.id) || (m.provider !== undefined && m.provider !== provider.id)
+      || ("type" in record && typeof record.type !== "string")
       || typeof m.reasoning !== "boolean" || !Array.isArray(m.input) || !m.input.length || m.input.some((v: unknown) => v !== "text" && v !== "image")
       || !Number.isSafeInteger(m.contextWindow) || m.contextWindow <= 0 || !Number.isSafeInteger(m.maxTokens) || m.maxTokens <= 0
-      || !m.cost || Object.keys(m.cost).sort().join() !== "cacheRead,cacheWrite,input,output" || !Object.values(m.cost).every(finite)) throw new Error("Invalid catalog model");
+      || !(validCost(m.cost) || !!installed && equal(installed.cost, m.cost))) throw new Error("Invalid catalog model");
+    // Remote headers never enter a runtime model: only an installed record's exact headers.
+    if (m.headers !== undefined && !baseline.some(b => b.headers && equal(b.headers, m.headers))) throw new Error("Invalid catalog model");
+    ids.add(m.id);
+    if ("type" in record && record.type !== "chat") return [];
+    // A server-side fallback serves a different model than the one chosen: a remote
+    // record may keep the installed record's exact list, never introduce one.
+    if (m.compat?.allowedFallbackModels !== undefined && !equal((installed?.compat as Record<string, unknown> | undefined)?.allowedFallbackModels, m.compat.allowedFallbackModels)) return [];
     // Unknown protocol/configuration semantics require an adapter release. Never
     // infer compatibility from a model name or copy remote headers/instructions.
     if (!baseline.some(b => b.api === m.api && b.baseUrl === m.baseUrl
-      && equal(b.compat, m.compat) && equal(b.thinkingLevelMap, m.thinkingLevelMap))) throw new Error("Catalog requires adapter update");
-    ids.add(m.id);
-    return { ...m, provider: provider.id };
+      && equal(b.compat, m.compat) && equal(b.thinkingLevelMap, m.thinkingLevelMap))) return [];
+    return [{ ...m, provider: provider.id } as Model<Api>];
   });
 }
 
@@ -58,10 +79,12 @@ export class CatalogRefresh {
     const signal = AbortSignal.timeout(this.timeoutMs);
     const promise = untilAborted((async () => {
       const response = await this.transport(`https://pi.dev/api/models/providers/${encodeURIComponent(provider.id)}`, {
-        signal, redirect: "error", credentials: "omit",
+        // Bun's fetch treats a 304 as a redirect under "error"; refuse real redirects below.
+        signal, redirect: "manual", credentials: "omit",
         headers: { accept: "application/json", ...(stored?.etag ? { "if-none-match": stored.etag } : {}) },
       });
       if (response.status === 304 && stored) return { ...stored, checkedAt: this.now() };
+      if (response.type === "opaqueredirect" || response.status >= 300 && response.status < 400) throw new Error("Catalog redirect refused");
       if (!response.ok || !response.body) throw new Error("Catalog unavailable");
       const reader = response.body.getReader();
       const chunks: Uint8Array[] = []; let size = 0;
