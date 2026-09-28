@@ -217,3 +217,107 @@ test('a one-task conversational expansion depends on saved authority, not its un
  f.agents.approve(job.id,job.worker.request!.id,true,false);await until(()=>job.status==='idle');
  expect(job.worker.grant?.mode).toBe('work');expect(f.agents.projects.get(project.id)?.mode).toBe('read');
 });
+
+// Exercise the production Pilot report turn and action ledger, not a direct
+// orchestrator call. Model choices are scripted; these tests do not grade prose.
+test('Pilot continues unfinished work on a report turn and retains ownership through status questions', async () => {
+  const f = fixture([{ result: 'Change prepared; verification remains.' }, { result: 'Verification passed.' }]);
+  let agent = '', reportTurns = 0;
+  const seen: string[] = [];
+  const chats = new PilotChats(f.root, { external: f.agents, graph: () => [], backend: setup => {
+    expect(setup.instructions).toContain('You retain responsibility');
+    expect(setup.instructions).toContain('answer yes or no first');
+    return { broken: false, transport: 'subscription', prepare: async () => true, close() {}, turn: async turn => {
+      const input = turn.input(true); seen.push(input);
+      if (input.includes('This is an automatic report turn')) {
+        reportTurns++;
+        if (reportTurns === 1) {
+          const record = f.agents.get(agent);
+          for (let i = 0; i < 35; i++) record.messages.push({ id: `activity-${i}`, role: 'activity', text: 'Synthetic progress', at: record.updated });
+        }
+        const job = await turn.tool('read_agent', { agent }) as { task: string; messages: { text: string }[] };
+        expect(job.task).toContain('verify');
+        expect(job.messages).toHaveLength(30);
+        expect(job.messages.some(m => m.text === job.task)).toBe(false);
+        if (reportTurns === 1) {
+          const args = { agent, text: 'Finish the requested verification in the existing task scope.' };
+          const result = await turn.tool('message_agent', args) as { id?: string; error?: string };
+          expect(result.error).toBeUndefined(); expect(result.id).toBe(agent);
+          // Delivery retry reuses the receipt even while the worker is running.
+          await turn.tool('message_agent', args);
+          return 'Verification is running. No action is needed from you.';
+        }
+        return 'The change and verification are complete.';
+      }
+      if (!agent) {
+        const job = await turn.tool('launch_agent', { title: 'Example change', task: 'Prepare the change and verify it.', context: 'Invented project evidence' }) as { id: string };
+        agent = job.id;
+        return 'Working on the change and verification.';
+      }
+      await turn.tool('read_agent', { agent });
+      return 'No. The requested work is complete.';
+    } };
+  } });
+  cleanups.push(() => chats.close());
+  const pilot = chats.create([]);
+  chats.send(pilot.id, 'Prepare the example change and verify it.');
+  await until(() => reportTurns === 2 && pilot.phase === 'answered');
+  chats.send(pilot.id, 'How is it going?'); await chats.settled(pilot.id);
+  chats.send(pilot.id, 'Do you need anything from me?'); await chats.settled(pilot.id);
+  expect(f.requests()).toBe(2);
+  expect(f.agents.get(agent).messages.filter(m => m.role === 'user')).toHaveLength(2);
+  expect(chats.actionReceipts(pilot.id).receipts.filter(r => r.operation === 'message_agent')).toHaveLength(1);
+  expect(seen.at(-1)).toContain('Prepare the example change and verify it.');
+});
+
+for (const boundary of ['pending access', 'stopped', 'revoked', 'other task', 'other Pilot'] as const) {
+  test(`automatic continuation respects ${boundary} and cannot launch new workers`, async () => {
+    const f = fixture(boundary === 'pending access' ? [{ result: 'Prepared' }, call('request_access', { reason: 'Read a reference', mode: 'read', references: [], domains: ['example.com'], accounts: [] })] : undefined), project = dir(), saved = authorize(f.agents.projects, project, 'read');
+    let agent = '', checked = false;
+    const chats = new PilotChats(f.root, { external: f.agents, graph: () => [], backend: () => ({
+      broken: false, transport: 'subscription', prepare: async () => true, close() {}, turn: async turn => {
+        if (!turn.input(true).includes('This is an automatic report turn')) {
+          const job = await turn.tool('launch_agent', { title: 'Example task', task: 'Read the project and verify findings', context: 'Invented evidence',
+            project: saved.id }) as { id: string };
+          agent = job.id;
+          return 'Task prepared.';
+        }
+        if (checked) return 'Already handled.';
+        checked = true;
+        await expect(turn.tool('launch_agent', { title: 'Unrequested task', task: 'New work', context: '' })).rejects.toThrow('Automatic agent reports');
+        let target = agent;
+        if (boundary === 'pending access') {
+          await f.agents.message(agent, 'Prepare the missing reference access request.');
+          await until(() => f.agents.get(agent).worker.request?.kind === 'access');
+        }
+        if (boundary === 'stopped') await f.agents.interrupt(agent);
+        if (boundary === 'revoked') f.agents.projects.remove(saved.id);
+        if (boundary === 'other task' || boundary === 'other Pilot') {
+          const owner = boundary === 'other task' ? f.agents.get(agent).origin.pilot : 'another-pilot';
+          const other = launch(f.agents, { project: saved.id }, owner);
+          await f.agents.settled(other.id); target = other.id;
+        }
+        const result = await turn.tool('message_agent', { agent: target, text: 'Continue verification.' }) as { error: string };
+        expect(result.error).toContain(boundary === 'other Pilot' ? 'different Pilot'
+          : boundary === 'pending access' ? 'pending request'
+          : boundary === 'other task' ? 'this report turn'
+          : 'stopped work');
+        if (boundary === 'pending access') {
+          const job = f.agents.get(agent);
+          expect(job.worker.request?.kind).toBe('access');
+          expect(job.worker.grant?.domains).toEqual([]);
+          expect(f.requests()).toBe(2);
+          await expect(turn.tool('reply_agent', { agent, request: job.worker.request!.id, text: 'Approved', evidence: [] })).resolves.toMatchObject({ error: expect.any(String) });
+          expect(job.worker.request?.kind).toBe('access');
+          expect(job.worker.grant?.domains).toEqual([]);
+        }
+        return 'Waiting for the existing task decision.';
+      },
+    }) });
+    cleanups.push(() => chats.close());
+    const pilot = chats.create([]); chats.send(pilot.id, 'Read the project and verify findings.');
+    await until(() => pilot.phase === 'failed' || checked && pilot.phase === 'answered');
+    expect(pilot.error).toBeFalsy(); expect(checked).toBe(true);
+    expect(f.agents.get(agent).messages.filter(m => m.role === 'user')).toHaveLength(boundary === 'pending access' ? 2 : 1);
+  });
+}

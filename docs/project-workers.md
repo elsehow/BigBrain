@@ -41,3 +41,35 @@ Linux requires bubblewrap and socat. Ubuntu's AppArmor policy must permit the
 sandbox's capability-bearing user namespaces; the application never disables
 that policy or falls back to unsandboxed execution. Dependencies are pinned in
 the engine package. The macOS and Linux CI jobs exercise actual containment.
+
+## Pilot follow-through
+
+Pilot owns the requested outcome after delegation. On a completed or failed
+worker report, it reads the task and results, checks the user's completion
+criteria, and can send a concrete continuation to that reporting worker. Report
+turns cannot launch another worker or message an unrelated task. Existing action
+receipts prevent duplicate delivery; ownership, pending-request, stop, and project
+revocation checks still apply. Access and task decisions still require the user.
+Reports are evidence, not new authorization: deciding whether a follow-up remains
+within the original task is Pilot's responsibility, while worker capabilities
+remain bounded by the app's grants.
+
+Status answers should explain whether work is progressing, waiting for the user,
+or stopped, and what happens next. A request for user action should name an
+available card or control and what it unblocks. Pilot should perform available
+preparation first and explain unsupported access honestly, rather than promise a
+request it cannot create. It must not claim ongoing execution after work stops.
+
+Regression tests in `test/agentOrchestrator.test.ts` exercise continuation,
+receipt reuse, status follow-ups, and access boundaries with scripted models.
+They verify orchestration, not natural-language quality. A live-model evaluation
+should use invented tasks and check these conversations across multiple turns:
+
+- A document-formatting worker finishes edits but omits requested verification:
+  Pilot sends a verification follow-up before claiming work is continuing.
+- A worker needs a new source account: Pilot identifies the existing approval
+  card and the concrete action required when asked whether the user must act.
+- A worker needs unsupported runtime access: Pilot explains the stopped work and
+  a supported alternative without inventing an approval control.
+- Verification is complete, or a blocker recurs without new evidence: Pilot
+  reports the result or actionable blocker rather than repeatedly restarting work.
