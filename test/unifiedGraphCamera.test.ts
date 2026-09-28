@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 import { GraphCameraController, projectPoint, unprojectPoint } from '../web/ui/src/lib/graph/camera';
 
-import { FOCUS_MOTION } from '../web/ui/src/lib/graph/motion';
+import { EXPLORE_MOTION, FOCUS_MOTION } from '../web/ui/src/lib/graph/motion';
 
 const size = { width: 1912, height: 1280 };
 test('projection and drag inversion agree across depth and zoom', () => {
@@ -102,4 +102,51 @@ test('faster focus preserves velocity when interrupting a slower camera move', (
   expect((camera.value.x - before) / .001).toBeCloseTo(velocity, 4);
   camera.advance(150 + FOCUS_MOTION.duration);
   expect(camera.value).toEqual(target); expect(camera.animating(150 + FOCUS_MOTION.duration)).toBe(false);
+});
+
+/** New topology rebuilds the renderer, and the fresh camera controller starts
+ * unready — its first target is assigned instantly, which is what made the
+ * background jump whenever a worker appeared. A rebuilt renderer adopts the
+ * displayed camera instead. */
+test('a rebuilt graph adopts the displayed camera instead of snapping to a fresh fit', () => {
+  const displayed = { x: 12, y: -30, zoom: 2.0845 };
+  const fit = { x: 0, y: 0, zoom: 1.6739 };
+  const unready = new GraphCameraController();
+  unready.follow(fit, 1000, false);
+  expect(unready.value).toEqual(fit); // the snap, in one frame, with no flight
+
+  const heir = new GraphCameraController();
+  heir.adopt(displayed, false, 1000);
+  expect(heir.value).toEqual(displayed);
+  expect(heir.animating(1000)).toBe(false);
+  // The picture it was already holding stays exactly put, frame after frame.
+  heir.follow(displayed, 1000, false); expect(heir.value).toEqual(displayed);
+  heir.follow(displayed, 1400, false); expect(heir.value).toEqual(displayed);
+  // A genuinely different frame is flown to, not jumped to.
+  heir.follow(fit, 1400, false); expect(heir.value).toEqual(displayed);
+  heir.follow(fit, 1500, false);
+  expect(heir.value.zoom).toBeLessThan(displayed.zoom);
+  expect(heir.value.zoom).toBeGreaterThan(fit.zoom);
+  heir.follow(fit, 1400 + EXPLORE_MOTION.duration, false);
+  expect(heir.value).toEqual(fit);
+});
+
+test('adoption carries the hand across the rebuild, and explicit navigation still resumes', () => {
+  const hand = new GraphCameraController();
+  hand.follow({ x: 0, y: 0, zoom: 1 }, 0, false);
+  hand.pan({ x: 60, y: -20 }, 10);
+  const held = { ...hand.value };
+  expect(hand.manual).toBe(true);
+
+  const heir = new GraphCameraController();
+  heir.adopt(held, hand.manual, 20);
+  expect(heir.manual).toBe(true);
+  const fit = { x: 500, y: 500, zoom: 6 };
+  heir.follow(fit, 30, false); heir.advance(400);
+  expect(heir.value).toEqual(held); // background refreshes cannot take it back
+  // refit() / a click resume the automatic camera from where the hand left it.
+  heir.resume(500); heir.follow(fit, 500, false);
+  expect(heir.value.x).toBeCloseTo(held.x, 9);
+  heir.follow(fit, 500 + EXPLORE_MOTION.duration, false);
+  expect(heir.value).toEqual(fit); expect(heir.manual).toBe(false);
 });

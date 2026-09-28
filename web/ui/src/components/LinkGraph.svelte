@@ -36,10 +36,15 @@
     untrack(() => {
       renderer?.setEffects(preset);
       if (renderer?.update(graph, draft)) { kick(); return; }
+      // New topology rebuilds the GPU graph; it must not also reframe the
+      // picture. The successor adopts the camera after its own setView.
+      const carried = renderer?.getCameraState();
       cancelGesture(); cancelAnimationFrame(frame); frame = 0; renderer?.dispose(); renderer = null;
       try {
         const next = new GraphRenderer(canvas, graph, inset, coveredLeft, preset); renderer = next;
-        next.update(graph, draft); next.setView(viewState, selected, performance.now(), reduced, centerFocus); next.highlight([highlight, probe]);
+        next.update(graph, draft); next.setView(viewState, selected, performance.now(), reduced, centerFocus);
+        if (carried?.ready) next.adoptCamera(carried.camera, carried.manual);
+        next.highlight([highlight, probe]);
         Object.assign(canvas, { profileStats: next.stats, profilePresentation: () => next.getPresentation() }); error = ''; kick();
       } catch (e) { error = String(e); }
     });

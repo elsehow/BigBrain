@@ -599,6 +599,20 @@ export class GraphRenderer {
   private get bounds() { return this.cachedBounds ??= this.positions.reduce((b, p, i) => !this.homeVisible.has(i) ? b : [Math.min(b[0]!, p.x), Math.min(b[1]!, p.y), Math.max(b[2]!, p.x), Math.max(b[3]!, p.y)], [Infinity, Infinity, -Infinity, -Infinity]); }
   /** On-demand inspection only; never iterates nodes in the animation loop. */
   getCamera() { return { ...this.camera }; }
+  /** Enough to hand this camera to a successor, without building a presentation.
+   * `ready` is false until a frame has framed the picture; that camera is a
+   * placeholder, not a view anybody chose. */
+  getCameraState() { return { camera: { ...this.camera }, manual: this.navigation.manual, ready: this.cameraReady }; }
+  /** Take over the previous renderer's camera after new geometry forced a
+   * rebuild. Called after `setView`, so the hand's claim survives the `resume()`
+   * there; a focused anchor also keeps its zoom, which `setView` could not pin
+   * while this renderer still had no camera of its own. */
+  adoptCamera(camera: { x: number; y: number; zoom: number }, manual = false, now = performance.now()) {
+    this.navigation.adopt(camera, manual, now);
+    this.cameraReady = true;
+    if (this.selected >= 0) this.focusCamera = { ...camera };
+    this.lastEffectsFrame = null;
+  }
   getPresentation(now = performance.now()) {
     const w = this.canvas.clientWidth, h = this.canvas.clientHeight;
     return { view: { selected: [...this.view.selected], excluded: [...this.view.excluded] }, highlighted: [...this.highlighted].map(i => this.graph.nodes[i]!.id), effects: this.effects, labels: this.labelBoxes.map(b => ({ ...b, id: this.graph.nodes[b.index]!.id })), camera: { ...this.getCamera(), manual: this.navigation.manual }, hovered: this.hovered >= 0 ? this.graph.nodes[this.hovered]!.id : null,
