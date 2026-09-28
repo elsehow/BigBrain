@@ -395,12 +395,16 @@ export class GraphRenderer {
     gl.texSubImage2D(gl.TEXTURE_2D, 0, index % this.width, Math.floor(index / this.width), 1, 1, gl.RGBA, gl.FLOAT, this.states.subarray(index * 4, index * 4 + 4));
   }
   select(id: string | null, now = performance.now(), reduced = false) {
-    this.setView({ selected: id ? [id] : [], excluded: [] }, id, now, reduced);
+    this.setView({ selected: id ? [id] : [], excluded: [] }, id, now, reduced, false, 'navigate');
   }
-  setView(view: GraphViewState, focus: string | null = null, now = performance.now(), reduced = false, centerFocus = false) {
+  /** `intent` separates a deliberate move from a background refresh that happens
+   * to re-send the view already on screen: only the former may take the camera
+   * back from the hand. Explicit refit and any real view change still pass. */
+  setView(view: GraphViewState, focus: string | null = null, now = performance.now(), reduced = false, centerFocus = false, intent: 'background' | 'navigate' = 'background') {
     const next = graphView(this.graph.nodes, this.adjacency, view, focus);
     if (JSON.stringify(next.view) === JSON.stringify(this.view) && next.anchor === this.selected
-      && reduced === this.reducedMotion && centerFocus === this.centerFocus && !this.navigation.manual && !this.hoverTargets && !this.hoverReturning && this.hovered < 0) return;
+      && reduced === this.reducedMotion && centerFocus === this.centerFocus
+      && (intent === 'background' || !this.navigation.manual) && !this.hoverTargets && !this.hoverReturning && this.hovered < 0) return;
     this.clearDepthHistory();
     this.view = next.view; this.selectedNodes = next.selected; this.excluded = next.excluded;
     this.reducedMotion = reduced; this.hovered = -1;

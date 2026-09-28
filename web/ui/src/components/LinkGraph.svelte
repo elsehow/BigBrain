@@ -120,7 +120,9 @@
     if (id) {
       const action = graphViewAction(id, event);
       viewState = changeGraphView(committedView ?? viewState, action);
-      renderer?.setView(viewState, action.type === 'select' ? id : selected, performance.now(), reduced);
+      // A click is deliberate navigation, so it recentres even on the current
+      // view; the effect above re-applies centerFocus for the settled state.
+      renderer?.setView(viewState, action.type === 'select' ? id : selected, performance.now(), reduced, false, 'navigate');
       if (action.type === 'select') { if (onselect) onselect(id); else gotoNote(id); }
     } else clear();
     kick();
