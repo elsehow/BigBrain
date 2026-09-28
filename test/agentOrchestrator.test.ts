@@ -121,6 +121,10 @@ test('access notifications survive restart once, remain pending through Pilot in
  const pilot=chats.create([]),project=dir(),job=launch(f.agents,{cwd:project},pilot.id);
  expect(chats.notifications()).toHaveLength(1);const notice=chats.notifications()[0]!;
  expect(notice.text).toContain(job.id);expect(notice.resolved).toBeFalsy();
+ // The notification is the headline; the worker's explanation stays in the conversation.
+ expect(notice.text).toMatch(/needs your approval for its project environment\.$/);
+ const detail=chats.get(pilot.id).messages.find(m=>m.id===notice.messageId)!.text;
+ expect(detail.startsWith(`${notice.text}\n\n`)).toBe(true);expect(detail.length).toBeGreaterThan(notice.text.length+2);
  expect(await (chats as any).executeTool(chats.get(pilot.id),'resolve_notification',{id:notice.id},new AbortController().signal)).toMatchObject({error:expect.stringContaining('task card')});
  const {transitionPilot}=await import('../lib/pilotTransitions');
  const next=transitionPilot(chats.get(pilot.id),{kind:'input',input:{id:'message-test',text:'Checking',mode:'text'},message:'new-message',turn:'new-turn',at:new Date().toISOString(),queue:false});

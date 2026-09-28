@@ -35,3 +35,13 @@ test("notification HTTP only permits user acknowledgments; creation is a bound P
   expect((await post({ id, action: "dismiss" }, own)).status).toBe(200);
   expect(sessions.notifications()[0]).toMatchObject({ seen: true, dismissed: true, resolved: false });
 });
+test("notify_user rejects a report-length notification and keeps a headline", async () => {
+  const root = nativeVault(); roots.push(root);
+  const sessions = new PilotChats(root, { graph: () => [] }); services.push(sessions);
+  const s = sessions.create([]), signal = new AbortController().signal;
+  const long = "The worker finished the investigation and ran every check. ".repeat(6);
+  expect(await (sessions as any).executeTool(s, "notify_user", { key: "done", kind: "update", text: long }, signal)).toMatchObject({ error: expect.stringContaining("200 characters") });
+  expect(sessions.notifications()).toHaveLength(0);
+  await (sessions as any).executeTool(s, "notify_user", { key: "done", kind: "update", text: "The export is finished and ready to review." }, signal);
+  expect(sessions.notifications().map(n => n.text)).toEqual(["The export is finished and ready to review."]);
+});

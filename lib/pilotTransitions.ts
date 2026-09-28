@@ -19,7 +19,7 @@ export type PilotEvent =
   | { kind: "input"; input: PilotInput; message: string; turn: string; at: string; queue: boolean }
   | { kind: "resume"; message: string; turn: string; at: string }
   | { kind: "reports"; turn: string; at: string }
-  | { kind: "worker-report"; report: HistoricalWorkerReport; notification?: PilotNotification }
+  | { kind: "worker-report"; report: HistoricalWorkerReport; notification?: PilotNotification; detail?: string }
   | { kind: "delta"; turn: string; text: string }
   | { kind: "message"; turn: string; message: PilotChatMessage }
   | { kind: "settled"; turn: string; outcome: "answered" | "interrupted" | "failed"; error?: string; at: string; advance: boolean }
@@ -100,7 +100,7 @@ export function transitionPilot(current: PilotChatSession, event: PilotEvent): {
       s.workEvents = [...(s.workEvents ?? []), event.report];
       if (event.notification) {
         const n = event.notification;
-        s.messages = [...s.messages, { id: n.messageId, role: "assistant", text: n.text, at: n.at }];
+        s.messages = [...s.messages, { id: n.messageId, role: "assistant", text: event.detail ?? n.text, at: n.at }];
         s.notifications = [...(s.notifications ?? []), n];
       } else {
         s.pendingAgentSessionReports = [...(s.pendingAgentSessionReports ?? []), event.report.key];
