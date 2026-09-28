@@ -1,9 +1,10 @@
 import type { GraphData, GraphNode } from '../types';
 import type { PilotVisualPhase } from '../pilotAppearance';
 
-// Shared with the shader: zero is an ordinary node.
-const phases: PilotVisualPhase[] = ['idle', 'active', 'draft', 'working', 'interrupted', 'failed', 'answered'];
-export const phaseCode = (node: GraphNode) => node.pilotPhase ? phases.indexOf(node.pilotPhase) + 1 : node.pending ? 8 : node.live === 'working' ? 9 : node.live === 'waiting' ? 10 : 0;
+// Shared with the shader: zero is an ordinary node, 8-10 are the legacy
+// activity rings, so a new phase takes a free code rather than the next index.
+const phases: Record<PilotVisualPhase, number> = { idle: 1, active: 2, draft: 3, working: 4, interrupted: 5, failed: 6, answered: 7, unknown: 11 };
+export const phaseCode = (node: GraphNode) => node.pilotPhase ? phases[node.pilotPhase] : node.pending ? 8 : node.live === 'working' ? 9 : node.live === 'waiting' ? 10 : 0;
 export const needsAttention = (node: GraphNode) => node.pilotPhase ? !!node.pilotNeedsYou : node.group === 'source' && node.readState?.unread === true;
 export const animatedStatus = (node: GraphNode) => needsAttention(node) || node.pilotPhase === 'draft' || node.pilotPhase === 'working' || !node.pilotPhase && (!!node.pending || !!node.live);
 

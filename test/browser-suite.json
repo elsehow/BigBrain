@@ -34,5 +34,6 @@
   "applicationScenarios",
   "vaultScope",
   "pilotDetailStates",
+  "pilotStatusGlyph",
   "actionHistory"
 ]

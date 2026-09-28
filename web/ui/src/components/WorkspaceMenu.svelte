@@ -5,7 +5,7 @@
   import type { SidebarLayout } from '../lib/sidebarLayout';
   import { archiveChat, chatSessions, openChat, startChat, chat } from '../lib/pilotChat.svelte';
   import { GENERAL_WORKSPACE, workspaceMembershipIndex } from '../lib/workspaceMembership';
-  import { pilotRoster, type PilotRosterEntry } from '../lib/pilotAttention';
+  import { pilotRoster, rosterStatusView, type PilotRosterEntry } from '../lib/pilotAttention';
   import { navDelta, stepped, createListJump } from '../lib/listNav';
   import { editable } from '../lib/dom';
   import { searchOverlay } from '../lib/omnibox.svelte';
@@ -183,10 +183,10 @@
         class:archived={archivedId === row.id} class:current={index === i} aria-current={index === i ? 'true' : undefined}
         onfocus={() => selectIndex(i)} onpointerenter={e => hover(e, i)} onpointermove={e => hover(e, i)} onclick={() => choose(i)}>
         {#if row.agent}
-          <PilotAttentionGlyph phase={row.agent.phase} state={row.agent.state} size={20} />
+          <PilotAttentionGlyph phase={row.agent.phase} state={row.agent.state} size={20} tip={rosterStatusView(row.agent).description} />
           <span class="title">{row.agent.title}</span>
           {#if row.agent.unread || row.agent.state === 'waiting'}<span class="attention" aria-label="Needs attention"></span>{/if}
-          <span class="meta" class:hide-status={index === i}>{row.agent.phase === 'draft' ? 'Draft' : row.agent.state === 'running' ? 'Working' : row.agent.state === 'waiting' ? 'Needs you' : 'Ready'}</span>
+          <span class="meta" class:hide-status={index === i}>{rosterStatusView(row.agent).label}</span>
         {:else}
           <span class="title">{row.memory.title}</span>
           {#if needsAttention.has(row.memory.id)}<span class="attention" aria-label="Needs attention"></span>{/if}

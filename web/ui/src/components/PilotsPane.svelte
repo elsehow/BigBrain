@@ -11,7 +11,7 @@
   import AgentIndicator from "./AgentIndicator.svelte";
   import PilotAttentionGlyph from './PilotAttentionGlyph.svelte';
   import { TRIANGLE_PATH } from '../lib/pilotAppearance';
-  import type { PilotRosterEntry, PilotRequest } from '../lib/pilotAttention';
+  import { rosterStatusView, type PilotRosterEntry, type PilotRequest } from '../lib/pilotAttention';
   import { MODEL_REGISTRY } from '../../../../lib/modelRegistry';
   import { SIDEBAR_LAYOUT, type SidebarLayout } from '../lib/sidebarLayout';
   const sidebar = getContext<SidebarLayout | undefined>(SIDEBAR_LAYOUT);
@@ -26,6 +26,9 @@
   const current = $derived(items.find(p => p.id === selected));
   const needsYou = $derived(items.some(p => p.unread ?? p.state === 'waiting'));
   const label = (model: string) => MODEL_REGISTRY.find(m => m.id === model)?.label ?? (/^gpt-.*-(astra|terra|sol|luna)$/.exec(model)?.[1]?.replace(/^./, c => c.toUpperCase()) || model);
+  // The glyph is small enough that its mark alone cannot carry the status:
+  // every row says the word in its accessible name and on hover.
+  const status = rosterStatusView;
   function close() { open = false; trigger?.focus(); }
   function toggle() { open = !open; if (!open) trigger?.focus(); }
   function show(p: PilotRosterEntry, request = p.requests[0]) { open = false; onopen(p, request); }
@@ -88,8 +91,8 @@
       <div class="pilot-list" id="pilot-list" bind:this={viewport}>
         {#each items as p (p.id)}
           <div class="pilot-row-wrap" class:selected={selected === p.id}>
-          <button class="pilot-row" class:selected={selected === p.id} data-pilot={p.id} onclick={() => show(p)} onfocus={() => selected = p.id} onpointermove={e => { if (e.movementX || e.movementY) selected = p.id; }} aria-label={`${p.title}, ${label(p.model)}${p.archived ? ', archived' : p.state === 'waiting' ? ', needs you' : ''}`}>
-            {#if p.id.startsWith("work-")}<AgentIndicator state={p.agentState ?? (p.state === "running" ? "running" : p.state === "waiting" ? "waiting" : "done")} size={sidebar ? 28 : 32} />{:else}<PilotAttentionGlyph phase={p.phase} state={p.state} size={sidebar ? 28 : 32}/>{/if}
+          <button class="pilot-row" class:selected={selected === p.id} data-pilot={p.id} onclick={() => show(p)} onfocus={() => selected = p.id} onpointermove={e => { if (e.movementX || e.movementY) selected = p.id; }} aria-label={`${p.title}, ${label(p.model)}, ${status(p).label}`}>
+            {#if p.id.startsWith("work-")}<AgentIndicator state={p.agentState ?? (p.state === "running" ? "running" : p.state === "waiting" ? "waiting" : "done")} size={sidebar ? 28 : 32} />{:else}<PilotAttentionGlyph phase={p.phase} state={p.state} size={sidebar ? 28 : 32} tip={status(p).description} />{/if}
             <span class="row-copy">
               <span class="row-heading"><strong>{p.title}</strong><span class="metadata model-label">{label(p.model)}</span>{#if sidebar}<time class="message-time" datetime={p.lastMessageAt} title={p.lastMessageAt ? "Last message sent or received" : "No messages yet"}>{p.lastMessageAt ? listTimestamp(Date.parse(p.lastMessageAt)) : "—"}</time>{/if}</span>
               {#if p.archived}<span class="metadata">Archived</span>{/if}

@@ -145,7 +145,7 @@ void main(){
   ink=phase==1.?u_ink:u_accent;
   float d=(v_kind==3.?max(abs(v_local.x),abs(v_local.y))-.65:max(abs(v_local.x)*.8660254+v_local.y*.5,-v_local.y)-.5)*r;
   float fill=1.-smoothstep(-.5,.5,d),outline=stroke(abs(d),.625);
-  bool hollow=phase>=3.&&phase<=6.;
+  bool hollow=(phase>=3.&&phase<=6.)||phase==11.;
   vec3 face=hollow?u_bg:ink;
   color=vec4(mix(face,ink,outline),1.)*max(fill,outline)*v_alpha;
   float ring=stroke(abs(length(p)-r*${SELECTOR_RATIO}),.625);
@@ -155,12 +155,13 @@ void main(){
    mark=max(mark,ring*(1.-step(1.6336282,angle)));
   }
   vec2 m=p*9./r;
-  if(phase==3.&&(u_reduced>0.||mod(u_time,1.)<.5))mark=max(mark,stroke(line(m,vec2(0,-2),vec2(0,3.5))*r/9.,.625));
-  if(phase==5.)mark=max(mark,stroke(min(line(m,vec2(-1.5,-2),vec2(-1.5,2)),line(m,vec2(1.5,-2),vec2(1.5,2)))*r/9.,.625));
-  if(phase==6.)mark=max(mark,stroke(min(line(m,vec2(0,-2),vec2(0,0)),line(m,vec2(0,1.5),vec2(0,2.5)))*r/9.,.625));
+  // PILOT_MARK_SEGMENTS in pilotAppearance.ts; GLSL cannot import them.
+  if(phase==3.&&(u_reduced>0.||mod(u_time,1.)<.5))mark=max(mark,stroke(line(m,vec2(0,-3),vec2(0,4.5))*r/9.,.625));
+  if(phase==5.)mark=max(mark,stroke(line(m,vec2(-3.6,-1),vec2(3.6,-1))*r/9.,.625));
+  if(phase==6.)mark=max(mark,stroke(min(line(m,vec2(-2.6,-3.5),vec2(2.6,1.6)),line(m,vec2(2.6,-3.5),vec2(-2.6,1.6)))*r/9.,.625));
   mark*=v_alpha;color=vec4(ink*mark,mark)+color*(1.-mark);
  }
- if(v_status.x>=8.){
+ if(v_status.x>=8.&&v_status.x<=10.){
   float phase=v_status.x;
   float angle=mod(atan(p.y,p.x)-(u_reduced>0.?0.:u_time*6.2831853/(phase==10.?2.42:1.1))+6.2831853,6.2831853);
   float mark;
