@@ -53,6 +53,8 @@ export interface PilotChatSession {
   ingestions?: { through: number; sourceId: string; insertionId: string; path: string }[];
   pendingIngestion?: { through: number; content: string };
   ingestionError?: string;
+  reportStoppedAt?: string;
+  reportHandling?: Record<string, { attempts: number; next: number; disposition?: "replied" | "notified" | "escalated" }>;
   pendingAgentSessionReports?: string[];
   workEvents?: import("./workHistory").HistoricalWorkerReport[];
   seed: string[];

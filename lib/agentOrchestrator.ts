@@ -28,7 +28,7 @@ const requestTools = [
   { name: "request_access", description: "Request a specific expanded project scope from the user. Give the complete requested scope and reason. You may request public network or named command credentials such as GH_TOKEN; only the user can connect their values. Only the app user can approve it; awaiting an answer does not grant access.", inputSchema: { type: "object", properties: { reason: { type: "string" }, mode: { type: "string", enum: ["read", "work"] }, references: { type: "array", items: { type: "string" } }, domains: { type: "array", items: { type: "string" } }, network: { type: "string", enum: ["public"] }, credentials: { type: "array", items: { type: "string" } }, accounts: { type: "array", items: { type: "object", properties: { integration: { type: "string", enum: ["email", "granola"] }, account: { type: "string" } }, required: ["integration", "account"], additionalProperties: false } } }, required: ["reason", "mode", "references", "domains", "accounts"], additionalProperties: false } },
 ];
 const sourceTools = INTEGRATION_TOOLS.filter(t => !["inbox_set_unread", "source_read_state"].includes(t.name));
-const persisted = z.object({ version: z.literal(1), id: z.string().regex(/^work-[a-f0-9]{32}$/), provider: z.literal("pi"), title: z.string(), cwd: z.string(), model: z.string(), choice: z.unknown(), status: z.enum(["starting", "working", "needs-input", "idle", "interrupted", "failed"]), origin: z.object({ pilot: z.string(), message: z.string() }), context: z.object({}).passthrough(), created: z.string(), updated: z.string(), messages: z.array(z.object({ id: z.string(), role: z.enum(["user", "agent", "activity"]), text: z.string(), at: z.string() })), receipts: z.array(z.string()), worker: z.object({ projectId: z.string().optional(), grant: grantSchema.optional(), ceiling: grantSchema.optional(), operations: z.array(z.object({ id: z.string(), tool: z.string(), status: z.enum(["started", "completed", "failed", "uncertain"]), at: z.string() })), request: z.discriminatedUnion("kind", [z.object({ id: z.string(), kind: z.literal("context"), text: z.string() }), z.object({ id: z.string(), kind: z.literal("question"), text: z.string() }), z.object({ id: z.string(), kind: z.literal("access"), text: z.string(), grant: grantSchema, label: z.string().optional(), initial: z.boolean().optional() })]).optional() }).passthrough() }).passthrough();
+const persisted = z.object({ version: z.literal(1), reportOutbox: z.array(z.object({ key: z.string(), agent: z.string(), pilot: z.string(), title: z.string(), kind: z.enum(["question", "completed", "failed", "native", "access", "decision", "resolved"]), text: z.string(), at: z.string() })).optional(), id: z.string().regex(/^work-[a-f0-9]{32}$/), provider: z.literal("pi"), title: z.string(), cwd: z.string(), model: z.string(), choice: z.unknown(), status: z.enum(["starting", "working", "needs-input", "idle", "interrupted", "failed"]), origin: z.object({ pilot: z.string(), message: z.string() }), context: z.object({}).passthrough(), created: z.string(), updated: z.string(), messages: z.array(z.object({ id: z.string(), role: z.enum(["user", "agent", "activity"]), text: z.string(), at: z.string() })), receipts: z.array(z.string()), worker: z.object({ projectId: z.string().optional(), grant: grantSchema.optional(), ceiling: grantSchema.optional(), operations: z.array(z.object({ id: z.string(), tool: z.string(), status: z.enum(["started", "completed", "failed", "uncertain"]), at: z.string() })), request: z.discriminatedUnion("kind", [z.object({ id: z.string(), kind: z.literal("context"), text: z.string() }), z.object({ id: z.string(), kind: z.literal("question"), text: z.string() }), z.object({ id: z.string(), kind: z.literal("access"), text: z.string(), grant: grantSchema, label: z.string().optional(), initial: z.boolean().optional() })]).optional() }).passthrough() }).passthrough();
 export class AgentOrchestrator {
   readonly loadIssues: SessionLoadIssue[] = [];
   readonly projects: Projects;
@@ -36,7 +36,7 @@ export class AgentOrchestrator {
   private runtimes = new Map<string, Runtime>();
   private unsubscribe: () => void;
   private closed = false;
-  private report: (r: AgentSessionReport) => void = () => {};
+  private report?: (r: AgentSessionReport) => void;
   constructor(private root: string, private options: { changes?: import("./applicationChanges").ApplicationChanges; projects?: Projects; loadPi?: () => Promise<PiSDK> } = {}) {
     this.projects = options.projects ?? new Projects(root); this.loadPi = options.loadPi;
     loadSessionRecords(join(spoolDir(root), "workers"), /^work-[a-f0-9]{32}\.json$/, this.loadIssues, (value, file) => {
@@ -60,6 +60,7 @@ export class AgentOrchestrator {
   private loadPi?: () => Promise<PiSDK>;
   setReporter(report: (r: AgentSessionReport) => void) {
     this.report = report;
+    this.reconcileReports();
     for (const job of this.jobs.values()) if (job.worker.request?.kind === "access" && !job.worker.archivedAt && !job.cancelRequested) this.emit(job, "access", job.worker.request.id, job.worker.request.text);
   }
   get(id: unknown): WorkerRecord { const job = this.jobs.get(String(id)); if (!job) throw new Error("Agent session not found."); return job; }
@@ -67,7 +68,24 @@ export class AgentOrchestrator {
   list(): WorkSummary[] { return [...this.jobs.values()].map(workSummary).sort((a, b) => b.updated.localeCompare(a.updated)); }
   owned(pilot: string, id: unknown): WorkerRecord { const job = this.get(id); if (job.origin.pilot !== pilot) throw new Error("This agent belongs to a different Pilot."); return job; }
   private save(job: WorkerRecord) { job.revision = (job.revision ?? 0) + 1; job.updated = new Date().toISOString(); job.lastActivityAt = job.updated; writeAtomic(join(spoolDir(this.root), "workers", `${job.id}.json`), JSON.stringify(job), 0o600); this.options.changes?.changed("work", job.id, job.revision); }
-  private emit(job: WorkerRecord, kind: AgentSessionReport["kind"], key: string, value: string) { this.report({ key: `${job.id}:${key}`, agent: job.id, pilot: job.origin.pilot, title: job.title, kind, text: value, at: new Date().toISOString() }); }
+  /** Receipt means the Pilot callback durably accepted the envelope, not handled it. */
+  reconcileReports() {
+    if (!this.report || this.closed) return;
+    for (const job of this.jobs.values()) for (const report of (job.reportOutbox ?? [])) {
+      try {
+        this.report(report);
+        const pending = job.reportOutbox!;
+        job.reportOutbox = pending.filter(r => r !== report);
+        try { this.save(job); } catch (error) { job.reportOutbox = pending; throw error; }
+      } catch { /* Keep stable envelope for startup/maintenance redelivery. */ }
+    }
+  }
+  private emit(job: WorkerRecord, kind: AgentSessionReport["kind"], key: string, value: string) {
+    const report = { key: `${job.id}:${key}`, agent: job.id, pilot: job.origin.pilot, title: job.title, kind, text: value, at: new Date().toISOString() };
+    job.reportOutbox = [...(job.reportOutbox ?? []), report];
+    this.save(job); // State transition and envelope are one atomic record.
+    this.reconcileReports();
+  }
   private messageRecord(job: WorkerRecord, role: "user" | "agent" | "activity", value: string) { job.messages.push({ id: crypto.randomUUID(), role, text: value, at: new Date().toISOString() }); this.save(job); }
   launch(pilot: string, message: string, args: { title?: unknown; task?: unknown; context?: unknown; cwd?: unknown; project?: unknown; mode?: unknown; model?: unknown; environment?: unknown }, nodes: string[], choice = DEFAULT_PILOT_BACKEND): WorkerRecord {
     if (this.closed) throw new Error("Agent sessions are shutting down.");
@@ -123,7 +141,7 @@ export class AgentOrchestrator {
     const runtime: Runtime = { controller: new AbortController(), tools: [] }; this.runtimes.set(job.id, runtime); this.save(job);
     runtime.task = this.dispatch(job, runtime, input).catch(error => {
       if (runtime.controller.signal.aborted || this.closed || job.worker.archivedAt) return;
-      job.status = "failed"; job.error = error instanceof Error ? error.message : "Worker failed."; this.save(job); this.emit(job, "failed", crypto.randomUUID(), job.error);
+      job.status = "failed"; job.error = error instanceof Error ? error.message : "Worker failed."; this.emit(job, "failed", crypto.randomUUID(), job.error);
     }).finally(() => { runtime.session?.close(); runtime.sandbox?.close(); runtime.pending?.reject(new Error("Task stopped.")); if (this.runtimes.get(job.id) === runtime) this.runtimes.delete(job.id); });
   }
   private async executor(job: WorkerRecord, runtime: Runtime) {
@@ -175,16 +193,16 @@ export class AgentOrchestrator {
     });
     this.check(job); signal.throwIfAborted();
     if (answer) this.messageRecord(job, "agent", answer);
-    job.status = "idle"; this.save(job); this.emit(job, "completed", crypto.randomUUID(), answer ?? "Worker turn completed.");
+    job.status = "idle"; this.emit(job, "completed", crypto.randomUUID(), answer ?? "Worker turn completed.");
   }
   private wait(job: WorkerRecord, runtime: Runtime, request: WorkerRequest): Promise<unknown> {
     if (runtime.pending) throw new Error("A request is already pending.");
-    job.worker.request = request; job.status = "needs-input"; this.save(job);
+    job.worker.request = request; job.status = "needs-input";
     const promise = new Promise((resolve, reject) => { runtime.pending = { id: request.id, resolve, reject }; });
     this.emit(job, request.kind === "context" ? "question" : request.kind === "access" ? "access" : "decision", request.id, request.text);
     return promise;
   }
-  private resolve(job: WorkerRecord, answer: unknown) { const request = job.worker.request; const runtime = this.runtimes.get(job.id); const pending = runtime?.pending; delete job.worker.request; if (runtime) { delete runtime.pending; job.status = "working"; } else job.status = "interrupted"; this.save(job); if (request) this.emit(job, "resolved", request.id, "Request answered."); pending?.resolve(answer); }
+  private resolve(job: WorkerRecord, answer: unknown) { const request = job.worker.request; const runtime = this.runtimes.get(job.id); const pending = runtime?.pending; delete job.worker.request; if (runtime) { delete runtime.pending; job.status = "working"; } else job.status = "interrupted"; if (request) this.emit(job, "resolved", request.id, "Request answered."); else this.save(job); pending?.resolve(answer); }
   answer(pilot: string, id: unknown, request: unknown, value: unknown, evidence: unknown) {
     const job = this.owned(pilot, id), answer = text(value, "an answer");
     if (!Array.isArray(evidence) || evidence.length > 30 || evidence.some(v => typeof v !== "string" || v.length > 2000)) throw new Error("Evidence must be a list of source paths.");

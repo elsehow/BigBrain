@@ -44,7 +44,7 @@ export function transitionPilot(current: PilotChatSession, event: PilotEvent): {
     effects.push({ kind: "start", turn });
   };
   const accept = (input: PilotInput, message: string, turn: string, at: string) => {
-    activity(at);
+    activity(at); delete s.reportStoppedAt;
     s.messages = [...s.messages, { id: message, role: "user", text: input.text, at, ...(input.images?.length ? { images: input.images } : {}) }];
     s.inputs = [...(s.inputs ?? []), { ...input, message }];
     begin({ id: turn, status: "running", replyTo: message });
@@ -94,7 +94,7 @@ export function transitionPilot(current: PilotChatSession, event: PilotEvent): {
       break;
     }
     case "reports":
-      if (s.turn || s.deactivatedAt || s.phase === "interrupted" || s.phase === "failed" || s.pendingInputs?.length || !s.pendingAgentSessionReports?.length) return unchanged();
+      if (s.turn || s.reportStoppedAt || s.deactivatedAt || s.phase === "interrupted" || s.phase === "failed" || s.pendingInputs?.length || !s.pendingAgentSessionReports?.length) return unchanged();
       begin({ id: event.turn, status: "running", reports: [...s.pendingAgentSessionReports] });
       break;
     case "worker-report":
@@ -121,7 +121,6 @@ export function transitionPilot(current: PilotChatSession, event: PilotEvent): {
       s.error = s.phase === "failed" ? event.error ?? "Pilot could not complete the request." : "";
       if (s.phase === "answered") {
         s.live = "";
-        s.pendingAgentSessionReports = s.pendingAgentSessionReports?.filter(key => !turn.reports?.includes(key));
       }
       if (!s.deactivatedAt) activity(event.at);
       delete s.turn;
@@ -131,6 +130,7 @@ export function transitionPilot(current: PilotChatSession, event: PilotEvent): {
     }
     case "stop":
     case "deactivate":
+      s.reportStoppedAt = event.at;
       if (s.turn) { s.turn = { ...s.turn, status: "stopping" }; effects.push({ kind: "abort", turn: s.turn.id }); }
       if (s.phase === "working") { s.phase = "interrupted"; s.activity = ""; if (!s.deactivatedAt) activity(event.at); }
       if (event.kind === "deactivate") {

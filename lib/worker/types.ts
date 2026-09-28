@@ -3,6 +3,7 @@ import type { WorkContext, WorkMessage } from "../workHistory";
 import type { ProjectGrant } from "./projects";
 export type WorkerRequest = { id: string; kind: "context" | "question"; text: string } | { id: string; kind: "access"; text: string; grant: ProjectGrant; label?: string; initial?: boolean };
 export interface WorkerRecord {
+  reportOutbox?: import("../agentOrchestrator").AgentSessionReport[];
   revision?: number;
   version: 1; id: string; title: string; cwd: string; provider: "pi"; model: string; choice: ModelChoice;
   status: "starting" | "working" | "needs-input" | "idle" | "interrupted" | "failed";
