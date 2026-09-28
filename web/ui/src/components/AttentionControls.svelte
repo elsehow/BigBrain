@@ -72,7 +72,7 @@
   $effect(() => { stage.pilotsOpen = paneOpen; if (paneOpen) searchOverlay.open = false; return () => { stage.pilotsOpen = false; }; });
   // One refresh owner for the page, including live Agent session summaries.
   onMount(() => {
-    let stopped = false, timer: ReturnType<typeof setTimeout>, readAt = 0;
+    let stopped = false, timer: ReturnType<typeof setTimeout>, readAt = 0, lastReconcile = 0;
     const pump = updatePump(async update => {
       if (update.snapshot) await Promise.all([refreshChats(), refreshWork()]);
       else {
@@ -85,7 +85,9 @@
     const unsubscribe = subscribeApplication(update => { void pump.push(update); });
     const poll = async () => {
       // Session updates also drive notifications while the window is hidden.
-      if (!applicationCursor.connected) await refresh();
+      if (!applicationCursor.connected || Date.now() - lastReconcile >= 30_000) {
+        lastReconcile = Date.now(); await refresh();
+      }
       if (!document.hidden && Date.now() - readAt > 60_000) { readAt = Date.now(); void refreshSourceAttention(); }
       if (!stopped) timer = setTimeout(poll, document.hidden ? 5000 : chat.sessions.some(s => s.phase === "working") ? 300 : 1500);
     };
