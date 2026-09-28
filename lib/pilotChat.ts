@@ -771,7 +771,7 @@ export class PilotChats {
     try {
       return await this.actions.execute(request, { signal, authorize, legacy: this.conversation(s.id).actions?.[key], recover: r => this.recovered(s.id, r),
         validate: async () => {
-          if (name === "message_agent") external!.validateMessage(a.agent, a.text);
+          if (name === "message_agent") external!.validateMessage(a.agent, a.text, s.id);
           if (["launch_agent", "revise_agent_environment"].includes(name) && a.model) await this.requireConnected(a.model);
           if (name === "launch_agent") { if (!external) throw new PilotError("Worker sessions are unavailable in this environment."); external.validateLaunch(a, s.backend); }
         },
@@ -869,7 +869,7 @@ export class PilotChats {
         } else {
           const job = external.owned(s.id, a.agent);
           if (name === "reply_agent") { external.answer(s.id, a.agent, a.request, a.text, a.evidence); result = { ok: true }; }
-          else if (name === "message_agent") result = await external.message(job.id, a.text);
+          else if (name === "message_agent") result = external.instruct(job.id, a.text, s.id).reply;
           else result = { ...job, messages: job.messages.slice(-30) };
         }
       } else if (PILOT_LOCAL_TOOLS.some(t => t.name === name)) {

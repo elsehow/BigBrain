@@ -14,7 +14,8 @@ export function workSummary(job: WorkSession) {
     external: job.external && { adapter: job.external.adapter, connected: false, archivedAt: job.external.archivedAt, capabilities: { open: "resume" as const, interrupt: false, followUp: false } },
     worker: w && { ...fields(w, ["projectId", "archivedAt", "isolation"]), grant: w.grant && grantView(w.grant),
       request: request && (request.kind === "access" ? { ...fields(request, ["id", "kind", "text", "initial", "label"]), grant: grantView(request.grant) } : fields(request, ["id", "kind", "text"])),
-      operations: w.operations.map(o => fields(o, ["id", "tool", "status", "at"])) },
+      operations: w.operations.map(o => fields(o, ["id", "tool", "status", "at"])),
+      steering: w.steering?.map(s => fields(s, ["id", "text", "at", "status", "delivery", "deliveredAt", "reason"])) },
     lastMessageAt: lastMessageAt(job), pending: !!request, attention: workAttention(job) };
 }
 export type WorkDetail = ReturnType<typeof workDetail>;
