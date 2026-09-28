@@ -109,7 +109,7 @@
     {#each session?.messages ?? [] as message (message.id)}
       <article><strong>{message.role === "user" ? "Task / follow-up" : message.role === "agent" ? (session?.worker ? "Agent" : session?.provider === "claude-code" ? "Claude Code" : "Codex") : "Activity"}</strong><div>{@html sanitizeHtml(md(message.text))}</div></article>
     {/each}
-    {#each session?.worker?.steering?.filter(s => (s.status === "queued" && s.delivery === "steer") || (s.status === "withdrawn" && s.at > (session?.messages.at(-1)?.at ?? ""))) ?? [] as s (s.id)}
+    {#each session?.worker?.steering?.filter(s => (s.status === "queued" && s.delivery === "steer") || (s.status === "withdrawn" && (s.withdrawnAt ?? s.at) > (session?.messages.at(-1)?.at ?? ""))) ?? [] as s (s.id)}
       <p>{s.status === "queued" ? "Queued for the agent" : "Not delivered"}: {s.text}{#if s.reason} ({s.reason}){/if}</p>
     {/each}
   </div>

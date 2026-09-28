@@ -29,6 +29,8 @@ test("image queue survives interruption/restart; new text cannot overtake or res
   expect(s.phase).toBe("interrupted");
   expect(s.pendingInputs?.map(i => i.id)).toEqual(["image", "text"]);
   expect(pilotInputReceipt(pilotChatDetail(s), "image")?.kind).toBe("queued");
+  // A caller that cannot queue is told why, not that Pilot is working.
+  expect(() => transitionPilot(s, { kind: "input", input: { id: "direct", text: "direct", mode: "text" }, message: "message-direct", turn: "turn-direct", at, queue: false })).toThrow("Resume them first");
   s = transitionPilot(s, { kind: "resume", message: "resumed-image", turn: "resumed", at }).state;
   expect(s.inputs?.at(-1)?.id).toBe("image");
   expect(s.messages.at(-1)?.images?.[0]?.id).toBe("image-fixture");

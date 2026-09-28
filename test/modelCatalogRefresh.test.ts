@@ -123,6 +123,14 @@ test("startup is nonblocking and installs a four-hour revalidation task", async 
   await Bun.sleep(100);
   // Repeated startup does not install another timer or block on the transport.
   await initializeCatalog(f.runtime, owner, true, (() => { throw new Error("duplicate timer"); }) as unknown as typeof setInterval);
+  // A later runtime reads the shared store; it neither fetches on creation nor is left behind by the timer.
+  const later = await pi.ModelRuntime.create(f.options), before = calls;
+  const refreshed: unknown[] = []; const refresh = later.refresh.bind(later);
+  later.refresh = options => { refreshed.push(options); return refresh(options); };
+  await initializeCatalog(later, owner, true, (() => { throw new Error("duplicate timer"); }) as unknown as typeof setInterval);
+  await Bun.sleep(50); expect(calls).toBe(before);
+  const offline = refreshed.length; now += CATALOG_INTERVAL; tick(); await Bun.sleep(50);
+  expect(refreshed.length).toBeGreaterThan(offline);
 });
 test("invalid JSON, oversized bodies, HTTP failures and stalled transport never publish", async () => {
   const f = await fixture();

@@ -52,7 +52,10 @@ const base = process.env.SIDEBAR_PREVIEW_URL || 'http://127.0.0.1:5200';
     await page.evaluate(() => window.unreadTest.fixture.releaseGraph());
     await page.waitForFunction(() => window.unreadTest.search.floatingResults.hits.some(h => h.note.path.endsWith('-3.md')));
     assert.equal((await row(3).locator('.hit-kind').textContent()).toLowerCase(), 'unread', 'delayed alias matches badge');
-    await page.getByRole('button', { name: 'Load more', exact: true }).click(); await settled();
+    // Reaching the bottom loads the next page (the Load more button would race that
+    // same scroll-triggered load on a slow runner and be removed mid-click).
+    await page.locator('.search-viewport').evaluate(v => { v.scrollTop = v.scrollHeight; v.dispatchEvent(new Event('scroll')); });
+    await page.waitForFunction(() => window.unreadTest.search.floatingResults.hits.some(h => h.note.path.endsWith('-204.md'))); await settled();
     assert(has(await paths(), 204), 'pagination continues past 200');
     // A previous scan's transport ignores abort: a cached newer generation
     // must win even when that old response eventually completes.

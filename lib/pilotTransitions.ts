@@ -76,7 +76,7 @@ export function transitionPilot(current: PilotChatSession, event: PilotEvent): {
       if (event.input.notificationId !== undefined && !s.notifications?.some(n => n.id === event.input.notificationId && n.kind === "question" && !n.resolved))
         throw new PilotTransitionError("This question is no longer awaiting an answer. Refresh the conversation.");
       if (s.turn || s.pendingInputs?.length) {
-        if (!event.queue) throw new PilotTransitionError("Pilot is already working in this session.");
+        if (!event.queue) throw new PilotTransitionError(s.turn ? "Pilot is already working in this session." : "Messages are queued in this session. Resume them first.");
         if ((s.pendingInputs?.length ?? 0) >= 8) throw new PilotTransitionError("Wait for Pilot to process the queued messages.");
         s.pendingInputs = [...(s.pendingInputs ?? []), event.input];
         // Appending is not permission to resume an explicitly stopped queue.

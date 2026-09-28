@@ -39,7 +39,6 @@ export class PiSession implements ModelSession {
     const provider = this.setup.config.provider!;
     const signal = AbortSignal.any([this.controller.signal, AbortSignal.timeout(10_000)]);
     const runtime = await createCatalogRuntime(sdk, signal, this.setup.root);
-    await configureVaultModelAuth(runtime, this.setup.root);
     const model = await exactCatalogModel(runtime, provider, this.setup.config.model, signal);
     if (!model) throw new Error(runtime.getProvider(provider) ? "Choose an available model from Settings > Models." : connectionProblem(this.setup.config));
     this.transport = runtime.isUsingSubscription(provider) ? "subscription" : "api";

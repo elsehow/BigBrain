@@ -580,6 +580,9 @@ export class PilotChats {
       if (this.runs.get(s.id) !== run) return;
       this.runs.delete(s.id);
       this.change(s, { kind: "settled", turn: turn.id, ...result, at: new Date(this.now()).toISOString(), advance: !this.closed && !this.blocked(s) });
+      // An answered reply in the conversation is the follow-through for a finished or failed
+      // worker. A question still needs reply_agent or notify_user: prose never closes it.
+      if (s.phase === "answered") for (const key of turn.reports ?? []) if (["completed", "failed"].includes(s.workEvents?.find(r => r.key === key)?.kind ?? "")) this.ackReport(s, key, "replied");
       if (this.closed || s.deactivatedAt) this.release(s.id); else if (!this.runs.has(s.id)) this.idle(s.id);
       for (const candidate of this.sessions.values()) this.scheduleExternal(candidate);
     };
@@ -870,7 +873,7 @@ export class PilotChats {
           const job = external.owned(s.id, a.agent);
           if (name === "reply_agent") { external.answer(s.id, a.agent, a.request, a.text, a.evidence); result = { ok: true }; }
           else if (name === "message_agent") result = external.instruct(job.id, a.text, s.id).reply;
-          else result = { ...job, messages: job.messages.slice(-30) };
+          else { const { reportOutbox: _outbox, ...view } = job; result = { ...view, messages: view.messages.slice(-30) }; }
         }
       } else if (PILOT_LOCAL_TOOLS.some(t => t.name === name)) {
         result = await this.local.tool(s, name, a, signal);

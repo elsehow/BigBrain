@@ -1,9 +1,10 @@
 /** Steering a running worker: the actual Pi agent loop with scripted inference,
  * the Pilot tool path through ApplicationActions, and restart from disk. */
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, spyOn, test } from "bun:test";
 import { readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { AgentOrchestrator, type AgentSessionReport } from "../lib/agentOrchestrator";
+import { ActionRefusal } from "../lib/applicationActions";
 import { fakePi, type ModelAnswer } from "./support/pi";
 import { mdVault, nativeVault } from "./support/vault";
 import { PilotChats } from "./support/pilotSession";
@@ -196,4 +197,31 @@ test("records written before steering existed still load", () => {
   const saved = JSON.parse(readFileSync(file, "utf8")); delete saved.worker.steering; saved.status = "idle"; writeFileSync(file, JSON.stringify(saved));
   const restored = new AgentOrchestrator(f.root); cleanups.push(() => restored.close());
   expect(restored.loadIssues).toEqual([]); expect(restored.get(job.id).worker.steering).toBeUndefined();
+});
+
+test("a follow-up turn that never takes its steering stops after one attempt and withdraws it", async () => {
+  // Stand-in for a provider that never echoes the instruction back: delivery is never observed.
+  const unseen = spyOn(AgentOrchestrator.prototype as any, "delivered").mockImplementation(() => {});
+  cleanups.push(() => unseen.mockRestore());
+  const hook: Hooks = {};
+  const f = fixture([{ result: "First answer" }, { result: "Ignored the note" }, { result: "Must not run" }], hook);
+  const job = f.launch();
+  let sent = false;
+  hook.changed = () => { if (!sent && job.messages.at(-1)?.text === "First answer") { sent = true; f.agents.instruct(job.id, "Unseen ledger note", f.pilot.id); } };
+  await until(() => job.status === "idle");
+  expect(f.prompts).toHaveLength(2);
+  expect(steering(job)).toEqual(["Unseen ledger note:withdrawn"]);
+  expect(job.worker.steering?.[0]?.reason).toMatch(/Not delivered/);
+  expect(f.reports.filter(r => r.kind === "completed")).toHaveLength(1);
+});
+
+test("a steering refusal at dispatch is a proven pre-effect refusal, safe to retry", async () => {
+  const hook: Hooks = {};
+  const f = fixture([{ result: "Done" }], hook);
+  const job = f.launch();
+  await until(() => job.status === "idle");
+  const other = `pilot-${"f".repeat(32)}`;
+  expect(() => f.agents.instruct(job.id, "Not yours", other)).toThrow(ActionRefusal);
+  expect(() => f.agents.instruct(job.id, "", f.pilot.id)).toThrow(ActionRefusal);
+  expect(job.worker.steering ?? []).toEqual([]);
 });

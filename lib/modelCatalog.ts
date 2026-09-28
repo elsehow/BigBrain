@@ -1,5 +1,4 @@
 import { createCatalogRuntime, exactCatalogModel } from "./run/modelCatalogRefresh";
-import { configureVaultModelAuth } from "./run/piModelRuntime";
 import { SUBSCRIPTION_PROVIDERS } from "./providerConnection";
 import { providerLabel } from "./providerPresentation";
 /** Read-only provider discovery shared by Pilot menus and curation settings. */
@@ -28,7 +27,6 @@ export async function piModels(root?: string, requested?: { provider?: string; m
   const sdk = await load();
   const { getSupportedThinkingLevels } = await import("@earendil-works/pi-ai/compat");
   const runtime = await createCatalogRuntime(sdk, AbortSignal.timeout(10_000), root);
-  await configureVaultModelAuth(runtime, root);
   if (requested?.provider) await exactCatalogModel(runtime, requested.provider, requested.model);
   const available = runtime.getAvailableSnapshot();
   return runtime.getProviders().filter(p => (p.id === "anthropic" || p.id === "openai-codex" || available.some(m => m.provider === p.id))).map(p => {

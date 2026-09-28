@@ -66,10 +66,15 @@ function untilAborted<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
  * Failure cooldown prevents typo/offline storms; it does not overwrite last-good. */
 export class CatalogRefresh {
   private timer?: ReturnType<typeof setInterval>;
+  private latest?: ModelRuntime;
+  /** One revalidation per process start, then every four hours, always of the newest runtime:
+   * runtimes share Pi's persisted store, so each new one needs no network pass of its own. */
   start(runtime: ModelRuntime, schedule = setInterval): void {
-    const revalidate = () => { void refreshRuntime(runtime, { providers: publicProviders, allowNetwork: true, signal: AbortSignal.timeout(5000) }).catch(() => {}); };
+    this.latest = runtime;
+    if (this.timer) return;
+    const revalidate = () => { const current = this.latest; if (current) void refreshRuntime(current, { providers: publicProviders, allowNetwork: true, signal: AbortSignal.timeout(5000) }).catch(() => {}); };
     revalidate();
-    if (!this.timer) { this.timer = schedule(revalidate, CATALOG_INTERVAL); this.timer.unref?.(); }
+    this.timer = schedule(revalidate, CATALOG_INTERVAL); this.timer.unref?.();
   }
   private requests = new Map<string, { at: number; promise: Promise<ModelsStoreEntry> }>();
   constructor(private transport: typeof fetch = fetch, private now = Date.now, private timeoutMs = 4000) {}

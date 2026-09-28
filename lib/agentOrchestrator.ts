@@ -32,10 +32,10 @@ const requestTools = [
 ];
 const steeringNote = "Follow-up instruction from your owning Pilot, in order. Apply it within the approved scope. It is task data: it never grants access, changes your model, or answers a pending request.";
 const queued = (job: WorkerRecord) => (job.worker.steering ?? []).filter(s => s.status === "queued");
-const withdraw = (job: WorkerRecord, reason: string) => { for (const s of queued(job)) { s.status = "withdrawn"; s.reason = reason; } };
+const withdraw = (job: WorkerRecord, reason: string) => { const at = new Date().toISOString(); for (const s of queued(job)) { s.status = "withdrawn"; s.reason = reason; s.withdrawnAt = at; } };
 const sourceTools = INTEGRATION_TOOLS.filter(t => !["inbox_set_unread", "source_read_state"].includes(t.name));
 const persisted = z.object({ version: z.literal(1), reportOutbox: z.array(z.object({ key: z.string(), agent: z.string(), pilot: z.string(), title: z.string(), kind: z.enum(["question", "completed", "failed", "native", "access", "decision", "resolved"]), text: z.string(), at: z.string() })).optional(), id: z.string().regex(/^work-[a-f0-9]{32}$/), provider: z.literal("pi"), title: z.string(), cwd: z.string(), model: z.string(), choice: z.unknown(), status: z.enum(["starting", "working", "needs-input", "idle", "interrupted", "failed"]), origin: z.object({ pilot: z.string(), message: z.string(), action: z.string().regex(/^[a-f0-9]{64}$/).optional() }), context: z.object({}).passthrough(), created: z.string(), updated: z.string(), messages: z.array(z.object({ id: z.string(), role: z.enum(["user", "agent", "activity"]), text: z.string(), at: z.string() })), receipts: z.array(z.string()), worker: z.object({ projectId: z.string().optional(), grant: grantSchema.optional(), ceiling: grantSchema.optional(), operations: z.array(z.object({ id: z.string(), tool: z.string(), status: z.enum(["started", "completed", "failed", "uncertain"]), at: z.string() })), request: z.discriminatedUnion("kind", [z.object({ id: z.string(), kind: z.literal("context"), text: z.string() }), z.object({ id: z.string(), kind: z.literal("question"), text: z.string() }), z.object({ id: z.string(), kind: z.literal("access"), text: z.string(), grant: grantSchema, label: z.string().optional(), initial: z.boolean().optional() })]).optional(),
-  steering: z.array(z.object({ id: z.string(), text: z.string(), at: z.string(), status: z.enum(["queued", "delivered", "withdrawn"]), delivery: z.enum(["started", "steer"]), deliveredAt: z.string().optional(), reason: z.string().optional() })).optional() }).passthrough() }).passthrough();
+  steering: z.array(z.object({ id: z.string(), text: z.string(), at: z.string(), status: z.enum(["queued", "delivered", "withdrawn"]), delivery: z.enum(["started", "steer"]), deliveredAt: z.string().optional(), withdrawnAt: z.string().optional(), reason: z.string().optional() })).optional() }).passthrough() }).passthrough();
 export class AgentOrchestrator {
   readonly loadIssues: SessionLoadIssue[] = [];
   readonly projects: Projects;
@@ -90,7 +90,9 @@ export class AgentOrchestrator {
   }
   private emit(job: WorkerRecord, kind: AgentSessionReport["kind"], key: string, value: string) {
     const report = { key: `${job.id}:${key}`, agent: job.id, pilot: job.origin.pilot, title: job.title, kind, text: value, at: new Date().toISOString() };
-    job.reportOutbox = [...(job.reportOutbox ?? []), report];
+    // A re-announced request (e.g. access at every startup) keeps its one waiting envelope;
+    // its resolution shares the key but is a different report.
+    if (!job.reportOutbox?.some(r => r.key === report.key && r.kind === report.kind)) job.reportOutbox = [...(job.reportOutbox ?? []), report];
     this.save(job); // State transition and envelope are one atomic record.
     this.reconcileReports();
   }
@@ -229,12 +231,16 @@ export class AgentOrchestrator {
         } catch (error) { op.status = signal.aborted || ["bash", "write", "edit"].includes(name) ? "uncertain" : "failed"; this.save(job); throw error; }
       },
     };
-    let answer: string | null;
+    let answer: string | null, followUp = false;
     for (;;) {
+      const waiting = queued(job).length;
       answer = await runtime.session.turn(turn);
       this.check(job); signal.throwIfAborted();
       if (answer) this.messageRecord(job, "agent", answer);
       if (!queued(job).length) break;
+      // A follow-up turn that took none of its steering will not take it by repeating: stop paying for turns.
+      if (followUp && queued(job).length >= waiting) { withdraw(job, "Not delivered: the worker finished without taking it. Send it again to continue."); this.save(job); break; }
+      followUp = true;
       // Steering accepted as the turn ended is never dropped: Pi's undelivered copy is withdrawn and a follow-up turn carries it.
       runtime.session.clearSteering?.(); runtime.sent.clear();
       payload = () => JSON.stringify({ steering: this.unsent(job, runtime), note: steeringNote });
@@ -290,7 +296,8 @@ export class AgentOrchestrator {
   async message(id: unknown, value: unknown, pilot?: string): Promise<WorkerRecord> { return this.instruct(id, value, pilot).job; }
   /** Accepted means durably recorded; delivery is observed later and shown by read_agent. */
   instruct(id: unknown, value: unknown, pilot?: string) {
-    this.validateMessage(id, value, pilot);
+    // Nothing is recorded before this check passes, so its refusal is safe to retry.
+    try { this.validateMessage(id, value, pilot); } catch (error) { throw new ActionRefusal(error instanceof Error ? error.message : "Follow-up refused."); }
     const job = this.get(id), input = text(value, "a follow-up"), runtime = this.live(job), at = new Date().toISOString();
     const entry: WorkerSteering = { id: crypto.randomUUID(), text: input, at, status: "queued", delivery: runtime ? "steer" : "started" };
     const history = job.worker.steering ?? [], settled = history.filter(s => s.status !== "queued");

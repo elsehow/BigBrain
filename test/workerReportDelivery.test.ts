@@ -3,7 +3,8 @@
  * persistence, transitions, authority checks, notification tools or routes.
  */
 import { afterEach, expect, spyOn, test } from "bun:test";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { desktopRouteManifest } from "../web/desktopRouteManifest";
 import { PilotChats } from "../lib/pilotChat";
@@ -288,7 +289,8 @@ test("lost sender receipt redelivers without duplicate Pilot history or notifica
 });
 
 test("partial batch notifications acknowledge only named report; explicit stop survives restart", async () => {
-  const root = rootFixture(), a = report(), b = { ...report(), key: "fixture:second" };
+  // The second report is a question: an answered reply alone never closes one.
+  const root = rootFixture(), a = report(), b = { ...report(), key: "fixture:second", kind: "question" as const };
   const s = seed(root, { pendingAgentSessionReports: [a.key, b.key], workEvents: [a, b] });
   const f = boot(root, async args => {
     await args.tool("notify_user", { key: "random-one", reportKey: a.key, kind: "update", text: "First result." });
@@ -316,4 +318,31 @@ test("a stopped Pilot with a paused input queue still escalates reports, without
   expect(after.pendingAgentSessionReports).toEqual([]);
   expect(after.pendingInputs?.map(i => i.id)).toEqual([queued.id]);
   expect(after.turn).toBeUndefined();
+});
+
+test("an answered report turn is the follow-through for a completion: no retries or escalation", async () => {
+  const root = rootFixture(), s = seed(root);
+  workerScript(async () => "Synthetic completion.");
+  const f = boot(root, async () => "The fixture task finished; results are in its session."), job = launch(f, s.id);
+  await until(() => job.status === "idle"); await tick(); await f.chats.sweep(); await tick();
+  expect(f.prompts).toHaveLength(1);
+  expect(f.chats.get(s.id).pendingAgentSessionReports).toEqual([]);
+  let now = Date.now(); (f.chats as any).now = () => now;
+  for (let i = 0; i < 3; i++) { now += 100_000; await f.chats.sweep(); await tick(); }
+  expect(f.prompts).toHaveLength(1);
+  expect(httpNotifications(f)).toHaveLength(0);
+  expect(Object.values(disk(root, s.id).reportHandling ?? {}).map((h: any) => h.disposition)).toEqual(["replied"]);
+});
+
+test("a re-announced access request keeps one outbox envelope while its recipient is unavailable", () => {
+  const root = rootFixture(), project = mkdtempSync(join(tmpdir(), "report-project-"));
+  cleanups.push(() => rmSync(project, { recursive: true, force: true }));
+  const agents = new AgentOrchestrator(root, { loadPi: async () => { throw new Error("unused"); } });
+  const job = agents.launch(`pilot-${"c".repeat(32)}`, "m", { title: "Fixture", task: "Inspect", context: "Synthetic", cwd: project, mode: "read" }, []);
+  expect(job.worker.request?.kind).toBe("access");
+  const failing = () => { throw new Error("Pilot report recipient unavailable."); };
+  for (let i = 0; i < 3; i++) { const restarted = new AgentOrchestrator(root, { loadPi: async () => { throw new Error("unused"); } }); restarted.setReporter(failing); restarted.close(); }
+  const saved = JSON.parse(readFileSync(join(root, ".spool/workers", `${job.id}.json`), "utf8"));
+  expect(saved.reportOutbox.filter((r: { kind: string }) => r.kind === "access")).toHaveLength(1);
+  agents.close();
 });
