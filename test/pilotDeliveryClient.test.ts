@@ -1,4 +1,4 @@
-import { afterAll, expect, test } from "bun:test";
+import { afterAll, afterEach, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -27,6 +27,9 @@ import { pilotChatDetail } from "../lib/pilotChatSummary";
 import { transitionPilot } from "../lib/pilotTransitions";
 const oldFetch = globalThis.fetch;
 afterAll(() => { globalThis.fetch = oldFetch; });
+// The stubs below replace a process-wide global; later test files must get the original back.
+const oldStorage = Object.getOwnPropertyDescriptor(globalThis, "sessionStorage");
+afterEach(() => { if (oldStorage) Object.defineProperty(globalThis, "sessionStorage", oldStorage); else delete (globalThis as { sessionStorage?: Storage }).sessionStorage; });
 for (const lost of [true, false]) test(`production client initialization reconciles ${lost ? "lost" : "delayed"} POST, stable order, answer and follow-up interleaving`, async () => {
   h.chat.sessions = [];
   const storage = new Map<string, string>();
