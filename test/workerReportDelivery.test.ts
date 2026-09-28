@@ -304,3 +304,16 @@ test("partial batch notifications acknowledge only named report; explicit stop s
   expect(httpNotifications(restored)).toHaveLength(2);
   expect(restored.chats.get(s.id).reportStoppedAt).toBeDefined();
 });
+
+test("a stopped Pilot with a paused input queue still escalates reports, without resuming the queue", async () => {
+  const root = rootFixture(), a = report();
+  const queued = { id: "input-fixture", text: "Queued fixture message.", mode: "text" as const };
+  const s = seed(root, { phase: "interrupted", reportStoppedAt: new Date().toISOString(), pendingInputs: [queued], pendingAgentSessionReports: [a.key], workEvents: [a] });
+  const f = boot(root); await tick(); await f.chats.sweep(); await tick();
+  expect(f.prompts).toHaveLength(0);
+  expect(httpNotifications(f)).toHaveLength(1);
+  const after = f.chats.get(s.id);
+  expect(after.pendingAgentSessionReports).toEqual([]);
+  expect(after.pendingInputs?.map(i => i.id)).toEqual([queued.id]);
+  expect(after.turn).toBeUndefined();
+});

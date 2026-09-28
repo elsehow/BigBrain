@@ -295,7 +295,7 @@ export class PilotChats {
   }
   private scheduleExternal(s: PilotChatSession): void {
     setImmediate(() => {
-      if (this.closed || this.blocked(s) || s.turn || s.pendingInputs?.length) return;
+      if (this.closed || this.blocked(s) || s.turn) return;
       try {
         for (const key of (s.pendingAgentSessionReports ?? [])) {
           const state = s.reportHandling?.[key];
@@ -312,7 +312,8 @@ export class PilotChats {
             this.ackReport(s, key, "escalated");
           }
         }
-        if (this.runs.size >= PILOT_RUNTIME.maxWarmSessions || !s.pendingAgentSessionReports?.length) return;
+        // A paused input queue outranks a report turn, but never hides an escalation.
+        if (s.pendingInputs?.length || this.runs.size >= PILOT_RUNTIME.maxWarmSessions || !s.pendingAgentSessionReports?.length) return;
         if (s.pendingAgentSessionReports.some(k => (s.reportHandling?.[k]?.next ?? 0) > this.now())) return;
         s.reportHandling ??= {};
         for (const key of s.pendingAgentSessionReports) {
