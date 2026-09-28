@@ -81,6 +81,8 @@ export function createPagedSearch<H extends SearchHitLike>(state: PagedResults<H
       reconcile();
       request();
     },
+    // Retry with the same dependency key, never a caller-reconstructed subset.
+    retry() { offset = 0; advanceFrom = -1; request(); },
     select(index: number) {
       userSelected = true;
       state.sel = index;

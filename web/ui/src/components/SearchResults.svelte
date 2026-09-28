@@ -119,7 +119,7 @@
   {:else if results.failed}
     <p class="search-status" role="status">
       {results.failed === "slow" ? "Loading timed out." : recent ? "Couldn’t load recent items." : "Search failed."}
-      <button class="retry" onclick={() => floatingSearch.start(app.query, JSON.stringify({ revision: app.rev }))}>Retry</button>
+      <button class="retry" onclick={() => floatingSearch.retry()}>Retry</button>
     </p>
   {:else if !hits.length && results.nextOffset === null}
     <p class="search-status" role="status">{recent ? "No recent items." : "No results."}</p>

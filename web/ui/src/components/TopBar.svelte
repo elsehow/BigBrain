@@ -11,7 +11,7 @@
   import { barUp, stage } from "../lib/stage.svelte";
   import { commandKey } from "../lib/omnibox";
   import { searchOverlay } from "../lib/omnibox.svelte";
-  import { floatingResults as results, floatingSearch, warmRecents, searchPresentation } from "../lib/floatingSearch.svelte";
+  import { floatingResults as results, floatingSearch, warmRecents, searchPresentation, unreadSearchContext } from "../lib/floatingSearch.svelte";
   import { chatSessions, openChat } from "../lib/pilotChat.svelte";
   import { work } from "../lib/workSessions.svelte";
   import GardenerProgress from "./GardenerProgress.svelte";
@@ -111,8 +111,9 @@
     const query = app.query;
     const revision = app.rev;
     const unreadOnly = !!sidebar && sidebar.tab === 'recents' && !!sidebar.unreadOnly;
+    const unreadSources = unreadOnly ? unreadSearchContext() : undefined;
     searchPresentation.unreadOnly = unreadOnly;
-    if (popup) untrack(() => { floatingSearch.start(query, JSON.stringify({ revision, unreadOnly })); });
+    if (popup) untrack(() => { floatingSearch.start(query, JSON.stringify({ revision, unreadOnly, unreadSources })); });
     else untrack(() => floatingSearch.cancel());
   });
 

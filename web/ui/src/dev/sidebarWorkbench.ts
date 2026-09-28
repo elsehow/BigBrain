@@ -27,6 +27,10 @@ if (new URLSearchParams(location.search).has('vaultScope')) {
   const { installVaultScopeFixture } = await import('./vaultScopeFixture');
   installVaultScopeFixture();
 }
+if (new URLSearchParams(location.search).has('unreadSearch')) {
+  const { installUnreadSearchFixture } = await import('./unreadSearchFixture');
+  installUnreadSearchFixture();
+}
 watchSystemTheme();
 const graphTheme = new URLSearchParams(location.search).get('graphTheme');
 if (['default', 'dusk', 'phosphor'].includes(graphTheme ?? '')) setChoice(graphTheme as BuiltIn);
