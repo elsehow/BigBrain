@@ -211,6 +211,8 @@ interface Run {
 
 async function run(root: string): Promise<Run> {
   process.env["BIGBRAIN_VAULT"] = root;
+  // Offline snapshot first; public data refresh never delays engine startup.
+  void import("../lib/subscriptionConnection").then(m => m.subscriptionRuntime()).catch(() => {});
   // Lazy on purpose (see the header): these bind VAULT_ROOT at import.
   const { loadManifest } = await import("../lib/manifest");
 

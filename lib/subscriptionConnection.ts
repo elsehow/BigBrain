@@ -1,3 +1,4 @@
+import { createCatalogRuntime } from "./run/modelCatalogRefresh";
 import { availableDefaults } from "./modelDefaults";
 /** Browser sign-in owned by Pi. Only public progress crosses the setup API;
  * credentials remain in Pi's local, locked credential store. */
@@ -12,7 +13,7 @@ export type { SubscriptionStatus } from "./providerConnection";
 export const subscriptionConnected = (root: string, provider: SubscriptionProvider): boolean =>
   readEnvValues(root)[SUBSCRIPTION_PROVIDERS[provider].connectedKey] === "1";
 export const subscriptionRuntime = async (): Promise<ModelRuntime> =>
-  (await loadPi()).ModelRuntime.create({ allowModelNetwork: false, signal: AbortSignal.timeout(10_000) });
+  createCatalogRuntime(await loadPi(), AbortSignal.timeout(10_000));
 
 const AUTH = {
   chatgpt: { origin: "https://auth.openai.com", callback: "http://localhost:1455/auth/callback" },

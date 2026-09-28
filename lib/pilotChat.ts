@@ -123,7 +123,7 @@ export class PilotChats {
     const saved = readEnvValues(this.root).BIGBRAIN_PILOT_BACKEND;
     return saved ? validatePilotBackend(migratePilotBackend(JSON.parse(saved))) : { ...DEFAULT_PILOT_BACKEND };
   }
-  async models() { return (await import("./modelCatalog")).pilotModels(this.root); }
+  async models(requested?: { provider?: string; model: string }) { return (await import("./modelCatalog")).pilotModels(this.root, requested); }
   setDefaultBackend(value: unknown): PilotBackendConfig {
     const config = validatePilotBackend(value);
     writeEnvValues(this.root, { BIGBRAIN_PILOT_BACKEND: JSON.stringify(config), BIGBRAIN_PILOT_MODEL_PREFERENCE: "pinned" });
@@ -768,7 +768,7 @@ export class PilotChats {
         if (name === "inspect_agent_environment") return external.projects.inspect(String(a.path));
         if (["launch_agent", "revise_agent_environment"].includes(name) && a.model) {
           const selected = validateModelChoice(a.model);
-          const available = await this.models();
+          const available = await this.models(selected);
           if (!available.some(p => p.id === `pi/${selected.provider}` && p.ready && p.models.some(m => m.id === selected.model))) throw new PilotError("The requested model is not connected or available. Choose a connected model explicitly.");
         }
         if (name === "revise_agent_environment") {

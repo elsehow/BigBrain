@@ -1,6 +1,7 @@
 import { anthropicQuota, type AnthropicQuota } from "./anthropicQuota";
 /** Pi supplies the agent loop and provider auth. BigBrain supplies every tool,
  * including sandboxed execution; Pi's unrestricted built-ins never run here. */
+import { createCatalogRuntime, exactCatalogModel } from "./modelCatalogRefresh";
 import { configureVaultModelAuth } from "./piModelRuntime";
 import { connectionProblem, resolveModel, type ModelExecution } from "../modelResolution";
 import { existsSync } from "node:fs";
@@ -37,9 +38,9 @@ export class PiSession implements ModelSession {
     if (this.broken) return false;
     const provider = this.setup.config.provider!;
     const signal = AbortSignal.any([this.controller.signal, AbortSignal.timeout(10_000)]);
-    const runtime = await sdk.ModelRuntime.create({ allowModelNetwork: false, signal });
+    const runtime = await createCatalogRuntime(sdk, signal);
     await configureVaultModelAuth(runtime, this.setup.root);
-    const model = runtime.getModel(provider, this.setup.config.model);
+    const model = await exactCatalogModel(runtime, provider, this.setup.config.model, signal);
     if (!model) throw new Error(runtime.getProvider(provider) ? "Choose an available model from Settings > Models." : connectionProblem(this.setup.config));
     this.transport = runtime.isUsingSubscription(provider) ? "subscription" : "api";
     if (provider === "anthropic" && this.transport !== "subscription")
