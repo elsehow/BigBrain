@@ -65,10 +65,16 @@ export async function submitPilotInput(id: string, text: string, input: { id: st
       try { sessionStorage.removeItem(key); } catch { /* storage unavailable */ }
       return result;
     } catch (e) {
-      // SSE/authoritative refresh can prove delivery while the POST is lost.
-      const current = chat.sessions.find(s => s.id === id);
-      if (current?.messages && pilotInputReceipt(current, input.id)) return current as PilotChatDetail;
-      error = e; if (retry < 2) await new Promise(resolve => setTimeout(resolve, 500)); }
+      // SSE/authoritative refresh can prove delivery while the POST is lost,
+      // including during the backoff; a proven input is never sent again.
+      const delivered = () => {
+        const current = chat.sessions.find(s => s.id === id);
+        return current?.messages && pilotInputReceipt(current, input.id) ? current as PilotChatDetail : undefined;
+      };
+      error = e;
+      if (!delivered() && retry < 2) await new Promise(resolve => setTimeout(resolve, 500));
+      const current = delivered(); if (current) return current;
+    }
   }
   throw error;
 }
