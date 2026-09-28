@@ -82,7 +82,7 @@ const base = process.env.SIDEBAR_PREVIEW_URL || 'http://127.0.0.1:5200';
     await page.getByRole('button',{name:'Show archived',exact:true}).click();
     await page.getByRole('button',{name:/Atlas planning.*archived/}).waitFor();
     await filter.click();assert.equal(await row.count(),0);await page.getByRole('button',{name:/Atlas planning.*archived/}).waitFor();await filter.click();
-    await row.getByText('Archived',{exact:true}).waitFor();
+    assert.match(await row.getAttribute('aria-label'),/Archived/);assert.doesNotMatch(await row.innerText(),/Archived/,'no redundant visible Archived label');
     assert.equal(await row.locator('svg').getAttribute('data-agent-state'),'stopped');
     await row.click(); await panel.waitFor();
     assert.match(await panel.getByRole('status').textContent(),/Archived/);

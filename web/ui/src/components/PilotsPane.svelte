@@ -95,7 +95,6 @@
             {#if p.id.startsWith("work-")}<AgentIndicator state={p.agentState ?? (p.state === "running" ? "running" : p.state === "waiting" ? "waiting" : "done")} size={sidebar ? 28 : 32} />{:else}<PilotAttentionGlyph phase={p.phase} state={p.state} size={sidebar ? 28 : 32} tip={status(p).description} />{/if}
             <span class="row-copy">
               <span class="row-heading"><strong>{p.title}</strong><span class="metadata model-label">{label(p.model)}</span>{#if sidebar}<time class="message-time" datetime={p.lastMessageAt} title={p.lastMessageAt ? "Last message sent or received" : "No messages yet"}>{p.lastMessageAt ? listTimestamp(Date.parse(p.lastMessageAt)) : "—"}</time>{/if}</span>
-              {#if p.archived}<span class="metadata">Archived</span>{/if}
               {#if p.preview}<span class="metadata notification-preview">{p.preview}</span>{/if}
             </span>
             {#if p.unread ?? p.state === 'waiting'}<i class="attention-dot" aria-hidden="true"></i>{/if}
