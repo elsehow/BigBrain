@@ -27,7 +27,7 @@ export const curationModels = modelCatalog;
 export async function piModels(root?: string, requested?: { provider?: string; model: string }, load = loadPi): Promise<ModelProvider[]> {
   const sdk = await load();
   const { getSupportedThinkingLevels } = await import("@earendil-works/pi-ai/compat");
-  const runtime = await createCatalogRuntime(sdk, AbortSignal.timeout(10_000));
+  const runtime = await createCatalogRuntime(sdk, AbortSignal.timeout(10_000), root);
   await configureVaultModelAuth(runtime, root);
   if (requested?.provider) await exactCatalogModel(runtime, requested.provider, requested.model);
   const available = runtime.getAvailableSnapshot();

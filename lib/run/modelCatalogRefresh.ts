@@ -1,6 +1,7 @@
 /** Data-only Pi catalog overlays. Pi still owns models, auth, and locked persistence.
  * Remote records may reuse installed adapter configurations, never install code or
  * invent credential destinations. Catalog membership is NOT account entitlement. */
+import { configureVaultModelAuth } from "./piModelRuntime";
 import type { Api, Model, ModelsStoreEntry, Provider } from "@earendil-works/pi-ai";
 import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
 import type { CreateModelRuntimeOptions, ModelRuntime } from "@earendil-works/pi-coding-agent";
@@ -112,7 +113,7 @@ function refreshRuntime(runtime: ModelRuntime, options: Parameters<ModelRuntime[
 const refresh = new CatalogRefresh();
 const initialized = new WeakMap<ModelRuntime, Promise<ModelRuntime>>();
 const pendingMisses = new WeakMap<ModelRuntime, Map<string, Promise<unknown>>>();
-export function initializeCatalog(runtime: ModelRuntime, owner = refresh, background = true, schedule = setInterval, signal = AbortSignal.timeout(10_000)): Promise<ModelRuntime> {
+export function initializeCatalog(runtime: ModelRuntime, owner = refresh, background = true, schedule = setInterval, signal = AbortSignal.timeout(10_000), root?: string): Promise<ModelRuntime> {
   const existing = initialized.get(runtime);
   if (existing) return existing;
   const pending = (async () => {
@@ -121,6 +122,7 @@ export function initializeCatalog(runtime: ModelRuntime, owner = refresh, backgr
     }
     await runtime.refresh({ allowNetwork: false, signal });
     signal.throwIfAborted();
+    if (root) await configureVaultModelAuth(runtime, root);
     if (background) owner.start(runtime, schedule);
     return runtime;
   })();
@@ -128,8 +130,8 @@ export function initializeCatalog(runtime: ModelRuntime, owner = refresh, backgr
   void pending.catch(() => initialized.delete(runtime));
   return pending;
 }
-export async function createCatalogRuntime(sdk: { ModelRuntime: { create(options: CreateModelRuntimeOptions): Promise<ModelRuntime> } }, signal?: AbortSignal): Promise<ModelRuntime> {
-  return initializeCatalog(await sdk.ModelRuntime.create({ allowModelNetwork: false, refreshOnCreate: false, signal }), refresh, true, setInterval, signal);
+export async function createCatalogRuntime(sdk: { ModelRuntime: { create(options: CreateModelRuntimeOptions): Promise<ModelRuntime> } }, signal?: AbortSignal, root?: string): Promise<ModelRuntime> {
+  return initializeCatalog(await sdk.ModelRuntime.create({ allowModelNetwork: false, refreshOnCreate: false, signal }), refresh, true, setInterval, signal, root);
 }
 export async function exactCatalogModel(runtime: ModelRuntime, provider: string, id: string, signal?: AbortSignal) {
   let model = runtime.getModel(provider, id);
