@@ -136,6 +136,8 @@ export class PiSession implements ModelSession {
       const session = this.session;
       this.unsubscribe = session.subscribe(event => {
         if (!args.signal.aborted && event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") args.delta(event.assistantMessageEvent.delta);
+        // Delivery is observed here: Pi appends queued steering to the context just before the next model request.
+        if (event.type === "message_end" && event.message.role === "user") { const c = event.message.content; args.event?.("userMessage", typeof c === "string" ? c : c.filter(b => b.type === "text").map(b => b.text).join("")); }
         if (event.type === "message_end" && event.message.role === "assistant") {
           this.saveSession();
           const message = event.message;
@@ -167,6 +169,12 @@ export class PiSession implements ModelSession {
       args.signal.removeEventListener("abort", abort);
     }
   }
+  steer(text: string): boolean {
+    if (!this.active || !this.session || this.broken || this.active.signal.aborted) return false;
+    void this.session.steer(text).catch(() => {}); // Enqueues synchronously; delivery is observed as a user message.
+    return true;
+  }
+  clearSteering(): void { this.session?.clearQueue(); }
   private saveSession(): void {
     const file = this.session?.sessionFile;
     if (file && existsSync(file)) { this.setup.state.piSession = file; this.fresh = false; this.setup.save(); }

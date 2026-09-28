@@ -758,7 +758,7 @@ export class PilotChats {
     try {
       return await this.actions.execute({ actor: { kind: "pilot", id: s.id }, request: key, operation: name,
         scope: [s.id, ...(typeof a.agent === "string" ? [a.agent] : []), ...(typeof a.project === "string" ? [a.project] : []), ...(name === "inbox_set_unread" ? [String(a.ref)] : [])], payload: args },
-        { signal, authorize, validate: () => { if (name === "message_agent") this.options.external!.validateMessage(a.agent, a.text); }, legacy: this.conversation(s.id).actions?.[key], execute: async () => {
+        { signal, authorize, validate: () => { if (name === "message_agent") this.options.external!.validateMessage(a.agent, a.text, s.id); }, legacy: this.conversation(s.id).actions?.[key], execute: async () => {
           const result = await this.executeTool(s, name, args, signal);
           if (result && typeof result === "object" && "error" in result) throw new Error(String(result.error));
           return result;
@@ -815,7 +815,7 @@ export class PilotChats {
         } else {
           const job = external.owned(s.id, a.agent);
           if (name === "reply_agent") { external.answer(s.id, a.agent, a.request, a.text, a.evidence); result = { ok: true }; }
-          else if (name === "message_agent") result = await external.message(job.id, a.text);
+          else if (name === "message_agent") result = external.instruct(job.id, a.text, s.id).reply;
           else result = { ...job, messages: job.messages.slice(-30) };
         }
       } else if (PILOT_LOCAL_TOOLS.some(t => t.name === name)) {
