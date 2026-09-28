@@ -1,0 +1,733 @@
+{
+  "environment": {
+    "localDate": "2026-09-19",
+    "platform": "macOS arm64",
+    "runtime": "Bun 1.3.9",
+    "browser": "Chrome headless",
+    "ui": "production Vite build",
+    "fixtureAssertions": 2000,
+    "fixtureEntities": 101
+  },
+  "pilot": [
+    {
+      "provider": "pi",
+      "model": "gpt-6-astra",
+      "reasoning": "medium",
+      "pair": 0,
+      "mode": "fresh",
+      "status": "answered",
+      "setupMs": 181.6,
+      "firstTextMs": 2281.9,
+      "totalMs": 2474.1,
+      "afterDispatchMs": 2100.3,
+      "tools": 0,
+      "callerMs": 2475
+    },
+    {
+      "provider": "pi",
+      "model": "gpt-6-astra",
+      "reasoning": "medium",
+      "pair": 0,
+      "mode": "reused",
+      "status": "answered",
+      "setupMs": 0.4,
+      "firstTextMs": 1931.3,
+      "totalMs": 2070.2,
+      "afterDispatchMs": 1930.8999999999999,
+      "tools": 0,
+      "callerMs": 2071
+    },
+    {
+      "provider": "pi",
+      "model": "gpt-6-astra",
+      "reasoning": "medium",
+      "pair": 1,
+      "mode": "fresh",
+      "status": "answered",
+      "setupMs": 3.8,
+      "firstTextMs": 1800.5,
+      "totalMs": 2015.9,
+      "afterDispatchMs": 1796.7,
+      "tools": 0,
+      "callerMs": 2016
+    },
+    {
+      "provider": "pi",
+      "model": "gpt-6-astra",
+      "reasoning": "medium",
+      "pair": 1,
+      "mode": "reused",
+      "status": "answered",
+      "setupMs": 0.4,
+      "firstTextMs": 2107.7,
+      "totalMs": 2920.8,
+      "afterDispatchMs": 2107.2999999999997,
+      "tools": 0,
+      "callerMs": 2921
+    },
+    {
+      "provider": "pi",
+      "model": "gpt-6-astra",
+      "reasoning": "medium",
+      "pair": 2,
+      "mode": "fresh",
+      "status": "answered",
+      "setupMs": 4,
+      "firstTextMs": 2232.2,
+      "totalMs": 2411,
+      "afterDispatchMs": 2228.2,
+      "tools": 0,
+      "callerMs": 2412
+    },
+    {
+      "provider": "pi",
+      "model": "gpt-6-astra",
+      "reasoning": "medium",
+      "pair": 2,
+      "mode": "reused",
+      "status": "answered",
+      "setupMs": 0.5,
+      "firstTextMs": 2967.2,
+      "totalMs": 3135.8,
+      "afterDispatchMs": 2966.7,
+      "tools": 0,
+      "callerMs": 3136
+    },
+    {
+      "provider": "claude",
+      "model": "opus",
+      "reasoning": "default",
+      "pair": 0,
+      "mode": "fresh",
+      "status": "answered",
+      "setupMs": 916.6,
+      "firstTextMs": 1593.9,
+      "totalMs": 2052.4,
+      "afterDispatchMs": 677.3000000000001,
+      "tools": 0,
+      "callerMs": 2053
+    },
+    {
+      "provider": "claude",
+      "model": "opus",
+      "reasoning": "default",
+      "pair": 0,
+      "mode": "reused",
+      "status": "answered",
+      "setupMs": 0.5,
+      "firstTextMs": 1071.1,
+      "totalMs": 1079.6,
+      "afterDispatchMs": 1070.6,
+      "tools": 0,
+      "callerMs": 1080
+    },
+    {
+      "provider": "claude",
+      "model": "opus",
+      "reasoning": "default",
+      "pair": 1,
+      "mode": "fresh",
+      "status": "answered",
+      "setupMs": 499.2,
+      "firstTextMs": 1413.4,
+      "totalMs": 1819.1,
+      "afterDispatchMs": 914.2,
+      "tools": 0,
+      "callerMs": 1820
+    },
+    {
+      "provider": "claude",
+      "model": "opus",
+      "reasoning": "default",
+      "pair": 1,
+      "mode": "reused",
+      "status": "answered",
+      "setupMs": 0.6,
+      "firstTextMs": 1006.1,
+      "totalMs": 1014.3,
+      "afterDispatchMs": 1005.5,
+      "tools": 0,
+      "callerMs": 1015
+    },
+    {
+      "provider": "claude",
+      "model": "opus",
+      "reasoning": "default",
+      "pair": 2,
+      "mode": "fresh",
+      "status": "answered",
+      "setupMs": 480.5,
+      "firstTextMs": 1730.1,
+      "totalMs": 2594.6,
+      "afterDispatchMs": 1249.6,
+      "tools": 0,
+      "callerMs": 2595
+    },
+    {
+      "provider": "claude",
+      "model": "opus",
+      "reasoning": "default",
+      "pair": 2,
+      "mode": "reused",
+      "status": "answered",
+      "setupMs": 0.5,
+      "firstTextMs": 2002.1,
+      "totalMs": 2006,
+      "afterDispatchMs": 2001.6,
+      "tools": 0,
+      "callerMs": 2007
+    }
+  ],
+  "quick": [
+    {
+      "preparationMs": 5.015749999999997,
+      "promptCharacters": 11888,
+      "candidates": 10,
+      "memories": 1
+    },
+    {
+      "run": 0,
+      "agent": "pi",
+      "model": "gpt-6-astra",
+      "mode": "live",
+      "candidates": 10,
+      "totalMs": 11189.793083,
+      "firstTextMs": 5230.904542,
+      "inputTokens": 5050,
+      "outputTokens": 282,
+      "firstSummaryMs": 5236.503708,
+      "descriptionWords": [
+        7,
+        4,
+        4,
+        7,
+        5,
+        5,
+        7,
+        5,
+        5,
+        5
+      ]
+    },
+    {
+      "run": 1,
+      "agent": "pi",
+      "model": "gpt-6-astra",
+      "mode": "live",
+      "candidates": 10,
+      "totalMs": 8562.962666,
+      "firstTextMs": 1757.7517079999998,
+      "inputTokens": 5052,
+      "outputTokens": 228,
+      "firstSummaryMs": 1812.5967090000013,
+      "descriptionWords": [
+        5,
+        4,
+        4,
+        6,
+        5,
+        5,
+        5,
+        5,
+        5,
+        5
+      ]
+    },
+    {
+      "run": 2,
+      "agent": "pi",
+      "model": "gpt-6-astra",
+      "mode": "live",
+      "candidates": 10,
+      "totalMs": 8109.507750000001,
+      "firstTextMs": 1542.7332080000015,
+      "inputTokens": 5054,
+      "outputTokens": 222,
+      "firstSummaryMs": 1542.8033329999998,
+      "descriptionWords": [
+        5,
+        4,
+        4,
+        6,
+        4,
+        5,
+        5,
+        5,
+        5,
+        5
+      ]
+    },
+    {
+      "preparationMs": 4.917291000000006,
+      "promptCharacters": 11888,
+      "candidates": 10,
+      "memories": 1
+    },
+    {
+      "run": 0,
+      "agent": "claude",
+      "model": "haiku",
+      "mode": "live",
+      "candidates": 10,
+      "totalMs": 34252.981458,
+      "firstTextMs": 31615.29525,
+      "inputTokens": 10,
+      "outputTokens": 3589,
+      "firstSummaryMs": 31667.405291000003,
+      "descriptionWords": [
+        3,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        5,
+        5,
+        3
+      ]
+    }
+  ],
+  "quickFailure": {
+    "provider": "claude",
+    "model": "haiku",
+    "run": 1,
+    "timeoutMs": 60000,
+    "error": "Claude turn cancelled.",
+    "note": "The original benchmark stopped on failure; run 2 was not attempted."
+  },
+  "notePreparation": [
+    {
+      "run": 0,
+      "entityMs": 75.83016599999996,
+      "inputMs": 161.40570900000012,
+      "totalMs": 237.62916599999994,
+      "assertions": 2000,
+      "links": 101,
+      "promptCharacters": 16895
+    },
+    {
+      "run": 1,
+      "entityMs": 2.6496660000000247,
+      "inputMs": 41.94304199999988,
+      "totalMs": 44.73745799999983,
+      "assertions": 2000,
+      "links": 101,
+      "promptCharacters": 16895
+    },
+    {
+      "run": 2,
+      "entityMs": 2.939040999999861,
+      "inputMs": 43.548292000000174,
+      "totalMs": 46.69470799999999,
+      "assertions": 2000,
+      "links": 101,
+      "promptCharacters": 16895
+    },
+    {
+      "run": 3,
+      "entityMs": 2.4692090000000917,
+      "inputMs": 43.33287499999983,
+      "totalMs": 45.940791999999874,
+      "assertions": 2000,
+      "links": 101,
+      "promptCharacters": 16895
+    },
+    {
+      "run": 4,
+      "entityMs": 2.880625000000009,
+      "inputMs": 40.550207999999884,
+      "totalMs": 43.57445800000005,
+      "assertions": 2000,
+      "links": 101,
+      "promptCharacters": 16895
+    },
+    {
+      "run": 5,
+      "entityMs": 2.3486249999998563,
+      "inputMs": 40.51679100000001,
+      "totalMs": 43.023416,
+      "assertions": 2000,
+      "links": 101,
+      "promptCharacters": 16895
+    }
+  ],
+  "noteBrowser": [
+    {
+      "run": 0,
+      "mode": "page-load",
+      "domMs": 454.1999999284744,
+      "paintedMs": 473.6999999284744,
+      "requests": [
+        {
+          "path": "/api/vault",
+          "durationMs": 9.600000023841858,
+          "bytes": 471
+        },
+        {
+          "path": "/api/pilot/chat",
+          "durationMs": 3.5,
+          "bytes": 309
+        },
+        {
+          "path": "/api/pilot/work",
+          "durationMs": 4.899999976158142,
+          "bytes": 309
+        },
+        {
+          "path": "/api/recent",
+          "durationMs": 66.39999997615814,
+          "bytes": 730
+        },
+        {
+          "path": "/api/pilot/chat",
+          "durationMs": 243.79999995231628,
+          "bytes": 309
+        },
+        {
+          "path": "/api/entity/folds",
+          "durationMs": 66.29999995231628,
+          "bytes": 331
+        },
+        {
+          "path": "/api/note",
+          "durationMs": 247.20000004768372,
+          "bytes": 1224
+        },
+        {
+          "path": "/api/graph",
+          "durationMs": 241.80000007152557,
+          "bytes": 37740
+        },
+        {
+          "path": "/api/pilot/work",
+          "durationMs": 247.20000004768372,
+          "bytes": 309
+        },
+        {
+          "path": "/api/pilot/chat",
+          "durationMs": 247.19999992847443,
+          "bytes": 309
+        },
+        {
+          "path": "/api/pilot/work",
+          "durationMs": 247.19999992847443,
+          "bytes": 309
+        },
+        {
+          "path": "/api/recent",
+          "durationMs": 248.39999997615814,
+          "bytes": 730
+        },
+        {
+          "path": "/api/entity/folds",
+          "durationMs": 248.29999995231628,
+          "bytes": 331
+        },
+        {
+          "path": "/api/note",
+          "durationMs": 250.79999995231628,
+          "bytes": 1224
+        },
+        {
+          "path": "/api/graph",
+          "durationMs": 248,
+          "bytes": 37740
+        },
+        {
+          "path": "/api/source/read-state",
+          "durationMs": 243.5,
+          "bytes": 510
+        },
+        {
+          "path": "/api/note/briefing",
+          "durationMs": 1.5,
+          "bytes": 364
+        }
+      ],
+      "longTasks": [
+        {
+          "start": 352.10000002384186,
+          "duration": 73
+        }
+      ]
+    },
+    {
+      "run": 1,
+      "mode": "uncached-note",
+      "domMs": 12.700000047683716,
+      "paintedMs": 44.800000071525574,
+      "requests": [
+        {
+          "path": "/api/note",
+          "durationMs": 9.800000071525574,
+          "bytes": 1220
+        },
+        {
+          "path": "/api/vault",
+          "durationMs": 12,
+          "bytes": 471
+        }
+      ],
+      "longTasks": []
+    },
+    {
+      "run": 2,
+      "mode": "uncached-note",
+      "domMs": 5.299999952316284,
+      "paintedMs": 31.399999976158142,
+      "requests": [
+        {
+          "path": "/api/note",
+          "durationMs": 3.5,
+          "bytes": 1220
+        }
+      ],
+      "longTasks": []
+    },
+    {
+      "run": 3,
+      "mode": "cached-note",
+      "domMs": 6.100000023841858,
+      "paintedMs": 31.100000023841858,
+      "requests": [
+        {
+          "path": "/api/note",
+          "durationMs": 7.700000047683716,
+          "bytes": 1224
+        }
+      ],
+      "longTasks": []
+    },
+    {
+      "run": 4,
+      "mode": "cached-note",
+      "domMs": 2.600000023841858,
+      "paintedMs": 30.700000047683716,
+      "requests": [
+        {
+          "path": "/api/note",
+          "durationMs": 3.700000047683716,
+          "bytes": 1220
+        }
+      ],
+      "longTasks": []
+    },
+    {
+      "run": 5,
+      "mode": "cached-note",
+      "domMs": 2.600000023841858,
+      "paintedMs": 31.299999952316284,
+      "requests": [
+        {
+          "path": "/api/note",
+          "durationMs": 3.6999999284744263,
+          "bytes": 1220
+        }
+      ],
+      "longTasks": []
+    },
+    {
+      "run": 6,
+      "mode": "cached-note",
+      "domMs": 5.5,
+      "paintedMs": 30.600000023841858,
+      "requests": [
+        {
+          "path": "/api/note",
+          "durationMs": 5.600000023841858,
+          "bytes": 1224
+        }
+      ],
+      "longTasks": []
+    }
+  ],
+  "noteBrowserRepeat": [
+    {
+      "run": 0,
+      "mode": "page-load",
+      "domMs": 462.7999999523163,
+      "paintedMs": 536.7999999523163,
+      "requests": [
+        {
+          "path": "/api/vault",
+          "durationMs": 37.799999952316284,
+          "bytes": 471
+        },
+        {
+          "path": "/api/pilot/chat",
+          "durationMs": 3.799999952316284,
+          "bytes": 309
+        },
+        {
+          "path": "/api/pilot/work",
+          "durationMs": 5.100000023841858,
+          "bytes": 309
+        },
+        {
+          "path": "/api/recent",
+          "durationMs": 234.5,
+          "bytes": 730
+        },
+        {
+          "path": "/api/pilot/chat",
+          "durationMs": 239.5,
+          "bytes": 309
+        },
+        {
+          "path": "/api/entity/folds",
+          "durationMs": 239.39999997615814,
+          "bytes": 331
+        },
+        {
+          "path": "/api/note",
+          "durationMs": 237,
+          "bytes": 1224
+        },
+        {
+          "path": "/api/graph",
+          "durationMs": 237.89999997615814,
+          "bytes": 37740
+        },
+        {
+          "path": "/api/pilot/work",
+          "durationMs": 238.39999997615814,
+          "bytes": 309
+        },
+        {
+          "path": "/api/pilot/chat",
+          "durationMs": 238.30000007152557,
+          "bytes": 309
+        },
+        {
+          "path": "/api/pilot/work",
+          "durationMs": 238.80000007152557,
+          "bytes": 309
+        },
+        {
+          "path": "/api/recent",
+          "durationMs": 238.5,
+          "bytes": 730
+        },
+        {
+          "path": "/api/entity/folds",
+          "durationMs": 238.60000002384186,
+          "bytes": 331
+        },
+        {
+          "path": "/api/note",
+          "durationMs": 240.90000009536743,
+          "bytes": 1224
+        },
+        {
+          "path": "/api/graph",
+          "durationMs": 241,
+          "bytes": 37740
+        },
+        {
+          "path": "/api/source/read-state",
+          "durationMs": 239.40000009536743,
+          "bytes": 510
+        },
+        {
+          "path": "/api/note/briefing",
+          "durationMs": 1.6999999284744263,
+          "bytes": 364
+        }
+      ],
+      "longTasks": []
+    },
+    {
+      "run": 1,
+      "mode": "uncached-note",
+      "domMs": 6.600000023841858,
+      "paintedMs": 23.799999952316284,
+      "requests": [
+        {
+          "path": "/api/note",
+          "durationMs": 3.5,
+          "bytes": 1220
+        }
+      ],
+      "longTasks": []
+    },
+    {
+      "run": 2,
+      "mode": "uncached-note",
+      "domMs": 6.399999976158142,
+      "paintedMs": 30.899999976158142,
+      "requests": [
+        {
+          "path": "/api/note",
+          "durationMs": 3.899999976158142,
+          "bytes": 1220
+        }
+      ],
+      "longTasks": []
+    },
+    {
+      "run": 3,
+      "mode": "cached-note",
+      "domMs": 6.399999976158142,
+      "paintedMs": 28.799999952316284,
+      "requests": [
+        {
+          "path": "/api/note",
+          "durationMs": 7.899999976158142,
+          "bytes": 1224
+        }
+      ],
+      "longTasks": []
+    },
+    {
+      "run": 4,
+      "mode": "cached-note",
+      "domMs": 3.4000000953674316,
+      "paintedMs": 30.200000047683716,
+      "requests": [
+        {
+          "path": "/api/note",
+          "durationMs": 3.8000000715255737,
+          "bytes": 1220
+        }
+      ],
+      "longTasks": []
+    },
+    {
+      "run": 5,
+      "mode": "cached-note",
+      "domMs": 2.5,
+      "paintedMs": 31.100000023841858,
+      "requests": [
+        {
+          "path": "/api/note",
+          "durationMs": 3.8000000715255737,
+          "bytes": 1220
+        }
+      ],
+      "longTasks": []
+    },
+    {
+      "run": 6,
+      "mode": "cached-note",
+      "domMs": 5.899999976158142,
+      "paintedMs": 29.699999928474426,
+      "requests": [
+        {
+          "path": "/api/note",
+          "durationMs": 7.200000047683716,
+          "bytes": 1224
+        }
+      ],
+      "longTasks": []
+    },
+    {
+      "mode": "idle",
+      "durationMs": 6000,
+      "requests": {
+        "/api/pilot/chat": 8,
+        "/api/pilot/work": 12
+      }
+    }
+  ]
+}

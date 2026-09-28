@@ -1,0 +1,4 @@
+# [test].preload: every `bun test` process gets a fresh scratch vault in
+# BIGBRAIN_VAULT before any test file loads — see test/preload.ts (#635).
+[test]
+preload = ["./test/preload.ts"]

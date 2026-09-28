@@ -1,0 +1,98 @@
+<!doctype html>
+<!-- no data-theme: the bare root is GitHub Light, what the app wears on a light desktop -->
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Send to BigBrain — get the extension</title>
+  <meta name="description" content="Download the Send to BigBrain browser extension for Chrome and Firefox, and pair it with the BigBrain on your machine." />
+  <link rel="icon" href="bigbrain-mark-light.png" />
+  <!-- The extension's own stylesheet: the same tokens and self-hosted face
+       the popup renders with, so the page and the thing it hands out are
+       one object. Layout below is this page's alone. -->
+  <link rel="stylesheet" href="design.css" />
+  <style>
+    body { min-height: 100vh; padding: 48px 24px 64px; }
+    main { max-width: 36rem; margin: 0 auto; display: flex; flex-direction: column; gap: 34px; }
+
+    .head { padding-left: 0; gap: 18px; }
+    /* the cube, at icon size. Its layout box is mostly perspective air (the
+       front page's --mark-air), so the painted mark is ~57% of --bb-size —
+       78px of box for a 44px mark. */
+    .head .bb-cube { --bb-size: 78px; flex: none;
+                     --bb-face-x: var(--accent-5); --bb-face-y: var(--accent-2); --bb-face-z: var(--accent-1); --bb-cut: var(--ink-900);
+                     /* the box is mostly perspective air, so cancel it to sit
+                        the painted mark (~57% of --bb-size) beside the title */
+                     margin: calc(78px * -0.216); }
+    h1 { margin: 0; font: var(--type-heading); letter-spacing: var(--ls-heading); color: var(--text-strong); }
+    .lede { margin: 0; font: var(--type-body); color: var(--text-note); }
+
+    section { display: flex; flex-direction: column; gap: 14px; }
+    h2 { margin: 0; font: var(--type-eyebrow); letter-spacing: var(--ls-eyebrow); color: var(--text-faint); text-transform: uppercase; }
+    p, li { margin: 0; font: var(--type-body); color: var(--text); }
+    ol { margin: 0; padding-left: 1.4em; display: flex; flex-direction: column; gap: 6px; }
+    .note { color: var(--text-note); font-size: var(--fs-meta); line-height: 1.55; }
+    code { font-family: var(--font-mono); font-size: 0.86em; color: var(--text-strong); background: var(--well); padding: 1px 5px; border-radius: var(--r-sm); }
+
+    /* the download: the popup's cta, sized to its label */
+    a.cta { display: inline-flex; align-items: center; gap: 10px; width: auto; text-decoration: none; padding: 13px 18px; }
+    a.cta:hover { opacity: 0.86; }
+    /* 0.85, not 0.7: the cta inverts with the palette (--text pill, --bg
+       text), and under OG web blue 0.7 put the filename at 4.4:1 against the
+       pill. 0.85 clears it on every palette and still reads as subordinate
+       to the DOWNLOAD label. */
+    a.cta .file { font: var(--type-mono); font-weight: var(--fw-regular); letter-spacing: 0.04em; text-transform: none; opacity: 0.85; }
+
+    .foot { padding: 22px 0 0; border-top: 1px solid var(--rule); justify-content: flex-start; gap: var(--sp-7);
+      font: var(--type-meta); color: var(--text-muted); flex-wrap: wrap; }
+    .foot a { color: inherit; }
+  </style>
+  <!-- the animated mark: docs/design/mark/bigbrain-cube.html, verbatim, placed by the build -->
+  <style>{{CUBE_STYLE}}</style>
+</head>
+<body>
+  <main>
+    <div class="head">
+      {{CUBE_MARKUP}}
+      <div class="head-text">
+        <span class="eyebrow">SEND TO BIGBRAIN</span>
+        <h1>Get the extension</h1>
+        <p class="lede">Clips the page you're on into your vault's inbox as clean markdown — one click.
+          Install from your browser’s store, then pair with the desktop app.</p>
+      </div>
+    </div>
+
+    <section>
+      <h2>Chrome and Chromium browsers</h2>
+      <p><a class="cta" href="https://chromewebstore.google.com/detail/send-to-bigbrain/ddnflabpbjfcakilfjmbinhblgbmckpb">Get it from Chrome Web Store</a></p>
+    </section>
+    <section>
+      <h2>Firefox</h2>
+      <p><a class="cta" href="https://addons.mozilla.org/en-US/firefox/addon/send-to-bigbrain/">Get it from Firefox Add-ons</a></p>
+    </section>
+    <section>
+      <h2>Before you start</h2>
+      <p>Install and open the <a href="https://bigbrain.cool">BigBrain desktop app</a>, then create your vault.
+        Keep the app running when you capture. Updating from the old hosted version? Pair with your desktop app again.</p>
+    </section>
+
+    <section>
+      <h2>Then pair it</h2>
+      <ol>
+        <li>In BigBrain: <strong>settings → integrations → PAIR A BROWSER</strong>. A code appears — ten minutes, one use.</li>
+        <li>In the extension's options (right-click its toolbar button → <strong>Options</strong>): leave the address at
+          <code>http://127.0.0.1:4748</code>, enter the code, <strong>Connect</strong>.</li>
+      </ol>
+      <p class="note">By default, captures go to BigBrain on this machine at <code>127.0.0.1</code>. If you configure a different address, captures go there. Pair each browser once; BigBrain's integrations card lists every browser that has, and REVOKE there is disconnect.</p>
+    </section>
+
+    <div class="foot">
+      <span>Send to BigBrain {{VERSION}}</span>
+      <span>built {{BUILT}}</span>
+      <a href="https://bigbrain.cool">bigbrain.cool</a>
+      <a href="https://bigbrain.cool/privacy/">Privacy</a>
+    </div>
+  </main>
+  <script>{{CUBE_SCRIPT}}</script>
+</body>
+</html>

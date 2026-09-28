@@ -1,0 +1,91 @@
+# bigbrain-site — isolated website and release roots
+# (site/README.md). exe.dev terminates TLS for bigbrain.exe.xyz and
+# proxies to :8000; nothing else runs on that box. Installed at
+# /etc/nginx/sites-available/bigbrain-site; this file is the source.
+# Event-only logs deliberately omit IP, user agent, referrer, and raw query.
+log_format bigbrain_click escape=json '{"time":"$time_iso8601","event":"$click_event","source":"$arg_source"}';
+log_format bigbrain_download escape=json '{"time":"$time_iso8601","path":"$uri","method":"$request_method","status":$status,"bytes":$body_bytes_sent}';
+
+map $status $click_valid { default 0; 204 1; }
+
+server {
+	listen 8000 default_server;
+	listen [::]:8000 default_server;
+	server_name _;
+	root /srv/website;
+
+	# behind the proxy, a Location must be a bare path — nginx would
+	# otherwise rebuild it with this box's own port
+	absolute_redirect off;
+	autoindex off;
+
+    # Button clicks only; no installer callbacks, identifiers or payloads.
+    location ~ ^/site-events/(?<click_event>copy_install|download_dmg)$ {
+        if ($request_method != POST) { return 405; }
+        if ($arg_source !~ "^(web|dev|test)$") { return 400; }
+        client_max_body_size 1k;
+        access_log /var/log/nginx/bigbrain-clicks.log bigbrain_click if=$click_valid;
+        add_header Cache-Control "no-store" always;
+        return 204;
+    }
+    location /site-events/ { access_log off; return 404; }
+    # Retire callbacks from previously fetched installer copies.
+    location /install-events/ { access_log off; return 410; }
+
+	# the mail lockups: permanent URLs, served immutable (brand/README.md)
+	location ^~ /email/ {
+        root /srv/releases;
+		add_header Cache-Control "public, max-age=31536000, immutable";
+		try_files $uri =404;
+	}
+
+    location = /latest.json {
+        root /srv/releases;
+        add_header Cache-Control "no-cache";
+        try_files $uri =404;
+    }
+    location ^~ /download/ {
+        root /srv/releases;
+        access_log /var/log/nginx/bigbrain-downloads.log bigbrain_download;
+        add_header Content-Disposition "attachment";
+        add_header Cache-Control "no-cache";
+        try_files $uri =404;
+    }
+    location = /plugins { return 308 /plugins/; }
+    location ^~ /plugins/ {
+        root /srv/releases;
+        add_header Cache-Control "no-cache";
+        location ~* \.(zip|xpi)$ {
+            access_log /var/log/nginx/bigbrain-downloads.log bigbrain_download;
+            add_header Content-Disposition "attachment";
+            add_header Cache-Control "no-cache";
+            try_files $uri =404;
+        }
+        try_files $uri $uri/ =404;
+    }
+
+	# the downloads: the browser should save, not render, the builds
+	location ~* \.(zip|xpi|dmg)$ {
+        access_log /var/log/nginx/bigbrain-downloads.log bigbrain_download;
+		types { application/zip zip; application/x-xpinstall xpi; application/x-apple-diskimage dmg; }
+		add_header Content-Disposition "attachment";
+		add_header Cache-Control "no-cache";
+		try_files $uri =404;
+	}
+
+	# the installer: plain text, so `curl | sh` and a browser both read it
+	location = /install.sh {
+        root /srv/releases;
+        access_log /var/log/nginx/bigbrain-downloads.log bigbrain_download;
+		types { }
+		default_type text/plain;
+		add_header Cache-Control "no-cache";
+		try_files $uri =404;
+	}
+
+	# the pages: / is the download page, /plugins/ the extension's
+	location / {
+		add_header Cache-Control "no-cache";
+		try_files $uri $uri/ =404;
+	}
+}

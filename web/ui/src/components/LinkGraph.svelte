@@ -1,0 +1,171 @@
+<script lang="ts">
+  import { onMount, untrack } from 'svelte';
+  import type { GraphData } from '../lib/types';
+  import { GraphRenderer } from '../lib/graph/renderer';
+  import { effectPreset, type EffectPreset } from '../lib/graph/effects';
+  import { canonicalGraphView, changeGraphView, graphViewAction, type GraphViewState } from '../../../../lib/graphView';
+  import { gotoNote } from '../lib/store.svelte';
+  let { data, pilotDraft = null, selected = null, highlight = null, probe = null,
+    viewState = $bindable<GraphViewState>({ selected: [], excluded: [] }), committedView,
+    hoverTitle = $bindable<string | null>(null), effects = import.meta.env.DEV ? effectPreset(new URLSearchParams(location.search).get('graphEffects') ?? 'all') : 'all', embed = false, controls = false,
+    coveredLeft = 0, centerFocus = false, inset = { top: 0, bottom: 0 }, onhover, onblank, onselect }: {
+    data: GraphData | null; pilotDraft?: { id: string; text: string } | null;
+    selected?: string | null; highlight?: string | null; probe?: string | null;
+    viewState?: GraphViewState; committedView?: GraphViewState; hoverTitle?: string | null;
+    effects?: EffectPreset; embed?: boolean; controls?: boolean;
+    coveredLeft?: number; centerFocus?: boolean; inset?: { top: number; bottom: number };
+    onhover?: (id: string | null) => void; onblank?: () => void; onselect?: (id: string | null) => void;
+  } = $props();
+  let canvas = $state<HTMLCanvasElement>(null!);
+  let renderer = $state.raw<GraphRenderer | null>(null);
+  let hoverId = $state<string | null>(null);
+  let error = $state(''), contextRevision = $state(0), reduced = false, frame = 0;
+  let dragging = $state(false);
+  let gesture: { pointerId: number; id: string | null; start: { x: number; y: number }; last: { x: number; y: number } } | null = null;
+  const clickSlop = 8;
+  let wake: ReturnType<typeof setTimeout> | undefined;
+  function kick() {
+    clearTimeout(wake); wake = undefined;
+    if (frame) return;
+    frame = requestAnimationFrame(t => { frame = 0; if (renderer?.draw(t)) kick();
+      else if (renderer?.nextWake != null) wake = setTimeout(kick, Math.max(0, renderer.nextWake - performance.now())); });
+  }
+  $effect(() => {
+    const graph = data, draft = pilotDraft, preset = effects; void contextRevision;
+    if (!canvas || !graph) return;
+    untrack(() => {
+      renderer?.setEffects(preset);
+      if (renderer?.update(graph, draft)) { kick(); return; }
+      cancelGesture(); cancelAnimationFrame(frame); frame = 0; renderer?.dispose(); renderer = null;
+      try {
+        const next = new GraphRenderer(canvas, graph, inset, coveredLeft, preset); renderer = next;
+        next.update(graph, draft); next.setView(viewState, selected, performance.now(), reduced, centerFocus); next.highlight([highlight, probe]);
+        Object.assign(canvas, { profileStats: next.stats, profilePresentation: () => next.getPresentation() }); error = ''; kick();
+      } catch (e) { error = String(e); }
+    });
+  });
+  $effect(() => { renderer?.setViewport(inset, coveredLeft); kick(); });
+  $effect(() => {
+    const id = selected, graph = renderer, view = viewState;
+    untrack(() => { cancelGesture(); hoverId = null; onhover?.(null); });
+    graph?.setView(view, id, performance.now(), reduced, centerFocus); kick();
+  });
+  $effect(() => { renderer?.highlight([highlight, probe]); kick(); });
+  onMount(() => {
+    const media = matchMedia('(prefers-reduced-motion: reduce)'); reduced = media.matches;
+    const preference = () => { reduced = media.matches; renderer?.setView(viewState, selected, performance.now(), reduced, centerFocus); kick(); };
+    media.addEventListener('change', preference);
+    const escape = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.defaultPrevented || e.isComposing || e.target instanceof Element && e.target.closest('input,textarea,[contenteditable="true"]')) return;
+      e.preventDefault(); clear();
+    };
+    window.addEventListener('keydown', escape);
+    window.addEventListener('blur', cancelGesture);
+    canvas.addEventListener('wheel', wheel, { passive: false });
+    // Observe the container so embedded scenes resize without a backing-canvas
+    // feedback loop in WebKit.
+    const resize = new ResizeObserver(kick); resize.observe(canvas.parentElement!);
+    const palette = new MutationObserver(() => { renderer?.setPalette(); kick(); }); palette.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'style', 'data-theme'] });
+    const lost = (event: Event) => { event.preventDefault(); cancelGesture(); clearTimeout(wake); wake = undefined; cancelAnimationFrame(frame); frame = 0; error = 'Graphics context lost; waiting for restoration.'; };
+    const restored = () => { renderer?.dispose(); renderer = null; contextRevision++; };
+    canvas.addEventListener('webglcontextlost', lost); canvas.addEventListener('webglcontextrestored', restored);
+    return () => { cancelGesture(); window.removeEventListener('keydown', escape); window.removeEventListener('blur', cancelGesture); resize.disconnect(); canvas.removeEventListener('wheel', wheel); palette.disconnect(); media.removeEventListener('change', preference); canvas.removeEventListener('webglcontextlost', lost); canvas.removeEventListener('webglcontextrestored', restored); clearTimeout(wake); cancelAnimationFrame(frame); renderer?.dispose(); };
+  });
+  function local(event: MouseEvent) {
+    const box = canvas.getBoundingClientRect(); return { x: event.clientX - box.left, y: event.clientY - box.top };
+  }
+  function hit(event: MouseEvent) {
+    const { x, y } = local(event);
+    return renderer?.pick(x, y) ?? null;
+  }
+  function clearHover() { hoverTitle = null; hoverId = null; renderer?.hover(null); onhover?.(null); kick(); }
+  function move(event: PointerEvent) {
+    if (gesture) {
+      if (event.pointerId !== gesture.pointerId) return;
+      const p = local(event), starting = !dragging;
+      if (starting && Math.hypot(p.x - gesture.start.x, p.y - gesture.start.y) < clickSlop) return;
+      if (starting && gesture.id) renderer?.beginNodeDrag(gesture.id, gesture.start);
+      dragging = true;
+      if (gesture.id) renderer?.dragNode(p);
+      else {
+        const last = starting ? gesture.start : gesture.last;
+        renderer?.pan({ x: p.x - last.x, y: p.y - last.y });
+      }
+      gesture.last = p; kick(); return;
+    }
+    const id = hit(event);
+    if (id === hoverId) return;
+    hoverId = id; hoverTitle = data?.nodes.find(n => n.id === id)?.title ?? null;
+    renderer?.hover(id); onhover?.(id); kick();
+  }
+  function down(event: PointerEvent) {
+    if (event.button !== 0 || event.ctrlKey || gesture) return;
+    event.preventDefault();
+    const p = local(event);
+    gesture = { pointerId: event.pointerId, id: hit(event), start: p, last: p }; dragging = false;
+    canvas.setPointerCapture(event.pointerId);
+  }
+  function up(event: PointerEvent) {
+    if (!gesture || gesture.pointerId !== event.pointerId) return;
+    move(event);
+    const { id } = gesture, moved = dragging;
+    cancelGesture();
+    if (moved) return;
+    clearHover();
+    if (id) {
+      const action = graphViewAction(id, event);
+      viewState = changeGraphView(committedView ?? viewState, action);
+      renderer?.setView(viewState, action.type === 'select' ? id : selected, performance.now(), reduced);
+      if (action.type === 'select') { if (onselect) onselect(id); else gotoNote(id); }
+    } else clear();
+    kick();
+  }
+  function cancelGesture() {
+    if (!gesture) return;
+    const { pointerId } = gesture;
+    gesture = null; dragging = false; renderer?.endNodeDrag();
+    if (canvas.hasPointerCapture(pointerId)) canvas.releasePointerCapture(pointerId);
+    kick();
+  }
+  function wheel(event: WheelEvent) {
+    if (embed && !event.ctrlKey && !event.metaKey) return;
+    event.preventDefault();
+    if (gesture) return;
+    const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? canvas.clientHeight : 1;
+    const delta = Math.max(-1000, Math.min(1000, event.deltaY * unit));
+    renderer?.zoomAt(local(event), Math.exp(-delta * .0015)); kick();
+  }
+  function refit(event: MouseEvent) {
+    const p = local(event);
+    if (renderer?.pick(p.x, p.y)) return;
+    clear();
+  }
+  // macOS Ctrl-click may arrive only as mousedown, so exclusions use the
+  // compatibility event instead of depending on pointerdown.
+  function exclude(event: MouseEvent) {
+    if (!event.ctrlKey || ![0, 2].includes(event.button)) return;
+    event.preventDefault(); const id = hit(event); if (!id) return;
+    viewState = changeGraphView(committedView ?? viewState, { type: 'exclude', id });
+    clearHover(); renderer?.setView(viewState, selected, performance.now(), reduced); kick();
+  }
+  function clear() { viewState = { selected: [], excluded: [] }; resetOverview(); onblank?.(); onselect?.(null); }
+  export function getViewState() { return data ? canonicalGraphView(data.nodes, viewState) : viewState; }
+  export function getPresentation() { return renderer?.getPresentation(); }
+  export function getCamera() {
+    const p = renderer?.getCamera();
+    return p ? { scale: p.zoom, tx: canvas.clientWidth / 2 - p.x * p.zoom, ty: canvas.clientHeight / 2 - p.y * p.zoom } : null;
+  }
+  export function resetOverview() { cancelGesture(); clearHover(); renderer?.refit(); kick(); }
+  export function getStats() { return renderer?.stats; }
+</script>
+<div class="lg-wrap graph-renderer" data-renderer="webgl" data-selected={selected ?? ''} data-hovered={hoverId ?? ''}>
+  <canvas bind:this={canvas} onmousedown={exclude} oncontextmenu={e => { if (e.ctrlKey) e.preventDefault(); }} onpointerdown={down} onpointerup={up} onpointermove={move} onpointercancel={cancelGesture} onlostpointercapture={cancelGesture} ondblclick={refit} onpointerleave={() => { if (!gesture) clearHover(); }} style:cursor={dragging ? 'grabbing' : hoverId ? 'pointer' : 'grab'} aria-label="Knowledge graph"></canvas>
+  {#if controls}<div class="graph-controls"><button onclick={clear}>Reset view</button><span>Shift-click to add · Ctrl-click to exclude</span></div>{/if}
+  {#if error}<p role="alert">{error}</p>{/if}
+</div>
+<style>
+  .lg-wrap { position:absolute; inset:0; }
+  canvas { display:block; width:100%; height:100%; background:var(--bg); touch-action:none; }
+  .graph-controls { position:absolute; bottom:12px; left:12px; display:flex; gap:12px; align-items:center; background:var(--bg); }
+  p { position:absolute; top:60px; right:20px; background:var(--bg); color:var(--text); padding:16px; }
+</style>

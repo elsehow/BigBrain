@@ -1,0 +1,28 @@
+{
+  "name": "@bigbrain/ui",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "version": "0.0.1",
+  "type": "module",
+  "description": "BigBrain web viewer — Svelte 5 + Vite: the arrivals feed, entity graph, due work, and drop intake.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "check": "svelte-check --tsconfig ./tsconfig.json",
+    "build:integrations": "vite build --config vite.integrations.config.ts"
+  },
+  "dependencies": {
+    "dompurify": "^3.4.14",
+    "marked": "^18.0.5",
+    "pdfjs-dist": "^6.1.200",
+    "tippy.js": "^6.3.7"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^6.0.0",
+    "@tsconfig/svelte": "^5.0.0",
+    "svelte": "^5.0.0",
+    "svelte-check": "^4.0.0",
+    "typescript": "^5.6.3",
+    "vite": "^7.0.0"
+  }
+}

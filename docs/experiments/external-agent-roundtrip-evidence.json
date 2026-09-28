@@ -1,0 +1,165 @@
+{
+  "baseline": "f51f734",
+  "runtime": "codex-cli 0.155.1",
+  "model": "gpt-6-astra",
+  "date": "2026-09-22",
+  "fixtureHuman": true,
+  "nativeApprovalOperator": "Codex development agent driving the native TUI; one-time scratch write only",
+  "markerContent": "probe",
+  "events": [
+    {
+      "at": "2026-09-22T22:46:30.039Z",
+      "event": "pilot-question",
+      "data": {
+        "requestId": 0,
+        "question": "For this fabricated internal-demo launch note, what release name and output format should I use?"
+      }
+    },
+    {
+      "at": "2026-09-22T22:46:33.812Z",
+      "event": "pilot-answer",
+      "data": {
+        "requestId": 0,
+        "author": "pilot",
+        "text": "Use Juniper as the release name and a short Markdown launch note as the output format.",
+        "evidence": [
+          "fixture/project.md"
+        ]
+      }
+    },
+    {
+      "at": "2026-09-22T22:46:37.389Z",
+      "event": "pilot-question",
+      "data": {
+        "requestId": 1,
+        "question": "What launch date does the user want for the fabricated Juniper internal demo?"
+      }
+    },
+    {
+      "at": "2026-09-22T22:46:40.011Z",
+      "event": "human-notification",
+      "data": {
+        "question": "No launch date has been chosen. What launch date would you like for the Juniper internal demo?"
+      }
+    },
+    {
+      "at": "2026-09-22T22:46:40.011Z",
+      "event": "pilot-answer",
+      "data": {
+        "requestId": 1,
+        "author": "fixture-human",
+        "text": "For this fictional demo, choose October 1, 2026. This is a fixture answer, not a real user decision.",
+        "evidence": []
+      }
+    },
+    {
+      "at": "2026-09-22T22:46:44.834Z",
+      "event": "worker-result",
+      "data": {
+        "text": "Per the pilot\u2019s release name and short Markdown format, **Juniper** is launching for an internal demo. The fictional launch date is **October 1, 2026**, supplied by the fixture-human response, not a real user decision."
+      }
+    },
+    {
+      "at": "2026-09-22T22:46:44.842Z",
+      "event": "reconnected",
+      "data": {
+        "workerId": "01a0cb4c-8511-7420-aa37-a7557e14f7a9",
+        "turns": 1,
+        "model": "gpt-6-astra"
+      }
+    },
+    {
+      "at": "2026-09-22T22:46:50.042Z",
+      "event": "worker-result",
+      "data": {
+        "phase": "follow-up",
+        "text": "The release name is Juniper, and the fictional launch date is October 1, 2026."
+      }
+    },
+    {
+      "at": "2026-09-22T22:46:56.407Z",
+      "event": "native-attention",
+      "data": {
+        "method": "item/commandExecution/requestApproval",
+        "requestId": 2,
+        "threadId": "01a0cb4c-8511-7420-aa37-a7557e14f7a9",
+        "command": "/bin/zsh -lc 'printf probe > approval-marker.txt'",
+        "availableDecisions": [
+          "accept",
+          {
+            "acceptWithExecpolicyAmendment": {
+              "execpolicy_amendment": [
+                "/bin/zsh",
+                "-lc",
+                "printf probe > approval-marker.txt"
+              ]
+            }
+          },
+          "cancel"
+        ]
+      }
+    },
+    {
+      "at": "2026-09-22T22:47:43.727Z",
+      "event": "native-event",
+      "data": {
+        "method": "serverRequest/resolved",
+        "params": {
+          "threadId": "01a0cb4c-8511-7420-aa37-a7557e14f7a9",
+          "requestId": 2
+        },
+        "emittedAtMs": 1790117263727
+      }
+    },
+    {
+      "at": "2026-09-22T22:47:54.322Z",
+      "event": "worker-result",
+      "data": {
+        "phase": "approval",
+        "text": "Native approval succeeded, and the exact command ran successfully, creating `approval-marker.txt` containing `probe`."
+      }
+    },
+    {
+      "at": "2026-09-22T22:48:18.881Z",
+      "event": "pilot-question",
+      "data": {
+        "requestId": 3,
+        "question": "What output format does this fabricated internal demo require?"
+      }
+    },
+    {
+      "at": "2026-09-22T22:48:21.191Z",
+      "event": "pilot-answer",
+      "data": {
+        "requestId": 3,
+        "author": "pilot",
+        "text": "A short Markdown launch note.",
+        "evidence": [
+          "fixture/project.md"
+        ]
+      }
+    },
+    {
+      "at": "2026-09-22T22:48:24.964Z",
+      "event": "native-event",
+      "data": {
+        "method": "item/completed",
+        "params": {
+          "item": {
+            "type": "agentMessage",
+            "id": "msg_0ed0d719bb0878a2016ab305b876b487d083f4ae126ef5c0bc",
+            "text": "The pilot says the demo requires **a short Markdown launch note**.",
+            "phase": "final_answer",
+            "memoryCitation": null,
+            "delivery": null,
+            "questions": null
+          },
+          "threadId": "01a0cb4c-8511-7420-aa37-a7557e14f7a9",
+          "turnId": "01a0cb4e-3724-72d1-aaea-fab3cea81328",
+          "completedAtMs": 1790117304963
+        },
+        "emittedAtMs": 1790117304964
+      }
+    }
+  ]
+}

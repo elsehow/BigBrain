@@ -1,0 +1,40 @@
+name: Browser regressions
+description: Run the same synthetic production-shell coverage locally and in CI
+runs:
+  using: composite
+  steps:
+    - uses: oven-sh/setup-bun@v2
+      with:
+        bun-version: 1.3.9
+    - run: bun install --frozen-lockfile
+      shell: bash
+    - run: PLAYWRIGHT_BROWSERS_PATH=0 node node_modules/playwright-core/cli.js install --with-deps chromium --no-shell
+      shell: bash
+    - name: Install Linux worker sandbox prerequisites
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        sudo apt-get update -qq
+        sudo apt-get install -y bubblewrap socat
+        sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+    - run: bun test test/workerSandbox.test.ts test/agentOrchestrator.test.ts test/workerProjects.test.ts
+      shell: bash
+    - run: bun run ci:browser
+      shell: bash
+      env:
+        PLAYWRIGHT_BROWSERS_PATH: '0'
+        PLAYWRIGHT_CHANNEL: chromium
+    - uses: actions/upload-artifact@v7
+      if: failure() || cancelled()
+      with:
+        name: browser-failure-${{ runner.os }}
+        path: artifacts/browser/
+        retention-days: 7
+        if-no-files-found: warn
+    - uses: actions/upload-artifact@v7
+      if: always()
+      with:
+        name: browser-timing-${{ runner.os }}
+        path: artifacts/browser/results.json
+        retention-days: 14
+        if-no-files-found: ignore

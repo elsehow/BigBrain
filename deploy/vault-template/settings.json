@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "P=$(cat); case \"$P\" in *references/*|*entities/*|*projection/*|*log/*) printf '%s' \"$P\" | PATH=\"$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH\" bigbrain use --hook >/dev/null 2>&1;; esac; exit 0",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

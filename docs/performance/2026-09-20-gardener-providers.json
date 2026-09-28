@@ -1,0 +1,120 @@
+[
+  {
+    "run": 1,
+    "model": {
+      "agent": "pi",
+      "model": "gpt-6-astra",
+      "reasoning": "medium"
+    },
+    "resolvedModels": [],
+    "elapsedSeconds": 77.660916625,
+    "toolsSeconds": 0.9701412930000115,
+    "firstToolStartedSeconds": 4.188025958,
+    "assertions": 13,
+    "rejected": 0,
+    "admitted": 0,
+    "passed": 2,
+    "itemsPerMinute": 6.180715099176181,
+    "usage": {
+      "input_tokens": 29775,
+      "output_tokens": 1830,
+      "cache_read_tokens": 164608,
+      "cache_write_tokens": 0,
+      "turns": 10,
+      "cost_usd": null
+    },
+    "cpuPercentOneCore": 4.365554151046286,
+    "footprintMiB": 400.36100006103516,
+    "peakRssMiB": 693.859375,
+    "maxHostTimerDelayMs": 273.042875000001
+  },
+  {
+    "run": 2,
+    "model": {
+      "agent": "claude",
+      "model": "opus"
+    },
+    "resolvedModels": [
+      "claude-opus-5"
+    ],
+    "elapsedSeconds": 135.227530625,
+    "toolsSeconds": 2.8691717500000125,
+    "firstToolStartedSeconds": 4.819872625,
+    "assertions": 17,
+    "rejected": 3,
+    "admitted": 1,
+    "passed": 1,
+    "itemsPerMinute": 3.549573062389861,
+    "usage": {
+      "input_tokens": 30,
+      "output_tokens": 11553,
+      "cache_read_tokens": 593755,
+      "cache_write_tokens": 57786,
+      "turns": 17,
+      "cost_usd": null
+    },
+    "cpuPercentOneCore": 4.50995753528685,
+    "footprintMiB": 496.6274948120117,
+    "peakRssMiB": 679.40625,
+    "maxHostTimerDelayMs": 1147.625874999998
+  },
+  {
+    "run": 3,
+    "model": {
+      "agent": "claude",
+      "model": "opus"
+    },
+    "resolvedModels": [
+      "claude-opus-5"
+    ],
+    "elapsedSeconds": 153.89722595800004,
+    "toolsSeconds": 1.776117666000009,
+    "firstToolStartedSeconds": 2.9947586249999985,
+    "assertions": 14,
+    "rejected": 0,
+    "admitted": 0,
+    "passed": 2,
+    "itemsPerMinute": 3.1189646012917507,
+    "usage": {
+      "input_tokens": 26,
+      "output_tokens": 12767,
+      "cache_read_tokens": 521226,
+      "cache_write_tokens": 67099,
+      "turns": 16,
+      "cost_usd": null
+    },
+    "cpuPercentOneCore": 3.751738838713378,
+    "footprintMiB": 751.8150405883789,
+    "peakRssMiB": 614.21875,
+    "maxHostTimerDelayMs": 392.9941250000011
+  },
+  {
+    "run": 4,
+    "model": {
+      "agent": "pi",
+      "model": "gpt-6-astra",
+      "reasoning": "medium"
+    },
+    "resolvedModels": [],
+    "elapsedSeconds": 76.3577485,
+    "toolsSeconds": 1.178536417000012,
+    "firstToolStartedSeconds": 4.35599475,
+    "assertions": 13,
+    "rejected": 0,
+    "admitted": 0,
+    "passed": 2,
+    "itemsPerMinute": 6.286198970363826,
+    "usage": {
+      "input_tokens": 28408,
+      "output_tokens": 1740,
+      "cache_read_tokens": 155648,
+      "cache_write_tokens": 0,
+      "turns": 10,
+      "cost_usd": null
+    },
+    "cpuPercentOneCore": 4.9657088370011975,
+    "footprintMiB": 402.59532928466797,
+    "peakRssMiB": 683.828125,
+    "maxHostTimerDelayMs": 307.1686659999996
+  }
+]

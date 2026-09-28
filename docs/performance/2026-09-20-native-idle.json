@@ -1,0 +1,142 @@
+{
+  "installed_engine": "3151980",
+  "installed_app": "0.7.17",
+  "native_scope": "resource coalition including owned WebKit helpers",
+  "cpu_unit": "percent of one core; Mach ticks converted using timebase 125/3 ns",
+  "gpu_unit": "CPU consumed by WebKit GPU helper, not GPU utilization",
+  "native_visible_samples": [
+    {
+      "duration_seconds": 30.132,
+      "sample_count": 15,
+      "process_churn": false,
+      "groups": {
+        "engine": {
+          "cpu_percent_mean": 1.2,
+          "footprint_mb_mean": 1632.259,
+          "rss_mb_mean": 1544.339,
+          "wakeups_per_sec_mean": 0.0
+        },
+        "other_child": {
+          "cpu_percent_mean": 0.0,
+          "footprint_mb_mean": 2.969,
+          "rss_mb_mean": 7.688,
+          "wakeups_per_sec_mean": 0.0
+        },
+        "shell": {
+          "cpu_percent_mean": 3.101,
+          "footprint_mb_mean": 38.77,
+          "rss_mb_mean": 84.487,
+          "wakeups_per_sec_mean": 0.0
+        },
+        "webkit_gpu_helper": {
+          "cpu_percent_mean": 37.994,
+          "footprint_mb_mean": 189.873,
+          "rss_mb_mean": 190.424,
+          "wakeups_per_sec_mean": 0.0
+        },
+        "webkit_network": {
+          "cpu_percent_mean": 0.245,
+          "footprint_mb_mean": 13.0,
+          "rss_mb_mean": 38.525,
+          "wakeups_per_sec_mean": 0.0
+        },
+        "webkit_renderer": {
+          "cpu_percent_mean": 52.432,
+          "footprint_mb_mean": 954.471,
+          "rss_mb_mean": 1127.448,
+          "wakeups_per_sec_mean": 0.0
+        }
+      },
+      "cpu_percent_total_mean": 94.972,
+      "footprint_mb_total_mean": 2831.342,
+      "phase": "visible",
+      "state_before": {
+        "active": false,
+        "hidden": false,
+        "visible_main_windows": 1
+      },
+      "state_after": {
+        "active": false,
+        "hidden": false,
+        "visible_main_windows": 1
+      }
+    },
+    {
+      "duration_seconds": 30.14,
+      "sample_count": 15,
+      "process_churn": false,
+      "groups": {
+        "engine": {
+          "cpu_percent_mean": 2.109,
+          "footprint_mb_mean": 1632.614,
+          "rss_mb_mean": 1547.048,
+          "wakeups_per_sec_mean": 0.0
+        },
+        "other_child": {
+          "cpu_percent_mean": 0.0,
+          "footprint_mb_mean": 2.969,
+          "rss_mb_mean": 7.688,
+          "wakeups_per_sec_mean": 0.0
+        },
+        "shell": {
+          "cpu_percent_mean": 2.988,
+          "footprint_mb_mean": 38.754,
+          "rss_mb_mean": 84.206,
+          "wakeups_per_sec_mean": 0.0
+        },
+        "webkit_gpu_helper": {
+          "cpu_percent_mean": 36.401,
+          "footprint_mb_mean": 197.312,
+          "rss_mb_mean": 195.234,
+          "wakeups_per_sec_mean": 0.0
+        },
+        "webkit_network": {
+          "cpu_percent_mean": 0.224,
+          "footprint_mb_mean": 13.102,
+          "rss_mb_mean": 39.882,
+          "wakeups_per_sec_mean": 0.0
+        },
+        "webkit_renderer": {
+          "cpu_percent_mean": 51.537,
+          "footprint_mb_mean": 972.762,
+          "rss_mb_mean": 1116.302,
+          "wakeups_per_sec_mean": 0.0
+        }
+      },
+      "cpu_percent_total_mean": 93.259,
+      "footprint_mb_total_mean": 2857.513,
+      "phase": "visible",
+      "state_before": {
+        "active": false,
+        "hidden": false,
+        "visible_main_windows": 1
+      },
+      "state_after": {
+        "active": false,
+        "hidden": false,
+        "visible_main_windows": 1
+      }
+    }
+  ],
+  "synthetic_renderer": {
+    "no_attention": {
+      "label": "foreground-idle",
+      "visibility": "visible",
+      "frames": 0,
+      "seconds": 6,
+      "taskSeconds": 0.002057,
+      "heapBytes": 48989672,
+      "errors": []
+    },
+    "one_pending_question": {
+      "label": "foreground-attention",
+      "visibility": "visible",
+      "frames": 360,
+      "seconds": 6,
+      "taskSeconds": 0.6990019999999999,
+      "heapBytes": 41463376,
+      "errors": []
+    }
+  },
+  "hidden_closed_status": "not validated: automatic unhide and conflicting Accessibility versus CoreGraphics visibility; discarded"
+}

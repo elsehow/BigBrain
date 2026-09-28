@@ -1,0 +1,142 @@
+{
+  "before": {
+    "sources": 1200,
+    "bun": "1.3.9",
+    "firstEver": {
+      "ms": 1027.781208,
+      "pingMs": 1027.7840410000001,
+      "maxGapMs": 1021.175833,
+      "ticks": 4,
+      "total": 1200,
+      "digest": "abf10c9e611d4f645d503a87978578a5306b83bd138fa4ff20574a6abd9052e9"
+    },
+    "warm": [
+      {
+        "ms": 1.5346250000000055,
+        "pingMs": 1.671875,
+        "maxGapMs": 5.938874999999825,
+        "ticks": 2,
+        "total": 1200,
+        "digest": "abf10c9e611d4f645d503a87978578a5306b83bd138fa4ff20574a6abd9052e9"
+      },
+      {
+        "ms": 1.4932079999998678,
+        "pingMs": 1.5867080000000442,
+        "maxGapMs": 5.631834000000026,
+        "ticks": 2,
+        "total": 1200,
+        "digest": "abf10c9e611d4f645d503a87978578a5306b83bd138fa4ff20574a6abd9052e9"
+      },
+      {
+        "ms": 1.1939579999998386,
+        "pingMs": 1.2935419999998885,
+        "maxGapMs": 5.989915999999994,
+        "ticks": 1,
+        "total": 1200,
+        "digest": "abf10c9e611d4f645d503a87978578a5306b83bd138fa4ff20574a6abd9052e9"
+      },
+      {
+        "ms": 1.28970900000013,
+        "pingMs": 1.3872920000001159,
+        "maxGapMs": 5.603624999999965,
+        "ticks": 2,
+        "total": 1200,
+        "digest": "abf10c9e611d4f645d503a87978578a5306b83bd138fa4ff20574a6abd9052e9"
+      },
+      {
+        "ms": 1.3059579999999187,
+        "pingMs": 1.3834999999999127,
+        "maxGapMs": 5.457834000000048,
+        "ticks": 1,
+        "total": 1200,
+        "digest": "abf10c9e611d4f645d503a87978578a5306b83bd138fa4ff20574a6abd9052e9"
+      }
+    ],
+    "changed": {
+      "ms": 48.433750000000146,
+      "pingMs": 49.49791600000003,
+      "maxGapMs": 48.41158399999995,
+      "ticks": 3,
+      "total": 1201,
+      "digest": "dc0d431d2af58f76076b4bfe6e2df83f09a722bb9dba2cdf38f9cfad8b24e238"
+    },
+    "unchangedCensus": {
+      "ms": 5.914208000000144,
+      "pingMs": 6.055790999999772,
+      "maxGapMs": 5.901957999999922,
+      "ticks": 2,
+      "total": 1201,
+      "digest": "dc0d431d2af58f76076b4bfe6e2df83f09a722bb9dba2cdf38f9cfad8b24e238"
+    }
+  },
+  "after": {
+    "sources": 1200,
+    "bun": "1.3.9",
+    "firstEver": {
+      "ms": 1029.030041,
+      "pingMs": 7.504000000000019,
+      "maxGapMs": 6.291832999999997,
+      "ticks": 185,
+      "total": 1200,
+      "digest": "abf10c9e611d4f645d503a87978578a5306b83bd138fa4ff20574a6abd9052e9"
+    },
+    "warm": [
+      {
+        "ms": 1.396833000000015,
+        "pingMs": 1.513249999999971,
+        "maxGapMs": 6.001125000000002,
+        "ticks": 2,
+        "total": 1200,
+        "digest": "abf10c9e611d4f645d503a87978578a5306b83bd138fa4ff20574a6abd9052e9"
+      },
+      {
+        "ms": 1.1111250000001291,
+        "pingMs": 1.1892500000001291,
+        "maxGapMs": 5.634083000000146,
+        "ticks": 2,
+        "total": 1200,
+        "digest": "abf10c9e611d4f645d503a87978578a5306b83bd138fa4ff20574a6abd9052e9"
+      },
+      {
+        "ms": 1.3474169999999503,
+        "pingMs": 1.4573330000000624,
+        "maxGapMs": 5.770624999999882,
+        "ticks": 2,
+        "total": 1200,
+        "digest": "abf10c9e611d4f645d503a87978578a5306b83bd138fa4ff20574a6abd9052e9"
+      },
+      {
+        "ms": 1.109042000000045,
+        "pingMs": 1.1830419999998867,
+        "maxGapMs": 5.377624999999853,
+        "ticks": 2,
+        "total": 1200,
+        "digest": "abf10c9e611d4f645d503a87978578a5306b83bd138fa4ff20574a6abd9052e9"
+      },
+      {
+        "ms": 1.1659170000000358,
+        "pingMs": 1.2858750000000327,
+        "maxGapMs": 5.633417000000009,
+        "ticks": 2,
+        "total": 1200,
+        "digest": "abf10c9e611d4f645d503a87978578a5306b83bd138fa4ff20574a6abd9052e9"
+      }
+    ],
+    "changed": {
+      "ms": 80.7941249999999,
+      "pingMs": 1.2447089999998298,
+      "maxGapMs": 5.917625000000044,
+      "ticks": 16,
+      "total": 1201,
+      "digest": "dc0d431d2af58f76076b4bfe6e2df83f09a722bb9dba2cdf38f9cfad8b24e238"
+    },
+    "unchangedCensus": {
+      "ms": 36.367707999999766,
+      "pingMs": 1.3148329999999078,
+      "maxGapMs": 6.154916999999841,
+      "ticks": 8,
+      "total": 1201,
+      "digest": "dc0d431d2af58f76076b4bfe6e2df83f09a722bb9dba2cdf38f9cfad8b24e238"
+    }
+  }
+}

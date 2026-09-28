@@ -1,0 +1,661 @@
+[
+  {
+    "run": 1,
+    "variant": "baseline",
+    "promptSha256": "58538456449402303ae99328e618bb0013a7dfb0725c14b5580067a18b5bf32d",
+    "model": {
+      "agent": "claude",
+      "model": "opus"
+    },
+    "resolvedModels": [
+      "claude-opus-5"
+    ],
+    "elapsedMs": 138462.422708,
+    "firstFilingMs": 74812.88799999999,
+    "toolUnionMs": 2175.294499999982,
+    "claims": 14,
+    "intakeCoverageCounts": [
+      3,
+      3,
+      1,
+      1,
+      4,
+      1
+    ],
+    "distinctEntities": 15,
+    "turns": 18,
+    "rejected": 0,
+    "admitted": 1,
+    "passed": 1,
+    "remainingIntake": 0,
+    "remainingStaged": 0,
+    "toolGroups": [
+      [
+        "next"
+      ],
+      [
+        "search_vault",
+        "search_vault"
+      ],
+      [
+        "search_vault",
+        "search_vault"
+      ],
+      [
+        "read_note"
+      ],
+      [
+        "open",
+        "read_note"
+      ],
+      [
+        "search_vault"
+      ],
+      [
+        "submit"
+      ],
+      [
+        "search_vault"
+      ],
+      [
+        "submit"
+      ],
+      [
+        "next"
+      ],
+      [
+        "search_vault"
+      ],
+      [
+        "search_vault"
+      ],
+      [
+        "submit"
+      ],
+      [
+        "next"
+      ]
+    ],
+    "timeline": [
+      {
+        "tool": "next",
+        "startMs": 4918.359624999999,
+        "endMs": 5092.974124999999
+      },
+      {
+        "tool": "search_vault",
+        "startMs": 8518.638333,
+        "endMs": 8639.335666
+      },
+      {
+        "tool": "search_vault",
+        "startMs": 9357.551708,
+        "endMs": 9373.1955
+      },
+      {
+        "tool": "search_vault",
+        "startMs": 19244.786165999998,
+        "endMs": 19288.461750000002
+      },
+      {
+        "tool": "search_vault",
+        "startMs": 19964.576708,
+        "endMs": 19979.527666
+      },
+      {
+        "tool": "read_note",
+        "startMs": 23689.682375000004,
+        "endMs": 24249.765166000005
+      },
+      {
+        "tool": "open",
+        "startMs": 33596.403708,
+        "endMs": 33597.234208
+      },
+      {
+        "tool": "read_note",
+        "startMs": 34333.406833,
+        "endMs": 34333.737958
+      },
+      {
+        "tool": "search_vault",
+        "startMs": 40088.071083,
+        "endMs": 40117.176958000004
+      },
+      {
+        "tool": "submit",
+        "startMs": 74403.219791,
+        "endMs": 74812.88799999999,
+        "appended": 7,
+        "rejected": 0
+      },
+      {
+        "tool": "search_vault",
+        "startMs": 78371.28370799999,
+        "endMs": 78461.26474999999
+      },
+      {
+        "tool": "submit",
+        "startMs": 83949.514916,
+        "endMs": 84105.8955,
+        "appended": 1,
+        "rejected": 0
+      },
+      {
+        "tool": "next",
+        "startMs": 85913.110625,
+        "endMs": 86130.925458
+      },
+      {
+        "tool": "search_vault",
+        "startMs": 93333.624875,
+        "endMs": 93444.05212499999
+      },
+      {
+        "tool": "search_vault",
+        "startMs": 98040.093125,
+        "endMs": 98063.13358299999
+      },
+      {
+        "tool": "submit",
+        "startMs": 126395.41012499998,
+        "endMs": 126585.13891599998,
+        "appended": 6,
+        "rejected": 0
+      },
+      {
+        "tool": "next",
+        "startMs": 128328.940541,
+        "endMs": 128347.26141600001
+      }
+    ]
+  },
+  {
+    "run": 2,
+    "variant": "treatment",
+    "promptSha256": "3aa33662442dada92a0cbbac01c30c1dabd2d9e8fc8ee592fbc842603f6058a5",
+    "model": {
+      "agent": "claude",
+      "model": "opus"
+    },
+    "resolvedModels": [
+      "claude-opus-5"
+    ],
+    "elapsedMs": 154448.00325,
+    "firstFilingMs": 83621.398791,
+    "toolUnionMs": 1736.3842470000145,
+    "claims": 16,
+    "intakeCoverageCounts": [
+      4,
+      3,
+      1,
+      2,
+      4,
+      1
+    ],
+    "distinctEntities": 14,
+    "turns": 17,
+    "rejected": 0,
+    "admitted": 1,
+    "passed": 1,
+    "remainingIntake": 0,
+    "remainingStaged": 0,
+    "toolGroups": [
+      [
+        "next"
+      ],
+      [
+        "search_vault",
+        "search_vault",
+        "read_note"
+      ],
+      [
+        "read_note",
+        "search_vault"
+      ],
+      [
+        "open",
+        "search_vault"
+      ],
+      [
+        "submit"
+      ],
+      [
+        "search_vault"
+      ],
+      [
+        "submit"
+      ],
+      [
+        "next"
+      ],
+      [
+        "search_vault",
+        "search_vault"
+      ],
+      [
+        "submit"
+      ],
+      [
+        "next"
+      ]
+    ],
+    "timeline": [
+      {
+        "tool": "next",
+        "startMs": 2854.0404579999995,
+        "endMs": 3029.976541
+      },
+      {
+        "tool": "search_vault",
+        "startMs": 6796.517583000001,
+        "endMs": 6963.855791
+      },
+      {
+        "tool": "search_vault",
+        "startMs": 7798.388000000001,
+        "endMs": 7872.493082999999
+      },
+      {
+        "tool": "read_note",
+        "startMs": 15148.654041,
+        "endMs": 15149.554833
+      },
+      {
+        "tool": "search_vault",
+        "startMs": 15958.078875000001,
+        "endMs": 16122.804708000001
+      },
+      {
+        "tool": "open",
+        "startMs": 37753.053375,
+        "endMs": 37754.454458
+      },
+      {
+        "tool": "search_vault",
+        "startMs": 38502.138958,
+        "endMs": 38532.780666
+      },
+      {
+        "tool": "submit",
+        "startMs": 83225.397583,
+        "endMs": 83621.398791,
+        "appended": 8,
+        "rejected": 0
+      },
+      {
+        "tool": "search_vault",
+        "startMs": 86601.395083,
+        "endMs": 86681.45475
+      },
+      {
+        "tool": "submit",
+        "startMs": 93860.397,
+        "endMs": 93982.645708,
+        "appended": 1,
+        "rejected": 0
+      },
+      {
+        "tool": "next",
+        "startMs": 96806.439791,
+        "endMs": 96987.549125
+      },
+      {
+        "tool": "search_vault",
+        "startMs": 105610.723708,
+        "endMs": 105714.969791
+      },
+      {
+        "tool": "search_vault",
+        "startMs": 106233.241125,
+        "endMs": 106250.070708
+      },
+      {
+        "tool": "submit",
+        "startMs": 142149.16425,
+        "endMs": 142342.960166,
+        "appended": 7,
+        "rejected": 0
+      },
+      {
+        "tool": "next",
+        "startMs": 143968.0925,
+        "endMs": 143995.137458
+      }
+    ]
+  },
+  {
+    "run": 3,
+    "variant": "treatment",
+    "promptSha256": "3aa33662442dada92a0cbbac01c30c1dabd2d9e8fc8ee592fbc842603f6058a5",
+    "model": {
+      "agent": "claude",
+      "model": "opus"
+    },
+    "resolvedModels": [
+      "claude-opus-5"
+    ],
+    "elapsedMs": 200351.004458,
+    "firstFilingMs": 93774.03125,
+    "toolUnionMs": 2898.210125999991,
+    "claims": 16,
+    "intakeCoverageCounts": [
+      5,
+      2,
+      1,
+      2,
+      5,
+      1
+    ],
+    "distinctEntities": 23,
+    "turns": 17,
+    "rejected": 4,
+    "admitted": 0,
+    "passed": 2,
+    "remainingIntake": 0,
+    "remainingStaged": 0,
+    "toolGroups": [
+      [
+        "next"
+      ],
+      [
+        "search_vault",
+        "search_vault"
+      ],
+      [
+        "search_vault",
+        "read_note"
+      ],
+      [
+        "open"
+      ],
+      [
+        "submit"
+      ],
+      [
+        "submit"
+      ],
+      [
+        "next"
+      ],
+      [
+        "search_vault",
+        "search_vault"
+      ],
+      [
+        "search_vault"
+      ],
+      [
+        "submit"
+      ],
+      [
+        "read_note"
+      ],
+      [
+        "submit"
+      ],
+      [
+        "next"
+      ]
+    ],
+    "timeline": [
+      {
+        "tool": "next",
+        "startMs": 3620.7805830000016,
+        "endMs": 3882.742250000001
+      },
+      {
+        "tool": "search_vault",
+        "startMs": 14149.506041999999,
+        "endMs": 14362.928875
+      },
+      {
+        "tool": "search_vault",
+        "startMs": 14927.406,
+        "endMs": 14958.256500000001
+      },
+      {
+        "tool": "search_vault",
+        "startMs": 29666.5305,
+        "endMs": 29704.569541999997
+      },
+      {
+        "tool": "read_note",
+        "startMs": 30441.162082999996,
+        "endMs": 30442.282542
+      },
+      {
+        "tool": "open",
+        "startMs": 57124.117125000004,
+        "endMs": 57124.671542
+      },
+      {
+        "tool": "submit",
+        "startMs": 93549.405125,
+        "endMs": 93774.03125,
+        "appended": 7,
+        "rejected": 1
+      },
+      {
+        "tool": "submit",
+        "startMs": 99961.41712499999,
+        "endMs": 100085.663417,
+        "appended": 1,
+        "rejected": 0
+      },
+      {
+        "tool": "next",
+        "startMs": 103382.140167,
+        "endMs": 103590.49529199999
+      },
+      {
+        "tool": "search_vault",
+        "startMs": 114388.465542,
+        "endMs": 114497.114333
+      },
+      {
+        "tool": "search_vault",
+        "startMs": 115271.337333,
+        "endMs": 115291.968125
+      },
+      {
+        "tool": "search_vault",
+        "startMs": 129252.112042,
+        "endMs": 129273.70966699999
+      },
+      {
+        "tool": "submit",
+        "startMs": 164079.189875,
+        "endMs": 164285.85175,
+        "appended": 5,
+        "rejected": 3
+      },
+      {
+        "tool": "read_note",
+        "startMs": 168166.403292,
+        "endMs": 169445.226208
+      },
+      {
+        "tool": "submit",
+        "startMs": 183997.764208,
+        "endMs": 184137.151542,
+        "appended": 3,
+        "rejected": 0
+      },
+      {
+        "tool": "next",
+        "startMs": 187921.287292,
+        "endMs": 187940.571625
+      }
+    ]
+  },
+  {
+    "run": 4,
+    "variant": "baseline",
+    "promptSha256": "58538456449402303ae99328e618bb0013a7dfb0725c14b5580067a18b5bf32d",
+    "model": {
+      "agent": "claude",
+      "model": "opus"
+    },
+    "resolvedModels": [
+      "claude-opus-5"
+    ],
+    "elapsedMs": 131293.23200000002,
+    "firstFilingMs": 40339.378708,
+    "toolUnionMs": 2076.8901680000017,
+    "claims": 14,
+    "intakeCoverageCounts": [
+      3,
+      2,
+      1,
+      2,
+      5,
+      1
+    ],
+    "distinctEntities": 16,
+    "turns": 18,
+    "rejected": 0,
+    "admitted": 0,
+    "passed": 2,
+    "remainingIntake": 0,
+    "remainingStaged": 0,
+    "toolGroups": [
+      [
+        "next"
+      ],
+      [
+        "search_vault",
+        "search_vault"
+      ],
+      [
+        "search_vault",
+        "read_note"
+      ],
+      [
+        "search_vault"
+      ],
+      [
+        "open",
+        "submit"
+      ],
+      [
+        "read_note"
+      ],
+      [
+        "submit"
+      ],
+      [
+        "next"
+      ],
+      [
+        "search_vault"
+      ],
+      [
+        "search_vault",
+        "search_vault"
+      ],
+      [
+        "search_vault"
+      ],
+      [
+        "submit"
+      ],
+      [
+        "next"
+      ]
+    ],
+    "timeline": [
+      {
+        "tool": "next",
+        "startMs": 2825.191291000001,
+        "endMs": 2998.5004160000008
+      },
+      {
+        "tool": "search_vault",
+        "startMs": 5752.177458,
+        "endMs": 5849.067166000001
+      },
+      {
+        "tool": "search_vault",
+        "startMs": 6491.139625,
+        "endMs": 6498.694750000001
+      },
+      {
+        "tool": "search_vault",
+        "startMs": 14910.14175,
+        "endMs": 14927.405791
+      },
+      {
+        "tool": "read_note",
+        "startMs": 15686.204666,
+        "endMs": 15686.915125000001
+      },
+      {
+        "tool": "search_vault",
+        "startMs": 29795.48425,
+        "endMs": 29988.088749999995
+      },
+      {
+        "tool": "open",
+        "startMs": 37426.949208,
+        "endMs": 37427.481332999996
+      },
+      {
+        "tool": "submit",
+        "startMs": 40224.772541,
+        "endMs": 40339.378708,
+        "appended": 1,
+        "rejected": 0
+      },
+      {
+        "tool": "read_note",
+        "startMs": 49481.6645,
+        "endMs": 50232.079333
+      },
+      {
+        "tool": "submit",
+        "startMs": 67021.350625,
+        "endMs": 67194.74470800001,
+        "appended": 5,
+        "rejected": 0
+      },
+      {
+        "tool": "next",
+        "startMs": 68998.98629100001,
+        "endMs": 69210.91137500001
+      },
+      {
+        "tool": "search_vault",
+        "startMs": 76388.64566600001,
+        "endMs": 76490.70416600001
+      },
+      {
+        "tool": "search_vault",
+        "startMs": 79778.56995800001,
+        "endMs": 79804.32733300001
+      },
+      {
+        "tool": "search_vault",
+        "startMs": 80416.13304100001,
+        "endMs": 80430.812875
+      },
+      {
+        "tool": "search_vault",
+        "startMs": 89165.66258300001,
+        "endMs": 89189.84950000001
+      },
+      {
+        "tool": "submit",
+        "startMs": 119758.288375,
+        "endMs": 119909.91437500001,
+        "appended": 8,
+        "rejected": 0
+      },
+      {
+        "tool": "next",
+        "startMs": 121699.556708,
+        "endMs": 121718.933
+      }
+    ]
+  }
+]

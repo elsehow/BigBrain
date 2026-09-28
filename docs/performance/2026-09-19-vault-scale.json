@@ -1,0 +1,807 @@
+{
+  "date": "2026-09-19",
+  "scope": "Private disposable snapshot; no model inference; timings in milliseconds",
+  "snapshotCounts": {
+    "log": {
+      "files": 11781,
+      "bytes": 81158738
+    },
+    "memory": {
+      "files": 9,
+      "bytes": 26609
+    },
+    "entities": {
+      "files": 267,
+      "bytes": 1705380
+    },
+    "references": {
+      "files": 932,
+      "bytes": 43029798
+    },
+    ".state/note-briefings": {
+      "files": 104,
+      "bytes": 3598056
+    },
+    ".state/entity-briefings": {
+      "files": 24,
+      "bytes": 48934
+    },
+    ".state/source-briefings": {
+      "files": 13,
+      "bytes": 5276
+    },
+    ".spool/pilot-chats": {
+      "files": 35,
+      "bytes": 1808029
+    },
+    ".spool/work-sessions": {
+      "files": 15,
+      "bytes": 1150462
+    },
+    ".spool/work-outputs": {
+      "files": 2,
+      "bytes": 535
+    },
+    ".spool/handoffs": {
+      "files": 7,
+      "bytes": 89111
+    }
+  },
+  "local": [
+    {
+      "stage": "projection-sync",
+      "ms": 29.617250000000013,
+      "counts": {
+        "sources": 3447,
+        "assertions": 4930,
+        "entities": 724,
+        "source_links": 6262
+      }
+    },
+    {
+      "stage": "graph-build",
+      "ms": 3109.926,
+      "nodes": 4166,
+      "edges": 12008
+    },
+    {
+      "stage": "graph-layout",
+      "ms": 4202.410125
+    },
+    {
+      "stage": "note-preparation",
+      "label": "dense-entity",
+      "run": 0,
+      "entityMs": 5.795665999999983,
+      "inputMs": 33.66029199999957,
+      "totalMs": 39.95545799999945,
+      "assertions": 629,
+      "links": 656,
+      "promptCharacters": 30166
+    },
+    {
+      "stage": "note-preparation",
+      "label": "dense-entity",
+      "run": 1,
+      "entityMs": 4.722291000000041,
+      "inputMs": 30.96295900000041,
+      "totalMs": 35.82395800000086,
+      "assertions": 629,
+      "links": 656,
+      "promptCharacters": 30166
+    },
+    {
+      "stage": "note-preparation",
+      "label": "dense-entity",
+      "run": 2,
+      "entityMs": 4.458125000000109,
+      "inputMs": 30.164542000000438,
+      "totalMs": 34.77720800000043,
+      "assertions": 629,
+      "links": 656,
+      "promptCharacters": 30166
+    },
+    {
+      "stage": "note-preparation",
+      "label": "dense-entity",
+      "run": 3,
+      "entityMs": 4.997459000000163,
+      "inputMs": 28.6240829999997,
+      "totalMs": 33.77904200000012,
+      "assertions": 629,
+      "links": 656,
+      "promptCharacters": 30166
+    },
+    {
+      "stage": "note-preparation",
+      "label": "dense-entity",
+      "run": 4,
+      "entityMs": 4.772707999999511,
+      "inputMs": 26.696125000000393,
+      "totalMs": 31.590540999999575,
+      "assertions": 629,
+      "links": 656,
+      "promptCharacters": 30166
+    },
+    {
+      "stage": "briefing-cache",
+      "label": "dense-entity",
+      "run": 0,
+      "ms": 46.55216699999983,
+      "cacheHit": false,
+      "links": 656
+    },
+    {
+      "stage": "briefing-cache",
+      "label": "dense-entity",
+      "run": 1,
+      "ms": 47.743083999999726,
+      "cacheHit": true,
+      "links": 656
+    },
+    {
+      "stage": "briefing-cache",
+      "label": "dense-entity",
+      "run": 2,
+      "ms": 47.259915999999976,
+      "cacheHit": true,
+      "links": 656
+    },
+    {
+      "stage": "briefing-cache",
+      "label": "dense-entity",
+      "run": 3,
+      "ms": 44.356291999999485,
+      "cacheHit": true,
+      "links": 656
+    },
+    {
+      "stage": "briefing-cache",
+      "label": "dense-entity",
+      "run": 4,
+      "ms": 44.73633400000017,
+      "cacheHit": true,
+      "links": 656
+    },
+    {
+      "stage": "note-preparation",
+      "label": "typical-entity",
+      "run": 0,
+      "entityMs": 2.075249999999869,
+      "inputMs": 13.900042000000212,
+      "totalMs": 16.031667000000198,
+      "assertions": 1,
+      "links": 4,
+      "promptCharacters": 2886
+    },
+    {
+      "stage": "note-preparation",
+      "label": "typical-entity",
+      "run": 1,
+      "entityMs": 2.401915999999801,
+      "inputMs": 13.286000000000058,
+      "totalMs": 15.729208000000654,
+      "assertions": 1,
+      "links": 4,
+      "promptCharacters": 2886
+    },
+    {
+      "stage": "note-preparation",
+      "label": "typical-entity",
+      "run": 2,
+      "entityMs": 1.88274999999976,
+      "inputMs": 12.871916000000056,
+      "totalMs": 14.790332999999919,
+      "assertions": 1,
+      "links": 4,
+      "promptCharacters": 2886
+    },
+    {
+      "stage": "note-preparation",
+      "label": "typical-entity",
+      "run": 3,
+      "entityMs": 1.721042000000125,
+      "inputMs": 13.836083000000144,
+      "totalMs": 15.598500000000058,
+      "assertions": 1,
+      "links": 4,
+      "promptCharacters": 2886
+    },
+    {
+      "stage": "note-preparation",
+      "label": "typical-entity",
+      "run": 4,
+      "entityMs": 1.6763750000000073,
+      "inputMs": 12.640667000000576,
+      "totalMs": 14.348000000000866,
+      "assertions": 1,
+      "links": 4,
+      "promptCharacters": 2886
+    },
+    {
+      "stage": "briefing-cache",
+      "label": "typical-entity",
+      "run": 0,
+      "ms": 14.522500000000036,
+      "cacheHit": false,
+      "links": 4
+    },
+    {
+      "stage": "briefing-cache",
+      "label": "typical-entity",
+      "run": 1,
+      "ms": 14.432874999999513,
+      "cacheHit": true,
+      "links": 4
+    },
+    {
+      "stage": "briefing-cache",
+      "label": "typical-entity",
+      "run": 2,
+      "ms": 14.115874999999505,
+      "cacheHit": true,
+      "links": 4
+    },
+    {
+      "stage": "briefing-cache",
+      "label": "typical-entity",
+      "run": 3,
+      "ms": 18.555207999999766,
+      "cacheHit": true,
+      "links": 4
+    },
+    {
+      "stage": "briefing-cache",
+      "label": "typical-entity",
+      "run": 4,
+      "ms": 15.016333999999915,
+      "cacheHit": true,
+      "links": 4
+    },
+    {
+      "stage": "search-core",
+      "label": "common-term",
+      "run": 0,
+      "ms": 994.1160839999993,
+      "ok": true,
+      "hits": 200
+    },
+    {
+      "stage": "search-core",
+      "label": "common-term",
+      "run": 1,
+      "ms": 148.99987499999952,
+      "ok": true,
+      "hits": 200
+    },
+    {
+      "stage": "search-core",
+      "label": "common-term",
+      "run": 2,
+      "ms": 163.51645800000006,
+      "ok": true,
+      "hits": 200
+    },
+    {
+      "stage": "search-core",
+      "label": "common-term",
+      "run": 3,
+      "ms": 147.0107909999988,
+      "ok": true,
+      "hits": 200
+    },
+    {
+      "stage": "search-core",
+      "label": "common-term",
+      "run": 4,
+      "ms": 146.8519580000011,
+      "ok": true,
+      "hits": 200
+    },
+    {
+      "stage": "search-core",
+      "label": "phrase",
+      "run": 0,
+      "ms": 155.2786670000005,
+      "ok": true,
+      "hits": 200
+    },
+    {
+      "stage": "search-core",
+      "label": "phrase",
+      "run": 1,
+      "ms": 132.5368329999983,
+      "ok": true,
+      "hits": 200
+    },
+    {
+      "stage": "search-core",
+      "label": "phrase",
+      "run": 2,
+      "ms": 130.5186250000006,
+      "ok": true,
+      "hits": 200
+    },
+    {
+      "stage": "search-core",
+      "label": "phrase",
+      "run": 3,
+      "ms": 131.25475000000006,
+      "ok": true,
+      "hits": 200
+    },
+    {
+      "stage": "search-core",
+      "label": "phrase",
+      "run": 4,
+      "ms": 145.7520000000004,
+      "ok": true,
+      "hits": 200
+    },
+    {
+      "stage": "search-core",
+      "label": "entity-name",
+      "run": 0,
+      "ms": 111.97083399999974,
+      "ok": true,
+      "hits": 200
+    },
+    {
+      "stage": "search-core",
+      "label": "entity-name",
+      "run": 1,
+      "ms": 103.44866599999841,
+      "ok": true,
+      "hits": 200
+    },
+    {
+      "stage": "search-core",
+      "label": "entity-name",
+      "run": 2,
+      "ms": 104.53245900000002,
+      "ok": true,
+      "hits": 200
+    },
+    {
+      "stage": "search-core",
+      "label": "entity-name",
+      "run": 3,
+      "ms": 102.28391600000032,
+      "ok": true,
+      "hits": 200
+    },
+    {
+      "stage": "search-core",
+      "label": "entity-name",
+      "run": 4,
+      "ms": 101.3197909999999,
+      "ok": true,
+      "hits": 200
+    },
+    {
+      "stage": "memory",
+      "rssBytes": 1600618496
+    }
+  ],
+  "browser": [
+    {
+      "run": 0,
+      "label": "dense-entity",
+      "mode": "page-load",
+      "domMs": 78.70000004768372,
+      "paintedMs": 101.60000002384186,
+      "requests": [
+        {
+          "path": "/api/themes",
+          "durationMs": 5.5,
+          "bytes": 343
+        },
+        {
+          "path": "/api/vault",
+          "durationMs": 21.5,
+          "bytes": 475
+        },
+        {
+          "path": "/api/events",
+          "durationMs": 15.600000023841858,
+          "bytes": 343
+        },
+        {
+          "path": "/api/recent",
+          "durationMs": 3.6999999284744263,
+          "bytes": 8831
+        },
+        {
+          "path": "/api/note",
+          "durationMs": 11.300000071525574,
+          "bytes": 1438
+        },
+        {
+          "path": "/api/graph",
+          "durationMs": 31.5,
+          "bytes": 2657817
+        }
+      ],
+      "longTasks": []
+    },
+    {
+      "run": 1,
+      "label": "typical-entity",
+      "mode": "uncached-note",
+      "domMs": 73.39999997615814,
+      "paintedMs": 97.29999995231628,
+      "requests": [
+        {
+          "path": "/api/vault",
+          "durationMs": 66,
+          "bytes": 475
+        },
+        {
+          "path": "/api/note",
+          "durationMs": 30.299999952316284,
+          "bytes": 1565
+        },
+        {
+          "path": "/api/events",
+          "durationMs": 2.8000000715255737,
+          "bytes": 343
+        }
+      ],
+      "longTasks": []
+    },
+    {
+      "run": 2,
+      "label": "dense-entity",
+      "mode": "cached-note",
+      "domMs": 75.30000007152557,
+      "paintedMs": 94,
+      "requests": [],
+      "longTasks": [
+        {
+          "start": 4086.600000023842,
+          "duration": 75
+        }
+      ]
+    },
+    {
+      "run": 3,
+      "label": "typical-entity",
+      "mode": "cached-note",
+      "domMs": 35,
+      "paintedMs": 41.60000002384186,
+      "requests": [],
+      "longTasks": []
+    },
+    {
+      "run": 4,
+      "label": "dense-entity",
+      "mode": "cached-note",
+      "domMs": 65.30000007152557,
+      "paintedMs": 81.39999997615814,
+      "requests": [],
+      "longTasks": [
+        {
+          "start": 4832.800000071526,
+          "duration": 65
+        }
+      ]
+    },
+    {
+      "run": 5,
+      "label": "typical-entity",
+      "mode": "cached-note",
+      "domMs": 34.300000071525574,
+      "paintedMs": 41.200000047683716,
+      "requests": [],
+      "longTasks": []
+    },
+    {
+      "run": 6,
+      "label": "dense-entity",
+      "mode": "cached-note",
+      "domMs": 67.60000002384186,
+      "paintedMs": 83.5,
+      "requests": [],
+      "longTasks": [
+        {
+          "start": 5561.700000047684,
+          "duration": 67
+        }
+      ]
+    },
+    {
+      "mode": "idle",
+      "durationMs": 6000,
+      "requests": {
+        "/api/pilot/chat": 4,
+        "/api/pilot/work": 4,
+        "/api/vault": 1,
+        "/api/events": 1
+      }
+    },
+    {
+      "stage": "search-ui",
+      "label": "common-term",
+      "run": 0,
+      "status": 200,
+      "responseMs": 396.1749999999993,
+      "paintedMs": 432.5979580000003
+    },
+    {
+      "stage": "search-ui",
+      "label": "phrase",
+      "run": 0,
+      "status": 200,
+      "responseMs": 248.18920900000012,
+      "paintedMs": 285.87695899999926
+    },
+    {
+      "stage": "search-ui",
+      "label": "entity-name",
+      "run": 0,
+      "status": 200,
+      "responseMs": 231.42441700000018,
+      "paintedMs": 273.1370000000006
+    }
+  ],
+  "graph": [
+    {
+      "firstDrawMs": 6136.699999928474,
+      "longTasks": [
+        {
+          "start": 2602.7999999523163,
+          "duration": 3514
+        }
+      ],
+      "graphStorageCharacters": 2651692,
+      "resources": [
+        {
+          "path": "/assets/index-CgLjm-nP.js",
+          "durationMs": 5.799999952316284,
+          "bytes": 496396
+        },
+        {
+          "path": "/api/themes",
+          "durationMs": 5.5,
+          "bytes": 343
+        },
+        {
+          "path": "/api/vault",
+          "durationMs": 31.600000023841858,
+          "bytes": 475
+        },
+        {
+          "path": "/api/setup",
+          "durationMs": 31.299999952316284,
+          "bytes": 343
+        },
+        {
+          "path": "/api/events",
+          "durationMs": 27.200000047683716,
+          "bytes": 343
+        },
+        {
+          "path": "/api/recent",
+          "durationMs": 462.09999990463257,
+          "bytes": 8831
+        },
+        {
+          "path": "/api/entity/folds",
+          "durationMs": 468.1999999284744,
+          "bytes": 343
+        },
+        {
+          "path": "/api/pilot",
+          "durationMs": 468.1999999284744,
+          "bytes": 343
+        },
+        {
+          "path": "/api/graph",
+          "durationMs": 2529.899999976158,
+          "bytes": 2657393
+        },
+        {
+          "path": "/api/pilot/chat",
+          "durationMs": 2465.2999999523163,
+          "bytes": 343
+        },
+        {
+          "path": "/api/pilot/work",
+          "durationMs": 2465.399999976158,
+          "bytes": 343
+        },
+        {
+          "path": "/api/vault",
+          "durationMs": 1516.3000000715256,
+          "bytes": 475
+        },
+        {
+          "path": "/api/source/read-state",
+          "durationMs": 63.200000047683716,
+          "bytes": 343
+        },
+        {
+          "path": "/api/events",
+          "durationMs": 1.6999999284744263,
+          "bytes": 343
+        },
+        {
+          "path": "/api/pilot/chat",
+          "durationMs": 3,
+          "bytes": 343
+        },
+        {
+          "path": "/api/pilot/work",
+          "durationMs": 3.100000023841858,
+          "bytes": 343
+        },
+        {
+          "path": "/api/vault",
+          "durationMs": 24.5,
+          "bytes": 475
+        },
+        {
+          "path": "/api/events",
+          "durationMs": 1.2999999523162842,
+          "bytes": 343
+        }
+      ]
+    },
+    {
+      "firstDrawMs": 240.39999997615814,
+      "longTasks": [
+        {
+          "start": 115.39999997615814,
+          "duration": 114
+        }
+      ],
+      "graphStorageCharacters": 2652116,
+      "resources": [
+        {
+          "path": "/assets/index-CgLjm-nP.js",
+          "durationMs": 5.399999976158142,
+          "bytes": 496396
+        },
+        {
+          "path": "/api/themes",
+          "durationMs": 2.399999976158142,
+          "bytes": 343
+        },
+        {
+          "path": "/api/vault",
+          "durationMs": 21.5,
+          "bytes": 475
+        },
+        {
+          "path": "/api/setup",
+          "durationMs": 21.5,
+          "bytes": 343
+        },
+        {
+          "path": "/api/events",
+          "durationMs": 21,
+          "bytes": 343
+        },
+        {
+          "path": "/api/recent",
+          "durationMs": 114.5,
+          "bytes": 8831
+        },
+        {
+          "path": "/api/entity/folds",
+          "durationMs": 114.5,
+          "bytes": 343
+        },
+        {
+          "path": "/api/pilot",
+          "durationMs": 114.69999992847443,
+          "bytes": 343
+        },
+        {
+          "path": "/api/graph",
+          "durationMs": 140.79999995231628,
+          "bytes": 2657817
+        },
+        {
+          "path": "/api/pilot/chat",
+          "durationMs": 29.100000023841858,
+          "bytes": 343
+        },
+        {
+          "path": "/api/pilot/work",
+          "durationMs": 29.100000023841858,
+          "bytes": 343
+        },
+        {
+          "path": "/api/source/read-state",
+          "durationMs": 2,
+          "bytes": 343
+        }
+      ]
+    },
+    {
+      "firstDrawMs": 223.29999995231628,
+      "longTasks": [
+        {
+          "start": 99.20000004768372,
+          "duration": 113
+        }
+      ],
+      "graphStorageCharacters": 2652116,
+      "resources": [
+        {
+          "path": "/assets/index-CgLjm-nP.js",
+          "durationMs": 4.800000071525574,
+          "bytes": 496396
+        },
+        {
+          "path": "/api/themes",
+          "durationMs": 2.0999999046325684,
+          "bytes": 343
+        },
+        {
+          "path": "/api/vault",
+          "durationMs": 22.299999952316284,
+          "bytes": 475
+        },
+        {
+          "path": "/api/setup",
+          "durationMs": 22.299999952316284,
+          "bytes": 343
+        },
+        {
+          "path": "/api/events",
+          "durationMs": 22,
+          "bytes": 343
+        },
+        {
+          "path": "/api/recent",
+          "durationMs": 113.89999997615814,
+          "bytes": 8831
+        },
+        {
+          "path": "/api/entity/folds",
+          "durationMs": 114,
+          "bytes": 343
+        },
+        {
+          "path": "/api/pilot",
+          "durationMs": 114.19999992847443,
+          "bytes": 343
+        },
+        {
+          "path": "/api/graph",
+          "durationMs": 140.20000004768372,
+          "bytes": 2657817
+        },
+        {
+          "path": "/api/pilot/chat",
+          "durationMs": 25.5,
+          "bytes": 343
+        },
+        {
+          "path": "/api/pilot/work",
+          "durationMs": 25.5,
+          "bytes": 343
+        },
+        {
+          "path": "/api/source/read-state",
+          "durationMs": 1.600000023841858,
+          "bytes": 343
+        }
+      ]
+    }
+  ],
+  "cpuFindings": {
+    "browser": "D3 collision force and quadtree visits dominate compactOverview; raw profiles retained only temporarily",
+    "backend": "Graph log reads and Markdown link regex; search SQLite entity/assertion/source materialization"
+  },
+  "limitations": [
+    "Snapshot copies are not one atomic cross-file transaction",
+    "OS filesystem caches were not flushed",
+    "Headless Chrome; production bundle; CPU profiler enabled for graph observations",
+    "Only local read routes mounted; provider/session/integration routes unavailable",
+    "Briefing hits seeded with a deterministic model stub after original caches missed",
+    "RSS is end-of-run resident memory, not retained-heap or leak measurement"
+  ]
+}

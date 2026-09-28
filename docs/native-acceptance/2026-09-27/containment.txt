@@ -1,0 +1,19 @@
+PASS hw.model is VirtualMac
+PASS no en* interface with a link
+PASS no IPv4 address outside lo0
+PASS no non-link-local IPv6 outside lo0
+PASS no IPv4 default route
+PASS no IPv6 default route outside utun link-local tunnels
+PASS TEST-NET-1 connect fails
+PASS no shared/network filesystems
+PASS input volume mounted read-only
+PASS input volume refuses writes
+PASS output volume present and writable
+PASS no ~/.config/bigbrain
+PASS no ~/.claude or ~/.claude.json
+PASS no ~/.codex
+PASS no ~/.local/bin/bigbrain
+PASS no BigBrain app installed
+PASS real claude CLI absent from PATH dirs
+PASS Command Line Tools present
+PASS loopback canary delivered

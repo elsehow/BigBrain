@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="19.3 2.85 75 75" role="img" aria-label="BigBrain menu bar icon">
+  <title>BigBrain menu bar icon (template)</title>
+  <!-- A macOS *template* image: the system keeps only the alpha channel and
+       paints it in the menu bar's own ink (black on light, white on dark,
+       dimmed when inactive), so colour here is meaningless and the faces
+       are told apart by opacity alone. The opacities are the brand's own
+       monochrome cube — favicon-ink.svg's fills read as lightness against
+       its dark card (#141414 → 0, #fcfcfa → 1): the face the ink mark
+       leaves as background is transparent here too. Geometry is
+       logo.svg's, in favicon.svg's frame. tray-icon scales it to 18pt. -->
+  <path d="M76.8 24.4 L54.4 62.3 L32.8 49 L55.2 11 Z" fill="#000" fill-opacity="1"/>
+  <path d="M44.8 5 L55.2 11 L32.8 49 L22.4 43 Z" fill="#000" fill-opacity="0.2"/>
+  <path d="M22.4 43 L32.8 49 L54.4 62.3 L44 56.3 Z" fill="#000" fill-opacity="0.67"/>
+  <path d="M39.2 63.7 L60 75.7 L60 39.7 L39.2 27.7 Z" fill="#000" fill-opacity="0"/>
+  <path d="M91.2 57.7 L60 75.7 L60 39.7 L91.2 21.7 Z" fill="#000" fill-opacity="0.47"/>
+  <path d="M70.4 9.7 L91.2 21.7 L60 39.7 L39.2 27.7 Z" fill="#000" fill-opacity="0.67"/>
+</svg>

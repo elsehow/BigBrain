@@ -1,0 +1,30 @@
+/* References share one treatment in drafts, sent messages, and responses. */
+.pilot-panel .message a[href^="#/vault/"],
+.pilot-panel .sent-mention,
+.mention-composer .editor .mention-chip {
+  display: inline-block;
+  max-width: 100%;
+  padding: 2px 7px;
+  border: 0;
+  border-radius: 4px;
+  background: var(--well);
+  color: var(--text-muted);
+  font: 12px/1.5 var(--font-mono);
+  text-align: start;
+  text-decoration: none;
+  vertical-align: baseline;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.pilot-panel .message a[href^="#/vault/"]:hover,
+.pilot-panel .sent-mention:hover {
+  background: var(--ink-100);
+  color: var(--text-strong);
+}
+
+.pilot-panel .message a[href^="#/vault/"]:focus-visible,
+.pilot-panel .sent-mention:focus-visible {
+  outline: 1px solid var(--fg);
+  outline-offset: 2px;
+}

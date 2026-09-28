@@ -1,0 +1,174 @@
+{
+  "date": "2026-09-20",
+  "snapshot": {
+    "logFiles": 11781,
+    "markdownFiles": 1208,
+    "nodes": 4166,
+    "edges": 12008,
+    "evidenceConnections": 73253
+  },
+  "allGraphAndOrderedEvidenceDigestsIdentical": true,
+  "runs": {
+    "before": [
+      {
+        "run": 0,
+        "ms": 2369.676625,
+        "nodes": 4166,
+        "edges": 12008,
+        "connections": 73253,
+        "rss": 1047003136
+      },
+      {
+        "run": 1,
+        "ms": 2306.129625,
+        "nodes": 4166,
+        "edges": 12008,
+        "connections": 73253,
+        "rss": 1282637824
+      },
+      {
+        "run": 2,
+        "ms": 2252.136834,
+        "nodes": 4166,
+        "edges": 12008,
+        "connections": 73253,
+        "rss": 1374142464
+      },
+      {
+        "run": 3,
+        "ms": 2253.947833,
+        "nodes": 4166,
+        "edges": 12008,
+        "connections": 73253,
+        "rss": 1395343360
+      },
+      {
+        "run": 4,
+        "ms": 2198.3631669999995,
+        "nodes": 4166,
+        "edges": 12008,
+        "connections": 73253,
+        "rss": 1400045568
+      },
+      {
+        "run": 5,
+        "ms": 2081.6176670000004,
+        "nodes": 4166,
+        "edges": 12008,
+        "connections": 73253,
+        "rss": 1414840320
+      }
+    ],
+    "parser": [
+      {
+        "run": 0,
+        "ms": 1306.767667,
+        "nodes": 4166,
+        "edges": 12008,
+        "connections": 73253,
+        "rss": 1132937216
+      },
+      {
+        "run": 1,
+        "ms": 1205.532084,
+        "nodes": 4166,
+        "edges": 12008,
+        "connections": 73253,
+        "rss": 1237614592
+      },
+      {
+        "run": 2,
+        "ms": 1124.961084,
+        "nodes": 4166,
+        "edges": 12008,
+        "connections": 73253,
+        "rss": 1326792704
+      },
+      {
+        "run": 3,
+        "ms": 1173.3030839999997,
+        "nodes": 4166,
+        "edges": 12008,
+        "connections": 73253,
+        "rss": 1338458112
+      },
+      {
+        "run": 4,
+        "ms": 1140.4500829999997,
+        "nodes": 4166,
+        "edges": 12008,
+        "connections": 73253,
+        "rss": 1413677056
+      },
+      {
+        "run": 5,
+        "ms": 1116.9219999999996,
+        "nodes": 4166,
+        "edges": 12008,
+        "connections": 73253,
+        "rss": 1416855552
+      }
+    ],
+    "after": [
+      {
+        "run": 0,
+        "ms": 1097.736958,
+        "nodes": 4166,
+        "edges": 12008,
+        "connections": 73253,
+        "rss": 1053671424
+      },
+      {
+        "run": 1,
+        "ms": 988.0120000000002,
+        "nodes": 4166,
+        "edges": 12008,
+        "connections": 73253,
+        "rss": 1226047488
+      },
+      {
+        "run": 2,
+        "ms": 966.3535830000001,
+        "nodes": 4166,
+        "edges": 12008,
+        "connections": 73253,
+        "rss": 1328513024
+      },
+      {
+        "run": 3,
+        "ms": 968.9870000000001,
+        "nodes": 4166,
+        "edges": 12008,
+        "connections": 73253,
+        "rss": 1344061440
+      },
+      {
+        "run": 4,
+        "ms": 1035.1255840000003,
+        "nodes": 4166,
+        "edges": 12008,
+        "connections": 73253,
+        "rss": 1356414976
+      },
+      {
+        "run": 5,
+        "ms": 964.7231250000004,
+        "nodes": 4166,
+        "edges": 12008,
+        "connections": 73253,
+        "rss": 1356759040
+      }
+    ]
+  },
+  "warmMediansMs": {
+    "before": 2252.136834,
+    "parser": 1140.4500829999997,
+    "after": 968.9870000000001
+  },
+  "limitations": [
+    "OS filesystem cache not flushed",
+    "Timing includes observer evidence hashing",
+    "Same private snapshot; no model calls",
+    "Backend graph construction only; force layout and HTTP/browser delivery excluded"
+  ]
+}

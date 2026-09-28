@@ -1,0 +1,89 @@
+{
+  "nodes": 3846,
+  "edges": 8138,
+  "graphPayloadsIdentical": true,
+  "baseline": [
+    {
+      "phase": "graph",
+      "ms": 1771.692041,
+      "maxTimerDelayMs": 1762.352666,
+      "maxHttpMs": 1785.774083,
+      "httpSamples": 1,
+      "rssMiB": 780.84375
+    },
+    {
+      "phase": "graph",
+      "ms": 729.794375,
+      "maxTimerDelayMs": 720.040375,
+      "maxHttpMs": 730.6054590000001,
+      "httpSamples": 2,
+      "rssMiB": 1003.953125
+    },
+    {
+      "phase": "graph",
+      "ms": 641.5437080000002,
+      "maxTimerDelayMs": 632.287417,
+      "maxHttpMs": 642.643458,
+      "httpSamples": 2,
+      "rssMiB": 1079.078125
+    },
+    {
+      "phase": "cold-layout",
+      "ms": 3560.1296659999994,
+      "maxTimerDelayMs": 3550.3267920000003,
+      "maxHttpMs": 3560.691708,
+      "httpSamples": 2,
+      "rssMiB": 1257.96875
+    },
+    {
+      "phase": "watcher-changed-layout",
+      "ms": 4246.210500000001,
+      "maxTimerDelayMs": 3927.2869169999994,
+      "maxHttpMs": 3927.9241250000005,
+      "httpSamples": 29,
+      "rssMiB": 1432.65625
+    }
+  ],
+  "candidate": [
+    {
+      "phase": "graph",
+      "ms": 902.5319169999999,
+      "maxTimerDelayMs": 24.743959000000018,
+      "maxHttpMs": 21.688249999999925,
+      "httpSamples": 77,
+      "rssMiB": 1133.171875
+    },
+    {
+      "phase": "graph",
+      "ms": 878.0241669999999,
+      "maxTimerDelayMs": 27.046583000000055,
+      "maxHttpMs": 25.276166999999987,
+      "httpSamples": 74,
+      "rssMiB": 1457.046875
+    },
+    {
+      "phase": "graph",
+      "ms": 889.7762499999999,
+      "maxTimerDelayMs": 23.384291999999732,
+      "maxHttpMs": 20.969833000000108,
+      "httpSamples": 76,
+      "rssMiB": 1614.984375
+    },
+    {
+      "phase": "cold-layout",
+      "ms": 3725.5047080000004,
+      "maxTimerDelayMs": 2.386041999999634,
+      "maxHttpMs": 0.9624590000003082,
+      "httpSamples": 322,
+      "rssMiB": 1618.03125
+    },
+    {
+      "phase": "watcher-changed-layout",
+      "ms": 5093.792916,
+      "maxTimerDelayMs": 22.10712499999954,
+      "maxHttpMs": 27.94237499999963,
+      "httpSamples": 439,
+      "rssMiB": 1646.890625
+    }
+  ]
+}

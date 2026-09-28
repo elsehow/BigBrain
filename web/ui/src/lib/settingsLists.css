@@ -1,0 +1,36 @@
+/* Shared settings lists: clients, runners, provider logins, and model roles. */
+.settings .settings-list { display:flex; flex-direction:column; gap:16px; width:100%; min-width:0; }
+.settings .settings-list > h2, .settings .settings-list > h3, .settings .settings-list > .name { margin:0; font:var(--type-body); letter-spacing:normal; color:var(--text-strong); }
+.settings .settings-row { margin:0; padding:12px 0; border:0; border-bottom:1px solid var(--rule); min-width:0; }
+.settings .settings-row > summary { cursor:pointer; font:var(--type-body); color:var(--text-strong); overflow-wrap:anywhere; }
+.settings .settings-row > summary > span { margin-left:16px; font:var(--type-meta); color:var(--text-muted); }
+.settings .settings-row[open] > summary { margin-bottom:16px; }
+.settings .settings-add { align-self:flex-start; justify-self:start; font:var(--type-body); padding:8px 12px; border:1px solid var(--rule); color:var(--text-strong); background:transparent; cursor:pointer; }
+.settings .settings-row > summary:focus-visible, .settings .settings-add:focus-visible { outline:2px solid var(--activity); outline-offset:3px; }
+
+.settings .settings-status-row { display:flex; align-items:center; flex-wrap:wrap; gap:12px 16px; min-width:0; font:var(--type-body); }
+.settings .settings-item-name { color:var(--text-strong); }
+.settings .settings-item-note, .settings .settings-status { font:var(--type-meta); color:var(--text-muted); overflow-wrap:anywhere; }
+.settings .settings-status { display:inline-flex; align-items:center; gap:8px; }
+.settings .settings-status i { width:8px; height:8px; flex:none; border:1px solid currentColor; border-radius:50%; box-sizing:border-box; }
+.settings .settings-status i.ready { background:currentColor; color:var(--activity); }
+.settings .settings-status-row > button { margin-left:auto; }
+.settings .settings-status-row + section { margin-top:20px; }
+
+/* Cards: one heading row (the name, what it is for, its state, one control) and
+   labelled sections beneath, as Integrations draws its rows. Agent Orchestration
+   and Connected Clients share these, so the two lists read as one system. */
+.settings .settings-card { padding:var(--sp-4) 0 var(--sp-6); border-bottom:1px solid var(--rule); min-width:0; }
+.settings .settings-card-row { display:flex; align-items:flex-start; gap:var(--sp-6); }
+.settings .settings-card-main { flex:1; min-width:0; display:flex; flex-direction:column; gap:var(--sp-2); }
+.settings .settings-card-name { margin:0; font:var(--type-heading); letter-spacing:var(--ls-heading); color:var(--text-strong); overflow-wrap:anywhere; }
+.settings .settings-card-about { font:var(--type-body); color:var(--text-note); max-width:520px; }
+.settings .settings-card-main .settings-status { flex-wrap:wrap; }
+.settings .settings-card-main .settings-status code { margin-left:var(--sp-2); font:var(--type-meta); font-family:var(--font-mono); color:var(--text-muted); overflow-wrap:anywhere; }
+.settings .settings-card-row > button { flex:none; margin-left:auto; }
+.settings .settings-card-body { display:flex; flex-direction:column; gap:var(--sp-7); margin-top:var(--sp-7); padding-top:var(--sp-6); border-top:1px solid var(--rule); }
+.settings .settings-group { display:grid; grid-template-columns:132px minmax(0,1fr); gap:var(--sp-6); align-items:start; }
+.settings .settings-group-label { font:var(--type-eyebrow); letter-spacing:var(--ls-eyebrow); color:var(--text-faint); text-transform:uppercase; padding-top:var(--sp-2); }
+.settings .settings-group-body { display:flex; flex-direction:column; gap:var(--sp-4); min-width:0; max-width:560px; }
+.settings .settings-group-body > button { align-self:flex-start; }
+@media (max-width:600px) { .settings .settings-group { grid-template-columns:1fr; gap:var(--sp-2); } .settings .settings-card-row { flex-direction:column; } .settings .settings-card-row > button { margin-left:0; } }

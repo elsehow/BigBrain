@@ -1,0 +1,119 @@
+/* Every theme has three base colors: background, foreground, activity.
+   All surfaces, muted ink and borders derive from those three. Names are
+   shared by built-ins and YAML skins (lib/themes.ts; docs/skins.md). */
+@import url("https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@300;400;500;600;700&display=swap");
+
+:root {
+  --bg: #FFFFFF;
+  --fg: #211A18;
+  --activity: #CC4A3E;
+  /* typography — one knob: --font-app */
+  --font-app: "Hanken Grotesk", system-ui, -apple-system, sans-serif;
+  --font-mono: ui-monospace, Menlo, "SF Mono", monospace;
+  --fw-regular: 400;
+  --fw-medium: 500;
+  --fw-semibold: 600;
+  --fs-hero: 56px;
+  --fs-title: 34px;
+  --fs-heading: 24px;
+  --fs-prose: 20px;
+  --fs-lead: 18px;
+  --fs-chip: 16px;
+  --fs-body: 15px;
+  --fs-meta: 12px;
+  --fs-eyebrow: 11px;
+  --ls-hero: -0.035em;
+  --ls-title: -0.03em;
+  --ls-heading: -0.022em;
+  --ls-eyebrow: 0.24em;
+  --type-hero: var(--fw-medium) var(--fs-hero) / 1 var(--font-app);
+  --type-title: var(--fw-medium) var(--fs-title) / 1 var(--font-app);
+  --type-heading: var(--fw-medium) var(--fs-heading) / 1 var(--font-app);
+  --type-prose: var(--fw-regular) var(--fs-prose) / 1.5 var(--font-app);
+  --type-lead: var(--fw-medium) var(--fs-lead) / 1 var(--font-app);
+  --type-chip: var(--fw-medium) var(--fs-chip) / 1 var(--font-app);
+  --type-body: var(--fw-regular) var(--fs-body) / 1.5 var(--font-app);
+  --type-meta: var(--fw-regular) var(--fs-meta) / 1.5 var(--font-app);
+  --type-eyebrow: var(--fw-semibold) var(--fs-eyebrow) / 1 var(--font-app);
+  --type-mono: var(--fw-semibold) 10.5px / 1 var(--font-mono);
+
+  /* space/size/radius/shadow/motion — off-grid rhythm, don't snap */
+  --sp-1: 4px;
+  --sp-2: 6px;
+  --sp-3: 8px;
+  --sp-4: 13px;
+  --sp-5: 16px;
+  --sp-6: 22px;
+  --sp-7: 24px;
+  --sp-8: 26px;
+  --sp-9: 34px;
+  --sp-10: 44px;
+  --size-icon-btn: 40px;
+  --r-sm: 5px;
+  --r-chip: 11px;
+  --r-card: 20px;
+  --r-full: 999px;
+  --shadow-knob: 0 1px 6px color-mix(in srgb, var(--fg) 30%, transparent);
+  --shadow-card: 0 12px 34px -16px color-mix(in srgb, var(--fg) 30%, transparent);
+  --shadow-device: 0 22px 60px -18px color-mix(in srgb, var(--fg) 40%, transparent);
+  --dur-fast: 0.22s;
+  --dur-slow: 0.25s;
+  --ease: ease;
+}
+
+:root { color-scheme: light; }
+
+/* Keep the stored default/dusk ids so existing preferences survive renaming. */
+[data-theme="default"] { --bg: #FFFFFF; --fg: #211A18; --activity: #CC4A3E; color-scheme: light; }
+[data-theme="dusk"] { --bg: #21191F; --fg: #DDE9F4; --activity: #CF717A; color-scheme: dark; }
+[data-theme="web"] { --bg: #1e2bd6; --fg: #ffffff; --activity: #ffd23f; color-scheme: dark; }
+[data-theme="phosphor"] { --bg: #D3E0D5; --fg: #263C34; --activity: #62517A; color-scheme: light; }
+[data-theme="somethings-gotta-give"] { --bg: #f5ecdc; --fg: #365f70; --activity: #ad4934; color-scheme: light; }
+[data-theme="yamabukiiro"] { --bg: #E0AA24; --fg: #30261A; --activity: #64204F; color-scheme: light; }
+[data-theme="moegiiro"] { --bg: #286A3C; --fg: #F7EAF8; --activity: #FFDA52; color-scheme: dark; }
+[data-theme="adzukiiro"] { --bg: #803653; --fg: #F2D8F5; --activity: #BCC9DD; color-scheme: dark; }
+[data-theme="asagiiro"] { --bg: #355F7B; --fg: #FFF6EC; --activity: #FFD65A; color-scheme: dark; }
+
+/* Re-declare aliases on theme boundaries, so nested swatches resolve against
+   their own base colors rather than inheriting the parent's resolved ink. */
+:root, [data-theme] {
+  color: var(--fg);
+  --text: var(--fg);
+  --text-strong: var(--fg);
+  --text-note: color-mix(in srgb, var(--fg) 88%, var(--bg));
+  --text-muted: color-mix(in srgb, var(--fg) 65%, var(--bg));
+  --text-faint: color-mix(in srgb, var(--fg) 50%, var(--bg));
+  --paper-desk: color-mix(in srgb, var(--fg) 8%, var(--bg));
+  --surface: color-mix(in srgb, var(--fg) 4%, var(--bg));
+  --panel-opacity: 78%;
+  --panel-bg: color-mix(in srgb, var(--bg) var(--panel-opacity), transparent);
+  --panel-inverse-bg: color-mix(in srgb, var(--fg) var(--panel-opacity), transparent);
+  --panel-blur: blur(6px);
+  --well: var(--surface);
+  --rule: color-mix(in srgb, var(--fg) 18%, var(--bg));
+  --dash: color-mix(in srgb, var(--fg) 28%, var(--bg));
+  --mark: var(--fg);
+  --icon: var(--text-muted);
+  --on-accent: var(--bg);
+  --pilot: var(--activity);
+  --ok: var(--fg);
+  --session-going: var(--activity);
+  --session-waiting: var(--fg);
+  /* Compatibility for components that once chose from five accent hues. */
+  --accent-1: var(--fg);
+  --accent-2: var(--fg);
+  --accent-3: var(--fg);
+  --accent-4: var(--fg);
+  --accent-5: var(--fg);
+  --paper: var(--bg);
+  --paper-sunk: var(--well);
+  --paper-raised: var(--surface);
+  --ink-900: var(--fg);
+  --ink-800: var(--fg);
+  --ink-600: var(--text-note);
+  --ink-300: var(--text-muted);
+  --ink-200: var(--text-faint);
+  --ink-100: var(--rule);
+  --ink-050: var(--rule);
+  --line: var(--rule);
+}

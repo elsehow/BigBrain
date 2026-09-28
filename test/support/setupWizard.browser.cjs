@@ -1,0 +1,30 @@
+/** Component-only wizard study. No account connections or vault writes. */
+const {chromium}=require('playwright-core');
+const assert=require('node:assert/strict');
+(async()=>{const browser=await chromium.launch({channel:'chrome'});try{
+const page=await browser.newPage({viewport:{width:1200,height:1000}});const errors=[];page.on('pageerror',e=>errors.push(e.message));let writes=0;page.on('request',r=>{if(r.url().includes('/api/') && !r.url().endsWith('/api/themes'))writes++;});
+await page.goto((process.env.WORKBENCH_URL || 'http://127.0.0.1:5233') + '/setup-workbench.html');
+const steps=page.getByRole('navigation',{name:'Setup steps'});assert.equal(await steps.getByRole('button',{name:/Providers/}).isEnabled(),false);
+await page.getByRole('button',{name:'CREATE',exact:true}).click();await page.getByRole('button',{name:'GO',exact:true}).click();await page.getByRole('heading',{name:'Where should your vault live?',exact:true}).waitFor();await page.getByRole('button',{name:'Next →',exact:true}).click();
+await page.getByRole('heading',{name:'Connect providers',exact:true}).waitFor();
+assert.equal(await page.getByRole('button',{name:'Next →',exact:true}).isEnabled(),false);assert.equal(await steps.getByRole('button',{name:/Clients/}).isEnabled(),false);
+await page.getByRole('button',{name:'Connect',exact:true}).first().click();await page.getByRole('button',{name:'✓ Connected',exact:true}).waitFor();
+await page.getByRole('button',{name:'Next →',exact:true}).click();
+await page.getByRole('checkbox',{name:/Claude Code/}).check();assert.equal(await page.getByRole('checkbox',{name:/Codex/}).isEnabled(),false);
+await page.getByRole('button',{name:'← Back'}).click();await page.getByRole('button',{name:'Connect',exact:true}).click();
+await page.waitForFunction(()=>[...document.querySelectorAll('.row button')].filter(b=>b.textContent.includes('✓ Connected')).length===2);await page.waitForTimeout(700);assert.equal(await page.getByRole('heading',{name:'Connect providers',exact:true}).count(),1);await page.getByRole('button',{name:'Next →',exact:true}).click();
+await page.getByRole('heading',{name:'Connect clients',exact:true}).waitFor();await page.getByRole('checkbox',{name:/Codex/}).check();
+await steps.getByRole('button',{name:/Integrations/}).click();await page.getByRole('heading',{name:'Connect integrations',exact:true}).waitFor();await steps.getByRole('button',{name:/Clients/}).click();await page.getByRole('heading',{name:'Connect clients',exact:true}).waitFor();assert(await page.getByRole('checkbox',{name:/Codex/}).isChecked());
+await page.screenshot({path:'/tmp/bb-wizard-clients.png'});
+await page.getByRole('button',{name:'Next →',exact:true}).click();await page.screenshot({path:'/tmp/bb-wizard-library.png'});
+const granola=page.locator('article').filter({hasText:'Granola'});await granola.getByRole('button',{name:'+ Add',exact:true}).click();
+assert(await page.getByRole('checkbox',{name:'Automatic remembering',exact:true}).isChecked());assert(await page.getByRole('checkbox',{name:'Live access',exact:true}).isChecked());
+await page.getByRole('button',{name:'Connect',exact:true}).click();await page.getByText('you@example.com',{exact:true}).waitFor();
+await page.getByRole('checkbox',{name:'Automatic remembering',exact:true}).check();assert.match(await page.getByLabel('Remembering rule').inputValue(),/Record raw transcripts/);
+await page.getByRole('checkbox',{name:'Live access',exact:true}).check();
+await page.getByRole('button',{name:'← Back'}).click();assert(await page.getByRole('checkbox',{name:/Codex/}).isChecked());await page.getByRole('button',{name:'Next →',exact:true}).click();await page.getByRole('button',{name:'Configure',exact:true}).click();assert(await page.getByRole('checkbox',{name:'Automatic remembering',exact:true}).isChecked());
+await page.setViewportSize({width:390,height:844});assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await page.screenshot({path:'/tmp/bb-wizard-small.png',fullPage:true});
+await page.getByRole('button',{name:'Finish →'}).click();await page.getByRole('heading',{name:'Your vault is ready.'}).waitFor();
+await page.emulateMedia({reducedMotion:'reduce'});await page.getByRole('button',{name:'Restart',exact:true}).click();await page.getByRole('button',{name:'CREATE',exact:true}).click();await page.getByRole('button',{name:'GO',exact:true}).click();await page.getByRole('heading',{name:'Where should your vault live?',exact:true}).waitFor();await page.getByRole('button',{name:'Next →',exact:true}).click();await page.getByRole('button',{name:'Connect',exact:true}).first().click();await page.getByRole('button',{name:'✓ Connected',exact:true}).waitFor();await page.getByRole('button',{name:'Next →',exact:true}).click();await page.getByRole('button',{name:'Skip',exact:true}).click();await page.getByRole('button',{name:'Skip',exact:true}).click();await page.getByRole('heading',{name:'Your vault is ready.'}).waitFor();
+assert.equal(writes,0);assert.deepEqual(errors,[]);console.log('Wizard passed: single/both providers, explicit Next after both providers, gated step links, client selection, library/configuration, back, skip, finish, small screen, no connection API requests.');
+}finally{await browser.close();}})().catch(e=>{console.error(e);process.exit(1)});

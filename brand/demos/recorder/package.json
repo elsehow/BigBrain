@@ -1,0 +1,13 @@
+{
+  "name": "bigbrain-demo-recorder",
+  "private": true,
+  "scripts": {
+    "meeting": "node record.cjs meeting",
+    "inbox": "node record.cjs inbox",
+    "context": "node context.cjs",
+    "assembly": "node assembly.cjs"
+  },
+  "devDependencies": {
+    "playwright": "1.63.0"
+  }
+}

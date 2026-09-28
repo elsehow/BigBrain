@@ -1,0 +1,21 @@
+# Role defaults. Model identities and labels live in modelRegistry.ts;
+# connected runtimes remain authoritative about account availability.
+anthropic:
+  gardener: { model: opus }
+  memory: { model: opus }
+  quick: { model: haiku }
+  pilot: { model: opus }
+openai:
+  gardener: { model: gpt-6-astra, reasoning: medium }
+  memory: { model: gpt-6-astra, reasoning: high }
+  quick: { model: gpt-6-astra, reasoning: low }
+  pilot: { model: gpt-6-astra, reasoning: medium }
+
+# Comparative recommendations, offered only among connected providers.
+# Gardener: same-cohort subscription replay, 2026-09-20 (see performance report).
+# Other roles use stable product defaults, not comparative benchmark winners.
+preferences:
+  gardener: [openai, anthropic]
+  memory: [anthropic, openai]
+  quick: [anthropic, openai]
+  pilot: [openai, anthropic]

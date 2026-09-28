@@ -1,0 +1,14 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "ignorePatterns": [
+    "**/node_modules/**",
+    "web/ui/dist/**",
+    "clients/browser-extension/**/*.js",
+    "clients/browser-extension/vendor/**",
+    "**/*.svelte"
+  ],
+  "categories": { "correctness": "warn" },
+  "rules": {
+    "no-control-regex": "off"
+  }
+}

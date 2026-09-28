@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- Merged into the bundle's generated Info.plist by the Tauri bundler.
+       The pilot (#770) opens the microphone from the webview while SPACE is
+       held; without this string macOS kills the process on the first
+       getUserMedia instead of asking. The webview grants the page's request
+       itself (wry's WKUIDelegate answers requestMediaCapturePermission with
+       Grant); this is the OS's own prompt, shown once. -->
+  <key>NSMicrophoneUsageDescription</key>
+  <string>BigBrain listens while you hold SPACE, so you can talk to your vault.</string>
+</dict>
+</plist>

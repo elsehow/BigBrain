@@ -1,0 +1,33 @@
+{
+  "manifest_version": 3,
+  "name": "Send to BigBrain",
+  "version": "0.9.5",
+  "description": "Save web pages and notes to your BigBrain vault. Requires the BigBrain desktop app.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA4YITP+71TiQnfsM6J44Y/VkmA1uMVoI1tNMDtDoSnTs3EyFA03FRGZXrlycae0qTQMc3M36ZudYLl7KTtJNVRy4UGH+P7E+EuJBnC0tGJLeGGg2AtEpfSKI75DiA6Kd7NHp8hurFyU3ehgFu3Vhrp/iEodvQeCgLrAk4DkwOIMHpamhddHa5vA5RL99FTReGxnUHox/ZOuQUVdhNmqHpx1xva8dHQczpuRoaaf00d/LY1wYsNrAcYz3pBuwpHUi/CgQi1tROnNlLbi2Ff27wN0/6chM3nrHP/GxdXmbBmaLm+XOKfnMuc69D8l4pdhD9H0oyOr/RvwP3dP37641nyQIDAQAB",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "permissions": ["contextMenus", "storage", "activeTab", "scripting"],
+  "host_permissions": ["http://127.0.0.1/*", "http://localhost/*"],
+  "optional_host_permissions": ["*://*/*"],
+  "background": {
+    "service_worker": "background.js",
+    "scripts": ["wire.js", "background.js"]
+  },
+  "options_page": "options.html",
+  "action": { "default_title": "Send page to BigBrain", "default_popup": "popup.html" },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "extension@bigbrain.cool",
+      "strict_min_version": "140.0",
+      "data_collection_permissions": {
+        "required": ["websiteContent"]
+      }
+    },
+    "gecko_android": {
+      "strict_min_version": "142.0"
+    }
+  }
+}

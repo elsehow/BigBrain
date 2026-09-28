@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- The bundler signs the app AND the bun sidecar with these. bun is
+       JavaScriptCore: under the hardened runtime its JIT needs the first
+       two, and bun's own (Oven's) signature carries all three — this
+       restores what re-signing with "-" dropped (desktop/README.md,
+       Signing). -->
+  <key>com.apple.security.cs.allow-jit</key>
+  <true/>
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+  <true/>
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+  <!-- The pilot (#770): microphone capture under the hardened runtime.
+       Info.plist beside this file carries the usage string macOS shows. -->
+  <key>com.apple.security.device.audio-input</key>
+  <true/>
+</dict>
+</plist>

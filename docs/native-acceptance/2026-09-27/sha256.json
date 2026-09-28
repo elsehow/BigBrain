@@ -1,0 +1,18 @@
+{
+  "10-remedy-persists.png": "9025dabf63edaef0fdebb22b388547cb58e5269fe7f2ea870e01ba84ad186288",
+  "11-header-opens-recovery.png": "d1274b1d4a3b6fad6adace827fcea6b48f40c5c1c4b8d50f7a1da9c195beb560",
+  "containment.txt": "b9f26b35200fe34a7862abe22d36c83eb4a690ea8a45813bcaaa7ae38a66441a",
+  "durable-B.json": "5f8293eb723a8825e97df2b2b654e7c99bfc3f612bae7b372bcc72a62e00ec8b",
+  "39-returned-a.png": "3092b7df5bf26676b33ec9b76e44d2135887c7d70fd7a4d799798817d23e994f",
+  "actions-returned-a.json": "fafa51385f4348be90dabc567f75aae0c8aa5aba3b4d66aa1fce2e97f64cb134",
+  "29-recovery.png": "39de49c65d4b6bc8c27fd0d8c5c7c6fcd6bf49a55d77483c5feb037f366c8e11",
+  "listeners-final.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "processes-running.txt": "9c4a2a2940aa36c2e3356570c2ab737b67bc1db32d32b9101baacaa55b18298c",
+  "artifact-final.json": "ec18a63adad8a3ab350c4e4b50b1bbe77ae32ce8392861504fb32672cb2e4180",
+  "35-b-content-draft.png": "a7b2cff3ab948ac06905c066ac3cfcdc884c1ddb67330104e90c5121a32cd588",
+  "containment-final.txt": "b9f26b35200fe34a7862abe22d36c83eb4a690ea8a45813bcaaa7ae38a66441a",
+  "10-fixed-header.png": "917515ba18ddbd7efe32f167d8a32959fae13696da7ff6465dff93d8b9468af1",
+  "processes-final.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "durable-A.json": "1dc55508b7bec688c693e84b58cca06e67f17c22356d853871f1cc30e970fc7d",
+  "artifact.json": "49d0170de0061574387b413d02a677440967dada0bc9d4eeb412fb1d348812b0"
+}

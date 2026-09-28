@@ -1,0 +1,214 @@
+{
+  "claudeQuickBefore": [
+    {
+      "preparationMs": 5.0191250000000025,
+      "promptCharacters": 11888,
+      "candidates": 10,
+      "memories": 1
+    },
+    {
+      "run": 0,
+      "agent": "claude",
+      "model": "haiku",
+      "mode": "live",
+      "candidates": 10,
+      "totalMs": 32695.615667,
+      "firstTextMs": 31411.042208,
+      "inputTokens": 10,
+      "outputTokens": 4094,
+      "firstSummaryMs": 31411.32525,
+      "descriptionWords": [
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4
+      ]
+    }
+  ],
+  "claudeQuickBeforePhases": [
+    {
+      "ms": 31407.129291,
+      "event": "assistant",
+      "blocks": [
+        {
+          "type": "thinking",
+          "chars": 0
+        }
+      ],
+      "usage": {
+        "input_tokens": 10,
+        "cache_creation_input_tokens": 5186,
+        "cache_read_input_tokens": 6037,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 5186
+        },
+        "output_tokens": 7,
+        "service_tier": "standard",
+        "inference_geo": "not_available"
+      }
+    },
+    {
+      "ms": 32656.221457999996,
+      "event": "assistant",
+      "blocks": [
+        {
+          "type": "tool_use",
+          "name": "StructuredOutput",
+          "chars": 0
+        }
+      ],
+      "usage": {
+        "input_tokens": 10,
+        "cache_creation_input_tokens": 5186,
+        "cache_read_input_tokens": 6037,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 5186
+        },
+        "output_tokens": 7,
+        "service_tier": "standard",
+        "inference_geo": "not_available"
+      }
+    },
+    {
+      "ms": 32688.313541,
+      "event": "result",
+      "subtype": "success",
+      "turns": 2,
+      "usage": {
+        "input_tokens": 10,
+        "cache_creation_input_tokens": 5186,
+        "cache_read_input_tokens": 6037,
+        "output_tokens": 4094,
+        "output_tokens_details": {
+          "thinking_tokens": 3683
+        },
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard",
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 5186,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "inference_geo": "not_available",
+        "iterations": [
+          {
+            "input_tokens": 10,
+            "output_tokens": 4094,
+            "cache_read_input_tokens": 6037,
+            "cache_creation_input_tokens": 5186,
+            "cache_creation": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 5186
+            },
+            "type": "message"
+          }
+        ],
+        "speed": "standard"
+      }
+    }
+  ],
+  "claudeQuickAfter": [
+    {
+      "preparationMs": 5.252291999999997,
+      "promptCharacters": 11888,
+      "candidates": 10,
+      "memories": 1
+    },
+    {
+      "run": 0,
+      "agent": "claude",
+      "model": "haiku",
+      "mode": "live",
+      "candidates": 10,
+      "totalMs": 8589.997125,
+      "firstTextMs": 6397.598916999999,
+      "inputTokens": 3,
+      "outputTokens": 757,
+      "turns": 2,
+      "firstSummaryMs": 6397.912458,
+      "descriptionWords": [
+        7,
+        7,
+        8,
+        7,
+        8,
+        5,
+        8,
+        7,
+        9,
+        8
+      ]
+    },
+    {
+      "run": 1,
+      "agent": "claude",
+      "model": "haiku",
+      "mode": "live",
+      "candidates": 10,
+      "totalMs": 4373.869999999999,
+      "firstTextMs": 1264.6642080000001,
+      "inputTokens": 3,
+      "outputTokens": 442,
+      "turns": 2,
+      "firstSummaryMs": 1320.576333000001,
+      "descriptionWords": [
+        6,
+        8,
+        6,
+        8,
+        6,
+        5,
+        8,
+        6,
+        8,
+        7
+      ]
+    },
+    {
+      "run": 2,
+      "agent": "claude",
+      "model": "haiku",
+      "mode": "live",
+      "candidates": 10,
+      "totalMs": 4440.249790999998,
+      "firstTextMs": 1319.3786660000005,
+      "inputTokens": 3,
+      "outputTokens": 450,
+      "turns": 2,
+      "firstSummaryMs": 1359.0205000000005,
+      "descriptionWords": [
+        6,
+        9,
+        6,
+        8,
+        6,
+        5,
+        9,
+        7,
+        9,
+        9
+      ]
+    }
+  ],
+  "pollingAfter": {
+    "idleWindowMs": 6000,
+    "idle": {
+      "chat": 4,
+      "history": 0
+    },
+    "historyInitial": 1,
+    "workingWindowMs": 1500,
+    "working": 5,
+    "maxConcurrentRefreshes": 1
+  }
+}

@@ -1,0 +1,25 @@
+# secrets
+.env
+
+# runtime state (integration cursors, locks, logs) — not vault content
+.state/
+
+# raw payloads: the content-addressed blob store (lib/blobs.ts) — host-
+# canonical, covered by file backup, never by git. References link blobs
+# by sha256; the references tree itself IS committed.
+.blobs/
+
+# raw arrivals are transient: the intake commit shows them appearing in
+# the record. Exception: unsorted/ IS tracked — unplaced items must be visible.
+inbox/*.md
+
+# spooled observations are telemetry-in-flight: the memory run folds them
+# into memory/ and its journal. Losing a crash-day of pending whys loses
+# telemetry, never record.
+observations/pending/
+
+# per-machine Claude Code overrides (the tracked settings.json is generated)
+.claude/settings.local.json
+
+# Pending integration arrivals and source checkpoints: durable, local data.
+.spool/

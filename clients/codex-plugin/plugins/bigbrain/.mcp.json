@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "bigbrain": {
+      "command": "sh",
+      "args": [
+        "scripts/local.sh",
+        "--connection",
+        "codex-plugin"
+      ],
+      "cwd": "."
+    }
+  }
+}

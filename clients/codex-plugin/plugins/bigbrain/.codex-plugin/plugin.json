@@ -1,0 +1,23 @@
+{
+  "name": "bigbrain",
+  "version": "0.1.23",
+  "description": "Search, contribute to, and remember your BigBrain vault from Codex.",
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "author": {
+    "name": "BigBrain"
+  },
+  "homepage": "https://bigbrain.cool",
+  "interface": {
+    "displayName": "BigBrain",
+    "shortDescription": "Your vault in Codex",
+    "longDescription": "Search your BigBrain vault, contribute notes, and load your curated memory. Optional hooks preload memory.",
+    "developerName": "BigBrain",
+    "category": "Productivity",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "defaultPrompt": "Search my BigBrain vault for context relevant to this task."
+  }
+}

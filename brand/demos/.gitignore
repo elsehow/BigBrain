@@ -1,0 +1,11 @@
+# Generated captures and exports; keep only reproducible source here.
+takes/
+*.mp4
+*.mov
+*.webm
+*.mkv
+*.gif
+*.png
+*.jpg
+*.jpeg
+.DS_Store

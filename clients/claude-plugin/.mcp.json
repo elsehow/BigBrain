@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "bigbrain": {
+      "command": "sh",
+      "args": [
+        "${CLAUDE_PLUGIN_ROOT}/scripts/local.sh",
+        "--connection",
+        "claude-plugin"
+      ]
+    }
+  }
+}

@@ -1,0 +1,20 @@
+import { afterEach, expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { saveChatImage, readChatImage, validateChatImages, chatImageData } from "../lib/chatImages";
+export const PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jBfcAAAAASUVORK5CYII=";
+const roots: string[] = [];
+afterEach(() => roots.splice(0).forEach(root => rmSync(root, { recursive: true, force: true })));
+test("images are durable, deduplicated, and validated independently of supplied paths and MIME", () => {
+  const root = mkdtempSync(join(tmpdir(), "chat-images-")); roots.push(root);
+  const image = saveChatImage(root, PNG, "screenshot.png");
+  expect(saveChatImage(root, PNG, "another.png").id).toBe(image.id);
+  expect(chatImageData(root, image)).toBe(PNG);
+  expect(validateChatImages(root, [image])).toEqual([image]);
+  expect(() => readChatImage(root, "../../secret")).toThrow();
+  expect(() => saveChatImage(root, "data:image/png;base64,SGVsbG8=", "fake.png")).toThrow();
+  expect(() => saveChatImage(root, "data:image/svg+xml;base64,PHN2Zz4=", "x.svg")).toThrow();
+  expect(() => validateChatImages(root, Array(5).fill(image))).toThrow("at most");
+  expect(() => validateChatImages(root, [{ ...image, id: "f".repeat(64) + ".png" }])).toThrow();
+});

@@ -1,0 +1,849 @@
+{
+  "baseline": "e207b5b (production-equivalent to base 6cc1ada)",
+  "candidate": "5ae8863 (production-equivalent to profiled pre-rebase checkpoint 5407b39)",
+  "method": "Two uninstrumented trials per side and operation; each has one first read and five warm reads, then one append and six reads. JSON.parse instrumentation runs separately.",
+  "runs": {
+    "graph": {
+      "before": {
+        "trials": [
+          {
+            "operation": "graph",
+            "bun": "1.3.9",
+            "sources": 1200,
+            "assertions": 1200,
+            "markdown": 60,
+            "sourceBodyBytes": 39276990,
+            "projectionMs": 1170.943666,
+            "initial": {
+              "samplesMs": [
+                143.1798749999998,
+                27.986917000000176,
+                25.103165999999874,
+                24.326374999999643,
+                24.568917000000056,
+                23.866833999999926
+              ],
+              "firstMs": 143.1798749999998,
+              "warmMedianMs": 24.568917000000056,
+              "digests": [
+                "bc15af0875c6ea5ee2abe322b71e7ee0709ae78d34206a3825719a1d788d2d87"
+              ],
+              "before": {
+                "rss": 419594240,
+                "heapTotal": 3465216,
+                "heapUsed": 92158958,
+                "external": 1622115,
+                "arrayBuffers": 116
+              },
+              "after": {
+                "rss": 511328256,
+                "heapTotal": 9556992,
+                "heapUsed": 159917917,
+                "external": 19289080,
+                "arrayBuffers": 116
+              }
+            },
+            "changed": {
+              "samplesMs": [
+                158.1170830000001,
+                24.87112500000012,
+                24.24737499999992,
+                24.91187499999978,
+                24.554167000000234,
+                24.47695900000008
+              ],
+              "firstMs": 158.1170830000001,
+              "warmMedianMs": 24.554167000000234,
+              "digests": [
+                "963c28b829a15b9b18b3621d4ee04a9ab78de3c966932eb5d39d41f01f81da76"
+              ],
+              "before": {
+                "rss": 511344640,
+                "heapTotal": 9458688,
+                "heapUsed": 159917917,
+                "external": 77612633,
+                "arrayBuffers": 116
+              },
+              "after": {
+                "rss": 527646720,
+                "heapTotal": 6219776,
+                "heapUsed": 164327757,
+                "external": 7109367,
+                "arrayBuffers": 116
+              }
+            },
+            "databaseBytes": 138641408
+          },
+          {
+            "operation": "graph",
+            "bun": "1.3.9",
+            "sources": 1200,
+            "assertions": 1200,
+            "markdown": 60,
+            "sourceBodyBytes": 39276990,
+            "projectionMs": 1148.4199999999998,
+            "initial": {
+              "samplesMs": [
+                130.28187500000013,
+                28.605708999999933,
+                25.72195899999997,
+                24.902415999999903,
+                25.220542000000023,
+                24.61066699999992
+              ],
+              "firstMs": 130.28187500000013,
+              "warmMedianMs": 25.220542000000023,
+              "digests": [
+                "bc15af0875c6ea5ee2abe322b71e7ee0709ae78d34206a3825719a1d788d2d87"
+              ],
+              "before": {
+                "rss": 418611200,
+                "heapTotal": 3449856,
+                "heapUsed": 92061462,
+                "external": 1622526,
+                "arrayBuffers": 116
+              },
+              "after": {
+                "rss": 510476288,
+                "heapTotal": 9535488,
+                "heapUsed": 159778704,
+                "external": 19289551,
+                "arrayBuffers": 116
+              }
+            },
+            "changed": {
+              "samplesMs": [
+                146.060833,
+                25.028166000000056,
+                25.813208999999915,
+                25.04449999999997,
+                24.673874999999953,
+                25.23116600000003
+              ],
+              "firstMs": 146.060833,
+              "warmMedianMs": 25.04449999999997,
+              "digests": [
+                "963c28b829a15b9b18b3621d4ee04a9ab78de3c966932eb5d39d41f01f81da76"
+              ],
+              "before": {
+                "rss": 510492672,
+                "heapTotal": 9401344,
+                "heapUsed": 159778704,
+                "external": 77613100,
+                "arrayBuffers": 116
+              },
+              "after": {
+                "rss": 526123008,
+                "heapTotal": 6194176,
+                "heapUsed": 164326800,
+                "external": 7109865,
+                "arrayBuffers": 116
+              }
+            },
+            "databaseBytes": 138641408
+          }
+        ],
+        "decode": {
+          "operation": "graph",
+          "bun": "1.3.9",
+          "sources": 1200,
+          "assertions": 1200,
+          "markdown": 60,
+          "sourceBodyBytes": 39276990,
+          "projectionMs": 1213.804208,
+          "initial": {
+            "samplesMs": [
+              140.80391699999973
+            ],
+            "firstMs": 140.80391699999973,
+            "digests": [
+              "bc15af0875c6ea5ee2abe322b71e7ee0709ae78d34206a3825719a1d788d2d87"
+            ],
+            "before": {
+              "rss": 416464896,
+              "heapTotal": 3433472,
+              "heapUsed": 92154414,
+              "external": 1615144,
+              "arrayBuffers": 116
+            },
+            "after": {
+              "rss": 472776704,
+              "heapTotal": 10372096,
+              "heapUsed": 31473815,
+              "external": 77534709,
+              "arrayBuffers": 116
+            },
+            "decoded": {
+              "calls": 5180,
+              "jsonBytes": 40559880,
+              "sourceBodies": 1200,
+              "sourceBodyBytes": 39276990
+            }
+          },
+          "changed": {
+            "samplesMs": [
+              158.29641600000014
+            ],
+            "firstMs": 158.29641600000014,
+            "digests": [
+              "963c28b829a15b9b18b3621d4ee04a9ab78de3c966932eb5d39d41f01f81da76"
+            ],
+            "before": {
+              "rss": 472891392,
+              "heapTotal": 10388480,
+              "heapUsed": 31473815,
+              "external": 77535694,
+              "arrayBuffers": 116
+            },
+            "after": {
+              "rss": 482721792,
+              "heapTotal": 9890816,
+              "heapUsed": 170870211,
+              "external": 77610244,
+              "arrayBuffers": 116
+            },
+            "decoded": {
+              "calls": 6385,
+              "jsonBytes": 40961895,
+              "sourceBodies": 1202,
+              "sourceBodyBytes": 39277102
+            }
+          },
+          "databaseBytes": 138645504
+        }
+      },
+      "after": {
+        "trials": [
+          {
+            "operation": "graph",
+            "bun": "1.3.9",
+            "sources": 1200,
+            "assertions": 1200,
+            "markdown": 60,
+            "sourceBodyBytes": 39276990,
+            "projectionMs": 1151.7101660000003,
+            "initial": {
+              "samplesMs": [
+                48.91691700000001,
+                21.29379199999994,
+                19.970749999999953,
+                20.99283299999979,
+                19.12670799999978,
+                18.923416999999972
+              ],
+              "firstMs": 48.91691700000001,
+              "warmMedianMs": 19.970749999999953,
+              "digests": [
+                "bc15af0875c6ea5ee2abe322b71e7ee0709ae78d34206a3825719a1d788d2d87"
+              ],
+              "before": {
+                "rss": 412598272,
+                "heapTotal": 3451904,
+                "heapUsed": 92153440,
+                "external": 1665412,
+                "arrayBuffers": 116
+              },
+              "after": {
+                "rss": 457605120,
+                "heapTotal": 5935104,
+                "heapUsed": 33828818,
+                "external": 3780475,
+                "arrayBuffers": 116
+              }
+            },
+            "changed": {
+              "samplesMs": [
+                63.78916699999991,
+                19.538584000000355,
+                19.697415999999976,
+                19.36995799999977,
+                19.912624999999935,
+                20.326624999999694
+              ],
+              "firstMs": 63.78916699999991,
+              "warmMedianMs": 19.697415999999976,
+              "digests": [
+                "963c28b829a15b9b18b3621d4ee04a9ab78de3c966932eb5d39d41f01f81da76"
+              ],
+              "before": {
+                "rss": 457670656,
+                "heapTotal": 5879808,
+                "heapUsed": 33828818,
+                "external": 3780235,
+                "arrayBuffers": 116
+              },
+              "after": {
+                "rss": 464732160,
+                "heapTotal": 6369280,
+                "heapUsed": 34958752,
+                "external": 3738503,
+                "arrayBuffers": 116
+              }
+            },
+            "databaseBytes": 139333632
+          },
+          {
+            "operation": "graph",
+            "bun": "1.3.9",
+            "sources": 1200,
+            "assertions": 1200,
+            "markdown": 60,
+            "sourceBodyBytes": 39276990,
+            "projectionMs": 1160.042791,
+            "initial": {
+              "samplesMs": [
+                46.148749999999836,
+                21.25537499999973,
+                21.290707999999995,
+                19.835458000000017,
+                19.50487499999963,
+                19.92683399999987
+              ],
+              "firstMs": 46.148749999999836,
+              "warmMedianMs": 19.92683399999987,
+              "digests": [
+                "bc15af0875c6ea5ee2abe322b71e7ee0709ae78d34206a3825719a1d788d2d87"
+              ],
+              "before": {
+                "rss": 410189824,
+                "heapTotal": 3451904,
+                "heapUsed": 92140471,
+                "external": 1663341,
+                "arrayBuffers": 116
+              },
+              "after": {
+                "rss": 456015872,
+                "heapTotal": 5928960,
+                "heapUsed": 29839226,
+                "external": 3782410,
+                "arrayBuffers": 116
+              }
+            },
+            "changed": {
+              "samplesMs": [
+                65.15870799999993,
+                18.50316699999985,
+                19.29516700000022,
+                20.028207999999722,
+                19.993209000000206,
+                20.345832999999857
+              ],
+              "firstMs": 65.15870799999993,
+              "warmMedianMs": 19.993209000000206,
+              "digests": [
+                "963c28b829a15b9b18b3621d4ee04a9ab78de3c966932eb5d39d41f01f81da76"
+              ],
+              "before": {
+                "rss": 456015872,
+                "heapTotal": 5876736,
+                "heapUsed": 29839226,
+                "external": 3782170,
+                "arrayBuffers": 116
+              },
+              "after": {
+                "rss": 461979648,
+                "heapTotal": 6375424,
+                "heapUsed": 36728126,
+                "external": 3831126,
+                "arrayBuffers": 116
+              }
+            },
+            "databaseBytes": 139333632
+          }
+        ],
+        "decode": {
+          "operation": "graph",
+          "bun": "1.3.9",
+          "sources": 1200,
+          "assertions": 1200,
+          "markdown": 60,
+          "sourceBodyBytes": 39276990,
+          "projectionMs": 1165.007583,
+          "initial": {
+            "samplesMs": [
+              45.646999999999935
+            ],
+            "firstMs": 45.646999999999935,
+            "digests": [
+              "bc15af0875c6ea5ee2abe322b71e7ee0709ae78d34206a3825719a1d788d2d87"
+            ],
+            "before": {
+              "rss": 413663232,
+              "heapTotal": 3418112,
+              "heapUsed": 92142084,
+              "external": 1655739,
+              "arrayBuffers": 116
+            },
+            "after": {
+              "rss": 436092928,
+              "heapTotal": 10544128,
+              "heapUsed": 15421535,
+              "external": 4117207,
+              "arrayBuffers": 116
+            },
+            "decoded": {
+              "calls": 5180,
+              "jsonBytes": 1434440,
+              "sourceBodies": 0,
+              "sourceBodyBytes": 0
+            }
+          },
+          "changed": {
+            "samplesMs": [
+              68.64449999999988
+            ],
+            "firstMs": 68.64449999999988,
+            "digests": [
+              "963c28b829a15b9b18b3621d4ee04a9ab78de3c966932eb5d39d41f01f81da76"
+            ],
+            "before": {
+              "rss": 436109312,
+              "heapTotal": 10560512,
+              "heapUsed": 15421535,
+              "external": 4117220,
+              "arrayBuffers": 116
+            },
+            "after": {
+              "rss": 452329472,
+              "heapTotal": 9992192,
+              "heapUsed": 20830178,
+              "external": 4108787,
+              "arrayBuffers": 116
+            },
+            "decoded": {
+              "calls": 6385,
+              "jsonBytes": 1836389,
+              "sourceBodies": 1,
+              "sourceBodyBytes": 56
+            }
+          },
+          "databaseBytes": 139337728
+        }
+      }
+    },
+    "feed": {
+      "before": {
+        "trials": [
+          {
+            "operation": "feed",
+            "bun": "1.3.9",
+            "sources": 1200,
+            "assertions": 1200,
+            "markdown": 60,
+            "sourceBodyBytes": 39276990,
+            "projectionMs": 1140.7455,
+            "initial": {
+              "samplesMs": [
+                134.90545799999973,
+                0.2578750000002401,
+                0.21037499999965803,
+                0.19291599999996834,
+                0.1918749999999818,
+                0.19104199999992488
+              ],
+              "firstMs": 134.90545799999973,
+              "warmMedianMs": 0.19291599999996834,
+              "digests": [
+                "48d0a12c1c5cedaea97d3f0d2b9acacf557bf83d6e382d9a27c83daf2991e28f"
+              ],
+              "before": {
+                "rss": 413122560,
+                "heapTotal": 3446784,
+                "heapUsed": 91971321,
+                "external": 1610782,
+                "arrayBuffers": 116
+              },
+              "after": {
+                "rss": 445480960,
+                "heapTotal": 5313536,
+                "heapUsed": 31409394,
+                "external": 74370255,
+                "arrayBuffers": 116
+              }
+            },
+            "changed": {
+              "samplesMs": [
+                157.12424999999985,
+                0.2377080000001115,
+                0.2059159999998883,
+                0.18933300000026065,
+                0.19058300000006057,
+                0.21258299999999508
+              ],
+              "firstMs": 157.12424999999985,
+              "warmMedianMs": 0.2059159999998883,
+              "digests": [
+                "c9ff9d3155b452680f38aa1775da70530792117ca134e9587c75c5102083bfd7"
+              ],
+              "before": {
+                "rss": 445513728,
+                "heapTotal": 5297152,
+                "heapUsed": 31409394,
+                "external": 76491079,
+                "arrayBuffers": 116
+              },
+              "after": {
+                "rss": 448184320,
+                "heapTotal": 5763072,
+                "heapUsed": 158769628,
+                "external": 76599690,
+                "arrayBuffers": 116
+              }
+            },
+            "databaseBytes": 139051008,
+            "completeFeedDigest": "34082e48b113c9869d1fc6931dd06f8f06cd811637a7b67515b0b72071e651aa"
+          },
+          {
+            "operation": "feed",
+            "bun": "1.3.9",
+            "sources": 1200,
+            "assertions": 1200,
+            "markdown": 60,
+            "sourceBodyBytes": 39276990,
+            "projectionMs": 1150.3528749999998,
+            "initial": {
+              "samplesMs": [
+                128.93295899999976,
+                0.25741699999980483,
+                0.22212499999977808,
+                0.21208299999989322,
+                0.19254200000023047,
+                0.2116249999999127
+              ],
+              "firstMs": 128.93295899999976,
+              "warmMedianMs": 0.21208299999989322,
+              "digests": [
+                "48d0a12c1c5cedaea97d3f0d2b9acacf557bf83d6e382d9a27c83daf2991e28f"
+              ],
+              "before": {
+                "rss": 417513472,
+                "heapTotal": 3465216,
+                "heapUsed": 92165227,
+                "external": 1622221,
+                "arrayBuffers": 116
+              },
+              "after": {
+                "rss": 449478656,
+                "heapTotal": 5294080,
+                "heapUsed": 31427921,
+                "external": 73601758,
+                "arrayBuffers": 116
+              }
+            },
+            "changed": {
+              "samplesMs": [
+                150.8310419999998,
+                0.2449159999996482,
+                0.218916000000263,
+                0.19070800000008603,
+                0.19683299999996962,
+                0.1860830000000533
+              ],
+              "firstMs": 150.8310419999998,
+              "warmMedianMs": 0.19683299999996962,
+              "digests": [
+                "c9ff9d3155b452680f38aa1775da70530792117ca134e9587c75c5102083bfd7"
+              ],
+              "before": {
+                "rss": 449560576,
+                "heapTotal": 5277696,
+                "heapUsed": 31427921,
+                "external": 76491109,
+                "arrayBuffers": 116
+              },
+              "after": {
+                "rss": 452280320,
+                "heapTotal": 5711872,
+                "heapUsed": 158764488,
+                "external": 76599752,
+                "arrayBuffers": 116
+              }
+            },
+            "databaseBytes": 139051008,
+            "completeFeedDigest": "34082e48b113c9869d1fc6931dd06f8f06cd811637a7b67515b0b72071e651aa"
+          }
+        ],
+        "decode": {
+          "operation": "feed",
+          "bun": "1.3.9",
+          "sources": 1200,
+          "assertions": 1200,
+          "markdown": 60,
+          "sourceBodyBytes": 39276990,
+          "projectionMs": 1149.7698340000002,
+          "initial": {
+            "samplesMs": [
+              137.45174999999972
+            ],
+            "firstMs": 137.45174999999972,
+            "digests": [
+              "48d0a12c1c5cedaea97d3f0d2b9acacf557bf83d6e382d9a27c83daf2991e28f"
+            ],
+            "before": {
+              "rss": 417808384,
+              "heapTotal": 3483648,
+              "heapUsed": 92165565,
+              "external": 1615288,
+              "arrayBuffers": 116
+            },
+            "after": {
+              "rss": 449839104,
+              "heapTotal": 5230592,
+              "heapUsed": 31413660,
+              "external": 74117480,
+              "arrayBuffers": 116
+            },
+            "decoded": {
+              "calls": 5200,
+              "jsonBytes": 40571980,
+              "sourceBodies": 1200,
+              "sourceBodyBytes": 39276990
+            }
+          },
+          "changed": {
+            "samplesMs": [
+              155.4731670000001
+            ],
+            "firstMs": 155.4731670000001,
+            "digests": [
+              "c9ff9d3155b452680f38aa1775da70530792117ca134e9587c75c5102083bfd7"
+            ],
+            "before": {
+              "rss": 449904640,
+              "heapTotal": 5230592,
+              "heapUsed": 31413660,
+              "external": 76484483,
+              "arrayBuffers": 116
+            },
+            "after": {
+              "rss": 452739072,
+              "heapTotal": 5710848,
+              "heapUsed": 158808566,
+              "external": 76606290,
+              "arrayBuffers": 116
+            },
+            "decoded": {
+              "calls": 6405,
+              "jsonBytes": 40973746,
+              "sourceBodies": 1202,
+              "sourceBodyBytes": 39277102
+            }
+          },
+          "databaseBytes": 139051008,
+          "completeFeedDigest": "34082e48b113c9869d1fc6931dd06f8f06cd811637a7b67515b0b72071e651aa"
+        }
+      },
+      "after": {
+        "trials": [
+          {
+            "operation": "feed",
+            "bun": "1.3.9",
+            "sources": 1200,
+            "assertions": 1200,
+            "markdown": 60,
+            "sourceBodyBytes": 39276990,
+            "projectionMs": 1173.6251670000001,
+            "initial": {
+              "samplesMs": [
+                41.882832999999664,
+                0.25679200000013225,
+                0.30391599999984464,
+                0.26612500000010186,
+                0.2141670000000886,
+                0.2070410000001175
+              ],
+              "firstMs": 41.882832999999664,
+              "warmMedianMs": 0.25679200000013225,
+              "digests": [
+                "48d0a12c1c5cedaea97d3f0d2b9acacf557bf83d6e382d9a27c83daf2991e28f"
+              ],
+              "before": {
+                "rss": 412057600,
+                "heapTotal": 3434496,
+                "heapUsed": 92134750,
+                "external": 1663088,
+                "arrayBuffers": 116
+              },
+              "after": {
+                "rss": 415367168,
+                "heapTotal": 5570560,
+                "heapUsed": 92134750,
+                "external": 3240145,
+                "arrayBuffers": 116
+              }
+            },
+            "changed": {
+              "samplesMs": [
+                56.72875000000022,
+                0.19954199999983757,
+                0.18691700000044875,
+                0.1757089999996424,
+                0.17433299999993324,
+                0.177208999999948
+              ],
+              "firstMs": 56.72875000000022,
+              "warmMedianMs": 0.177208999999948,
+              "digests": [
+                "c9ff9d3155b452680f38aa1775da70530792117ca134e9587c75c5102083bfd7"
+              ],
+              "before": {
+                "rss": 415481856,
+                "heapTotal": 5553152,
+                "heapUsed": 92134750,
+                "external": 3239883,
+                "arrayBuffers": 116
+              },
+              "after": {
+                "rss": 418496512,
+                "heapTotal": 5950464,
+                "heapUsed": 92134750,
+                "external": 3317952,
+                "arrayBuffers": 116
+              }
+            },
+            "databaseBytes": 139743232,
+            "completeFeedDigest": "34082e48b113c9869d1fc6931dd06f8f06cd811637a7b67515b0b72071e651aa"
+          },
+          {
+            "operation": "feed",
+            "bun": "1.3.9",
+            "sources": 1200,
+            "assertions": 1200,
+            "markdown": 60,
+            "sourceBodyBytes": 39276990,
+            "projectionMs": 1150.969667,
+            "initial": {
+              "samplesMs": [
+                40.53687499999978,
+                0.24549999999999272,
+                0.3977500000000873,
+                0.30274999999983265,
+                0.2114169999999831,
+                0.2011659999998301
+              ],
+              "firstMs": 40.53687499999978,
+              "warmMedianMs": 0.24549999999999272,
+              "digests": [
+                "48d0a12c1c5cedaea97d3f0d2b9acacf557bf83d6e382d9a27c83daf2991e28f"
+              ],
+              "before": {
+                "rss": 411877376,
+                "heapTotal": 3433472,
+                "heapUsed": 92134911,
+                "external": 1663345,
+                "arrayBuffers": 116
+              },
+              "after": {
+                "rss": 415170560,
+                "heapTotal": 5569536,
+                "heapUsed": 92134911,
+                "external": 3240813,
+                "arrayBuffers": 116
+              }
+            },
+            "changed": {
+              "samplesMs": [
+                55.91612500000019,
+                0.21749999999974534,
+                0.18612500000017462,
+                0.18649999999979627,
+                0.177375000000211,
+                0.18041700000003402
+              ],
+              "firstMs": 55.91612500000019,
+              "warmMedianMs": 0.18612500000017462,
+              "digests": [
+                "c9ff9d3155b452680f38aa1775da70530792117ca134e9587c75c5102083bfd7"
+              ],
+              "before": {
+                "rss": 415219712,
+                "heapTotal": 5552128,
+                "heapUsed": 92134911,
+                "external": 3240545,
+                "arrayBuffers": 116
+              },
+              "after": {
+                "rss": 418545664,
+                "heapTotal": 5949440,
+                "heapUsed": 92134911,
+                "external": 3318103,
+                "arrayBuffers": 116
+              }
+            },
+            "databaseBytes": 139743232,
+            "completeFeedDigest": "34082e48b113c9869d1fc6931dd06f8f06cd811637a7b67515b0b72071e651aa"
+          }
+        ],
+        "decode": {
+          "operation": "feed",
+          "bun": "1.3.9",
+          "sources": 1200,
+          "assertions": 1200,
+          "markdown": 60,
+          "sourceBodyBytes": 39276990,
+          "projectionMs": 1154.3414579999999,
+          "initial": {
+            "samplesMs": [
+              40.479207999999744
+            ],
+            "firstMs": 40.479207999999744,
+            "digests": [
+              "48d0a12c1c5cedaea97d3f0d2b9acacf557bf83d6e382d9a27c83daf2991e28f"
+            ],
+            "before": {
+              "rss": 410648576,
+              "heapTotal": 3469312,
+              "heapUsed": 92092393,
+              "external": 1654264,
+              "arrayBuffers": 116
+            },
+            "after": {
+              "rss": 413794304,
+              "heapTotal": 5522432,
+              "heapUsed": 92092393,
+              "external": 3247025,
+              "arrayBuffers": 116
+            },
+            "decoded": {
+              "calls": 5200,
+              "jsonBytes": 1446540,
+              "sourceBodies": 0,
+              "sourceBodyBytes": 0
+            }
+          },
+          "changed": {
+            "samplesMs": [
+              57.19291699999985
+            ],
+            "firstMs": 57.19291699999985,
+            "digests": [
+              "c9ff9d3155b452680f38aa1775da70530792117ca134e9587c75c5102083bfd7"
+            ],
+            "before": {
+              "rss": 413974528,
+              "heapTotal": 5522432,
+              "heapUsed": 92092393,
+              "external": 3247010,
+              "arrayBuffers": 116
+            },
+            "after": {
+              "rss": 417120256,
+              "heapTotal": 5902336,
+              "heapUsed": 92092393,
+              "external": 3323717,
+              "arrayBuffers": 116
+            },
+            "decoded": {
+              "calls": 6405,
+              "jsonBytes": 1848240,
+              "sourceBodies": 1,
+              "sourceBodyBytes": 56
+            }
+          },
+          "databaseBytes": 139743232,
+          "completeFeedDigest": "34082e48b113c9869d1fc6931dd06f8f06cd811637a7b67515b0b72071e651aa"
+        }
+      }
+    }
+  }
+}

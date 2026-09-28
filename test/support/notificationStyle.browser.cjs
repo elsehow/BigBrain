@@ -1,0 +1,114 @@
+const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright-core');
+const assert = require('node:assert/strict');
+const base = process.env.SIDEBAR_PREVIEW_URL || 'http://127.0.0.1:5217';
+(async () => {
+  const browser = await chromium.launch({ channel: process.env.PLAYWRIGHT_CHANNEL || 'chrome', headless: true });
+  try {
+    const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+    const errors = [];
+    page.on('pageerror', e => errors.push(e.message));
+    const cards = page.locator('.notification-stack [data-notice-id]');
+    const captures = page.locator('[data-notice-kind="capture"]');
+    const agents = page.locator('[data-notice-kind="agent"]');
+    const selected = page.locator('.notification-sheet.selected');
+    const count = n => page.waitForFunction(n => document.querySelectorAll('.notification-stack [data-notice-id]').length === n, n);
+    await page.goto(`${base}/sidebar-workbench.html?notification=stack&captures`);
+    await count(5);
+    await page.waitForFunction(() => [...document.querySelectorAll('[data-notice-kind="capture"] .state')].every(el => el.textContent.includes('captured')));
+    assert.equal(await page.locator('.notification-stack').count(), 1);
+    assert.equal(await selected.count(), 0, 'arrivals do not steal focus');
+    await page.keyboard.press('j');
+    await page.locator('.workspace-menu').waitFor();
+    await count(5);
+    await page.keyboard.press('n');
+    await page.waitForFunction(()=>document.activeElement?.matches('[data-notice-id]'));
+    await page.keyboard.press('Escape');
+    assert(await page.locator('.workspace-menu').isVisible(),'leaving notifications restores menu focus');
+    await page.keyboard.press('Escape');
+    await page.locator('.workspace-menu').waitFor({state:'detached'});
+
+    const boxes = await cards.evaluateAll(els => els.map(el => { const r = el.getBoundingClientRect(); return { x:r.x, y:r.y, right:r.right, bottom:r.bottom }; }));
+    for (let i = 0; i < boxes.length; i++) {
+      assert.equal(boxes[i].right, 1424, 'every notice shares the upper-right edge');
+      if (i) assert(boxes[i].y > boxes[i-1].bottom, 'mixed notices form one non-overlapping stack');
+    }
+    assert(boxes[0].y < 140);
+    for (const theme of ['default', 'asagiiro']) {
+      await page.evaluate(theme => document.documentElement.dataset.theme = theme, theme);
+      const styles = await cards.evaluateAll(els => els.map(el => {
+        const style = getComputedStyle(el), header = getComputedStyle(el.querySelector('.notification-heading'));
+        return { radius: style.borderRadius, bg: style.backgroundColor, border: style.borderTopColor, header: header.backgroundColor, ink: header.color };
+      }));
+      for (const s of styles) { assert.deepEqual(s, styles[0]); assert.equal(s.radius, '0px'); assert.equal(s.header, s.border); assert.equal(s.ink, s.bg); }
+    }
+    await page.keyboard.press('c'); await count(5);
+    assert.equal(await selected.count(), 0, 'C outside the stack clears nothing');
+    assert.equal(await cards.locator('kbd').count(), 0, 'unselected notices show no keyboard hints');
+    await page.keyboard.press('n');
+    assert.equal(await selected.locator('kbd').count(), 2, 'selected capture shows input and clear hints');
+    assert.equal(await page.locator('.notification-sheet:not(.selected) kbd').count(), 0);
+    assert(await selected.evaluate(el => el === document.activeElement), 'N focuses the card, not the note');
+    await page.keyboard.press('i');
+    assert(await selected.getByRole('textbox').evaluate(el => el === document.activeElement), 'I enters the note field');
+    const activeNotice = await selected.getAttribute('data-notice-id');
+    await page.evaluate(() => [...document.querySelectorAll('button')].find(button => button.textContent === 'Agent notification').click());
+    await count(6);
+    assert.equal(await selected.getAttribute('data-notice-id'), activeNotice, 'new arrivals preserve the selected notice');
+    assert(await selected.getByRole('textbox').evaluate(el => el === document.activeElement), 'new arrivals preserve note editing');
+    await cards.first().getByRole('button', { name: /^Clear / }).evaluate(button => button.click());
+    await count(5);
+    assert.equal(await selected.getAttribute('data-notice-id'), await cards.first().getAttribute('data-notice-id'));
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('ArrowDown');
+    assert.equal(await selected.getAttribute('data-notice-id'), await cards.nth(1).getAttribute('data-notice-id'));
+    assert(await selected.evaluate(el => el === document.activeElement), 'navigation keeps card focus');
+    await page.keyboard.press('k');
+    assert.equal(await selected.getAttribute('data-notice-id'), await cards.first().getAttribute('data-notice-id'));
+    await page.keyboard.press('j');
+    assert.equal(await selected.getAttribute('data-notice-id'), await cards.nth(1).getAttribute('data-notice-id'));
+    await page.keyboard.press('ArrowUp');
+    assert.equal(await selected.getAttribute('data-notice-id'), await cards.first().getAttribute('data-notice-id'));
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('i');
+    const input = selected.getByRole('textbox');
+    await input.fill('nc'); await input.press('c'); await input.press('i');
+    assert.equal(await input.inputValue(), 'ncci', 'shortcuts never eat note text');
+    await count(5);
+    await input.press('Escape');
+    assert(await selected.evaluate(el => el === document.activeElement), 'Escape leaves the editor for its notice');
+    await page.keyboard.press('c'); await count(4);
+    await page.waitForFunction(() => document.activeElement?.matches('[data-notice-id]'));
+    assert.equal(await selected.getAttribute('data-notice-kind'), 'agent', 'focus moves to the next card across types');
+    await page.keyboard.press('c'); await count(3);
+    await page.keyboard.press('Escape');
+    assert.equal(await selected.count(), 0);
+    await page.keyboard.press('c'); await count(3);
+    await page.keyboard.press('n');
+    await page.waitForTimeout(300);
+    await page.screenshot({ path: '/tmp/unified-notification-preview.png' });
+    const capture = captures.first();
+    await capture.getByRole('textbox').fill('Contracting agreement');
+    await capture.getByRole('textbox').press('Enter');
+    await count(2);
+    await page.waitForFunction(() => document.activeElement?.matches('[data-notice-id]'));
+    await agents.first().getByRole('button', { name: /^Clear / }).click();
+    await count(1);
+    await page.keyboard.press('n');
+    assert(await selected.getByRole('button', { name: 'Open conversation o' }).isVisible());
+    assert.equal(await selected.locator('footer').count(), 1);
+    assert.equal(await selected.locator('.notification-body button').count(), 0, 'actions share one footer');
+    assert(!(await selected.textContent()).includes('Esc'), 'Escape needs no visible hint');
+    await page.keyboard.press('o');
+    await count(0);
+    assert.equal(await page.locator('.notification-stack').count(), 0);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.getByRole('button', { name: 'Capture notifications', exact: true }).click();
+    await count(2);
+    const box = await cards.first().boundingBox();
+    assert(box.x >= 0 && box.x + box.width <= 390, 'stack fits a narrow window');
+    await page.keyboard.press('n'); await page.keyboard.press('c'); await count(1);
+    await page.keyboard.press('c'); await count(0);
+    assert.equal(errors.length, 0, errors.join('\n'));
+    console.log('Unified stack: placement, themes, N focus, navigation, scoped C, input protection, focus recovery, capture notes, agent opening, and narrow viewport passed.');
+  } finally { await browser.close(); }
+})();

@@ -1,0 +1,106 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <link rel="stylesheet" href="design.css" />
+  <style>
+    /* the popup, floated on a desk so you can see its edges. The real popup
+       has a browser frame here instead. */
+    html { background: var(--paper-desk); }
+    body.popup { margin: 40px auto; box-shadow: var(--shadow-device); border-radius: 14px; }
+    /* ?rule draws the x=35 text axis the card is built on. Anchored to the
+       CARD, not the viewport — a fixed rule is thrown off by the scrollbar
+       and then reports violations that are its own. */
+    body.rule .view { position: relative; }
+    body.rule .view::before, body.rule .view::after {
+      content: ""; position: absolute; top: -40px; bottom: -40px; width: 1px;
+      background: #f0f; opacity: .6; z-index: 9;
+    }
+    body.rule .view::before { left: 35px; }
+    body.rule .view::after { right: 35px; }
+  </style>
+</head>
+<body>
+<script>
+  // Dev harness for the popup and the options page — NOT shipped
+  // (web-ext-config.cjs keeps it out of the package). It stands in for the
+  // extension API so both screens can be driven in a plain tab:
+  //
+  //   preview.html                popup, signed in, lands after 2.6s
+  //   preview.html?out            popup, signed out
+  //   preview.html?fail           popup, the send fails
+  //   preview.html?page=options   the options page
+  //   …&rule                       draw the x=35 text axis
+  //
+  // Serve the directory (`python3 -m http.server 8931`) — file:// blocks the
+  // fetch that pulls the real markup in, and the point is to preview the
+  // shipped HTML rather than a copy of it that can drift.
+  const q = new URLSearchParams(location.search);
+  const page = q.get("page") === "options" ? "options" : "popup";
+  const signedIn = !q.has("out");
+  const fail = q.has("fail");
+  let onMsg = () => {};
+
+  // `browser`, not `chrome`: a real page already has a window.chrome, and the
+  // extension prefers `browser` anyway (the Firefox alias).
+  globalThis.browser = {
+    runtime: {
+      onMessage: { addListener: (f) => (onMsg = f) },
+      openOptionsPage: () => console.log("→ options"),
+      sendMessage: (m) => {
+        if (m.type === "bigbrain-popup-capture")
+          setTimeout(() => onMsg({
+            type: "bigbrain-page-status", pageId: m.pageId, ok: !fail,
+            // What a real host reports (#334): the REFERENCE path, so the
+            // DISCUSS chip here copies the line a live clip copies rather
+            // than silently exercising its no-path fallback.
+            ...(fail ? { reason: "turndownPluginGfm is not defined" } : { refPath: "references/2026-08-13-kry10.md" }),
+          }), 2600);
+        if (m.type === "bigbrain-note")
+          setTimeout(() => onMsg({ type: "bigbrain-note-status", pageId: m.pageId, ok: !fail }), 1400);
+        return Promise.resolve();
+      },
+    },
+    storage: {
+      local: {
+        get: async () =>
+          signedIn ? { endpoint: "http://127.0.0.1:4748", token: "t", account: "nick@example.com" } : {},
+        set: async () => {},
+        remove: async () => {},
+      },
+    },
+    permissions: {
+      request: async () => true,
+    },
+    tabs: {
+      query: async () => [{
+        id: 1,
+        title: "alameda county variance process, section 4",
+        url: "https://www.acgov.org/cda/planning/variance/",
+      }],
+    },
+  };
+
+  document.body.className = page + (q.has("rule") ? " rule" : "");
+</script>
+<script>
+  (async () => {
+    // Cache-bust everything. A harness that shows you the previous edit is
+    // worse than no harness — you debug the screenshot instead of the code.
+    const v = "?v=" + Date.now();
+    const src = page === "options" ? "options.html" : "popup.html";
+    const html = await (await fetch(src + v, { cache: "no-store" })).text();
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    document.body.append(...doc.body.querySelectorAll("section"));
+    for (const s of ["cube.js", page === "options" ? "options.js" : "popup.js"]) {
+      await new Promise((r) => {
+        const el = document.createElement("script");
+        el.src = s + v;
+        el.onload = r;
+        document.head.appendChild(el);
+      });
+    }
+  })();
+</script>
+</body>
+</html>

@@ -1,0 +1,49 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Send to BigBrain — options</title>
+  <link rel="stylesheet" href="design.css" />
+</head>
+<body class="options">
+
+  <!-- The same card as the popup, on the mockup's desk. One screen has a
+       browser frame around it and one does not; they are the same object. -->
+  <section class="view">
+    <div class="head">
+      <div class="cube-slot"><div class="cube-stage" data-half="9" data-layer="6"></div></div>
+      <div class="head-text">
+        <span class="eyebrow" id="state">NOT CONNECTED</span>
+        <span class="title">Send to BigBrain</span>
+        <span class="meta" id="account">this machine</span>
+      </div>
+    </div>
+
+    <!-- text set by render(): this line says what to do NEXT, so it cannot be
+         written into the markup — a pairing prompt under a DISCONNECT button
+         is the screen contradicting itself. -->
+    <p class="copy" id="copy"></p>
+
+    <!-- The pairing form (#486): where the engine is, and the code the app
+         showed. Hidden once connected; the credential it produced is the
+         only thing that matters then. -->
+    <form id="pair" class="pair" autocomplete="off">
+      <label class="field">
+        <span class="label">BIGBRAIN</span>
+        <input id="endpoint" type="url" spellcheck="false" placeholder="http://127.0.0.1:4748" />
+      </label>
+      <label class="field">
+        <span class="label">CODE</span>
+        <input id="code" type="text" spellcheck="false" autocapitalize="characters" placeholder="XXXX-XXXX" maxlength="9" />
+      </label>
+      <button id="connect" class="cta" type="submit">Connect</button>
+    </form>
+    <button id="disconnect" class="cta is-quiet" type="button" hidden>Disconnect</button>
+
+    <p class="line" id="status"></p>
+  </section>
+
+  <script src="cube.js"></script>
+  <script src="options.js"></script>
+</body>
+</html>

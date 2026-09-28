@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BigBrain cube — drop-in animated mark</title>
+<style>
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #ecebe6; }
+</style>
+</head>
+<body>
+
+<!-- ==== DROP-IN: everything between the two DROP-IN comments ==== -->
+<style>
+  .bb-cube {
+    --bb-size: 260px;          /* overall box */
+    --bb-face-x: #d857a8;
+    --bb-face-y: #d99a2b;
+    --bb-face-z: #4f46e5;
+    --bb-cut:    #141414;      /* interior colour revealed mid-turn */
+    --bb-turn:   780ms;        /* duration of one half-turn */
+    --bb-hold:   340ms;        /* pause between turns */
+    width: var(--bb-size); height: var(--bb-size);
+    display: grid; place-items: center;
+  }
+  .bb-cube > svg { display: block; width: 100%; height: 100%; overflow: visible; }
+  @media (prefers-reduced-motion: reduce) { .bb-cube { --bb-turn: 0ms; } }
+</style>
+
+<div class="bb-cube" aria-label="BigBrain" role="img">
+  <svg viewBox="-130 -130 260 260" aria-hidden="true" focusable="false"></svg>
+</div>
+
+<script>
+(function () {
+  var KEYS = ['px', 'nx', 'py', 'ny', 'pz', 'nz'];
+  var MOVES = [
+    { axis: 'X', k: 0, side: -1 }, { axis: 'Y', k: 1, side: -1 },
+    { axis: 'Z', k: 2, side: +1 }, { axis: 'Y', k: 1, side: +1 },
+    { axis: 'X', k: 0, side: +1 }, { axis: 'Y', k: 1, side: -1 }
+  ].map(function (m) {
+    var a = m.axis.toLowerCase();
+    m.slabCut = (m.side < 0 ? 'p' : 'n') + a;
+    m.blockCut = (m.side < 0 ? 'n' : 'p') + a;
+    return m;
+  });
+  var ease = function (t) { return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2; };
+
+  // Project real cuboid faces into SVG instead of compositing rotated CSS
+  // rectangles. SVG rasterizes the silhouette at the current display density.
+  var NS = 'http://www.w3.org/2000/svg';
+  var H = 260 * 0.196, L = 260 * 0.131, CAMERA = 260 * 4.23;
+  function rotate(p, axis, angle) {
+    var c = Math.cos(angle), s = Math.sin(angle), x = p[0], y = p[1], z = p[2];
+    if (axis === 0) return [x, c * y - s * z, s * y + c * z];
+    if (axis === 1) return [c * x + s * z, y, -s * x + c * z];
+    return [c * x - s * y, s * x + c * y, z];
+  }
+  function view(p) { return rotate(rotate(p, 1, -Math.PI / 4), 0, -Math.PI / 6); }
+  function dot(a, b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
+
+  function mount(root) {
+    var svg = root.querySelector('svg');
+    var polygons = Array.from({ length: 12 }, function () {
+      var face = document.createElementNS(NS, 'polygon');
+      face.setAttribute('stroke-width', '0.3');
+      face.setAttribute('stroke-linejoin', 'round');
+      svg.appendChild(face);
+      return face;
+    });
+    var cs = getComputedStyle(root);
+    function duration(name, fallback) {
+      var value = cs.getPropertyValue(name).trim();
+      var n = parseFloat(value);
+      return Number.isFinite(n) ? n * (value.endsWith('ms') ? 1 : 1000) : fallback;
+    }
+    var TURN = duration('--bb-turn', 780), HOLD = duration('--bb-hold', 340);
+    var reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+
+    function draw(move, angle) {
+      var faces = [];
+      // At either endpoint the pieces form one cube. Draw its uninterrupted
+      // faces so coplanar pieces cannot leave a hairline or depth-sort seam.
+      var settled = Math.abs(Math.sin(angle)) < 0.000001;
+      (settled ? [false] : [false, true]).forEach(function (slab) {
+        var half = [H, H, H], center = [0, 0, 0];
+        if (!settled) {
+          half[move.k] = slab ? L / 2 : H - L / 2;
+          center[move.k] = slab ? move.side * (H - L / 2) : -move.side * L / 2;
+        }
+        var cutKey = settled ? null : slab ? move.slabCut : move.blockCut;
+        function transform(p) { return view(slab ? rotate(p, move.k, angle) : p); }
+        KEYS.forEach(function (key, index) {
+          var axis = Math.floor(index / 2), sign = index % 2 === 0 ? 1 : -1;
+          var u = (axis + 1) % 3, v = (axis + 2) % 3;
+          var faceCenter = center.slice(); faceCenter[axis] += sign * half[axis];
+          var normal = [0, 0, 0]; normal[axis] = sign;
+          normal = transform(normal);
+          var fc = transform(faceCenter);
+          if (dot(normal, [-fc[0], -fc[1], CAMERA - fc[2]]) <= 0) return;
+          var vertices = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(function (corner) {
+            var p = faceCenter.slice();
+            p[u] += corner[0] * half[u]; p[v] += corner[1] * half[v];
+            return transform(p);
+          });
+          var fill = key === cutKey ? 'var(--bb-cut)' : 'var(--bb-face-' + 'xyz'[axis] + ')';
+          faces.push({ z: fc[2], fill: fill, points: vertices.map(function (p) {
+            var scale = CAMERA / (CAMERA - p[2]);
+            return (p[0] * scale).toFixed(4) + ',' + (p[1] * scale).toFixed(4);
+          }).join(' ') });
+        });
+      });
+      faces.sort(function (a, b) { return a.z - b.z; });
+      polygons.forEach(function (polygon, i) {
+        var face = faces[i];
+        polygon.style.display = face ? '' : 'none';
+        if (!face) return;
+        polygon.setAttribute('points', face.points);
+        polygon.setAttribute('fill', face.fill);
+        // A subpixel stroke closes shared-edge hairlines in the SVG painter.
+        polygon.setAttribute('stroke', face.fill);
+      });
+    }
+
+    var step = 0, t0 = null;
+    (function frame(now) {
+      if (!root.isConnected) return;
+      if (t0 === null) t0 = now;
+      var dt = now - t0;
+      if (TURN === 0 || reducedMotion.matches) draw(MOVES[0], 0);
+      else {
+        if (dt >= TURN + HOLD) { step = (step + 1) % MOVES.length; t0 = now; dt = 0; }
+        draw(MOVES[step], -Math.PI * ease(Math.min(dt / TURN, 1)));
+      }
+      requestAnimationFrame(frame);
+    })(performance.now());
+  }
+
+  function init() { document.querySelectorAll('.bb-cube').forEach(mount); }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
+})();
+</script>
+<!-- ==== /DROP-IN ==== -->
+
+</body>
+</html>

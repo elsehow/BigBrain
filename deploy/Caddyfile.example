@@ -1,0 +1,16 @@
+# Caddyfile.example — TLS front for the intake API (bin/api.ts).
+#
+# The API binds 127.0.0.1:4748 and speaks plain HTTP; bearer tokens ride the
+# Authorization header, so the public face MUST be HTTPS. Caddy does that
+# with automatic certificates: point a DNS record at this machine, put the
+# domain below, `caddy run`. Never open 4748 itself to the network.
+#
+# The web viewer (:4747) is NOT proxied here on purpose — it has no auth and
+# stays reachable only over an ssh tunnel (ssh -L 4747:localhost:4747 <host>).
+#
+# The same domain then goes to the Claude Code on the far machine:
+#   bigbrain connect --url https://vault.example.com
+
+vault.example.com {
+	reverse_proxy 127.0.0.1:4748
+}

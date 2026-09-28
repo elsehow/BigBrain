@@ -1,0 +1,11 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "bigbrain",
+  "version": "0.1.23",
+  "description": "Your BigBrain memory through a local MCP connection, with search/save skills and automatic memory preload.",
+  "author": {
+    "name": "BigBrain",
+    "url": "https://bigbrain.cool"
+  },
+  "homepage": "https://bigbrain.cool"
+}

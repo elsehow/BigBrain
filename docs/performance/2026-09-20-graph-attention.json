@@ -1,0 +1,657 @@
+{
+  "fixture": {
+    "nodes": 4166,
+    "edges": 12008,
+    "pending_questions": 1
+  },
+  "native": {
+    "baseline_visible_unfocused": {
+      "duration_seconds": 16.04,
+      "sample_count": 8,
+      "process_churn": false,
+      "groups": {
+        "other_child": {
+          "cpu_percent_mean": 2.32,
+          "footprint_mb_mean": 30.718,
+          "rss_mb_mean": 107.16,
+          "wakeups_per_sec_mean": 0.0
+        },
+        "webkit_gpu_helper": {
+          "cpu_percent_mean": 32.572,
+          "footprint_mb_mean": 203.526,
+          "rss_mb_mean": 129.607,
+          "wakeups_per_sec_mean": 0.0
+        },
+        "webkit_network": {
+          "cpu_percent_mean": 0.121,
+          "footprint_mb_mean": 9.141,
+          "rss_mb_mean": 28.203,
+          "wakeups_per_sec_mean": 0.0
+        },
+        "webkit_renderer": {
+          "cpu_percent_mean": 19.591,
+          "footprint_mb_mean": 665.683,
+          "rss_mb_mean": 364.107,
+          "wakeups_per_sec_mean": 0.0
+        }
+      },
+      "cpu_percent_total_mean": 54.604,
+      "footprint_mb_total_mean": 909.068,
+      "samples": [
+        {
+          "seconds": 2.006,
+          "process_churn": false,
+          "groups": {
+            "other_child": {
+              "cpu_percent": 2.3683789300549627,
+              "footprint_mb": 30.751441955566406,
+              "rss_mb": 107.171875,
+              "wakeups_per_sec": 0.0,
+              "processes": 2
+            },
+            "webkit_renderer": {
+              "cpu_percent": 19.165447634334146,
+              "footprint_mb": 667.9071426391602,
+              "rss_mb": 364.09375,
+              "wakeups_per_sec": 0.0,
+              "processes": 1
+            },
+            "webkit_network": {
+              "cpu_percent": 0.0872700832551914,
+              "footprint_mb": 9.141220092773438,
+              "rss_mb": 28.203125,
+              "wakeups_per_sec": 0.0,
+              "processes": 1
+            },
+            "webkit_gpu_helper": {
+              "cpu_percent": 32.31749458904826,
+              "footprint_mb": 205.96975708007812,
+              "rss_mb": 133.109375,
+              "wakeups_per_sec": 0.0,
+              "processes": 1
+            }
+          }
+        },
+        {
+          "seconds": 4.012,
+          "process_churn": false,
+          "groups": {
+            "other_child": {
+              "cpu_percent": 2.3226645218551996,
+              "footprint_mb": 30.767066955566406,
+              "rss_mb": 107.1875,
+              "wakeups_per_sec": 0.0,
+              "processes": 2
+            },
+            "webkit_renderer": {
+              "cpu_percent": 18.88306317450957,
+              "footprint_mb": 667.2821426391602,
+              "rss_mb": 364.09375,
+              "wakeups_per_sec": 0.0,
+              "processes": 1
+            },
+            "webkit_network": {
+              "cpu_percent": 0.10482625510377695,
+              "footprint_mb": 9.141220092773438,
+              "rss_mb": 28.203125,
+              "wakeups_per_sec": 0.0,
+              "processes": 1
+            },
+            "webkit_gpu_helper": {
+              "cpu_percent": 31.485469509623282,
+              "footprint_mb": 208.20413208007812,
+              "rss_mb": 133.109375,
+              "wakeups_per_sec": 0.0,
+              "processes": 1
+            }
+          }
+        },
+        {
+          "seconds": 6.018,
+          "process_churn": false,
+          "groups": {
+            "other_child": {
+              "cpu_percent": 2.3460311274281396,
+              "footprint_mb": 30.704566955566406,
+              "rss_mb": 107.140625,
+              "wakeups_per_sec": 0.0,
+              "processes": 2
+            },
+            "webkit_renderer": {
+              "cpu_percent": 19.106247467848224,
+              "footprint_mb": 666.4540176391602,
+              "rss_mb": 364.09375,
+              "wakeups_per_sec": 0.0,
+              "processes": 1
+            },
+            "webkit_network": {
+              "cpu_percent": 0.16700425386312706,
+              "footprint_mb": 9.141220092773438,
+              "rss_mb": 28.203125,
+              "wakeups_per_sec": 0.0,
+              "processes": 1
+            },
+            "webkit_gpu_helper": {
+              "cpu_percent": 32.16778878228667,
+              "footprint_mb": 205.93848419189453,
+              "rss_mb": 133.109375,
+              "wakeups_per_sec": 0.0,
+              "processes": 1
+            }
+          }
+        },
+        {
+          "seconds": 8.021,
+          "process_churn": false,
+          "groups": {
+            "other_child": {
+              "cpu_percent": 2.3650925377974414,
+              "footprint_mb": 30.704566955566406,
+              "rss_mb": 107.15625,
+              "wakeups_per_sec": 0.0,
+              "processes": 2
+            },
+            "webkit_renderer": {
+              "cpu_percent": 21.633883389016376,
+              "footprint_mb": 666.1102676391602,
+              "rss_mb": 364.109375,
+              "wakeups_per_sec": 0.0,
+              "processes": 1
+            },
+            "webkit_network": {
+              "cpu_percent": 0.09736015621554331,
+              "footprint_mb": 9.141220092773438,
+              "rss_mb": 28.203125,
+              "wakeups_per_sec": 0.0,
+              "processes": 1
+            },
+            "webkit_gpu_helper": {
+              "cpu_percent": 33.808900170276864,
+              "footprint_mb": 205.93848419189453,
+              "rss_mb": 133.140625,
+              "wakeups_per_sec": 0.0,
+              "processes": 1
+            }
+          }
+        },
+        {
+          "seconds": 10.028,
+          "process_churn": false,
+          "groups": {
+            "other_child": {
+              "cpu_percent": 2.354552858105061,
+              "footprint_mb": 30.704566955566406,
+              "rss_mb": 107.15625,
+              "wakeups_per_sec": 0.0,
+              "processes": 2
+            },
+            "webkit_renderer": {
+              "cpu_percent": 20.559925326865066,
+              "footprint_mb": 665.7977676391602,
+              "rss_mb": 364.125,
+              "wakeups_per_sec": 0.0,
+              "processes": 1
+            },
+            "webkit_network": {
+              "cpu_percent": 0.09071524674859871,
+              "footprint_mb": 9.141220092773438,
+              "rss_mb": 28.203125,
+              "wakeups_per_sec": 0.0,
+              "processes": 1
+            },
+            "webkit_gpu_helper": {
+              "cpu_percent": 33.30952958727217,
+              "footprint_mb": 208.17285919189453,
+              "rss_mb": 133.171875,
+              "wakeups_per_sec": 0.0,
+              "processes": 1
+            }
+          }
+        },
+        {
+          "seconds": 12.033,
+          "process_churn": false,
+          "groups": {
+            "other_child": {
+              "cpu_percent": 2.254530068940211,
+              "footprint_mb": 30.704566955566406,
+              "rss_mb": 107.15625,
+              "wakeups_per_sec": 0.0,
+              "processes": 2
+            },
+            "webkit_renderer": {
+              "cpu_percent": 19.034628310395597,
+              "footprint_mb": 664.9540176391602,
+              "rss_mb": 364.109375,
+              "wakeups_per_sec": 0.0,
+              "processes": 1
+            },
+            "webkit_network": {
+              "cpu_percent": 0.1546523151733021,
+              "footprint_mb": 9.141220092773438,
+              "rss_mb": 28.203125,
+              "wakeups_per_sec": 0.0,
+              "processes": 1
+            },
+            "webkit_gpu_helper": {
+              "cpu_percent": 31.707240096961538,
+              "footprint_mb": 179.78221130371094,
+              "rss_mb": 104.796875,
+              "wakeups_per_sec": 0.0,
+              "processes": 1
+            }
+          }
+        },
+        {
+          "seconds": 14.035,
+          "process_churn": false,
+          "groups": {
+            "other_child": {
+              "cpu_percent": 2.260683332422323,
+              "footprint_mb": 30.704566955566406,
+              "rss_mb": 107.15625,
+              "wakeups_per_sec": 0.0,
+              "processes": 2
+            },
+            "webkit_renderer": {
+              "cpu_percent": 19.211846158406757,
+              "footprint_mb": 663.9852676391602,
+              "rss_mb": 364.109375,
+              "wakeups_per_sec": 0.0,
+              "processes": 1
+            },
+            "webkit_network": {
+              "cpu_percent": 0.16560963772684653,
+              "footprint_mb": 9.141220092773438,
+              "rss_mb": 28.203125,
+              "wakeups_per_sec": 0.0,
+              "processes": 1
+            },
+            "webkit_gpu_helper": {
+              "cpu_percent": 32.07430847810892,
+              "footprint_mb": 208.17285919189453,
+              "rss_mb": 133.171875,
+              "wakeups_per_sec": 0.0,
+              "processes": 1
+            }
+          }
+        },
+        {
+          "seconds": 16.04,
+          "process_churn": false,
+          "groups": {
+            "other_child": {
+              "cpu_percent": 2.2907944658668677,
+              "footprint_mb": 30.704566955566406,
+              "rss_mb": 107.15625,
+              "wakeups_per_sec": 0.0,
+              "processes": 2
+            },
+            "webkit_renderer": {
+              "cpu_percent": 19.129011144185863,
+              "footprint_mb": 662.9696426391602,
+              "rss_mb": 364.125,
+              "wakeups_per_sec": 0.0,
+              "processes": 1
+            },
+            "webkit_network": {
+              "cpu_percent": 0.10144966517985443,
+              "footprint_mb": 9.141220092773438,
+              "rss_mb": 28.203125,
+              "wakeups_per_sec": 0.0,
+              "processes": 1
+            },
+            "webkit_gpu_helper": {
+              "cpu_percent": 33.70859053927194,
+              "footprint_mb": 206.03225708007812,
+              "rss_mb": 133.25,
+              "wakeups_per_sec": 0.0,
+              "processes": 1
+            }
+          }
+        }
+      ],
+      "window_before": {
+        "active": false,
+        "hidden": false,
+        "visibleMainWindows": 1
+      },
+      "window_after": {
+        "active": false,
+        "hidden": false,
+        "visibleMainWindows": 1
+      }
+    },
+    "fixed_visible_unfocused": {
+      "duration_seconds": 16.034,
+      "sample_count": 8,
+      "process_churn": false,
+      "groups": {
+        "other_child": {
+          "cpu_percent_mean": 0.454,
+          "footprint_mb_mean": 27.156,
+          "rss_mb_mean": 88.914,
+          "wakeups_per_sec_mean": 0.0
+        },
+        "webkit_gpu_helper": {
+          "cpu_percent_mean": 0.29,
+          "footprint_mb_mean": 83.318,
+          "rss_mb_mean": 63.154,
+          "wakeups_per_sec_mean": 0.0
+        },
+        "webkit_network": {
+          "cpu_percent_mean": 0.301,
+          "footprint_mb_mean": 10.487,
+          "rss_mb_mean": 18.828,
+          "wakeups_per_sec_mean": 0.0
+        },
+        "webkit_renderer": {
+          "cpu_percent_mean": 0.473,
+          "footprint_mb_mean": 637.778,
+          "rss_mb_mean": 173.27,
+          "wakeups_per_sec_mean": 0.0
+        }
+      },
+      "cpu_percent_total_mean": 1.518,
+      "footprint_mb_total_mean": 758.739,
+      "samples": [
+        {
+          "seconds": 2.006,
+          "process_churn": false,
+          "groups": {
+            "other_child": {
+              "cpu_percent": 1.3473566545646296,
+              "footprint_mb": 27.017044067382812,
+              "rss_mb": 94.15625,
+              "wakeups_per_sec": 0.0,
+              "processes": 2
+            },
+            "webkit_renderer": {
+              "cpu_percent": 0.14468949345666013,
+              "footprint_mb": 608.8602676391602,
+              "rss_mb": 226.8125,
+              "wakeups_per_sec": 0.0,
+              "processes": 1
+            },
+            "webkit_network": {
+              "cpu_percent": 0.152735298466939,
+              "footprint_mb": 10.438117980957031,
+              "rss_mb": 22.140625,
+              "wakeups_per_sec": 0.0,
+              "processes": 1
+            },
+            "webkit_gpu_helper": {
+              "cpu_percent": 0.01881023644246158,
+              "footprint_mb": 69.2510986328125,
+              "rss_mb": 68.71875,
+              "wakeups_per_sec": 0.0,
+              "processes": 1
+            }
+          }
+        },
+        {
+          "seconds": 4.009,
+          "process_churn": false,
+          "groups": {
+            "other_child": {
+              "cpu_percent": 0.5089748232504131,
+              "footprint_mb": 27.282669067382812,
+              "rss_mb": 88.09375,
+              "wakeups_per_sec": 0.0,
+              "processes": 2
+            },
+            "webkit_renderer": {
+              "cpu_percent": 0.20964445654398522,
+              "footprint_mb": 614.3290176391602,
+              "rss_mb": 157.59375,
+              "wakeups_per_sec": 0.0,
+              "processes": 1
+            },
+            "webkit_network": {
+              "cpu_percent": 0.22543833260275414,
+              "footprint_mb": 10.609992980957031,
+              "rss_mb": 18.703125,
+              "wakeups_per_sec": 0.0,
+              "processes": 1
+            },
+            "webkit_gpu_helper": {
+              "cpu_percent": 0.04939175785651362,
+              "footprint_mb": 37.5635986328125,
+              "rss_mb": 67.421875,
+              "wakeups_per_sec": 0.0,
+              "processes": 1
+            }
+          }
+        },
+        {
+          "seconds": 6.015,
+          "process_churn": false,
+          "groups": {
+            "other_child": {
+              "cpu_percent": 0.21176791815831802,
+              "footprint_mb": 27.142044067382812,
+              "rss_mb": 88.09375,
+              "wakeups_per_sec": 0.0,
+              "processes": 2
+            },
+            "webkit_renderer": {
+              "cpu_percent": 0.16204634463988912,
+              "footprint_mb": 614.3290176391602,
+              "rss_mb": 155.484375,
+              "wakeups_per_sec": 0.0,
+              "processes": 1
+            },
+            "webkit_network": {
+              "cpu_percent": 0.2362434193213226,
+              "footprint_mb": 10.516242980957031,
+              "rss_mb": 18.703125,
+              "wakeups_per_sec": 0.0,
+              "processes": 1
+            },
+            "webkit_gpu_helper": {
+              "cpu_percent": 0.0067710568390525186,
+              "footprint_mb": 37.5479736328125,
+              "rss_mb": 67.40625,
+              "wakeups_per_sec": 0.0,
+              "processes": 1
+            }
+          }
+        },
+        {
+          "seconds": 8.02,
+          "process_churn": false,
+          "groups": {
+            "other_child": {
+              "cpu_percent": 0.07673984903812821,
+              "footprint_mb": 27.142044067382812,
+              "rss_mb": 88.09375,
+              "wakeups_per_sec": 0.0,
+              "processes": 2
+            },
+            "webkit_renderer": {
+              "cpu_percent": 0.18979362712722347,
+              "footprint_mb": 614.3446426391602,
+              "rss_mb": 155.5,
+              "wakeups_per_sec": 0.0,
+              "processes": 1
+            },
+            "webkit_network": {
+              "cpu_percent": 0.36873068394539493,
+              "footprint_mb": 10.516242980957031,
+              "rss_mb": 18.703125,
+              "wakeups_per_sec": 0.0,
+              "processes": 1
+            },
+            "webkit_gpu_helper": {
+              "cpu_percent": 0.0,
+              "footprint_mb": 37.5479736328125,
+              "rss_mb": 67.40625,
+              "wakeups_per_sec": 0.0,
+              "processes": 1
+            }
+          }
+        },
+        {
+          "seconds": 10.025,
+          "process_churn": false,
+          "groups": {
+            "other_child": {
+              "cpu_percent": 0.49814689140931007,
+              "footprint_mb": 27.204544067382812,
+              "rss_mb": 88.21875,
+              "wakeups_per_sec": 0.0,
+              "processes": 2
+            },
+            "webkit_renderer": {
+              "cpu_percent": 1.9715224534750184,
+              "footprint_mb": 718.6102676391602,
+              "rss_mb": 174.578125,
+              "wakeups_per_sec": 0.0,
+              "processes": 1
+            },
+            "webkit_network": {
+              "cpu_percent": 0.5151602212953106,
+              "footprint_mb": 10.484992980957031,
+              "rss_mb": 18.21875,
+              "wakeups_per_sec": 0.0,
+              "processes": 1
+            },
+            "webkit_gpu_helper": {
+              "cpu_percent": 1.2876210841530704,
+              "footprint_mb": 172.4698486328125,
+              "rss_mb": 68.015625,
+              "wakeups_per_sec": 0.0,
+              "processes": 1
+            }
+          }
+        },
+        {
+          "seconds": 12.027,
+          "process_churn": false,
+          "groups": {
+            "other_child": {
+              "cpu_percent": 0.6969935569776,
+              "footprint_mb": 27.204544067382812,
+              "rss_mb": 88.578125,
+              "wakeups_per_sec": 0.0,
+              "processes": 2
+            },
+            "webkit_renderer": {
+              "cpu_percent": 0.597364455906283,
+              "footprint_mb": 682.7821426391602,
+              "rss_mb": 172.265625,
+              "wakeups_per_sec": 0.0,
+              "processes": 1
+            },
+            "webkit_network": {
+              "cpu_percent": 0.36144462668144245,
+              "footprint_mb": 10.438117980957031,
+              "rss_mb": 18.234375,
+              "wakeups_per_sec": 0.0,
+              "processes": 1
+            },
+            "webkit_gpu_helper": {
+              "cpu_percent": 0.9057081229232541,
+              "footprint_mb": 173.0479965209961,
+              "rss_mb": 66.25,
+              "wakeups_per_sec": 0.0,
+              "processes": 1
+            }
+          }
+        },
+        {
+          "seconds": 14.028,
+          "process_churn": false,
+          "groups": {
+            "other_child": {
+              "cpu_percent": 0.22123640985983223,
+              "footprint_mb": 27.126419067382812,
+              "rss_mb": 88.046875,
+              "wakeups_per_sec": 0.0,
+              "processes": 2
+            },
+            "webkit_renderer": {
+              "cpu_percent": 0.29811453758724044,
+              "footprint_mb": 624.5165176391602,
+              "rss_mb": 171.984375,
+              "wakeups_per_sec": 0.0,
+              "processes": 1
+            },
+            "webkit_network": {
+              "cpu_percent": 0.3018737269161975,
+              "footprint_mb": 10.438117980957031,
+              "rss_mb": 18.0,
+              "wakeups_per_sec": 0.0,
+              "processes": 1
+            },
+            "webkit_gpu_helper": {
+              "cpu_percent": 0.045955361021436075,
+              "footprint_mb": 69.5636215209961,
+              "rss_mb": 65.40625,
+              "wakeups_per_sec": 0.0,
+              "processes": 1
+            }
+          }
+        },
+        {
+          "seconds": 16.034,
+          "process_churn": false,
+          "groups": {
+            "other_child": {
+              "cpu_percent": 0.06794089218569069,
+              "footprint_mb": 27.126419067382812,
+              "rss_mb": 88.03125,
+              "wakeups_per_sec": 0.0,
+              "processes": 2
+            },
+            "webkit_renderer": {
+              "cpu_percent": 0.21319197155944075,
+              "footprint_mb": 624.4540176391602,
+              "rss_mb": 171.9375,
+              "wakeups_per_sec": 0.0,
+              "processes": 1
+            },
+            "webkit_network": {
+              "cpu_percent": 0.24342508689635234,
+              "footprint_mb": 10.453742980957031,
+              "rss_mb": 17.921875,
+              "wakeups_per_sec": 0.0,
+              "processes": 1
+            },
+            "webkit_gpu_helper": {
+              "cpu_percent": 0.005906187514796926,
+              "footprint_mb": 69.5479965209961,
+              "rss_mb": 34.609375,
+              "wakeups_per_sec": 0.0,
+              "processes": 1
+            }
+          }
+        }
+      ],
+      "window_before": {
+        "active": false,
+        "hidden": false,
+        "visibleMainWindows": 1
+      },
+      "window_after": {
+        "active": false,
+        "hidden": false,
+        "visibleMainWindows": 1
+      }
+    }
+  },
+  "chromium_fixed": [
+    {
+      "kind": "pending_question",
+      "seconds": 6,
+      "frames": 0,
+      "task_ms": 3.717
+    },
+    {
+      "kind": "unread_source",
+      "seconds": 6,
+      "frames": 0,
+      "task_ms": 3.913
+    }
+  ]
+}

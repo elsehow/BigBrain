@@ -1,0 +1,17 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "bigbrain",
+  "description": "The BigBrain plugin, carried by the connect installer — a local directory, not a repo.",
+  "owner": {
+    "name": "BigBrain",
+    "url": "https://bigbrain.cool"
+  },
+  "plugins": [
+    {
+      "name": "bigbrain",
+      "description": "Your BigBrain vault, from any directory: every session opens with your memory index, and Claude can search the vault and add to it over HTTP.",
+      "category": "productivity",
+      "source": "./"
+    }
+  ]
+}

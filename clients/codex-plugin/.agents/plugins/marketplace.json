@@ -1,0 +1,20 @@
+{
+  "name": "bigbrain",
+  "interface": {
+    "displayName": "BigBrain"
+  },
+  "plugins": [
+    {
+      "name": "bigbrain",
+      "source": {
+        "source": "local",
+        "path": "./plugins/bigbrain"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

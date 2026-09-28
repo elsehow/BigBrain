@@ -1,0 +1,17 @@
+# Opt-in performance and engagement telemetry — proposal
+
+Recommendation: PostHog Cloud with a small explicit event collector. The first implementation is documented in [local diagnostics and telemetry](../performance/telemetry.md). Sharing defaults off; the US PostHog project is configured. The broader supervisor/process coverage below remains future work.
+
+As checked on 2026-09-19, [PostHog's free plan](https://posthog.com/pricing) includes one million analytics events per month, one project, and one year of retention, without a credit card. Its [capture/batch API](https://posthog.com/docs/api/capture) can receive explicit events without loading browser autocapture or session replay. This gives us event analytics and retention dashboards without building an analytics application around a database. Supabase would be reasonable if we needed a custom data service, but ingestion, retention jobs, abuse controls, and dashboards would still be ours to build.
+
+## Smallest useful implementation
+
+1. Add a per-installation opt-in under Diagnostics: “Share anonymous usage and performance statistics.” Explain the actual schema and that a random installation ID links sessions; technically this is pseudonymous, not guaranteed anonymous. Default off. Allow revocation and clear queued unsent events on opt-out.
+2. Define an allowlisted, versioned event schema. Send explicit action counts and numeric aggregates only: startup/graph/search durations, operation outcomes, app version, OS family, and coarse vault-size bands. Do not include note identifiers, paths, titles, search queries, prompt/response text, credentials, or raw errors. Do not enable automatic page/URL capture, click capture, or replay.
+3. Add low-frequency resource sampling in the desktop supervisor, with clearly scoped CPU and RSS measurements for owned processes. Browser timing APIs cannot accurately measure whole-app CPU/RSS. Start with the engine/supervisor; add platform-specific WebView and model-process measurements only where reliable. Aggregate locally by idle versus active state and upload a summary every several minutes. Bound offline queues and retries; the collector itself must remain cheap.
+4. Batch through one engine-owned sender to PostHog's ingestion API. Use a random ID created only after consent. Capture endpoints use a project ingestion key, never a personal/admin API key. No additional database or server is needed initially. Add a proxy only if abuse or policy requirements justify operating one.
+5. Build two dashboards: performance by release/OS/vault-size band, and meaningful use/retention. Track outcomes such as a user initiating a Pilot turn, opening a note, following a search result, or deliberately capturing material. Keep background gardener/model work separate from human engagement. A running or idle app is not an active user.
+
+Start with weekly engaged installations and returning engaged installations, plus completed Pilot turns. Count focused/recently interactive time separately from background uptime. Deduplicate operation events by ID and distinguish development builds from released builds. Opt-in users are a selected sample; neither engagement nor performance distributions automatically represent all installations.
+
+The hosted dashboards and ingestion are available off the shelf; desktop resource collection, consent, and BigBrain-specific event semantics still need a small implementation. Account/project creation and agreement on the initial schema are the next setup steps, not a reason to add Supabase first.

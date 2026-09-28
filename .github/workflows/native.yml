@@ -1,0 +1,61 @@
+name: native
+on:
+  pull_request:
+    paths:
+      - 'desktop/**'
+      - 'bin/desktop.ts'
+      - 'bin/ci-native.sh'
+      - 'lib/firstRun.ts'
+      - 'lib/native.ts'
+      - 'lib/parentWatch.ts'
+      - 'test/support/native-smoke/**'
+      - '.github/workflows/native.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'desktop/**'
+      - 'bin/desktop.ts'
+      - 'bin/ci-native.sh'
+      - 'lib/firstRun.ts'
+      - 'lib/native.ts'
+      - 'lib/parentWatch.ts'
+      - 'test/support/native-smoke/**'
+      - '.github/workflows/native.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: native-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  native:
+    name: native (macos-latest)
+    runs-on: macos-latest
+    timeout-minutes: 30
+    env:
+      RUSTUP_TOOLCHAIN: 1.95.0
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.9
+      - run: rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            desktop/src-tauri/target
+          key: native-${{ runner.os }}-${{ runner.arch }}-rust-1.95.0-${{ hashFiles('desktop/src-tauri/Cargo.lock') }}
+      - name: Build native target and verify lifecycle
+        run: |
+          mkdir -p artifacts/native
+          set -o pipefail
+          sh bin/ci-native.sh 2>&1 | tee artifacts/native/checks.log
+      - uses: actions/upload-artifact@v7
+        if: failure() || cancelled()
+        with:
+          name: native-failure
+          path: artifacts/native/
+          retention-days: 7
+          if-no-files-found: warn

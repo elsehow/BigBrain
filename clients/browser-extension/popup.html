@@ -1,0 +1,55 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <link rel="stylesheet" href="design.css" />
+</head>
+<body class="popup">
+
+  <!-- Signed out. Shown INSTEAD of a capture, never alongside one: firing a
+       send that can only fail would say the same thing three times. -->
+  <section id="signin" class="view" hidden>
+    <div class="head">
+      <div class="cube-slot"><div class="cube-stage" data-half="9" data-layer="6"></div></div>
+      <div class="head-text">
+        <span class="eyebrow">NOT CONNECTED</span>
+        <span class="title">Send to BigBrain</span>
+        <span class="meta">Pair with your BigBrain to start capturing.</span>
+      </div>
+    </div>
+    <button id="openOptions" class="cta" type="button">Pair with BigBrain</button>
+  </section>
+
+  <!-- Capturing. The page send is already in flight when this paints; the
+       note well is the only thing here waiting on a human. -->
+  <section id="capture" class="view" hidden>
+    <div class="head">
+      <div class="cube-slot"><div class="cube-stage" data-half="9" data-layer="6"></div></div>
+      <div class="head-text">
+        <span class="eyebrow" id="status">SENDING</span>
+        <span class="title" id="pageTitle"></span>
+        <span class="meta" id="pageUrl"></span>
+      </div>
+    </div>
+
+    <textarea id="note" class="note" rows="3" placeholder="add a note…"></textarea>
+
+    <div class="foot">
+      <button id="discuss" class="chip" type="button" hidden>
+        <span class="chip-keys">⇧↵</span><span>DISCUSS</span>
+      </button>
+      <!-- Firefox only, and only when a PDF fetch needs a host grant the
+           background cannot request itself (a permission prompt takes a
+           user gesture). Mutually exclusive with DISCUSS: one shows on a
+           landing, the other on this specific failure. -->
+      <button id="allow" class="chip" type="button" hidden>
+        <span>ALLOW THIS SITE</span>
+      </button>
+      <div class="hints" id="hints"></div>
+    </div>
+  </section>
+
+  <script src="cube.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

@@ -1,0 +1,1099 @@
+{
+  "date": "2026-09-20",
+  "platform": "macOS 26.6.2 arm64",
+  "baseline": "91347610e8a8e1392c0141af88c341a842990721",
+  "candidate": "4e3793f4cd17d80cd2d8d955aac167a453db90c9",
+  "bun": "1.3.9",
+  "method": "Two fresh-process trials per operation and side; reversed execution order in trial 2. Six reads per process: first plus five warm reads. Projection prepared before timing. Decode instrumentation runs separately and is excluded from timings.",
+  "equivalence": "Canonical JSON SHA-256; memory compares metadata, live assertions, voice bodies, supersession, aliases, revocations and exact checkpoints; obsolete non-voice bodies are excluded.",
+  "productionDiff": {
+    "added": 384,
+    "deleted": 158,
+    "net": 226
+  },
+  "results": {
+    "thread": {
+      "before": [
+        {
+          "operation": "thread",
+          "sources": 1204,
+          "assertions": 1201,
+          "threads": 300,
+          "bun": "1.3.9",
+          "projectionMs": 904.403625,
+          "databaseBytes": 134963200,
+          "samplesMs": [
+            86.68766700000015,
+            0.7430420000000595,
+            0.5690830000000915,
+            0.4579999999998563,
+            0.42775000000006,
+            0.42404099999998834
+          ],
+          "firstMs": 86.68766700000015,
+          "warmMedianMs": 0.4579999999998563,
+          "digests": [
+            "d6672bc5019bbcdbd5406d5afd088805857ba7a8d052336ff5b17bd72b1cab74"
+          ],
+          "bytes": {
+            "totalBodies": 39627690,
+            "threadBodies": 132084
+          },
+          "before": {
+            "rss": 174948352,
+            "heapTotal": 3478528,
+            "heapUsed": 45811294,
+            "external": 1470670,
+            "arrayBuffers": 116
+          },
+          "after": {
+            "rss": 192217088,
+            "heapTotal": 5086208,
+            "heapUsed": 31601221,
+            "external": 41818481,
+            "arrayBuffers": 116
+          }
+        },
+        {
+          "operation": "thread",
+          "sources": 1204,
+          "assertions": 1201,
+          "threads": 300,
+          "bun": "1.3.9",
+          "projectionMs": 868.0763750000001,
+          "databaseBytes": 134963200,
+          "samplesMs": [
+            80.51191700000004,
+            0.6795839999999771,
+            0.4846660000000611,
+            0.4462919999998576,
+            0.42420900000001893,
+            0.41124999999988177
+          ],
+          "firstMs": 80.51191700000004,
+          "warmMedianMs": 0.4462919999998576,
+          "digests": [
+            "d6672bc5019bbcdbd5406d5afd088805857ba7a8d052336ff5b17bd72b1cab74"
+          ],
+          "bytes": {
+            "totalBodies": 39627690,
+            "threadBodies": 132084
+          },
+          "before": {
+            "rss": 172736512,
+            "heapTotal": 3479552,
+            "heapUsed": 45675289,
+            "external": 1470273,
+            "arrayBuffers": 116
+          },
+          "after": {
+            "rss": 190021632,
+            "heapTotal": 5087232,
+            "heapUsed": 31600744,
+            "external": 41818067,
+            "arrayBuffers": 116
+          }
+        }
+      ],
+      "after": [
+        {
+          "operation": "thread",
+          "sources": 1204,
+          "assertions": 1201,
+          "threads": 300,
+          "bun": "1.3.9",
+          "projectionMs": 918.5925419999999,
+          "databaseBytes": 136196096,
+          "samplesMs": [
+            6.852416999999832,
+            0.6304999999999836,
+            0.6773330000000897,
+            0.5337090000000444,
+            0.5062910000001466,
+            0.5126660000000811
+          ],
+          "firstMs": 6.852416999999832,
+          "warmMedianMs": 0.5337090000000444,
+          "digests": [
+            "d6672bc5019bbcdbd5406d5afd088805857ba7a8d052336ff5b17bd72b1cab74"
+          ],
+          "bytes": {
+            "totalBodies": 39627690,
+            "threadBodies": 132084
+          },
+          "before": {
+            "rss": 176373760,
+            "heapTotal": 3545088,
+            "heapUsed": 45755517,
+            "external": 1566528,
+            "arrayBuffers": 116
+          },
+          "after": {
+            "rss": 177455104,
+            "heapTotal": 3515392,
+            "heapUsed": 45755517,
+            "external": 1616556,
+            "arrayBuffers": 116
+          }
+        },
+        {
+          "operation": "thread",
+          "sources": 1204,
+          "assertions": 1201,
+          "threads": 300,
+          "bun": "1.3.9",
+          "projectionMs": 892.2603330000001,
+          "databaseBytes": 136196096,
+          "samplesMs": [
+            7.02883299999985,
+            0.6481249999999363,
+            0.7217080000000351,
+            0.6301249999999072,
+            0.5566669999998339,
+            0.5092500000000655
+          ],
+          "firstMs": 7.02883299999985,
+          "warmMedianMs": 0.6301249999999072,
+          "digests": [
+            "d6672bc5019bbcdbd5406d5afd088805857ba7a8d052336ff5b17bd72b1cab74"
+          ],
+          "bytes": {
+            "totalBodies": 39627690,
+            "threadBodies": 132084
+          },
+          "before": {
+            "rss": 176406528,
+            "heapTotal": 3610624,
+            "heapUsed": 45828419,
+            "external": 1567436,
+            "arrayBuffers": 116
+          },
+          "after": {
+            "rss": 177569792,
+            "heapTotal": 3597312,
+            "heapUsed": 45828419,
+            "external": 1617276,
+            "arrayBuffers": 116
+          }
+        }
+      ]
+    },
+    "note": {
+      "before": [
+        {
+          "operation": "note",
+          "sources": 1204,
+          "assertions": 1201,
+          "threads": 300,
+          "bun": "1.3.9",
+          "projectionMs": 875.352,
+          "databaseBytes": 134963200,
+          "samplesMs": [
+            108.57787499999995,
+            27.935292000000118,
+            24.16083299999991,
+            25.506374999999935,
+            25.682749999999942,
+            24.675333000000137
+          ],
+          "firstMs": 108.57787499999995,
+          "warmMedianMs": 25.506374999999935,
+          "digests": [
+            "f10fc0fb05c840b7a1d06cfa412c99fae24fb767cf0c061b40006fa8317db78e"
+          ],
+          "bytes": {
+            "totalBodies": 39627690,
+            "threadBodies": 132084
+          },
+          "before": {
+            "rss": 172851200,
+            "heapTotal": 3479552,
+            "heapUsed": 45809226,
+            "external": 1470428,
+            "arrayBuffers": 116
+          },
+          "after": {
+            "rss": 435961856,
+            "heapTotal": 5218304,
+            "heapUsed": 120674516,
+            "external": 41903492,
+            "arrayBuffers": 116
+          }
+        },
+        {
+          "operation": "note",
+          "sources": 1204,
+          "assertions": 1201,
+          "threads": 300,
+          "bun": "1.3.9",
+          "projectionMs": 874.1825,
+          "databaseBytes": 134963200,
+          "samplesMs": [
+            108.2566670000001,
+            28.154375000000073,
+            24.143125000000055,
+            25.61958400000003,
+            25.493834000000106,
+            24.513959000000114
+          ],
+          "firstMs": 108.2566670000001,
+          "warmMedianMs": 25.493834000000106,
+          "digests": [
+            "f10fc0fb05c840b7a1d06cfa412c99fae24fb767cf0c061b40006fa8317db78e"
+          ],
+          "bytes": {
+            "totalBodies": 39627690,
+            "threadBodies": 132084
+          },
+          "before": {
+            "rss": 173309952,
+            "heapTotal": 3479552,
+            "heapUsed": 45710913,
+            "external": 1469975,
+            "arrayBuffers": 116
+          },
+          "after": {
+            "rss": 432734208,
+            "heapTotal": 5218304,
+            "heapUsed": 122648569,
+            "external": 41902914,
+            "arrayBuffers": 116
+          }
+        }
+      ],
+      "after": [
+        {
+          "operation": "note",
+          "sources": 1204,
+          "assertions": 1201,
+          "threads": 300,
+          "bun": "1.3.9",
+          "projectionMs": 903.02525,
+          "databaseBytes": 136196096,
+          "samplesMs": [
+            7.929834000000028,
+            1.273916999999983,
+            1.0148340000000644,
+            0.9728329999998095,
+            0.9431670000001304,
+            0.9197500000000218
+          ],
+          "firstMs": 7.929834000000028,
+          "warmMedianMs": 0.9728329999998095,
+          "digests": [
+            "f10fc0fb05c840b7a1d06cfa412c99fae24fb767cf0c061b40006fa8317db78e"
+          ],
+          "bytes": {
+            "totalBodies": 39627690,
+            "threadBodies": 132084
+          },
+          "before": {
+            "rss": 177111040,
+            "heapTotal": 3577856,
+            "heapUsed": 45758668,
+            "external": 1569981,
+            "arrayBuffers": 116
+          },
+          "after": {
+            "rss": 177569792,
+            "heapTotal": 3579904,
+            "heapUsed": 45758668,
+            "external": 1672010,
+            "arrayBuffers": 116
+          }
+        },
+        {
+          "operation": "note",
+          "sources": 1204,
+          "assertions": 1201,
+          "threads": 300,
+          "bun": "1.3.9",
+          "projectionMs": 899.6895000000001,
+          "databaseBytes": 136196096,
+          "samplesMs": [
+            7.677208000000064,
+            1.038707999999815,
+            1.0821670000000267,
+            1.2380829999999605,
+            1.1340000000000146,
+            1.0133749999999964
+          ],
+          "firstMs": 7.677208000000064,
+          "warmMedianMs": 1.0821670000000267,
+          "digests": [
+            "f10fc0fb05c840b7a1d06cfa412c99fae24fb767cf0c061b40006fa8317db78e"
+          ],
+          "bytes": {
+            "totalBodies": 39627690,
+            "threadBodies": 132084
+          },
+          "before": {
+            "rss": 176357376,
+            "heapTotal": 3577856,
+            "heapUsed": 45695843,
+            "external": 1569665,
+            "arrayBuffers": 116
+          },
+          "after": {
+            "rss": 176963584,
+            "heapTotal": 3563520,
+            "heapUsed": 45695843,
+            "external": 1671690,
+            "arrayBuffers": 116
+          }
+        }
+      ]
+    },
+    "readState": {
+      "before": [
+        {
+          "operation": "readState",
+          "sources": 1204,
+          "assertions": 1201,
+          "threads": 300,
+          "bun": "1.3.9",
+          "projectionMs": 878.8806659999999,
+          "databaseBytes": 134963200,
+          "samplesMs": [
+            82.99883399999999,
+            2.8855000000000928,
+            2.30341599999997,
+            2.232958999999937,
+            2.4029579999998987,
+            2.5574169999999867
+          ],
+          "firstMs": 82.99883399999999,
+          "warmMedianMs": 2.4029579999998987,
+          "digests": [
+            "fd876c36a5eb9aa4b086956a59add293d9a212390f1733ffa02e980f52bb427f"
+          ],
+          "bytes": {
+            "totalBodies": 39627690,
+            "threadBodies": 132084
+          },
+          "before": {
+            "rss": 172589056,
+            "heapTotal": 3479552,
+            "heapUsed": 45916131,
+            "external": 1470758,
+            "arrayBuffers": 116
+          },
+          "after": {
+            "rss": 220184576,
+            "heapTotal": 5185536,
+            "heapUsed": 31598532,
+            "external": 41940130,
+            "arrayBuffers": 116
+          }
+        },
+        {
+          "operation": "readState",
+          "sources": 1204,
+          "assertions": 1201,
+          "threads": 300,
+          "bun": "1.3.9",
+          "projectionMs": 878.914542,
+          "databaseBytes": 134963200,
+          "samplesMs": [
+            82.85516600000005,
+            2.6749159999999392,
+            2.4906670000000304,
+            2.477290999999923,
+            2.241999999999962,
+            1.9895419999998012
+          ],
+          "firstMs": 82.85516600000005,
+          "warmMedianMs": 2.477290999999923,
+          "digests": [
+            "fd876c36a5eb9aa4b086956a59add293d9a212390f1733ffa02e980f52bb427f"
+          ],
+          "bytes": {
+            "totalBodies": 39627690,
+            "threadBodies": 132084
+          },
+          "before": {
+            "rss": 173768704,
+            "heapTotal": 3479552,
+            "heapUsed": 45915566,
+            "external": 1470438,
+            "arrayBuffers": 116
+          },
+          "after": {
+            "rss": 223199232,
+            "heapTotal": 5185536,
+            "heapUsed": 31571708,
+            "external": 41937328,
+            "arrayBuffers": 116
+          }
+        }
+      ],
+      "after": [
+        {
+          "operation": "readState",
+          "sources": 1204,
+          "assertions": 1201,
+          "threads": 300,
+          "bun": "1.3.9",
+          "projectionMs": 897.2196670000001,
+          "databaseBytes": 136196096,
+          "samplesMs": [
+            24.02429200000006,
+            1.0005419999999958,
+            0.6963750000002165,
+            0.6333749999998872,
+            0.8075420000000122,
+            0.6218330000001515
+          ],
+          "firstMs": 24.02429200000006,
+          "warmMedianMs": 0.6963750000002165,
+          "digests": [
+            "fd876c36a5eb9aa4b086956a59add293d9a212390f1733ffa02e980f52bb427f"
+          ],
+          "bytes": {
+            "totalBodies": 39627690,
+            "threadBodies": 132084
+          },
+          "before": {
+            "rss": 177651712,
+            "heapTotal": 3544064,
+            "heapUsed": 45763126,
+            "external": 1569436,
+            "arrayBuffers": 116
+          },
+          "after": {
+            "rss": 183353344,
+            "heapTotal": 4020224,
+            "heapUsed": 45763126,
+            "external": 1977161,
+            "arrayBuffers": 116
+          }
+        },
+        {
+          "operation": "readState",
+          "sources": 1204,
+          "assertions": 1201,
+          "threads": 300,
+          "bun": "1.3.9",
+          "projectionMs": 901.486208,
+          "databaseBytes": 136196096,
+          "samplesMs": [
+            23.189959000000044,
+            1.0332089999999425,
+            0.6906659999999647,
+            0.7087500000000091,
+            0.6602920000000267,
+            0.6062089999998079
+          ],
+          "firstMs": 23.189959000000044,
+          "warmMedianMs": 0.6906659999999647,
+          "digests": [
+            "fd876c36a5eb9aa4b086956a59add293d9a212390f1733ffa02e980f52bb427f"
+          ],
+          "bytes": {
+            "totalBodies": 39627690,
+            "threadBodies": 132084
+          },
+          "before": {
+            "rss": 176635904,
+            "heapTotal": 3594240,
+            "heapUsed": 45795163,
+            "external": 1569178,
+            "arrayBuffers": 116
+          },
+          "after": {
+            "rss": 182583296,
+            "heapTotal": 4054016,
+            "heapUsed": 45795163,
+            "external": 1975844,
+            "arrayBuffers": 116
+          }
+        }
+      ]
+    },
+    "voice": {
+      "before": [
+        {
+          "operation": "voice",
+          "sources": 1204,
+          "assertions": 1201,
+          "threads": 300,
+          "bun": "1.3.9",
+          "projectionMs": 882.0892500000001,
+          "databaseBytes": 134963200,
+          "samplesMs": [
+            43.49479199999996,
+            43.594249999999874,
+            43.032416999999896,
+            42.125249999999824,
+            42.075374999999894,
+            42.5006249999999
+          ],
+          "firstMs": 43.49479199999996,
+          "warmMedianMs": 42.5006249999999,
+          "digests": [
+            "2bda48f115f65cc4d7b824c319980320104ba9db9c95aede7535c4133e6b18f5"
+          ],
+          "bytes": {
+            "totalBodies": 39627690,
+            "threadBodies": 132084
+          },
+          "before": {
+            "rss": 173555712,
+            "heapTotal": 3478528,
+            "heapUsed": 45910867,
+            "external": 1471052,
+            "arrayBuffers": 116
+          },
+          "after": {
+            "rss": 191741952,
+            "heapTotal": 3512320,
+            "heapUsed": 33900097,
+            "external": 1563223,
+            "arrayBuffers": 116
+          }
+        },
+        {
+          "operation": "voice",
+          "sources": 1204,
+          "assertions": 1201,
+          "threads": 300,
+          "bun": "1.3.9",
+          "projectionMs": 869.4925829999999,
+          "databaseBytes": 134963200,
+          "samplesMs": [
+            43.10066699999993,
+            44.414084,
+            42.62029200000006,
+            42.269166999999925,
+            41.838250000000016,
+            42.467542000000094
+          ],
+          "firstMs": 43.10066699999993,
+          "warmMedianMs": 42.467542000000094,
+          "digests": [
+            "2bda48f115f65cc4d7b824c319980320104ba9db9c95aede7535c4133e6b18f5"
+          ],
+          "bytes": {
+            "totalBodies": 39627690,
+            "threadBodies": 132084
+          },
+          "before": {
+            "rss": 173490176,
+            "heapTotal": 3463168,
+            "heapUsed": 45705605,
+            "external": 1470728,
+            "arrayBuffers": 116
+          },
+          "after": {
+            "rss": 191709184,
+            "heapTotal": 3496960,
+            "heapUsed": 33862554,
+            "external": 1576143,
+            "arrayBuffers": 116
+          }
+        }
+      ],
+      "after": [
+        {
+          "operation": "voice",
+          "sources": 1204,
+          "assertions": 1201,
+          "threads": 300,
+          "bun": "1.3.9",
+          "projectionMs": 899.8731660000001,
+          "databaseBytes": 136196096,
+          "samplesMs": [
+            6.90949999999998,
+            0.4849169999999958,
+            0.42908299999999144,
+            0.39270799999985684,
+            0.36262499999998,
+            0.3439169999999194
+          ],
+          "firstMs": 6.90949999999998,
+          "warmMedianMs": 0.39270799999985684,
+          "digests": [
+            "2bda48f115f65cc4d7b824c319980320104ba9db9c95aede7535c4133e6b18f5"
+          ],
+          "bytes": {
+            "totalBodies": 39627690,
+            "threadBodies": 132084
+          },
+          "before": {
+            "rss": 177094656,
+            "heapTotal": 3577856,
+            "heapUsed": 45888782,
+            "external": 1570271,
+            "arrayBuffers": 116
+          },
+          "after": {
+            "rss": 177963008,
+            "heapTotal": 3563520,
+            "heapUsed": 45888782,
+            "external": 1618030,
+            "arrayBuffers": 116
+          }
+        },
+        {
+          "operation": "voice",
+          "sources": 1204,
+          "assertions": 1201,
+          "threads": 300,
+          "bun": "1.3.9",
+          "projectionMs": 901.878958,
+          "databaseBytes": 136196096,
+          "samplesMs": [
+            6.958541999999852,
+            0.4781660000001011,
+            0.4133750000000873,
+            0.39183299999990595,
+            0.3668750000001637,
+            0.3446249999999509
+          ],
+          "firstMs": 6.958541999999852,
+          "warmMedianMs": 0.39183299999990595,
+          "digests": [
+            "2bda48f115f65cc4d7b824c319980320104ba9db9c95aede7535c4133e6b18f5"
+          ],
+          "bytes": {
+            "totalBodies": 39627690,
+            "threadBodies": 132084
+          },
+          "before": {
+            "rss": 177094656,
+            "heapTotal": 3596288,
+            "heapUsed": 45761130,
+            "external": 1569213,
+            "arrayBuffers": 116
+          },
+          "after": {
+            "rss": 178126848,
+            "heapTotal": 3581952,
+            "heapUsed": 45761130,
+            "external": 1617006,
+            "arrayBuffers": 116
+          }
+        }
+      ]
+    },
+    "identity": {
+      "before": [
+        {
+          "operation": "identity",
+          "sources": 1204,
+          "assertions": 1201,
+          "threads": 300,
+          "bun": "1.3.9",
+          "projectionMs": 880.3433749999999,
+          "databaseBytes": 134963200,
+          "samplesMs": [
+            70.20491600000014,
+            56.617917000000034,
+            53.61833299999989,
+            53.28774999999996,
+            55.378165999999965,
+            54.66991699999994
+          ],
+          "firstMs": 70.20491600000014,
+          "warmMedianMs": 54.66991699999994,
+          "digests": [
+            "a3a91ce9b9290f69e0a882fed14e8bae25cfc132b6ace4344e5d93ecd2965695"
+          ],
+          "bytes": {
+            "totalBodies": 39627690,
+            "threadBodies": 132084
+          },
+          "before": {
+            "rss": 173932544,
+            "heapTotal": 3479552,
+            "heapUsed": 45711517,
+            "external": 1470789,
+            "arrayBuffers": 116
+          },
+          "after": {
+            "rss": 209108992,
+            "heapTotal": 3479552,
+            "heapUsed": 33875799,
+            "external": 1552949,
+            "arrayBuffers": 116
+          }
+        },
+        {
+          "operation": "identity",
+          "sources": 1204,
+          "assertions": 1201,
+          "threads": 300,
+          "bun": "1.3.9",
+          "projectionMs": 875.4362920000001,
+          "databaseBytes": 134963200,
+          "samplesMs": [
+            69.89879199999996,
+            54.64166599999999,
+            53.2459580000002,
+            53.356083000000126,
+            52.656791999999996,
+            53.819707999999764
+          ],
+          "firstMs": 69.89879199999996,
+          "warmMedianMs": 53.356083000000126,
+          "digests": [
+            "a3a91ce9b9290f69e0a882fed14e8bae25cfc132b6ace4344e5d93ecd2965695"
+          ],
+          "bytes": {
+            "totalBodies": 39627690,
+            "threadBodies": 132084
+          },
+          "before": {
+            "rss": 173670400,
+            "heapTotal": 3479552,
+            "heapUsed": 45677907,
+            "external": 1470436,
+            "arrayBuffers": 116
+          },
+          "after": {
+            "rss": 195952640,
+            "heapTotal": 3479552,
+            "heapUsed": 33854529,
+            "external": 1552605,
+            "arrayBuffers": 116
+          }
+        }
+      ],
+      "after": [
+        {
+          "operation": "identity",
+          "sources": 1204,
+          "assertions": 1201,
+          "threads": 300,
+          "bun": "1.3.9",
+          "projectionMs": 896.6673340000001,
+          "databaseBytes": 136196096,
+          "samplesMs": [
+            6.568915999999945,
+            0.6127500000000055,
+            0.5271250000000691,
+            0.4394999999999527,
+            0.4024580000000242,
+            0.3634580000000369
+          ],
+          "firstMs": 6.568915999999945,
+          "warmMedianMs": 0.4394999999999527,
+          "digests": [
+            "a3a91ce9b9290f69e0a882fed14e8bae25cfc132b6ace4344e5d93ecd2965695"
+          ],
+          "bytes": {
+            "totalBodies": 39627690,
+            "threadBodies": 132084
+          },
+          "before": {
+            "rss": 177815552,
+            "heapTotal": 3577856,
+            "heapUsed": 45758186,
+            "external": 1569441,
+            "arrayBuffers": 116
+          },
+          "after": {
+            "rss": 178143232,
+            "heapTotal": 3578880,
+            "heapUsed": 45758186,
+            "external": 1612220,
+            "arrayBuffers": 116
+          }
+        },
+        {
+          "operation": "identity",
+          "sources": 1204,
+          "assertions": 1201,
+          "threads": 300,
+          "bun": "1.3.9",
+          "projectionMs": 903.082125,
+          "databaseBytes": 136196096,
+          "samplesMs": [
+            6.446083000000044,
+            0.42837500000018736,
+            0.3914999999999509,
+            0.3568750000001728,
+            0.34754099999986465,
+            0.33837500000004184
+          ],
+          "firstMs": 6.446083000000044,
+          "warmMedianMs": 0.3568750000001728,
+          "digests": [
+            "a3a91ce9b9290f69e0a882fed14e8bae25cfc132b6ace4344e5d93ecd2965695"
+          ],
+          "bytes": {
+            "totalBodies": 39627690,
+            "threadBodies": 132084
+          },
+          "before": {
+            "rss": 176390144,
+            "heapTotal": 3594240,
+            "heapUsed": 45792393,
+            "external": 1569214,
+            "arrayBuffers": 116
+          },
+          "after": {
+            "rss": 176898048,
+            "heapTotal": 3578880,
+            "heapUsed": 45792393,
+            "external": 1611960,
+            "arrayBuffers": 116
+          }
+        }
+      ]
+    },
+    "memory": {
+      "before": [
+        {
+          "operation": "memory",
+          "sources": 1204,
+          "assertions": 1201,
+          "threads": 300,
+          "bun": "1.3.9",
+          "projectionMs": 868.2635000000001,
+          "databaseBytes": 134963200,
+          "samplesMs": [
+            69.30945900000006,
+            57.2048749999999,
+            56.540166,
+            55.36479200000008,
+            56.42141700000002,
+            54.06745799999999
+          ],
+          "firstMs": 69.30945900000006,
+          "warmMedianMs": 56.42141700000002,
+          "digests": [
+            "05ce6b8bf2c8bcee3a7e284bdb351b90cee084426a4ec3181039253134785055"
+          ],
+          "bytes": {
+            "totalBodies": 39627690,
+            "threadBodies": 132084
+          },
+          "before": {
+            "rss": 173621248,
+            "heapTotal": 3479552,
+            "heapUsed": 45911611,
+            "external": 1468318,
+            "arrayBuffers": 116
+          },
+          "after": {
+            "rss": 405045248,
+            "heapTotal": 3561472,
+            "heapUsed": 73763290,
+            "external": 1551238,
+            "arrayBuffers": 116
+          }
+        },
+        {
+          "operation": "memory",
+          "sources": 1204,
+          "assertions": 1201,
+          "threads": 300,
+          "bun": "1.3.9",
+          "projectionMs": 867.130375,
+          "databaseBytes": 134963200,
+          "samplesMs": [
+            71.443667,
+            57.77429099999995,
+            64.68033300000002,
+            60.86004100000014,
+            62.897249999999985,
+            61.49912500000028
+          ],
+          "firstMs": 71.443667,
+          "warmMedianMs": 61.49912500000028,
+          "digests": [
+            "05ce6b8bf2c8bcee3a7e284bdb351b90cee084426a4ec3181039253134785055"
+          ],
+          "bytes": {
+            "totalBodies": 39627690,
+            "threadBodies": 132084
+          },
+          "before": {
+            "rss": 175046656,
+            "heapTotal": 4445184,
+            "heapUsed": 45976729,
+            "external": 41282161,
+            "arrayBuffers": 116
+          },
+          "after": {
+            "rss": 479674368,
+            "heapTotal": 4576256,
+            "heapUsed": 112152862,
+            "external": 41365293,
+            "arrayBuffers": 116
+          }
+        }
+      ],
+      "after": [
+        {
+          "operation": "memory",
+          "sources": 1204,
+          "assertions": 1201,
+          "threads": 300,
+          "bun": "1.3.9",
+          "projectionMs": 919.5947500000001,
+          "databaseBytes": 136196096,
+          "samplesMs": [
+            23.206874999999854,
+            1.0792089999999916,
+            0.7626249999998436,
+            0.8544170000000122,
+            0.6457909999999174,
+            0.6767909999998665
+          ],
+          "firstMs": 23.206874999999854,
+          "warmMedianMs": 0.7626249999998436,
+          "digests": [
+            "05ce6b8bf2c8bcee3a7e284bdb351b90cee084426a4ec3181039253134785055"
+          ],
+          "bytes": {
+            "totalBodies": 39627690,
+            "threadBodies": 132084
+          },
+          "before": {
+            "rss": 173817856,
+            "heapTotal": 3577856,
+            "heapUsed": 45757534,
+            "external": 1569284,
+            "arrayBuffers": 116
+          },
+          "after": {
+            "rss": 189218816,
+            "heapTotal": 4725760,
+            "heapUsed": 8295163,
+            "external": 2092996,
+            "arrayBuffers": 116
+          }
+        },
+        {
+          "operation": "memory",
+          "sources": 1204,
+          "assertions": 1201,
+          "threads": 300,
+          "bun": "1.3.9",
+          "projectionMs": 901.0680829999999,
+          "databaseBytes": 136196096,
+          "samplesMs": [
+            23.25825000000009,
+            0.9731670000001031,
+            0.7539589999998952,
+            0.8773330000001351,
+            0.7746250000000146,
+            0.6204589999999826
+          ],
+          "firstMs": 23.25825000000009,
+          "warmMedianMs": 0.7746250000000146,
+          "digests": [
+            "05ce6b8bf2c8bcee3a7e284bdb351b90cee084426a4ec3181039253134785055"
+          ],
+          "bytes": {
+            "totalBodies": 39627690,
+            "threadBodies": 132084
+          },
+          "before": {
+            "rss": 177225728,
+            "heapTotal": 3577856,
+            "heapUsed": 45858755,
+            "external": 1569184,
+            "arrayBuffers": 116
+          },
+          "after": {
+            "rss": 192544768,
+            "heapTotal": 4725760,
+            "heapUsed": 8294566,
+            "external": 2092995,
+            "arrayBuffers": 116
+          }
+        }
+      ]
+    }
+  },
+  "decoding": {
+    "thread": {
+      "before": {
+        "calls": 4818,
+        "jsonBytes": 40628859,
+        "sourceBodyBytes": 39627798,
+        "sourceBodies": 1204
+      },
+      "after": {
+        "calls": 13,
+        "jsonBytes": 137028,
+        "sourceBodyBytes": 132084,
+        "sourceBodies": 4
+      }
+    },
+    "note": {
+      "before": {
+        "calls": 7220,
+        "jsonBytes": 81249801,
+        "sourceBodyBytes": 79255518,
+        "sourceBodies": 2405
+      },
+      "after": {
+        "calls": 13,
+        "jsonBytes": 137028,
+        "sourceBodyBytes": 132084,
+        "sourceBodies": 4
+      }
+    },
+    "readState": {
+      "before": {
+        "calls": 4814,
+        "jsonBytes": 40627139,
+        "sourceBodyBytes": 39627798,
+        "sourceBodies": 1204
+      },
+      "after": {
+        "calls": 1504,
+        "jsonBytes": 511609,
+        "sourceBodyBytes": 0,
+        "sourceBodies": 0
+      }
+    },
+    "voice": {
+      "before": {
+        "calls": 1204,
+        "jsonBytes": 40101761,
+        "sourceBodyBytes": 39627798,
+        "sourceBodies": 1204
+      },
+      "after": {
+        "calls": 5,
+        "jsonBytes": 1680,
+        "sourceBodyBytes": 52,
+        "sourceBodies": 2
+      }
+    },
+    "identity": {
+      "before": {
+        "calls": 2405,
+        "jsonBytes": 40624421,
+        "sourceBodyBytes": 39627798,
+        "sourceBodies": 1204
+      },
+      "after": {
+        "calls": 2,
+        "jsonBytes": 892,
+        "sourceBodyBytes": 0,
+        "sourceBodies": 0
+      }
+    },
+    "memory": {
+      "before": {
+        "calls": 2405,
+        "jsonBytes": 40624421,
+        "sourceBodyBytes": 39627798,
+        "sourceBodies": 1204
+      },
+      "after": {
+        "calls": 2408,
+        "jsonBytes": 983252,
+        "sourceBodyBytes": 78,
+        "sourceBodies": 3
+      }
+    }
+  },
+  "finalProductionCandidate": "803811587af91bbfa1526c9c492e9d241967caf5"
+}

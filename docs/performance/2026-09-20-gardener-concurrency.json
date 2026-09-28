@@ -1,0 +1,1074 @@
+[
+  {
+    "run": 1,
+    "provider": "anthropic",
+    "concurrency": 1,
+    "model": {
+      "agent": "claude",
+      "model": "opus"
+    },
+    "elapsedMs": 132899.259417,
+    "firstFilingMs": 67801.664334,
+    "toolUnionMs": 1861.9989159999986,
+    "claims": 13,
+    "intakeCoverageCounts": [
+      3,
+      2,
+      1,
+      1,
+      5,
+      1
+    ],
+    "distinctEntities": 15,
+    "usage": {
+      "input_tokens": 26,
+      "output_tokens": 11344,
+      "cache_read_tokens": 516476,
+      "cache_write_tokens": 63900,
+      "turns": 16
+    },
+    "rejected": 0,
+    "admitted": 0,
+    "passed": 2,
+    "remainingIntake": 0,
+    "remainingStaged": 0,
+    "failed": false,
+    "exactNormalizedDuplicateClaims": 0,
+    "repeatedIdenticalSubmissions": 0,
+    "timeline": [
+      {
+        "lane": 0,
+        "tool": "next",
+        "startMs": 4693.007166999999,
+        "endMs": 4872.622709
+      },
+      {
+        "lane": 0,
+        "tool": "search_vault",
+        "startMs": 7957.851292,
+        "endMs": 8162.278208999999
+      },
+      {
+        "lane": 0,
+        "tool": "search_vault",
+        "startMs": 8739.505958999998,
+        "endMs": 8805.229917
+      },
+      {
+        "lane": 0,
+        "tool": "read_note",
+        "startMs": 16365.165167,
+        "endMs": 16366.427959
+      },
+      {
+        "lane": 0,
+        "tool": "search_vault",
+        "startMs": 17384.336167,
+        "endMs": 17499.085417000002
+      },
+      {
+        "lane": 0,
+        "tool": "search_vault",
+        "startMs": 35054.266166999994,
+        "endMs": 35176.786667
+      },
+      {
+        "lane": 0,
+        "tool": "open",
+        "startMs": 35518.451292,
+        "endMs": 35519.333958999996
+      },
+      {
+        "lane": 0,
+        "tool": "submit",
+        "startMs": 67617.464167,
+        "endMs": 67801.664334,
+        "appended": 6,
+        "rejected": 0
+      },
+      {
+        "lane": 0,
+        "tool": "next",
+        "startMs": 69621.86733400001,
+        "endMs": 69942.34220900001
+      },
+      {
+        "lane": 0,
+        "tool": "search_vault",
+        "startMs": 77570.27900000001,
+        "endMs": 77716.77412500001
+      },
+      {
+        "lane": 0,
+        "tool": "search_vault",
+        "startMs": 80580.102459,
+        "endMs": 80681.55137500001
+      },
+      {
+        "lane": 0,
+        "tool": "search_vault",
+        "startMs": 83993.202084,
+        "endMs": 84035.368292
+      },
+      {
+        "lane": 0,
+        "tool": "search_vault",
+        "startMs": 89836.64245900001,
+        "endMs": 89906.2475
+      },
+      {
+        "lane": 0,
+        "tool": "submit",
+        "startMs": 121462.4525,
+        "endMs": 121748.290792,
+        "appended": 7,
+        "rejected": 0
+      },
+      {
+        "lane": 0,
+        "tool": "next",
+        "startMs": 123302.629209,
+        "endMs": 123325.217875
+      }
+    ],
+    "resources": {
+      "cpu_percent_mean": 3.934295359077434,
+      "footprint_mb_peak": 478.5493698120117,
+      "max_processes": 2
+    },
+    "sessionTranscripts": 1,
+    "toolErrors": 0,
+    "resolvedModels": [
+      "claude-opus-5"
+    ]
+  },
+  {
+    "run": 2,
+    "provider": "anthropic",
+    "concurrency": 2,
+    "model": {
+      "agent": "claude",
+      "model": "opus"
+    },
+    "elapsedMs": 69745.780291,
+    "firstFilingMs": 52905.341875000006,
+    "toolUnionMs": 2433.3395000000182,
+    "claims": 16,
+    "intakeCoverageCounts": [
+      3,
+      1,
+      1,
+      2,
+      7,
+      1
+    ],
+    "distinctEntities": 18,
+    "usage": {
+      "input_tokens": 32,
+      "output_tokens": 11398,
+      "cache_read_tokens": 382789,
+      "cache_write_tokens": 66579,
+      "turns": 18
+    },
+    "rejected": 0,
+    "admitted": 1,
+    "passed": 1,
+    "remainingIntake": 0,
+    "remainingStaged": 0,
+    "failed": false,
+    "exactNormalizedDuplicateClaims": 0,
+    "repeatedIdenticalSubmissions": 0,
+    "timeline": [
+      {
+        "lane": 0,
+        "tool": "next",
+        "startMs": 3324.594083000001,
+        "endMs": 3671.150458000001
+      },
+      {
+        "lane": 1,
+        "tool": "next",
+        "startMs": 3672.6131250000008,
+        "endMs": 4026.698458
+      },
+      {
+        "lane": 0,
+        "tool": "search_vault",
+        "startMs": 6587.781166,
+        "endMs": 6693.706166000001
+      },
+      {
+        "lane": 1,
+        "tool": "search_vault",
+        "startMs": 6841.345375,
+        "endMs": 6878.170333000001
+      },
+      {
+        "lane": 0,
+        "tool": "search_vault",
+        "startMs": 7272.783,
+        "endMs": 7285.918166
+      },
+      {
+        "lane": 1,
+        "tool": "search_vault",
+        "startMs": 10488.152916,
+        "endMs": 10575.352082999998
+      },
+      {
+        "lane": 1,
+        "tool": "search_vault",
+        "startMs": 15864.407,
+        "endMs": 15925.119707999998
+      },
+      {
+        "lane": 1,
+        "tool": "read_note",
+        "startMs": 19144.772458,
+        "endMs": 19217.364583
+      },
+      {
+        "lane": 0,
+        "tool": "open",
+        "startMs": 21449.253166,
+        "endMs": 21450.894833
+      },
+      {
+        "lane": 0,
+        "tool": "search_vault",
+        "startMs": 22101.747583,
+        "endMs": 22124.175333
+      },
+      {
+        "lane": 0,
+        "tool": "read_note",
+        "startMs": 40351.579416,
+        "endMs": 40352.621333
+      },
+      {
+        "lane": 0,
+        "tool": "submit",
+        "startMs": 52289.014166,
+        "endMs": 52905.341875000006,
+        "appended": 5,
+        "rejected": 0
+      },
+      {
+        "lane": 1,
+        "tool": "submit",
+        "startMs": 55886.75475,
+        "endMs": 56150.21950000001,
+        "appended": 10,
+        "rejected": 0
+      },
+      {
+        "lane": 1,
+        "tool": "next",
+        "startMs": 58048.005708000004,
+        "endMs": 58340.58950000001
+      },
+      {
+        "lane": 0,
+        "tool": "submit",
+        "startMs": 60563.76475000001,
+        "endMs": 60700.62554100001,
+        "appended": 1,
+        "rejected": 0
+      },
+      {
+        "lane": 0,
+        "tool": "next",
+        "startMs": 62236.150416,
+        "endMs": 62258.110708
+      }
+    ],
+    "resources": {
+      "cpu_percent_mean": 7.99248283829851,
+      "footprint_mb_peak": 669.2690353393555,
+      "max_processes": 3
+    },
+    "sessionTranscripts": 2,
+    "toolErrors": 0,
+    "resolvedModels": [
+      "claude-opus-5"
+    ]
+  },
+  {
+    "run": 3,
+    "provider": "anthropic",
+    "concurrency": 2,
+    "model": {
+      "agent": "claude",
+      "model": "opus"
+    },
+    "elapsedMs": 84852.296916,
+    "firstFilingMs": 70350.770208,
+    "toolUnionMs": 1692.6395440000051,
+    "claims": 17,
+    "intakeCoverageCounts": [
+      4,
+      2,
+      1,
+      2,
+      7,
+      1
+    ],
+    "distinctEntities": 18,
+    "usage": {
+      "input_tokens": 38,
+      "output_tokens": 14282,
+      "cache_read_tokens": 472827,
+      "cache_write_tokens": 70478,
+      "turns": 20
+    },
+    "rejected": 0,
+    "admitted": 0,
+    "passed": 2,
+    "remainingIntake": 0,
+    "remainingStaged": 0,
+    "failed": false,
+    "exactNormalizedDuplicateClaims": 0,
+    "repeatedIdenticalSubmissions": 0,
+    "timeline": [
+      {
+        "lane": 0,
+        "tool": "next",
+        "startMs": 3105.5541249999997,
+        "endMs": 3471.6278329999996
+      },
+      {
+        "lane": 1,
+        "tool": "next",
+        "startMs": 3473.0642080000007,
+        "endMs": 3809.288291
+      },
+      {
+        "lane": 0,
+        "tool": "search_vault",
+        "startMs": 6428.4366660000005,
+        "endMs": 6528.52575
+      },
+      {
+        "lane": 1,
+        "tool": "search_vault",
+        "startMs": 6830.481666000001,
+        "endMs": 6854.223790999999
+      },
+      {
+        "lane": 0,
+        "tool": "search_vault",
+        "startMs": 6993.6725,
+        "endMs": 6996.662833000001
+      },
+      {
+        "lane": 1,
+        "tool": "search_vault",
+        "startMs": 12677.861874999999,
+        "endMs": 12714.760416000001
+      },
+      {
+        "lane": 1,
+        "tool": "search_vault",
+        "startMs": 15297.052124999998,
+        "endMs": 15322.736624999998
+      },
+      {
+        "lane": 0,
+        "tool": "search_vault",
+        "startMs": 15870.308291000001,
+        "endMs": 15884.061125
+      },
+      {
+        "lane": 1,
+        "tool": "search_vault",
+        "startMs": 17848.138916,
+        "endMs": 17868.12175
+      },
+      {
+        "lane": 0,
+        "tool": "open",
+        "startMs": 20044.012208,
+        "endMs": 20045.408375
+      },
+      {
+        "lane": 1,
+        "tool": "read_note",
+        "startMs": 20351.8805,
+        "endMs": 20373.172875
+      },
+      {
+        "lane": 0,
+        "tool": "search_vault",
+        "startMs": 26886.644625,
+        "endMs": 26907.0345
+      },
+      {
+        "lane": 0,
+        "tool": "read_note",
+        "startMs": 32664.910333,
+        "endMs": 32665.343875
+      },
+      {
+        "lane": 0,
+        "tool": "search_vault",
+        "startMs": 48716.422291,
+        "endMs": 48749.65775
+      },
+      {
+        "lane": 0,
+        "tool": "submit",
+        "startMs": 70178.055375,
+        "endMs": 70350.770208,
+        "appended": 7,
+        "rejected": 0
+      },
+      {
+        "lane": 0,
+        "tool": "next",
+        "startMs": 72318.993708,
+        "endMs": 72495.370375
+      },
+      {
+        "lane": 1,
+        "tool": "submit",
+        "startMs": 75264.83766599999,
+        "endMs": 75582.779166,
+        "appended": 10,
+        "rejected": 0
+      },
+      {
+        "lane": 1,
+        "tool": "next",
+        "startMs": 77378.369166,
+        "endMs": 77401.79025
+      }
+    ],
+    "resources": {
+      "cpu_percent_mean": 6.710794144887677,
+      "footprint_mb_peak": 522.2377853393555,
+      "max_processes": 9
+    },
+    "sessionTranscripts": 2,
+    "toolErrors": 0,
+    "resolvedModels": [
+      "claude-opus-5"
+    ]
+  },
+  {
+    "run": 4,
+    "provider": "anthropic",
+    "concurrency": 1,
+    "model": {
+      "agent": "claude",
+      "model": "opus"
+    },
+    "elapsedMs": 128182.03474999999,
+    "firstFilingMs": 55971.558791999996,
+    "toolUnionMs": 1754.8355000000302,
+    "claims": 12,
+    "intakeCoverageCounts": [
+      2,
+      1,
+      1,
+      2,
+      4,
+      1
+    ],
+    "distinctEntities": 15,
+    "usage": {
+      "input_tokens": 30,
+      "output_tokens": 10991,
+      "cache_read_tokens": 610816,
+      "cache_write_tokens": 60821,
+      "turns": 18
+    },
+    "rejected": 2,
+    "admitted": 1,
+    "passed": 1,
+    "remainingIntake": 0,
+    "remainingStaged": 0,
+    "failed": false,
+    "exactNormalizedDuplicateClaims": 0,
+    "repeatedIdenticalSubmissions": 0,
+    "timeline": [
+      {
+        "lane": 0,
+        "tool": "next",
+        "startMs": 2590.3618749999996,
+        "endMs": 2763.390209
+      },
+      {
+        "lane": 0,
+        "tool": "search_vault",
+        "startMs": 6213.464959,
+        "endMs": 6309.5972090000005
+      },
+      {
+        "lane": 0,
+        "tool": "search_vault",
+        "startMs": 6940.780292,
+        "endMs": 6954.393375000001
+      },
+      {
+        "lane": 0,
+        "tool": "read_note",
+        "startMs": 18113.411042,
+        "endMs": 18114.323167
+      },
+      {
+        "lane": 0,
+        "tool": "open",
+        "startMs": 18577.33575,
+        "endMs": 18578.177125
+      },
+      {
+        "lane": 0,
+        "tool": "search_vault",
+        "startMs": 23686.770709,
+        "endMs": 23801.353
+      },
+      {
+        "lane": 0,
+        "tool": "search_vault",
+        "startMs": 31109.526249999995,
+        "endMs": 31132.461084000002
+      },
+      {
+        "lane": 0,
+        "tool": "submit",
+        "startMs": 55486.831584,
+        "endMs": 55971.558791999996,
+        "appended": 4,
+        "rejected": 0
+      },
+      {
+        "lane": 0,
+        "tool": "submit",
+        "startMs": 61403.057583999995,
+        "endMs": 61526.569124999995,
+        "appended": 1,
+        "rejected": 0
+      },
+      {
+        "lane": 0,
+        "tool": "next",
+        "startMs": 63302.483209,
+        "endMs": 63478.295792000004
+      },
+      {
+        "lane": 0,
+        "tool": "search_vault",
+        "startMs": 70289.363209,
+        "endMs": 70396.608959
+      },
+      {
+        "lane": 0,
+        "tool": "search_vault",
+        "startMs": 70896.07549999999,
+        "endMs": 70924.145667
+      },
+      {
+        "lane": 0,
+        "tool": "search_vault",
+        "startMs": 76727.60875,
+        "endMs": 76751.986709
+      },
+      {
+        "lane": 0,
+        "tool": "submit",
+        "startMs": 104901.507625,
+        "endMs": 105130.121292,
+        "appended": 4,
+        "rejected": 2
+      },
+      {
+        "lane": 0,
+        "tool": "read_note",
+        "startMs": 107436.943292,
+        "endMs": 107458.912167
+      },
+      {
+        "lane": 0,
+        "tool": "submit",
+        "startMs": 118791.739125,
+        "endMs": 118908.760125,
+        "appended": 3,
+        "rejected": 0
+      },
+      {
+        "lane": 0,
+        "tool": "next",
+        "startMs": 120437.087834,
+        "endMs": 120458.530292
+      }
+    ],
+    "resources": {
+      "cpu_percent_mean": 3.2197055390497478,
+      "footprint_mb_peak": 436.1430969238281,
+      "max_processes": 3
+    },
+    "sessionTranscripts": 1,
+    "toolErrors": 0,
+    "resolvedModels": [
+      "claude-opus-5"
+    ]
+  },
+  {
+    "run": 5,
+    "provider": "openai",
+    "concurrency": 1,
+    "model": {
+      "agent": "pi",
+      "model": "gpt-6-astra",
+      "reasoning": "medium"
+    },
+    "elapsedMs": 59149.299,
+    "firstFilingMs": 27858.293707999997,
+    "toolUnionMs": 978.0921649999891,
+    "claims": 10,
+    "intakeCoverageCounts": [
+      2,
+      2,
+      1,
+      1,
+      3,
+      1
+    ],
+    "distinctEntities": 9,
+    "usage": {
+      "input_tokens": 42253,
+      "output_tokens": 1428,
+      "cache_read_tokens": 119424,
+      "cache_write_tokens": 0,
+      "turns": 9
+    },
+    "rejected": 0,
+    "admitted": 0,
+    "passed": 2,
+    "remainingIntake": 0,
+    "remainingStaged": 0,
+    "failed": false,
+    "exactNormalizedDuplicateClaims": 0,
+    "repeatedIdenticalSubmissions": 0,
+    "timeline": [
+      {
+        "lane": 0,
+        "tool": "next",
+        "startMs": 3203.9236250000013,
+        "endMs": 3376.02275
+      },
+      {
+        "lane": 0,
+        "tool": "search_vault",
+        "startMs": 6358.568416,
+        "endMs": 6462.555166
+      },
+      {
+        "lane": 0,
+        "tool": "read_note",
+        "startMs": 9069.735625000001,
+        "endMs": 9070.306333
+      },
+      {
+        "lane": 0,
+        "tool": "submit",
+        "startMs": 27704.054124999995,
+        "endMs": 27858.293707999997,
+        "appended": 5,
+        "rejected": 0
+      },
+      {
+        "lane": 0,
+        "tool": "next",
+        "startMs": 30191.828708,
+        "endMs": 30366.174290999996
+      },
+      {
+        "lane": 0,
+        "tool": "search_vault",
+        "startMs": 34387.138249999996,
+        "endMs": 34465.806
+      },
+      {
+        "lane": 0,
+        "tool": "submit",
+        "startMs": 54674.524916,
+        "endMs": 54946.034916,
+        "appended": 5,
+        "rejected": 0
+      },
+      {
+        "lane": 0,
+        "tool": "next",
+        "startMs": 57530.469,
+        "endMs": 57553.141665999996
+      }
+    ],
+    "resources": {
+      "cpu_percent_mean": 4.341555074323145,
+      "footprint_mb_peak": 325.82977294921875,
+      "max_processes": 1
+    },
+    "sessionTranscripts": 1,
+    "toolErrors": 0,
+    "resolvedModels": [
+      "gpt-6-astra"
+    ]
+  },
+  {
+    "run": 6,
+    "provider": "openai",
+    "concurrency": 2,
+    "model": {
+      "agent": "pi",
+      "model": "gpt-6-astra",
+      "reasoning": "medium"
+    },
+    "elapsedMs": 44198.649708,
+    "firstFilingMs": 31674.523999999998,
+    "toolUnionMs": 2256.2927510000027,
+    "claims": 12,
+    "intakeCoverageCounts": [
+      3,
+      2,
+      1,
+      1,
+      4,
+      1
+    ],
+    "distinctEntities": 10,
+    "usage": {
+      "input_tokens": 36553,
+      "output_tokens": 1725,
+      "cache_read_tokens": 132736,
+      "cache_write_tokens": 0,
+      "turns": 13
+    },
+    "rejected": 0,
+    "admitted": 0,
+    "passed": 2,
+    "remainingIntake": 0,
+    "remainingStaged": 0,
+    "failed": false,
+    "exactNormalizedDuplicateClaims": 0,
+    "repeatedIdenticalSubmissions": 0,
+    "timeline": [
+      {
+        "lane": 1,
+        "tool": "next",
+        "startMs": 2656.9709999999995,
+        "endMs": 3002.3153330000005
+      },
+      {
+        "lane": 0,
+        "tool": "next",
+        "startMs": 4269.516375000001,
+        "endMs": 4615.751582999999
+      },
+      {
+        "lane": 1,
+        "tool": "search_vault",
+        "startMs": 5611.582666,
+        "endMs": 5748.604458
+      },
+      {
+        "lane": 0,
+        "tool": "search_vault",
+        "startMs": 7416.224833,
+        "endMs": 8085.006791
+      },
+      {
+        "lane": 1,
+        "tool": "search_vault",
+        "startMs": 8221.770208,
+        "endMs": 8224.054
+      },
+      {
+        "lane": 0,
+        "tool": "read_note",
+        "startMs": 11223.654333,
+        "endMs": 11224.612958
+      },
+      {
+        "lane": 0,
+        "tool": "open",
+        "startMs": 13532.081790999999,
+        "endMs": 13532.683374999999
+      },
+      {
+        "lane": 1,
+        "tool": "submit",
+        "startMs": 31396.904540999996,
+        "endMs": 31674.523999999998,
+        "appended": 6,
+        "rejected": 0
+      },
+      {
+        "lane": 1,
+        "tool": "next",
+        "startMs": 33913.63075,
+        "endMs": 34201.184
+      },
+      {
+        "lane": 0,
+        "tool": "submit",
+        "startMs": 37136.177082999995,
+        "endMs": 37304.744875,
+        "appended": 6,
+        "rejected": 0
+      },
+      {
+        "lane": 0,
+        "tool": "next",
+        "startMs": 41254.437625,
+        "endMs": 41275.762582999996
+      }
+    ],
+    "resources": {
+      "cpu_percent_mean": 7.616710900530333,
+      "footprint_mb_peak": 312.86095428466797,
+      "max_processes": 1
+    },
+    "sessionTranscripts": 2,
+    "toolErrors": 0,
+    "resolvedModels": [
+      "gpt-6-astra"
+    ]
+  },
+  {
+    "run": 7,
+    "provider": "openai",
+    "concurrency": 2,
+    "model": {
+      "agent": "pi",
+      "model": "gpt-6-astra",
+      "reasoning": "medium"
+    },
+    "elapsedMs": 49491.166917,
+    "firstFilingMs": 31787.509917000003,
+    "toolUnionMs": 1684.6012080000055,
+    "claims": 12,
+    "intakeCoverageCounts": [
+      3,
+      2,
+      1,
+      1,
+      4,
+      1
+    ],
+    "distinctEntities": 10,
+    "usage": {
+      "input_tokens": 51235,
+      "output_tokens": 1844,
+      "cache_read_tokens": 137088,
+      "cache_write_tokens": 0,
+      "turns": 14
+    },
+    "rejected": 1,
+    "admitted": 0,
+    "passed": 2,
+    "remainingIntake": 0,
+    "remainingStaged": 0,
+    "failed": false,
+    "exactNormalizedDuplicateClaims": 0,
+    "repeatedIdenticalSubmissions": 0,
+    "timeline": [
+      {
+        "lane": 1,
+        "tool": "next",
+        "startMs": 2933.274625,
+        "endMs": 3280.5940840000003
+      },
+      {
+        "lane": 0,
+        "tool": "next",
+        "startMs": 3284.4095419999994,
+        "endMs": 3636.643958999999
+      },
+      {
+        "lane": 0,
+        "tool": "search_vault",
+        "startMs": 6781.235042,
+        "endMs": 6893.347292
+      },
+      {
+        "lane": 1,
+        "tool": "search_vault",
+        "startMs": 7291.925959,
+        "endMs": 7325.0263749999995
+      },
+      {
+        "lane": 1,
+        "tool": "search_vault",
+        "startMs": 9572.367959000001,
+        "endMs": 9593.527667
+      },
+      {
+        "lane": 0,
+        "tool": "read_note",
+        "startMs": 11401.944291999998,
+        "endMs": 11402.546
+      },
+      {
+        "lane": 0,
+        "tool": "open",
+        "startMs": 14816.322042000002,
+        "endMs": 14816.898500000001
+      },
+      {
+        "lane": 1,
+        "tool": "submit",
+        "startMs": 31568.117542,
+        "endMs": 31787.509917000003,
+        "appended": 6,
+        "rejected": 0
+      },
+      {
+        "lane": 1,
+        "tool": "next",
+        "startMs": 33435.985167,
+        "endMs": 33728.108209
+      },
+      {
+        "lane": 0,
+        "tool": "submit",
+        "startMs": 37755.675209,
+        "endMs": 37922.137542000004,
+        "appended": 5,
+        "rejected": 1
+      },
+      {
+        "lane": 0,
+        "tool": "submit",
+        "startMs": 45243.648542,
+        "endMs": 45362.16425,
+        "appended": 1,
+        "rejected": 0
+      },
+      {
+        "lane": 0,
+        "tool": "next",
+        "startMs": 47623.649125,
+        "endMs": 47644.652459000004
+      }
+    ],
+    "resources": {
+      "cpu_percent_mean": 6.612502969214137,
+      "footprint_mb_peak": 283.93907928466797,
+      "max_processes": 1
+    },
+    "sessionTranscripts": 2,
+    "toolErrors": 0,
+    "resolvedModels": [
+      "gpt-6-astra"
+    ]
+  },
+  {
+    "run": 8,
+    "provider": "openai",
+    "concurrency": 1,
+    "model": {
+      "agent": "pi",
+      "model": "gpt-6-astra",
+      "reasoning": "medium"
+    },
+    "elapsedMs": 65048.826417,
+    "firstFilingMs": 31621.165042000004,
+    "toolUnionMs": 1163.973622000005,
+    "claims": 9,
+    "intakeCoverageCounts": [
+      2,
+      1,
+      1,
+      1,
+      3,
+      1
+    ],
+    "distinctEntities": 10,
+    "usage": {
+      "input_tokens": 27783,
+      "output_tokens": 1406,
+      "cache_read_tokens": 153728,
+      "cache_write_tokens": 0,
+      "turns": 10
+    },
+    "rejected": 0,
+    "admitted": 0,
+    "passed": 2,
+    "remainingIntake": 0,
+    "remainingStaged": 0,
+    "failed": false,
+    "exactNormalizedDuplicateClaims": 0,
+    "repeatedIdenticalSubmissions": 0,
+    "timeline": [
+      {
+        "lane": 0,
+        "tool": "next",
+        "startMs": 2432.444042,
+        "endMs": 2616.382125000001
+      },
+      {
+        "lane": 0,
+        "tool": "search_vault",
+        "startMs": 6898.007959,
+        "endMs": 7008.0837089999995
+      },
+      {
+        "lane": 0,
+        "tool": "read_note",
+        "startMs": 11112.921875,
+        "endMs": 11113.60025
+      },
+      {
+        "lane": 0,
+        "tool": "open",
+        "startMs": 14560.870917,
+        "endMs": 14561.306875000002
+      },
+      {
+        "lane": 0,
+        "tool": "submit",
+        "startMs": 31345.417459,
+        "endMs": 31621.165042000004,
+        "appended": 4,
+        "rejected": 0
+      },
+      {
+        "lane": 0,
+        "tool": "next",
+        "startMs": 34162.356834,
+        "endMs": 34482.848125
+      },
+      {
+        "lane": 0,
+        "tool": "search_vault",
+        "startMs": 37730.41575,
+        "endMs": 37818.7005
+      },
+      {
+        "lane": 0,
+        "tool": "submit",
+        "startMs": 58388.013084,
+        "endMs": 58551.64824999999,
+        "appended": 5,
+        "rejected": 0
+      },
+      {
+        "lane": 0,
+        "tool": "next",
+        "startMs": 62735.33433399999,
+        "endMs": 62756.021
+      }
+    ],
+    "resources": {
+      "cpu_percent_mean": 4.862671772971176,
+      "footprint_mb_peak": 278.84542083740234,
+      "max_processes": 1
+    },
+    "sessionTranscripts": 1,
+    "toolErrors": 0,
+    "resolvedModels": [
+      "gpt-6-astra"
+    ]
+  }
+]

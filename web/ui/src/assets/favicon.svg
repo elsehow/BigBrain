@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="19.3 2.85 75 75" width="120" height="120" role="img" aria-label="BigBrain favicon">
+  <title>BigBrain favicon</title>
+  <!-- The mark, cropped to its own ink. The design export frames it inside
+       app-icon padding (a 120 box holding a 71-unit cube), which is right
+       behind a rounded plate and wrong in a 16px tab: it painted the cube at
+       half the space it had, and read as tiny. This viewBox is the artwork's
+       bounding box (x 22.4–91.2, y 5–75.7) squared off with ~3% air, so the
+       cube fills ~93% of the tab. Same paths as exports/bigbrain-mark.svg —
+       geometry untouched, frame only. -->
+  <path d="M76.8 24.4 L54.4 62.3 L32.8 49 L55.2 11 Z" fill="#141414"></path>
+  <path d="M44.8 5 L55.2 11 L32.8 49 L22.4 43 Z" fill="#4f46e5"></path>
+  <path d="M22.4 43 L32.8 49 L54.4 62.3 L44 56.3 Z" fill="#3fa34d"></path>
+  <path d="M39.2 63.7 L60 75.7 L60 39.7 L39.2 27.7 Z" fill="#4f46e5"></path>
+  <path d="M91.2 57.7 L60 75.7 L60 39.7 L91.2 21.7 Z" fill="#d857a8"></path>
+  <path d="M70.4 9.7 L91.2 21.7 L60 39.7 L39.2 27.7 Z" fill="#d99a2b"></path>
+</svg>

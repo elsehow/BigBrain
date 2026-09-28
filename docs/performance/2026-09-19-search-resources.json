@@ -1,0 +1,292 @@
+{
+  "date": "2026-09-19",
+  "search": [
+    {
+      "label": "common term",
+      "before": {
+        "medianMs": 131.47129099999984,
+        "minMs": 131.4106670000001,
+        "maxMs": 132.22333400000025,
+        "samples": 5
+      },
+      "after": {
+        "medianMs": 30.420583999999963,
+        "minMs": 29.823082999999997,
+        "maxMs": 30.883166000000017,
+        "samples": 5
+      }
+    },
+    {
+      "label": "phrase",
+      "before": {
+        "medianMs": 118.71116699999993,
+        "minMs": 118.37091700000019,
+        "maxMs": 133.23733300000004,
+        "samples": 5
+      },
+      "after": {
+        "medianMs": 19.713750000000005,
+        "minMs": 19.49458400000003,
+        "maxMs": 32.9005830000001,
+        "samples": 5
+      }
+    },
+    {
+      "label": "topic term",
+      "before": {
+        "medianMs": 85.40229199999976,
+        "minMs": 84.29716699999972,
+        "maxMs": 86.35837500000025,
+        "samples": 5
+      },
+      "after": {
+        "medianMs": 18.834041999999954,
+        "minMs": 18.68162499999994,
+        "maxMs": 19.82508299999995,
+        "samples": 5
+      }
+    },
+    {
+      "label": "one-letter prefix",
+      "before": {
+        "medianMs": 103.72070800000074,
+        "minMs": 103.13208399999985,
+        "maxMs": 105.53475000000026,
+        "samples": 5
+      },
+      "after": {
+        "medianMs": 72.01104100000009,
+        "minMs": 71.31645900000012,
+        "maxMs": 75.75512499999991,
+        "samples": 5
+      }
+    },
+    {
+      "label": "two-letter prefix",
+      "before": {
+        "medianMs": 158.41791700000022,
+        "minMs": 157.45141699999976,
+        "maxMs": 173.54741700000022,
+        "samples": 5
+      },
+      "after": {
+        "medianMs": 64.22520900000018,
+        "minMs": 63.2869169999999,
+        "maxMs": 65.82891699999993,
+        "samples": 5
+      }
+    },
+    {
+      "label": "provider-filtered term",
+      "before": {
+        "medianMs": 68.00341600000002,
+        "minMs": 67.38908400000037,
+        "maxMs": 82.35679100000016,
+        "samples": 5
+      },
+      "after": {
+        "medianMs": 14.795958000000041,
+        "minMs": 14.598915999999917,
+        "maxMs": 15.04545900000005,
+        "samples": 5
+      }
+    },
+    {
+      "label": "entity-only term",
+      "before": {
+        "medianMs": 1.4277500000002874,
+        "minMs": 1.381916999999703,
+        "maxMs": 1.6937920000000304,
+        "samples": 5
+      },
+      "after": {
+        "medianMs": 1.1887499999999136,
+        "minMs": 1.126833999999917,
+        "maxMs": 1.2081249999999955,
+        "samples": 5
+      }
+    }
+  ],
+  "identicalResultComparisons": 42,
+  "migrationMs": 8288.2,
+  "memory": [
+    {
+      "stage": "sync",
+      "ms": 17.626792,
+      "counts": {
+        "sources": 3447,
+        "assertions": 4930,
+        "entities": 724,
+        "source_links": 6262
+      }
+    },
+    {
+      "stage": "graph-memory",
+      "cycle": 0,
+      "nodes": 4166,
+      "edges": 12008,
+      "graphMs": 3055.8915,
+      "layoutMs": 2.7728750000001128,
+      "heapSize": 215796549,
+      "extraMemorySize": 194629653,
+      "objectCount": 559311,
+      "rss": 1121796096,
+      "heapTotal": 47091712,
+      "heapUsed": 206179911,
+      "external": 194629653,
+      "arrayBuffers": 116
+    },
+    {
+      "stage": "graph-memory",
+      "cycle": 1,
+      "nodes": 4166,
+      "edges": 12008,
+      "graphMs": 1859.1018749999998,
+      "layoutMs": 1.7827919999999722,
+      "heapSize": 215567664,
+      "extraMemorySize": 194387792,
+      "objectCount": 562212,
+      "rss": 1512488960,
+      "heapTotal": 62587904,
+      "heapUsed": 218940882,
+      "external": 194387792,
+      "arrayBuffers": 116
+    },
+    {
+      "stage": "graph-memory",
+      "cycle": 2,
+      "nodes": 4166,
+      "edges": 12008,
+      "graphMs": 2031.8972919999997,
+      "layoutMs": 1.8986660000000484,
+      "heapSize": 215873067,
+      "extraMemorySize": 194481547,
+      "objectCount": 569641,
+      "rss": 1555513344,
+      "heapTotal": 63384576,
+      "heapUsed": 219631733,
+      "external": 194481547,
+      "arrayBuffers": 116
+    },
+    {
+      "stage": "graph-memory",
+      "cycle": 3,
+      "nodes": 4166,
+      "edges": 12008,
+      "graphMs": 1981.951583000001,
+      "layoutMs": 1.9426249999996799,
+      "heapSize": 215504191,
+      "extraMemorySize": 194434431,
+      "objectCount": 561398,
+      "rss": 1563672576,
+      "heapTotal": 65225728,
+      "heapUsed": 219031944,
+      "external": 194434431,
+      "arrayBuffers": 116
+    },
+    {
+      "stage": "graph-memory",
+      "cycle": 4,
+      "nodes": 4166,
+      "edges": 12008,
+      "graphMs": 1956.358542,
+      "layoutMs": 1.3230829999993148,
+      "heapSize": 215613103,
+      "extraMemorySize": 194537663,
+      "objectCount": 561437,
+      "rss": 1566130176,
+      "heapTotal": 65471488,
+      "heapUsed": 219355144,
+      "external": 194537663,
+      "arrayBuffers": 116
+    },
+    {
+      "stage": "graph-memory",
+      "cycle": 5,
+      "nodes": 4166,
+      "edges": 12008,
+      "graphMs": 1909.513499999999,
+      "layoutMs": 1.2545000000009168,
+      "heapSize": 215540111,
+      "extraMemorySize": 194480863,
+      "objectCount": 561306,
+      "rss": 1567277056,
+      "heapTotal": 66223104,
+      "heapUsed": 218906559,
+      "external": 194480863,
+      "arrayBuffers": 116
+    },
+    {
+      "stage": "graph-memory",
+      "cycle": 6,
+      "nodes": 4166,
+      "edges": 12008,
+      "graphMs": 1845.0743750000001,
+      "layoutMs": 1.2727500000000873,
+      "heapSize": 215468887,
+      "extraMemorySize": 194403959,
+      "objectCount": 561374,
+      "rss": 1568030720,
+      "heapTotal": 66935808,
+      "heapUsed": 218202107,
+      "external": 194403959,
+      "arrayBuffers": 116
+    },
+    {
+      "stage": "graph-memory",
+      "cycle": 7,
+      "nodes": 4166,
+      "edges": 12008,
+      "graphMs": 1832.9547080000011,
+      "layoutMs": 1.284083999998984,
+      "heapSize": 215030144,
+      "extraMemorySize": 194003472,
+      "objectCount": 561070,
+      "rss": 1582055424,
+      "heapTotal": 66319360,
+      "heapUsed": 218166221,
+      "external": 194003472,
+      "arrayBuffers": 116
+    },
+    {
+      "stage": "isolated-idle",
+      "ms": 10002.415584000002,
+      "cpuMicros": {
+        "user": 6408,
+        "system": 11099
+      },
+      "rss": 1581776896,
+      "heapTotal": 66302976,
+      "heapUsed": 215040648,
+      "external": 194004520,
+      "arrayBuffers": 116
+    }
+  ],
+  "rendererIdle": [
+    {
+      "label": "foreground-idle",
+      "visibility": "visible",
+      "frames": 0,
+      "seconds": 6,
+      "taskSeconds": 0.0020599999999999998,
+      "heapBytes": 46357016,
+      "errors": []
+    },
+    {
+      "label": "background-tab",
+      "visibility": "visible",
+      "frames": 0,
+      "seconds": 6,
+      "taskSeconds": 0.004110000000000001,
+      "heapBytes": 46416376,
+      "errors": []
+    }
+  ],
+  "limitations": [
+    "Search comparison replays original SQL against the same rebuilt snapshot; no live-vault calls or inference",
+    "Warm backend timings only, not end-to-end typing latency",
+    "Headed and headless browser background samples both report visible; hidden state not validated",
+    "Idle backend excludes watchers, integrations and model processes",
+    "GC memory observations are a short bounded repeated-rebuild test, not a leak proof"
+  ]
+}

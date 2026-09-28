@@ -1,0 +1,418 @@
+/* Global stylesheet. The design system lives in design/tokens.css (imported
+   first in main.ts) — colors, type ramp, space, and the data-theme
+   palettes (the desktop mockup's, docs/design/mockup/, and the app's own);
+   which palette is
+   lib/theme.ts's decision (the person's choice, else the OS's
+   prefers-color-scheme). This file adds three things:
+
+   1. a second layer of names over those tokens. These were once called
+      "legacy aliases for screens not yet rebuilt", and were expected to
+      leave with the last un-rebuilt screen. They did not: --err has 14
+      callers, --chip-neutral 13, --muted 7. They are load-bearing, and the
+      rewrite that would retire them is not planned — read them as the
+      app's own vocabulary over the design system's (#643);
+   2. the app frame — #app/#main and the one horizontal margin everything
+      lands on;
+   3. the chrome every view shares: .view, .eyebrow, .chip-acc, .kbd,
+      .btn-ghost/.btn-save, .md-body, tippy. A rule earns its place here by
+      being the SAME rule in three or more screens — a Svelte component's
+      scoped <style> is the right home for anything less. */
+:root, [data-theme] {
+  /* the app's names over the design system's */
+  --panel: var(--bg);
+  --ink: var(--text);
+  --muted: var(--text-muted);
+  --accent: var(--accent-1);
+  --tool: var(--well);
+  /* Status is also conveyed by its label/icon; foreground ink, reserving the accent for active processes. */
+  --err: var(--fg);
+  --warn: var(--fg);
+  --code-bg: var(--paper-desk);
+  --code-fg: var(--text-strong);
+  --code-inline: var(--well);
+  --mono: var(--font-mono);
+  --r-ctl: 8px;
+  --shadow-2: var(--shadow-card);
+  /* neutral chip fill — the mockup's no-accent fallback, ink-derived so it
+     survives the dark themes */
+  --chip-neutral: color-mix(in srgb, var(--text) 8%, transparent);
+
+  /* ── the app's one horizontal frame (2026-08-10) ─────────────────────────
+     ONE margin, and everything sits on it: the wordmark, the graph's legend
+     and its zoom stack, every table column, the gear. Read down the left
+     edge and BigBrain, TYPES and MODIFIED all start on the same pixel; read
+     down the right and the gear, the zoom buttons and TRIAGED all end on it.
+     The bar's furniture is INSIDE the frame, not in gutters beside it.
+
+     This replaced a version that indented the views past the wordmark to
+     meet the search field's edges (Nick, 2026-08-10: "my previous search
+     bar request wasn't quite right — the way it looks on narrow screens is
+     actually better"). It was the narrow layout all along: two reserved
+     columns' worth of margin bought nothing, and the field is a box within
+     the frame like everything else.
+       --app-gutter  the one margin
+       --app-max     where content stops growing */
+  --app-gutter: 34px;
+  --app-max: 1320px;
+  /* the bar's height (TopBar: 18px + 52px + 22px). The graph surfaces reach
+     up behind the bar by this much (HomeView's pane, GraphView), so the two
+     must agree. */
+  --topbar-h: 92px;
+  --app-pad-left: var(--app-gutter);
+  --app-pad-right: var(--app-gutter);
+}
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  margin: 0;
+  height: 100%;
+}
+body {
+  height: 100vh;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+  font: var(--type-body);
+  -webkit-font-smoothing: antialiased;
+}
+/* one column since 2026-08-10: #app was a flex ROW holding the nav rail
+   beside #main, and with the rail gone the column IS the app */
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+  background: var(--bg);
+}
+/* The main column: the wordmark + omnibox bar, then the routed view.
+   max-width is the whole app's measure — without it a 2000px window gave
+   ITEM 1600px and stranded the right-hand columns a screen away from the
+   title they belong to. Centred, so a wide window frames the column
+   instead of leaving it beached against one edge. */
+#main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  width: 100%;
+  max-width: calc(var(--app-max) + 2 * var(--app-gutter));
+  margin: 0 auto;
+}
+input,
+button,
+textarea {
+  font-family: inherit;
+}
+::placeholder {
+  color: var(--text-muted);
+}
+
+/* interaction quality floor: visible focus, calm motion, quiet scrollbars */
+:focus-visible {
+  outline: 2px solid var(--accent-1);
+  outline-offset: 2px;
+}
+button,
+a {
+  transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition: none !important;
+    animation: none !important;
+  }
+}
+/* No scrollbar (2026-08-10). A 10px track floating in the frame's right
+   margin was the loudest thing on a quiet screen, and it also had to be
+   RESERVED in the top bar or no two right edges could agree. Hiding it
+   costs an indicator nobody was reading and buys exact alignment: the
+   views and the bar now measure the same box. Scrolling itself is
+   untouched — wheel, trackpad, keys, and scrollIntoView all still work. */
+::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+* {
+  scrollbar-width: none;
+}
+
+/* the mockup's spinner — shared by the omnibox toast and feed's filing rows */
+@keyframes bb-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ── shared view chrome (eyebrows, chips, note rows, empty states) ── */
+.view {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.view-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 var(--app-pad-right) 34px var(--app-pad-left);
+}
+.lede {
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1.6;
+  margin: 0 0 20px;
+}
+.lede strong {
+  color: var(--text);
+  font-weight: 600;
+}
+.empty {
+  color: var(--text-muted);
+  font-size: 14px;
+  padding: 22px 0;
+}
+
+/* section eyebrow — structures a view into named bands */
+.eyebrow {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-5);
+  text-transform: uppercase;
+  font: var(--type-eyebrow);
+  letter-spacing: var(--ls-eyebrow);
+  color: var(--text-faint);
+  margin: 26px 0 var(--sp-5);
+}
+.eyebrow:first-child {
+  margin-top: var(--sp-6);
+}
+
+/* keyboard-hint chips ("⇧↵", "⌘K", …) — byte-identical across the search,
+   home and note views before this consolidation (#265); TopBar's own
+   scope layers a couple of positioning-only rules (flex, margin) on top of
+   this, which is why its .kbd isn't deleted outright. */
+.kbd {
+  font: var(--type-mono);
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+/* the prompt chips under a note's title and on a feed row — DISCUSS
+   (DiscussChip.svelte) and, on a source, OPEN (OriginChip.svelte): one
+   look, an eyebrow label with its key beside it. Lived in DiscussChip's
+   own scope until OPEN needed it too (2026-09-04). */
+.pchip {
+  font: var(--type-eyebrow);
+  letter-spacing: 0.12em;
+  color: var(--text-note);
+  background: var(--chip-neutral);
+  border: none;
+  padding: 6px 9px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.pchip:hover {
+  background: color-mix(in srgb, var(--text) 13%, transparent);
+  color: var(--text-strong);
+}
+.pchip:active {
+  background: color-mix(in srgb, var(--text) 18%, transparent);
+}
+
+/* The accent chip — a collection, a filer, a graph legend row. The hue is
+   always inline (`style:background={chipBg(accentIndex(label))}` — feed.ts
+   assigns it by hash, so a name keeps its colour for life); this is the
+   metrics around it. Four screens each carried a byte-identical copy under
+   three different names (.chip-acc, .g-chip, .fb-chip) until #643.
+
+   It clips rather than wraps: chips sit in one-line rows beside counts and
+   timestamps, and a filer name has no length bound — the paired browser on
+   a long hostname is the case that keeps arriving. */
+.chip-acc {
+  font: var(--type-meta);
+  padding: 4px 9px;
+  border-radius: var(--r-sm);
+  border: none;
+  color: var(--text);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Settings controls — the two buttons every settings card uses, from the
+   REVOKE beside a credential to SAVE in the integrations editor.
+
+   Global, and deliberately NOT called `.ghost`: the first-run screens
+   (VaultPicker, ClaudeConnect) have a `.ghost` of their own — a BORDERED
+   button in a family whose base <button> rule supplies the border — and a
+   global `.ghost` would reach into them and strip it. Two different
+   buttons; two different names (#643). */
+.btn-ghost,
+.btn-save {
+  border: none;
+  font: var(--type-eyebrow);
+  letter-spacing: 0.12em;
+  padding: 7px 11px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  white-space: nowrap;
+  flex: none;
+}
+.btn-ghost {
+  color: var(--text-note);
+  background: var(--chip-neutral);
+}
+.btn-ghost:hover:enabled {
+  color: var(--text-strong);
+}
+.btn-save {
+  color: var(--on-accent);
+  background: var(--text-strong);
+}
+.btn-ghost:disabled,
+.btn-save:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* rendered markdown bodies (notes, editor reports); .prose = reading mode,
+   now on the mockup's type ramp: --type-prose body, app-face headings */
+.md-body {
+  font-size: 15px;
+  line-height: 1.65;
+  overflow-wrap: break-word;
+}
+.md-body.prose {
+  font: var(--type-prose);
+  color: var(--text);
+  text-wrap: pretty;
+}
+.md-body.prose h1,
+.md-body.prose h2,
+.md-body.prose h3 {
+  font-family: var(--font-app);
+  font-weight: var(--fw-medium);
+  letter-spacing: var(--ls-heading);
+  line-height: 1.25;
+  color: var(--text-strong);
+}
+.md-body.prose h1 {
+  font-size: var(--fs-heading);
+}
+.md-body.prose h2 {
+  font-size: var(--fs-lead);
+}
+.md-body.prose h3 {
+  font-size: var(--fs-chip);
+}
+.md-body pre {
+  overflow-x: auto;
+  background: var(--code-bg);
+  color: var(--code-fg);
+  border-radius: 10px;
+  padding: 14px;
+  font-size: 13px;
+  font-family: var(--mono);
+  line-height: 1.55;
+}
+.md-body code {
+  background: var(--code-inline);
+  padding: .1em .35em;
+  border-radius: 4px;
+  font-size: .86em;
+  font-family: var(--mono);
+}
+.md-body pre code {
+  background: none;
+  padding: 0;
+  font-size: 13px;
+}
+.md-body h1,
+.md-body h2,
+.md-body h3 {
+  margin: 1.1em 0 .4em;
+}
+.md-body blockquote {
+  margin: .8em 0;
+  padding: .1em 1em;
+  border-left: 3px solid var(--rule);
+  color: var(--text-muted);
+}
+.md-body table {
+  border-collapse: collapse;
+  display: block;
+  overflow-x: auto;
+}
+.md-body td,
+.md-body th {
+  border: 1px solid var(--rule);
+  padding: 4px 8px;
+}
+.md-body a {
+  color: var(--accent-1);
+}
+/* wikilinks — internal navigation, a quiet dotted-underline link */
+.md-body a.wl {
+  color: var(--accent-1);
+  cursor: pointer;
+  text-decoration: none;
+  border-bottom: 1px dashed color-mix(in srgb, var(--accent-1) 55%, transparent);
+}
+.md-body a.wl:hover {
+  border-bottom-style: solid;
+  background: color-mix(in srgb, var(--accent-1) 10%, transparent);
+}
+
+/* tooltips — tippy.js wearing the app palette (see lib/tooltip.ts); inverse
+   panel: ink on bg reads as "system chrome", not another card */
+.tippy-box[data-theme~="stier"] {
+  background: var(--text-strong);
+  color: var(--bg);
+  font-size: 12.5px;
+  line-height: 1.45;
+  border-radius: 8px;
+  box-shadow: 0 6px 24px color-mix(in srgb, var(--text-strong) 28%, transparent);
+}
+.tippy-box[data-theme~="stier"] .tippy-content {
+  padding: 6px 10px;
+  white-space: pre-line; /* a \n in the text is a line break (DiscussChip) */
+}
+.tippy-box[data-theme~="stier"][data-placement^="top"] > .tippy-arrow::before {
+  border-top-color: var(--text-strong);
+}
+.tippy-box[data-theme~="stier"][data-placement^="bottom"] > .tippy-arrow::before {
+  border-bottom-color: var(--text-strong);
+}
+.tippy-box[data-theme~="stier"][data-placement^="left"] > .tippy-arrow::before {
+  border-left-color: var(--text-strong);
+}
+.tippy-box[data-theme~="stier"][data-placement^="right"] > .tippy-arrow::before {
+  border-right-color: var(--text-strong);
+}
+
+/* Hints reserve their space so controls keep identical hit targets and alignment. */
+[data-keyboard-hints="off"] .keyboard-hint { visibility:hidden; }
+
+/* One selection treatment. :root outranks Svelte-scoped base row styles. */
+:root .search-hit:is(.current,:focus-visible),
+:root .pilot-row:is(.selected,:focus-visible),
+:root .source-link:is(.lk-on,:focus-visible) {
+  background:var(--text-strong); color:var(--bg); outline:none;
+  --mark:var(--bg); --glyph-bg:var(--text-strong);
+}
+
+/* Key labels preserve their literal case, even in uppercase toolbars. */
+kbd, .keyboard-hint { text-transform:none !important; }
+
+/* Text selection follows the active color of the current theme. */
+::selection { background:var(--activity); color:var(--bg); }

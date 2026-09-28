@@ -1,0 +1,25 @@
+import { environmentProposalParameters } from "./worker/environmentProposal";
+export const ASK_PILOT = { type: "function", name: "ask_pilot",
+  description: "Ask the BigBrain pilot for missing context or a task decision. Replies identify their author and evidence. This tool cannot grant permissions or approve actions; request_access asks the app user.",
+  inputSchema: { type: "object", properties: { question: { type: "string" } }, required: ["question"], additionalProperties: false } };
+const string = { type: "string" };
+const modelParameters = { type: "object", properties: { adapter: { type: "string", enum: ["pi"] }, provider: string, model: string, reasoning: string }, required: ["adapter", "provider", "model"], additionalProperties: false };
+export const AGENT_ORCHESTRATION_TOOLS = [
+  { type: "function", name: "list_agent_models", strict: false, description: "List connected models available for launch_agent. Use the exact provider and model IDs; do not launch a substitute for an unavailable requested model.", parameters: { type: "object", properties: {}, additionalProperties: false } },
+  { type: "function", name: "inspect_agent_environment", strict: false,
+    description: "Inspect a candidate project folder's installed tools and names of already connected command credentials. Read-only: no authentication, commands, or permission grants. Use this to prepare a first-time setup through conversation; never ask the user to paste secrets into chat.",
+    parameters: { type: "object", properties: { path: string }, required: ["path"], additionalProperties: false } },
+  { type: "function", name: "revise_agent_environment", strict: false,
+    description: "Revise an owned agent's pending initial environment proposal after the user clarifies access in chat. Supply the complete replacement environment. This replaces the approval card and invalidates its previous buttons; it never grants access or starts the worker. Use read_agent for the latest request ID.",
+    parameters: { type: "object", properties: { agent: string, request: string, environment: environmentProposalParameters, model: modelParameters }, required: ["agent", "request", "environment"], additionalProperties: false } },
+  { type: "function", name: "launch_agent", strict: false,
+    description: "Launch a Pi worker for the user's authorized task. Supply concrete completion criteria, relevant evidence, and constraints. Use project for a saved project ID, or cwd to request access to a new folder; without either, only task scratch is available. mode selects read/propose or project editing and commands. Returns a persistent agent ID immediately. Use list_agent_models to discover connected models and pass model when the user specifies one; never substitute silently. For first-time setup, inspect the environment then propose the smallest complete environment needed for this task. Explain it in conversation; the app renders an inline approval card. Use exact service domains when enough, public internet only when needed or requested, and credentials only when authentication is needed. Public reads may need no account. Never request token values in chat. The user can refine the proposal conversationally with revise_agent_environment. New access always waits for approval before execution. Only the app user can grant missing access. Do not relaunch or wait for completion.",
+    parameters: { type: "object", properties: { environment: environmentProposalParameters, title: string, task: string, context: string, cwd: string, project: string, mode: { type: "string", enum: ["read", "work"] }, model: modelParameters }, required: ["title", "task", "context"], additionalProperties: false } },
+  { type: "function", name: "reply_agent", strict: false,
+    description: "Answer an outstanding ask_pilot context question from an agent owned by this Pilot. Use read evidence and established user instructions; cite exact evidence paths. If a new user decision is needed, notify_user and wait for their answer. This tool never answers user decisions or access requests or grants permissions.",
+    parameters: { type: "object", properties: { agent: string, request: string, text: string, evidence: { type: "array", items: string } }, required: ["agent", "request", "text", "evidence"], additionalProperties: false } },
+  { type: "function", name: "read_agent", strict: false, description: "Read the status and public conversation of an agent session owned by this Pilot.",
+    parameters: { type: "object", properties: { agent: string }, required: ["agent"], additionalProperties: false } },
+  { type: "function", name: "message_agent", strict: false, description: "Send an authorized follow-up to an agent session owned by this Pilot. The worker must be idle or interrupted first. Does not answer permissions or pending questions.",
+    parameters: { type: "object", properties: { agent: string, text: string }, required: ["agent", "text"], additionalProperties: false } },
+];

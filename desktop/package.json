@@ -1,0 +1,14 @@
+{
+  "name": "@bigbrain/desktop",
+  "private": true,
+  "description": "BigBrain desktop — a Tauri shell around the engine (bun sidecar + bundled engine tree)",
+  "scripts": {
+    "resources": "sh build-resources.sh",
+    "icons": "sh icons.sh",
+    "dev": "sh dev.sh",
+    "build": "tauri build"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  }
+}

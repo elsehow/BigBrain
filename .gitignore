@@ -1,0 +1,31 @@
+node_modules/
+.claude/worktrees/
+web/ui/dist/
+.env
+local_cache/
+web-ext-artifacts/
+control/data/
+site/dist/
+# Private local workbench previews; never stage or publish these exports.
+web/ui/src/dev/*.local.json
+web/ui/public/*.local.json
+
+# a test run or a scratch-projection call (BIGBRAIN_ASSERTION_DB=scratch) leaves the SQLite file here
+/scratch
+/scratch-shm
+/scratch-wal
+
+# Standalone simulated integration workbench
+web/ui/dist-integrations/
+# Local graph snapshots and profiling artifacts (may contain vault metadata).
+web/ui/.profile-local/
+
+# Local credentials and audit exports must never become publication inputs.
+.env.*
+!.env.example
+.DS_Store
+.tmp/
+.publication-audit/
+
+# Synthetic CI failure diagnostics.
+/artifacts/

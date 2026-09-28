@@ -1,0 +1,32 @@
+/* Shared with the text-tab preview: an ink header over a quiet paper body. */
+.notification-sheet {
+  background: var(--panel-bg);
+  backdrop-filter: var(--panel-blur);
+  -webkit-backdrop-filter: var(--panel-blur);
+  color: var(--text);
+  border: 1px solid var(--text-strong);
+  border-radius: 0;
+  box-shadow: none;
+}
+.notification-sheet .notification-heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 20px;
+  background: var(--text-strong);
+  color: var(--bg);
+  border-bottom: 0;
+}
+.notification-sheet .notification-body { padding: 18px 20px; }
+.notification-sheet .notification-title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 500 var(--fs-body)/1.3 var(--font-app);
+  color: inherit;
+}
+.notification-sheet button:focus-visible,
+.notification-sheet input:focus-visible { outline: 2px solid var(--dash); outline-offset: 3px; }

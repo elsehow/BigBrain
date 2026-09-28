@@ -1,0 +1,131 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# vault manifest — what a person edits.
+#
+# This is the example the first run copies from: `bigbrain init` (the app's
+# first-run wizard drives it) generates your vault.yaml from this file.
+# The scheduled jobs are compiled from it, and the gardener reads it fresh
+# each run.
+#
+# Three things you configure: integrations (where stuff comes from), the
+# credential (`auth`), and the model each pass runs. The system does the
+# rest — prompts ship with the engine, not with your vault.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── Integrations ─────────────────────────────────────────────────────────────
+# Settings → Models edits each role's model and selection policy.
+# `preference: recommended` follows eligible subscription recommendations.
+# Picking a model writes `preference: pinned`, preserving it across reconnects.
+# Pi choices use `adapter: pi` and an explicit provider (e.g. openai-codex).
+# `auth` is Claude-specific; Pi manages provider authentication.
+#
+# An integration fetches from a source and normalizes — it never decides what
+# the record says. Its entire output contract is a well-formed markdown file
+# in inbox/ with frontmatter (source, timestamp, kind, stable id for
+# idempotency). Anything that can produce a conforming file is an integration.
+#
+# How an integration gets fresh data is its own business — the framework
+# doesn't know about polling. Some push (webhooks), some poll on whatever
+# cadence makes sense for the source, and each defines its own notion of
+# "new". The rule is: poll fast, emit rarely. Cursors and seen-ledgers live
+# in .state/<name>.json — state is a cache, never the truth; deleting
+# .state/ may cause re-emits (deduped downstream by stable id) but never
+# loses data.
+#
+# Integrations are inbound only: they write inbox/ and never read the vault.
+# There is no outbound direction — the vault does not send. No integration
+# writes the record directly; that is what keeps the writer single.
+#
+# Listing an integration here enables it; `enabled: false` turns it off while
+# keeping its configuration. The compiler installs whatever trigger the
+# integration declares. Keys under an integration are passed through to it
+# opaquely. Credentials live in .env, never here.
+
+integrations:
+  # granola — meeting transcripts. Connect via MCP in Settings → Integrations.
+  granola:
+    enabled: false
+
+  # email — your inboxes over IMAP (#744). Add an inbox in the app's
+  # settings › integrations: the address and host land here under
+  # `inboxes:`, the app password in .env. The poller stages every new
+  # message for the gardener, which admits it into the record or passes;
+  # a pass with a scope (a sender, a list) lands under `skip:`, one line
+  # each, and the poller drops matching mail for free. Delete a line to
+  # undo one.
+  email:
+    enabled: false
+
+  # agent-chat — your own Claude Code sessions (#47). Tails the append-only
+  # transcripts at ~/.claude/projects/ and lands SETTLED SEGMENTS: new lines,
+  # then quiet for `debounce`. A session has no close event — it can resume
+  # days later — so settle is the unit, and a morning's work lands as one or
+  # a few coherent chapters rather than a fragment per turn. No credentials:
+  # it reads local files and writes to the local vault.
+  #
+  # The item is a projection — speaker-labeled turns and tool NAMES, with
+  # tool arguments, results, and assistant thinking dropped. That is most of
+  # the bytes and all of the noise (a real 3.0 MB session projects to 14 KB).
+  # The raw segment rides along verbatim in .blobs/, so nothing is lost:
+  # lossy in the item, lossless in the blob.
+  #
+  # CAPTURE-ALL, minus what you exclude. Every directory you work in is
+  # captured — including this vault, since working here with Claude Code open
+  # is what CLAUDE.md tells you to do. Temp directories are always skipped.
+  # To keep a whole project directory unread, drop a `.bigbrain-no-capture`
+  # file in its ~/.claude/projects/ directory: it is honored before the
+  # transcript is opened, because once a segment lands its blob is immutable
+  # — the decision has to be made before the session, never scrubbed after.
+  #
+  # First run adopts every transcript at its current end and lands nothing:
+  # there can be hundreds of megabytes of history here, and backfilling it
+  # would flood intake. Backfill deliberately with `--since <ISO date>`.
+  # ON by default, because the agents card promises it: "conversations with
+  # Claude are automatically added to your vault". Turn it off there, or here.
+  # This default reaches NEW vaults only — `bigbrain init` copies this file —
+  # so upgrading an existing engine never starts capturing a vault whose
+  # owner was never asked.
+  agent-chat:
+    enabled: true
+    debounce: 10m
+    # exclude:
+    #   - /Users/you/work/client-repo
+
+# ── The gardener ─────────────────────────────────────────────────────────────
+# ONE runner: your own Claude Code, headless, driving the vault's tools
+# (`bigbrain tend`, or `/bigbrain:tend` from any connected machine). A run
+# drains due intake — reading new sources and settling them into attributed
+# assertions — and then runs the memory pass.
+#
+# `auth` picks the credential for BOTH passes: `max` (subscription — strips
+# ANTHROPIC_API_KEY so claude falls back to the logged-in account) or `api`
+# (key from .env; fails loudly if missing).
+#
+# Interactive sessions stay read-only on the record (enforced by the write
+# guard; the runner passes via BIGBRAIN_ROLE).
+
+auth: max # max | api
+
+# The model each intake round runs. The viewer's settings screen edits this.
+
+gardener:
+  adapter: claude
+  model: opus
+  preference: recommended
+
+# The memory pass: the second writer (memory/ only), consolidating voice
+# arrivals and new assertions. `model` falls back to the gardener's when
+# omitted; cadence is burst-settle (`debounce`) plus a scheduled sweep
+# (`interval`).
+
+memory:
+  adapter: claude
+  model: opus
+  preference: recommended
+  debounce: 30m # observations settle this long before a run
+  interval: 1d # the scheduled sweep cadence
+
+# Fast, bounded orientation notes.
+quick:
+  adapter: claude
+  model: haiku
+  preference: recommended

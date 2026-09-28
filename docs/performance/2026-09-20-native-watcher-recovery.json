@@ -1,0 +1,1443 @@
+{
+  "runtime": "Bun 1.3.9",
+  "runner": "ubuntu-latest",
+  "command": "bun test test/gardenerProgress.test.ts --test-name-pattern 'the real filesystem watcher' --rerun-each 100",
+  "runs": [
+    {
+      "name": "baseline",
+      "commit": "9a6eee5",
+      "url": "https://github.com/elsehow/BigBrain/actions/runs/35544537975",
+      "trials": 100,
+      "passed": 91,
+      "failed": 9,
+      "samples": [
+        {
+          "passed": true,
+          "ms": 679.0
+        },
+        {
+          "passed": true,
+          "ms": 402.0
+        },
+        {
+          "passed": true,
+          "ms": 357.0
+        },
+        {
+          "passed": true,
+          "ms": 530.0
+        },
+        {
+          "passed": true,
+          "ms": 548.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 102.0
+        },
+        {
+          "passed": false,
+          "ms": 2002.99
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 105.0
+        },
+        {
+          "passed": true,
+          "ms": 102.0
+        },
+        {
+          "passed": true,
+          "ms": 129.0
+        },
+        {
+          "passed": true,
+          "ms": 129.0
+        },
+        {
+          "passed": false,
+          "ms": 2129.07
+        },
+        {
+          "passed": true,
+          "ms": 101.01
+        },
+        {
+          "passed": true,
+          "ms": 126.02
+        },
+        {
+          "passed": true,
+          "ms": 128.02
+        },
+        {
+          "passed": true,
+          "ms": 129.01
+        },
+        {
+          "passed": true,
+          "ms": 127.0
+        },
+        {
+          "passed": true,
+          "ms": 126.0
+        },
+        {
+          "passed": true,
+          "ms": 102.0
+        },
+        {
+          "passed": true,
+          "ms": 126.0
+        },
+        {
+          "passed": false,
+          "ms": 2002.01
+        },
+        {
+          "passed": true,
+          "ms": 103.0
+        },
+        {
+          "passed": true,
+          "ms": 102.0
+        },
+        {
+          "passed": true,
+          "ms": 103.0
+        },
+        {
+          "passed": true,
+          "ms": 126.0
+        },
+        {
+          "passed": false,
+          "ms": 2001.01
+        },
+        {
+          "passed": true,
+          "ms": 102.0
+        },
+        {
+          "passed": true,
+          "ms": 102.0
+        },
+        {
+          "passed": false,
+          "ms": 2001.02
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 104.0
+        },
+        {
+          "passed": true,
+          "ms": 105.0
+        },
+        {
+          "passed": true,
+          "ms": 127.0
+        },
+        {
+          "passed": true,
+          "ms": 126.0
+        },
+        {
+          "passed": true,
+          "ms": 102.0
+        },
+        {
+          "passed": true,
+          "ms": 103.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 127.0
+        },
+        {
+          "passed": true,
+          "ms": 126.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 101.0
+        },
+        {
+          "passed": true,
+          "ms": 102.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 102.0
+        },
+        {
+          "passed": false,
+          "ms": 2002.02
+        },
+        {
+          "passed": true,
+          "ms": 127.0
+        },
+        {
+          "passed": true,
+          "ms": 101.0
+        },
+        {
+          "passed": true,
+          "ms": 127.0
+        },
+        {
+          "passed": true,
+          "ms": 127.0
+        },
+        {
+          "passed": true,
+          "ms": 127.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 103.0
+        },
+        {
+          "passed": true,
+          "ms": 101.0
+        },
+        {
+          "passed": true,
+          "ms": 103.0
+        },
+        {
+          "passed": true,
+          "ms": 102.0
+        },
+        {
+          "passed": true,
+          "ms": 127.0
+        },
+        {
+          "passed": true,
+          "ms": 102.0
+        },
+        {
+          "passed": true,
+          "ms": 103.0
+        },
+        {
+          "passed": true,
+          "ms": 103.0
+        },
+        {
+          "passed": true,
+          "ms": 102.0
+        },
+        {
+          "passed": true,
+          "ms": 101.0
+        },
+        {
+          "passed": true,
+          "ms": 101.0
+        },
+        {
+          "passed": true,
+          "ms": 129.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 125.0
+        },
+        {
+          "passed": true,
+          "ms": 129.0
+        },
+        {
+          "passed": true,
+          "ms": 127.0
+        },
+        {
+          "passed": true,
+          "ms": 129.0
+        },
+        {
+          "passed": true,
+          "ms": 126.0
+        },
+        {
+          "passed": true,
+          "ms": 102.0
+        },
+        {
+          "passed": true,
+          "ms": 129.0
+        },
+        {
+          "passed": true,
+          "ms": 127.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": false,
+          "ms": 2001.02
+        },
+        {
+          "passed": true,
+          "ms": 102.0
+        },
+        {
+          "passed": true,
+          "ms": 127.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 102.0
+        },
+        {
+          "passed": false,
+          "ms": 2002.02
+        },
+        {
+          "passed": true,
+          "ms": 102.0
+        },
+        {
+          "passed": true,
+          "ms": 101.0
+        },
+        {
+          "passed": false,
+          "ms": 2002.02
+        },
+        {
+          "passed": true,
+          "ms": 126.0
+        },
+        {
+          "passed": true,
+          "ms": 102.0
+        },
+        {
+          "passed": true,
+          "ms": 102.0
+        },
+        {
+          "passed": true,
+          "ms": 101.0
+        },
+        {
+          "passed": true,
+          "ms": 101.0
+        },
+        {
+          "passed": true,
+          "ms": 101.0
+        },
+        {
+          "passed": true,
+          "ms": 103.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 101.0
+        },
+        {
+          "passed": true,
+          "ms": 101.0
+        },
+        {
+          "passed": true,
+          "ms": 101.0
+        },
+        {
+          "passed": true,
+          "ms": 103.0
+        },
+        {
+          "passed": true,
+          "ms": 103.0
+        },
+        {
+          "passed": true,
+          "ms": 102.0
+        }
+      ],
+      "recoveries": [],
+      "failures": [
+        {
+          "publications": 77,
+          "paths": [],
+          "errors": [
+            "Error: ENOENT: no such file or directory, open '/tmp/bb-vault-ILxEC1/.state/assertion.lock/.tmp-2034-mfhha5dg9r'"
+          ],
+          "status": {
+            "phase": "starting",
+            "waitingForModel": true,
+            "batch": 0,
+            "claims": 0,
+            "rejected": 0,
+            "batches": 0,
+            "lookups": 0,
+            "startedAt": "2026-09-20T23:24:32.073Z",
+            "updatedAt": "2026-09-20T23:24:32.073Z",
+            "firstFilingMs": null
+          },
+          "writes": []
+        },
+        {
+          "publications": 78,
+          "paths": [],
+          "errors": [
+            "Error: ENOENT: no such file or directory, open '/tmp/bb-vault-AD12bi/.state/assertion.lock/.tmp-2034-wmngzuwh439'"
+          ],
+          "status": {
+            "phase": "starting",
+            "waitingForModel": true,
+            "batch": 0,
+            "claims": 0,
+            "rejected": 0,
+            "batches": 0,
+            "lookups": 0,
+            "startedAt": "2026-09-20T23:24:34.963Z",
+            "updatedAt": "2026-09-20T23:24:34.963Z",
+            "firstFilingMs": null
+          },
+          "writes": []
+        },
+        {
+          "publications": 79,
+          "paths": [],
+          "errors": [
+            "Error: ENOENT: no such file or directory, watch '/tmp/bb-vault-quBxlj/.state/assertion.lock/.tmp-2034-63md8nwr2l3'"
+          ],
+          "status": {
+            "phase": "starting",
+            "waitingForModel": true,
+            "batch": 0,
+            "claims": 0,
+            "rejected": 0,
+            "batches": 0,
+            "lookups": 0,
+            "startedAt": "2026-09-20T23:24:37.944Z",
+            "updatedAt": "2026-09-20T23:24:37.944Z",
+            "firstFilingMs": null
+          },
+          "writes": []
+        },
+        {
+          "publications": 79,
+          "paths": [],
+          "errors": [
+            "Error: ENOENT: no such file or directory, open '/tmp/bb-vault-4ymvG8/.state/assertion.lock/.tmp-2034-4lzxx8mnfla'"
+          ],
+          "status": {
+            "phase": "starting",
+            "waitingForModel": true,
+            "batch": 0,
+            "claims": 0,
+            "rejected": 0,
+            "batches": 0,
+            "lookups": 0,
+            "startedAt": "2026-09-20T23:24:40.381Z",
+            "updatedAt": "2026-09-20T23:24:40.381Z",
+            "firstFilingMs": null
+          },
+          "writes": []
+        },
+        {
+          "publications": 79,
+          "paths": [],
+          "errors": [
+            "Error: ENOENT: no such file or directory, open '/tmp/bb-vault-3P4ZhU/.state/assertion.lock/.tmp-2034-fg3qrjtjwyp'"
+          ],
+          "status": {
+            "phase": "starting",
+            "waitingForModel": true,
+            "batch": 0,
+            "claims": 0,
+            "rejected": 0,
+            "batches": 0,
+            "lookups": 0,
+            "startedAt": "2026-09-20T23:24:42.601Z",
+            "updatedAt": "2026-09-20T23:24:42.601Z",
+            "firstFilingMs": null
+          },
+          "writes": []
+        },
+        {
+          "publications": 79,
+          "paths": [],
+          "errors": [
+            "Error: ENOENT: no such file or directory, open '/tmp/bb-vault-zzINwY/.state/assertion.lock/.tmp-2034-2qp3n82thx4'"
+          ],
+          "status": {
+            "phase": "starting",
+            "waitingForModel": true,
+            "batch": 0,
+            "claims": 0,
+            "rejected": 0,
+            "batches": 0,
+            "lookups": 0,
+            "startedAt": "2026-09-20T23:24:46.372Z",
+            "updatedAt": "2026-09-20T23:24:46.372Z",
+            "firstFilingMs": null
+          },
+          "writes": []
+        },
+        {
+          "publications": 79,
+          "paths": [],
+          "errors": [
+            "Error: ENOENT: no such file or directory, open '/tmp/bb-vault-oZkPgs/.state/assertion.lock/.tmp-2034-tugvoo4kem'"
+          ],
+          "status": {
+            "phase": "starting",
+            "waitingForModel": true,
+            "batch": 0,
+            "claims": 0,
+            "rejected": 0,
+            "batches": 0,
+            "lookups": 0,
+            "startedAt": "2026-09-20T23:24:51.818Z",
+            "updatedAt": "2026-09-20T23:24:51.818Z",
+            "firstFilingMs": null
+          },
+          "writes": []
+        },
+        {
+          "publications": 79,
+          "paths": [],
+          "errors": [
+            "Error: ENOENT: no such file or directory, watch '/tmp/bb-vault-32pt3A/.state/assertion.lock/.tmp-2034-j5z4tlrpe4n'"
+          ],
+          "status": {
+            "phase": "starting",
+            "waitingForModel": true,
+            "batch": 0,
+            "claims": 0,
+            "rejected": 0,
+            "batches": 0,
+            "lookups": 0,
+            "startedAt": "2026-09-20T23:24:54.288Z",
+            "updatedAt": "2026-09-20T23:24:54.288Z",
+            "firstFilingMs": null
+          },
+          "writes": []
+        },
+        {
+          "publications": 79,
+          "paths": [],
+          "errors": [
+            "Error: ENOENT: no such file or directory, open '/tmp/bb-vault-7nXCtB/.state/assertion.lock/.tmp-2034-hqm3as5v72q'"
+          ],
+          "status": {
+            "phase": "starting",
+            "waitingForModel": true,
+            "batch": 0,
+            "claims": 0,
+            "rejected": 0,
+            "batches": 0,
+            "lookups": 0,
+            "startedAt": "2026-09-20T23:24:56.503Z",
+            "updatedAt": "2026-09-20T23:24:56.503Z",
+            "firstFilingMs": null
+          },
+          "writes": []
+        }
+      ]
+    },
+    {
+      "name": "fixed-1",
+      "commit": "8be7075",
+      "url": "https://github.com/elsehow/BigBrain/actions/runs/35544803064",
+      "trials": 100,
+      "passed": 100,
+      "failed": 0,
+      "samples": [
+        {
+          "passed": true,
+          "ms": 557.0
+        },
+        {
+          "passed": true,
+          "ms": 296.0
+        },
+        {
+          "passed": true,
+          "ms": 157.0
+        },
+        {
+          "passed": true,
+          "ms": 206.0
+        },
+        {
+          "passed": true,
+          "ms": 101.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 102.0
+        },
+        {
+          "passed": true,
+          "ms": 102.0
+        },
+        {
+          "passed": true,
+          "ms": 132.0
+        },
+        {
+          "passed": true,
+          "ms": 206.0
+        },
+        {
+          "passed": true,
+          "ms": 102.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 102.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 102.0
+        },
+        {
+          "passed": true,
+          "ms": 102.0
+        },
+        {
+          "passed": true,
+          "ms": 102.0
+        },
+        {
+          "passed": true,
+          "ms": 102.0
+        },
+        {
+          "passed": true,
+          "ms": 127.0
+        },
+        {
+          "passed": true,
+          "ms": 127.0
+        },
+        {
+          "passed": true,
+          "ms": 102.0
+        },
+        {
+          "passed": true,
+          "ms": 127.0
+        },
+        {
+          "passed": true,
+          "ms": 127.0
+        },
+        {
+          "passed": true,
+          "ms": 127.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 206.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 127.0
+        },
+        {
+          "passed": true,
+          "ms": 127.0
+        },
+        {
+          "passed": true,
+          "ms": 399.0
+        },
+        {
+          "passed": true,
+          "ms": 266.0
+        },
+        {
+          "passed": true,
+          "ms": 102.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 102.0
+        },
+        {
+          "passed": true,
+          "ms": 127.0
+        },
+        {
+          "passed": true,
+          "ms": 206.0
+        },
+        {
+          "passed": true,
+          "ms": 205.0
+        },
+        {
+          "passed": true,
+          "ms": 206.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 129.0
+        },
+        {
+          "passed": true,
+          "ms": 127.0
+        },
+        {
+          "passed": true,
+          "ms": 102.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 127.0
+        },
+        {
+          "passed": true,
+          "ms": 127.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 102.0
+        },
+        {
+          "passed": true,
+          "ms": 205.0
+        },
+        {
+          "passed": true,
+          "ms": 206.0
+        },
+        {
+          "passed": true,
+          "ms": 102.0
+        },
+        {
+          "passed": true,
+          "ms": 205.0
+        },
+        {
+          "passed": true,
+          "ms": 205.0
+        },
+        {
+          "passed": true,
+          "ms": 206.0
+        },
+        {
+          "passed": true,
+          "ms": 206.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 102.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 206.0
+        },
+        {
+          "passed": true,
+          "ms": 206.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 102.0
+        },
+        {
+          "passed": true,
+          "ms": 102.0
+        },
+        {
+          "passed": true,
+          "ms": 127.0
+        },
+        {
+          "passed": true,
+          "ms": 205.0
+        },
+        {
+          "passed": true,
+          "ms": 102.0
+        },
+        {
+          "passed": true,
+          "ms": 127.0
+        },
+        {
+          "passed": true,
+          "ms": 127.0
+        },
+        {
+          "passed": true,
+          "ms": 102.0
+        },
+        {
+          "passed": true,
+          "ms": 127.0
+        },
+        {
+          "passed": true,
+          "ms": 102.0
+        },
+        {
+          "passed": true,
+          "ms": 127.0
+        },
+        {
+          "passed": true,
+          "ms": 127.0
+        },
+        {
+          "passed": true,
+          "ms": 101.0
+        },
+        {
+          "passed": true,
+          "ms": 102.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 127.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 127.0
+        },
+        {
+          "passed": true,
+          "ms": 127.0
+        },
+        {
+          "passed": true,
+          "ms": 102.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 127.0
+        },
+        {
+          "passed": true,
+          "ms": 102.0
+        },
+        {
+          "passed": true,
+          "ms": 102.0
+        },
+        {
+          "passed": true,
+          "ms": 129.0
+        },
+        {
+          "passed": true,
+          "ms": 101.0
+        },
+        {
+          "passed": true,
+          "ms": 127.0
+        },
+        {
+          "passed": true,
+          "ms": 101.0
+        },
+        {
+          "passed": true,
+          "ms": 102.0
+        },
+        {
+          "passed": true,
+          "ms": 101.0
+        }
+      ],
+      "recoveries": [],
+      "failures": []
+    },
+    {
+      "name": "fixed-2",
+      "commit": "2f45458",
+      "url": "https://github.com/elsehow/BigBrain/actions/runs/35544877259",
+      "trials": 100,
+      "passed": 100,
+      "failed": 0,
+      "samples": [
+        {
+          "passed": true,
+          "ms": 209.0
+        },
+        {
+          "passed": true,
+          "ms": 331.0
+        },
+        {
+          "passed": true,
+          "ms": 176.0
+        },
+        {
+          "passed": true,
+          "ms": 198.0
+        },
+        {
+          "passed": true,
+          "ms": 102.0
+        },
+        {
+          "passed": true,
+          "ms": 476.0
+        },
+        {
+          "passed": true,
+          "ms": 496.99
+        },
+        {
+          "passed": true,
+          "ms": 783.99
+        },
+        {
+          "passed": true,
+          "ms": 955.99
+        },
+        {
+          "passed": true,
+          "ms": 430.0
+        },
+        {
+          "passed": true,
+          "ms": 102.0
+        },
+        {
+          "passed": true,
+          "ms": 538.99
+        },
+        {
+          "passed": true,
+          "ms": 866.99
+        },
+        {
+          "passed": true,
+          "ms": 317.0
+        },
+        {
+          "passed": true,
+          "ms": 205.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 127.0
+        },
+        {
+          "passed": true,
+          "ms": 101.0
+        },
+        {
+          "passed": true,
+          "ms": 102.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 102.0
+        },
+        {
+          "passed": true,
+          "ms": 102.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 102.0
+        },
+        {
+          "passed": true,
+          "ms": 102.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 103.0
+        },
+        {
+          "passed": true,
+          "ms": 102.0
+        },
+        {
+          "passed": true,
+          "ms": 127.0
+        },
+        {
+          "passed": true,
+          "ms": 194.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 127.0
+        },
+        {
+          "passed": true,
+          "ms": 102.0
+        },
+        {
+          "passed": true,
+          "ms": 127.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 175.0
+        },
+        {
+          "passed": true,
+          "ms": 197.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 127.0
+        },
+        {
+          "passed": true,
+          "ms": 137.0
+        },
+        {
+          "passed": true,
+          "ms": 102.0
+        },
+        {
+          "passed": true,
+          "ms": 102.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 114.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 127.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 102.0
+        },
+        {
+          "passed": true,
+          "ms": 220.0
+        },
+        {
+          "passed": true,
+          "ms": 207.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 121.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 102.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 102.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 101.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 127.0
+        },
+        {
+          "passed": true,
+          "ms": 102.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 127.0
+        },
+        {
+          "passed": true,
+          "ms": 102.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 117.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 102.0
+        },
+        {
+          "passed": true,
+          "ms": 102.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 102.0
+        },
+        {
+          "passed": true,
+          "ms": 102.0
+        },
+        {
+          "passed": true,
+          "ms": 127.0
+        },
+        {
+          "passed": true,
+          "ms": 127.0
+        },
+        {
+          "passed": true,
+          "ms": 129.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 127.0
+        },
+        {
+          "passed": true,
+          "ms": 102.0
+        },
+        {
+          "passed": true,
+          "ms": 102.0
+        },
+        {
+          "passed": true,
+          "ms": 101.0
+        },
+        {
+          "passed": true,
+          "ms": 128.0
+        },
+        {
+          "passed": true,
+          "ms": 102.0
+        }
+      ],
+      "recoveries": [
+        {
+          "subscriptions": 2,
+          "errors": [
+            "Error: ENOENT: no such file or directory, open '/tmp/bb-vault-THXu4K/.state/assertion.lock/.tmp-1971-6ltocqm8kbb'"
+          ],
+          "publications": 8,
+          "nativeEvents": 2,
+          "deliveryMs": 494.8206660000001
+        },
+        {
+          "subscriptions": 2,
+          "errors": [
+            "Error: ENOENT: no such file or directory, open '/tmp/bb-vault-OQLQYC/.state/assertion.lock/.tmp-1971-e1kv9sybvn6'"
+          ],
+          "publications": 8,
+          "nativeEvents": 4,
+          "deliveryMs": 204.60760300000038
+        }
+      ],
+      "failures": []
+    }
+  ]
+}

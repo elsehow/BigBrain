@@ -1,0 +1,33 @@
+# Two broad merge checks; compatibility and repeated stress run separately.
+name: ci
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.9
+      - run: sudo apt-get update -qq && sudo apt-get install -y bubblewrap socat
+      # Ubuntu 24.04 restricts capabilities inside user namespaces by default.
+      # This ephemeral runner must permit the real bubblewrap containment test.
+      - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - run: bun install --frozen-lockfile
+      - run: bun run ci:checks
+  browser:
+    name: browser (macos-latest)
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/browser

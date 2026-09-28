@@ -1,0 +1,277 @@
+[
+  {
+    "run": 1,
+    "model": {
+      "agent": "pi",
+      "model": "gpt-6-astra",
+      "reasoning": "medium"
+    },
+    "elapsedMs": 72702.34179199999,
+    "firstFilingMs": 36386.057542,
+    "claims": 12,
+    "turns": 10,
+    "toolUnionMs": 957.6525819999915,
+    "rejected": 0,
+    "remainingIntake": 0,
+    "remainingStaged": 0,
+    "admitted": 0,
+    "passed": 2,
+    "finalEmptyNextToCompletionMs": 2751.7335840000014,
+    "timeline": [
+      {
+        "tool": "next",
+        "startMs": 4306.396542,
+        "endMs": 4546.015458
+      },
+      {
+        "tool": "search_vault",
+        "startMs": 9198.522917,
+        "endMs": 9304.271374999998
+      },
+      {
+        "tool": "read_note",
+        "startMs": 12732.527417,
+        "endMs": 12733.126458
+      },
+      {
+        "tool": "open",
+        "startMs": 15071.030083,
+        "endMs": 15071.537666999999
+      },
+      {
+        "tool": "submit",
+        "startMs": 36205.754167,
+        "endMs": 36386.057542,
+        "appended": 6,
+        "rejected": 0
+      },
+      {
+        "tool": "next",
+        "startMs": 38400.116292,
+        "endMs": 38577.16475
+      },
+      {
+        "tool": "search_vault",
+        "startMs": 41989.308208,
+        "endMs": 42077.471083000004
+      },
+      {
+        "tool": "submit",
+        "startMs": 67663.604083,
+        "endMs": 67809.42537499999,
+        "appended": 6,
+        "rejected": 0
+      },
+      {
+        "tool": "next",
+        "startMs": 69930.765625,
+        "endMs": 69950.60820799999
+      }
+    ]
+  },
+  {
+    "run": 2,
+    "model": {
+      "agent": "pi",
+      "model": "gpt-6-astra",
+      "reasoning": "low"
+    },
+    "elapsedMs": 65175.729292,
+    "firstFilingMs": 32850.624167,
+    "claims": 10,
+    "turns": 10,
+    "toolUnionMs": 1198.0987089999799,
+    "rejected": 0,
+    "remainingIntake": 0,
+    "remainingStaged": 0,
+    "admitted": 0,
+    "passed": 2,
+    "finalEmptyNextToCompletionMs": 3663.337750000006,
+    "timeline": [
+      {
+        "tool": "next",
+        "startMs": 2875.3430419999986,
+        "endMs": 3139.7462079999987
+      },
+      {
+        "tool": "search_vault",
+        "startMs": 6133.640082999998,
+        "endMs": 6456.674416999998
+      },
+      {
+        "tool": "read_note",
+        "startMs": 9590.788,
+        "endMs": 9591.435833
+      },
+      {
+        "tool": "open",
+        "startMs": 11773.377541999998,
+        "endMs": 11773.90175
+      },
+      {
+        "tool": "submit",
+        "startMs": 32660.855458,
+        "endMs": 32850.624167,
+        "appended": 5,
+        "rejected": 0
+      },
+      {
+        "tool": "next",
+        "startMs": 35113.914749999996,
+        "endMs": 35305.538375000004
+      },
+      {
+        "tool": "search_vault",
+        "startMs": 37797.417457999996,
+        "endMs": 37877.821916999994
+      },
+      {
+        "tool": "submit",
+        "startMs": 59165.69350000001,
+        "endMs": 59295.694875,
+        "appended": 5,
+        "rejected": 0
+      },
+      {
+        "tool": "next",
+        "startMs": 61494.700542000006,
+        "endMs": 61512.391542
+      }
+    ]
+  },
+  {
+    "run": 3,
+    "model": {
+      "agent": "pi",
+      "model": "gpt-6-astra",
+      "reasoning": "low"
+    },
+    "elapsedMs": 76355.85449999999,
+    "firstFilingMs": 32813.026042,
+    "claims": 11,
+    "turns": 9,
+    "toolUnionMs": 1213.7983740000036,
+    "rejected": 0,
+    "remainingIntake": 0,
+    "remainingStaged": 0,
+    "admitted": 0,
+    "passed": 2,
+    "finalEmptyNextToCompletionMs": 2743.8740829999733,
+    "timeline": [
+      {
+        "tool": "next",
+        "startMs": 3475.1049590000002,
+        "endMs": 3725.778042
+      },
+      {
+        "tool": "search_vault",
+        "startMs": 7009.106083999999,
+        "endMs": 7338.826459
+      },
+      {
+        "tool": "read_note",
+        "startMs": 10210.949208999999,
+        "endMs": 10211.558
+      },
+      {
+        "tool": "submit",
+        "startMs": 32634.777792,
+        "endMs": 32813.026042,
+        "appended": 5,
+        "rejected": 0
+      },
+      {
+        "tool": "next",
+        "startMs": 38484.376042,
+        "endMs": 38689.559709
+      },
+      {
+        "tool": "search_vault",
+        "startMs": 42072.307167,
+        "endMs": 42168.020542
+      },
+      {
+        "tool": "submit",
+        "startMs": 67399.644584,
+        "endMs": 67535.80725000001,
+        "appended": 6,
+        "rejected": 0
+      },
+      {
+        "tool": "next",
+        "startMs": 73594.49225000001,
+        "endMs": 73611.98041700001
+      }
+    ]
+  },
+  {
+    "run": 4,
+    "model": {
+      "agent": "pi",
+      "model": "gpt-6-astra",
+      "reasoning": "medium"
+    },
+    "elapsedMs": 66577.753833,
+    "firstFilingMs": 33954.86875,
+    "claims": 10,
+    "turns": 10,
+    "toolUnionMs": 933.9696260000055,
+    "rejected": 0,
+    "remainingIntake": 0,
+    "remainingStaged": 0,
+    "admitted": 0,
+    "passed": 2,
+    "finalEmptyNextToCompletionMs": 2643.499041999996,
+    "timeline": [
+      {
+        "tool": "next",
+        "startMs": 3282.4032079999997,
+        "endMs": 3462.344083
+      },
+      {
+        "tool": "search_vault",
+        "startMs": 7663.293207999999,
+        "endMs": 7764.020375
+      },
+      {
+        "tool": "read_note",
+        "startMs": 12736.962291,
+        "endMs": 12737.536
+      },
+      {
+        "tool": "open",
+        "startMs": 15018.878125,
+        "endMs": 15019.413499999999
+      },
+      {
+        "tool": "submit",
+        "startMs": 33785.714541,
+        "endMs": 33954.86875,
+        "appended": 5,
+        "rejected": 0
+      },
+      {
+        "tool": "next",
+        "startMs": 36353.13825,
+        "endMs": 36590.206083
+      },
+      {
+        "tool": "search_vault",
+        "startMs": 39531.389541,
+        "endMs": 39615.018041
+      },
+      {
+        "tool": "submit",
+        "startMs": 61499.466833,
+        "endMs": 61642.008916000006,
+        "appended": 5,
+        "rejected": 0
+      },
+      {
+        "tool": "next",
+        "startMs": 63914.454916,
+        "endMs": 63934.254791
+      }
+    ]
+  }
+]

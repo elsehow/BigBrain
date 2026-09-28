@@ -1,0 +1,391 @@
+/* Position-only study: App's real TopBar, SearchResults, NoteTab and chat panels.
+   Typography, colors, chips, buttons, and graph configuration remain production. */
+[data-sidebar-workbench] { --sidebar-width:min(560px,100vw); --sidebar-content-top:136px; --conversation-reading-width:min(48rem, calc(100vw - 80px)); }
+.sidebar-backplate { position:fixed; inset:0 auto 0 0; width:var(--sidebar-width); background:var(--panel-bg); backdrop-filter:var(--panel-blur); -webkit-backdrop-filter:var(--panel-blur); border-right:1px solid var(--rule); z-index:3; }
+.sidebar-toggle { position:fixed; top:18px; left:16px; z-index:12; display:grid; place-items:center; width:32px; height:32px; background:var(--bg); border:0; color:var(--icon); border-radius:4px; cursor:pointer; }
+.sidebar-toggle:hover { background:var(--well); }
+.sidebar-toggle:focus-visible { outline:2px solid var(--activity); }
+.sidebar-study-switch { position:fixed; bottom:10px; right:16px; z-index:12; display:flex; gap:14px; align-items:center; font:var(--type-meta); color:var(--text-muted); }
+.sidebar-study-switch a { font:inherit; color:inherit; }
+[data-sidebar-workbench] .pane { isolation:auto; }
+[data-sidebar-workbench] .g-canvas { z-index:0; }
+[data-sidebar-workbench] .home-folds { margin-top:var(--sidebar-content-top); }
+[data-sidebar-workbench] #topbar,
+[data-sidebar-workbench] #topbar.down { position:fixed; left:0; right:auto; top:var(--sidebar-update-height,0px); width:var(--sidebar-width); box-sizing:border-box; padding:16px 20px 12px 58px; background:var(--bg); opacity:1; transform:none; backdrop-filter:none; -webkit-backdrop-filter:none; pointer-events:auto; z-index:6; }
+[data-sidebar-workbench] #topbar .bar { flex-wrap:wrap; gap:12px; }
+[data-sidebar-workbench] #topbar .search-box { flex-basis:100%; }
+[data-sidebar-workbench] #topbar .right { margin-left:0; }
+[data-sidebar-workbench] #topbar .search-results { position:fixed; top:var(--sidebar-content-top); bottom:0; left:0; right:auto; width:var(--sidebar-width); box-sizing:border-box; border:0; border-radius:0; box-shadow:none; animation:none; padding:8px 16px 20px; }
+[data-sidebar-workbench] #topbar .search-viewport { max-height:100%; height:100%; }
+[data-sidebar-workbench] .drawer:not(.sidebar-quick),
+[data-sidebar-workbench] .drawer.chat-drawer.expanded,
+[data-sidebar-workbench] .drawer.agent-drawer.expanded { position:fixed; inset:var(--sidebar-content-top) auto 0 0; width:var(--sidebar-width); height:auto; max-height:none; transform:none; animation:none; z-index:4; }
+[data-sidebar-workbench] .drawer:not(.sidebar-quick) .sheet { border:0; border-radius:0; box-shadow:none; background:transparent; backdrop-filter:none; -webkit-backdrop-filter:none; }
+[data-sidebar-workbench] .drawer:not(.sidebar-quick) .hud-header { flex-wrap:wrap; gap:14px; }
+[data-sidebar-workbench] .drawer:not(.sidebar-quick) .hud-identity { flex-wrap:wrap; gap:8px; }
+[data-sidebar-workbench] .drawer:not(.sidebar-quick) .note-title { white-space:normal; }
+[data-sidebar-workbench] .drawer:not(.sidebar-quick) .note-shortcuts { flex-wrap:wrap; gap:12px; }
+[data-sidebar-workbench] .drawer:not(.sidebar-quick) .briefing { display:flex; flex-direction:column; overflow:visible; gap:24px; }
+[data-sidebar-workbench] .drawer:not(.sidebar-quick) .summary-column,
+[data-sidebar-workbench] .drawer:not(.sidebar-quick) .source-links { overflow:visible; flex:none; max-height:none; }
+[data-sidebar-workbench] .drawer:not(.sidebar-quick) .note-scroll { overflow:auto; }
+[data-sidebar-workbench] .pilot-panel header { flex-wrap:wrap; }
+[data-sidebar-workbench] .pilot-panel .commands { flex-wrap:wrap; }
+[data-sidebar-workbench] .pilot-panel .transcript { flex:1; max-height:none; }
+[data-sidebar-workbench] .pilot-view { display:none; }
+[data-sidebar-workbench]:has(.search-results) .drawer:not(.sidebar-quick) { visibility:hidden; pointer-events:none; }
+[data-sidebar-workbench] .sidebar-backplate,
+[data-sidebar-workbench] #topbar,
+[data-sidebar-workbench] .drawer:not(.sidebar-quick) { transition:opacity 140ms ease-out; }
+[data-sidebar-workbench="closed"] .sidebar-backplate,
+[data-sidebar-workbench="closed"] #topbar,
+[data-sidebar-workbench="closed"] .drawer:not(.sidebar-quick) { opacity:0; visibility:hidden; pointer-events:none; transition:opacity 140ms ease-out,visibility 0s 140ms; }
+[data-sidebar-workbench][data-sidebar-expanded="true"] .sidebar-backplate { width:100vw; }
+[data-sidebar-workbench][data-sidebar-expanded="true"] .drawer:not(.sidebar-quick) { top:var(--sidebar-content-top); width:100vw; }
+[data-sidebar-workbench] .sidebar-quick { left:50%; right:auto; bottom:40px; top:auto; transform:translateX(-50%); width:min(460px,calc(100vw - 32px)); height:auto; max-height:180px; z-index:2; pointer-events:none; animation:none; }
+[data-sidebar-workbench] .sidebar-quick.agent-quick { max-height:none; }
+[data-sidebar-workbench] .sidebar-quick .hud-header { padding:10px 16px; }
+[data-sidebar-workbench] .sidebar-quick .note-title { font-size:var(--fs-body); }
+[data-sidebar-workbench] .sidebar-quick .note-ts,
+[data-sidebar-workbench] .sidebar-quick .note-shortcuts,
+[data-sidebar-workbench] .sidebar-quick .source-links,
+[data-sidebar-workbench] .sidebar-quick .body-disclosure { display:none; }
+[data-sidebar-workbench] .sidebar-quick .briefing { display:block; padding:12px 16px; }
+[data-sidebar-workbench] .sidebar-quick .briefing-summary { font-size:var(--fs-body); line-height:1.6; }
+[data-sidebar-workbench] .sidebar-quick .summary-column { max-height:100px; overflow:hidden; }
+@media(prefers-reduced-motion:reduce) {
+  [data-sidebar-workbench] .sidebar-backplate,[data-sidebar-workbench] #topbar,[data-sidebar-workbench] .drawer { transition:none; }
+}
+/* The existing agent roster occupies the sidebar, rather than a popup. */
+[data-sidebar-workbench] .pilots-pane { position:fixed; top:var(--sidebar-content-top); bottom:0; left:0; right:auto; width:var(--sidebar-width); max-width:none; max-height:none; border:0; border-radius:0; box-shadow:none; }
+/* The backplate supplies glass once; stacked panel fills must not make it opaque. */
+[data-sidebar-workbench] #topbar .search-results,
+[data-sidebar-workbench] .pilots-pane { background:transparent; }
+[data-sidebar-workbench][data-sidebar-agents="true"] .drawer:not(.sidebar-quick) { visibility:hidden; pointer-events:none; }
+/* Recents and agents keep the production controls; search is explicitly summoned. */
+[data-sidebar-workbench] #topbar .field { transition:height 160ms,opacity 160ms,transform 160ms; }
+[data-sidebar-workbench][data-sidebar-search="false"] #topbar .field { height:0; min-height:0; opacity:0; overflow:hidden; pointer-events:none; transform:translateY(-10px); }
+[data-sidebar-workbench][data-sidebar-search="false"] #topbar .search-box { height:0; flex-basis:100%; }
+[data-sidebar-workbench][data-sidebar-search="false"] #topbar .bar { row-gap:0; }
+@media(prefers-reduced-motion:reduce) { [data-sidebar-workbench] #topbar .field { transition:none; } }
+/* Icon tabs share the panel's outline; the toolbar remains available at home. */
+[data-sidebar-workbench] .sidebar-backplate { top:calc(80px + var(--sidebar-update-height,0px)); border-top:1px solid var(--rule); }
+[data-sidebar-workbench] #topbar,
+[data-sidebar-workbench] #topbar.down { padding:16px 16px 0; background:transparent; pointer-events:none; }
+[data-sidebar-workbench] #topbar .bar { flex-direction:column; align-items:stretch; gap:0; }
+[data-sidebar-workbench] #topbar .right { order:-1; height:64px; align-items:stretch; gap:4px; pointer-events:auto; align-self:flex-start; }
+[data-sidebar-workbench] #topbar .search-box { flex-basis:auto; pointer-events:auto; }
+[data-sidebar-workbench] #topbar .field { margin-top:12px; }
+[data-sidebar-workbench][data-sidebar-search="false"] #topbar .field { margin-top:0; }
+[data-sidebar-workbench] #topbar .right > .unread-anchor,
+[data-sidebar-workbench] #topbar .right > .recents-trigger { order:2; }
+[data-sidebar-workbench] #topbar .right > .pilots-anchor { order:1; }
+[data-sidebar-workbench] #topbar .right > .gear { order:3; }
+[data-sidebar-workbench] #topbar .right > .close,
+[data-sidebar-workbench] #topbar .right > .mode { order:4; align-self:center; }
+[data-sidebar-workbench] #topbar .sidebar-search-trigger,
+[data-sidebar-workbench] #topbar .pilots-trigger,
+[data-sidebar-workbench] #topbar .right .unread,
+[data-sidebar-workbench] #topbar .recents-trigger,
+[data-sidebar-workbench] #topbar .gear { position:relative; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px; width:56px; height:65px; box-sizing:border-box; border:1px solid transparent; border-radius:0; background:transparent; color:var(--icon); cursor:pointer; padding:8px; }
+[data-sidebar-workbench] #topbar kbd.toolbar-key,
+[data-sidebar-workbench] #topbar .agent-key { position:static; font:var(--type-meta); font-size:10px; line-height:12px; color:var(--text-muted); }
+[data-sidebar-workbench="open"][data-sidebar-tab="search"] #topbar .sidebar-search-trigger,
+[data-sidebar-workbench="open"][data-sidebar-tab="agents"] #topbar .pilots-trigger,
+[data-sidebar-workbench="open"][data-sidebar-tab="recents"] #topbar .recents-trigger,
+[data-sidebar-workbench="open"][data-sidebar-tab="settings"] #topbar .gear { background:var(--bg); border-color:var(--rule); border-bottom-color:var(--bg); color:var(--text-strong); }
+[data-sidebar-workbench="closed"] #topbar { translate:0; opacity:1; visibility:visible; pointer-events:none; transition:opacity 220ms; }
+[data-sidebar-workbench="closed"] #topbar .search-box,
+[data-sidebar-workbench="closed"] #topbar .gardener { visibility:hidden; pointer-events:none; }
+[data-sidebar-workbench][data-sidebar-toolbar="false"] #topbar:not(:focus-within):not(:hover) { opacity:0; }
+[data-sidebar-workbench][data-sidebar-toolbar="false"] #topbar:not(:focus-within):not(:hover) .right { pointer-events:none; }
+[data-sidebar-workbench] #topbar .gardener { display:none; }
+[data-sidebar-workbench] #topbar .search-results,
+[data-sidebar-workbench] .pilots-pane,
+[data-sidebar-workbench] .drawer:not(.sidebar-quick) { box-sizing:border-box; border-right:1px solid var(--rule); }
+
+/* Reuse every settings screen inside the same HUD, above its backplate. */
+[data-sidebar-workbench] #main > .settings { position:fixed; inset:var(--sidebar-content-top) auto 0 0; width:var(--sidebar-width); box-sizing:border-box; z-index:5; background:transparent; border-right:1px solid var(--rule); display:flex; flex-direction:row; gap:var(--sp-10); padding:52px 24px 24px; overflow:auto; }
+[data-sidebar-workbench] #main > .settings > .content { min-width:0; flex:1; }
+[data-sidebar-workbench="closed"] #main > .settings { visibility:hidden; pointer-events:none; }
+[data-sidebar-workbench] #topbar .sidebar-search-trigger,
+[data-sidebar-workbench] #topbar .pilots-trigger,
+[data-sidebar-workbench] #topbar .right .unread,
+[data-sidebar-workbench] #topbar .recents-trigger,
+[data-sidebar-workbench] #topbar .gear { box-shadow:none; }
+
+[data-sidebar-workbench] #topbar .search-results { display:flex; flex-direction:column; }
+[data-sidebar-workbench] #topbar .search-viewport { flex:1; min-height:0; height:auto; }
+[data-sidebar-workbench] .recents-heading { display:flex; align-items:center; justify-content:space-between; padding:8px 8px 18px; }
+[data-sidebar-workbench] .unread-filter { border:1px solid var(--rule); border-radius:var(--r-chip); padding:6px 10px; background:var(--bg); color:var(--text); cursor:pointer; }
+[data-sidebar-workbench] .unread-filter[aria-pressed="true"] { background:var(--text-strong); color:var(--bg); }
+[data-sidebar-workbench] .unread-filter kbd { margin-left:8px; font:var(--type-meta); }
+
+/* Settings uses the entire viewport. */
+[data-sidebar-workbench="open"][data-sidebar-settings="true"] { --sidebar-width:100vw; }
+[data-sidebar-workbench][data-sidebar-settings="true"] .drawer { visibility:hidden; pointer-events:none; }
+[data-sidebar-workbench] .pilot-panel header { display:grid; grid-template-columns:auto minmax(0,1fr) auto; column-gap:12px; row-gap:2px; padding:8px 20px 6px; }
+[data-sidebar-workbench] .pilot-panel header > strong { position:relative; left:-1px; max-width:none; white-space:normal; overflow-wrap:anywhere; font:var(--type-body); text-transform:none; letter-spacing:normal; }
+[data-sidebar-workbench] .pilot-panel header > .context { grid-column:2/-1; padding:0; }
+[data-sidebar-workbench] .pilot-panel .commands { grid-column:1/-1; width:100%; margin:0; justify-content:flex-start; gap:10px; }
+[data-sidebar-workbench] .pilot-panel .model-command { padding-left:0; margin-right:auto; max-width:min(24ch,45%); }
+[data-sidebar-workbench] .pilot-panel .archive-control { width:auto; gap:5px; padding:0 4px; }
+[data-sidebar-workbench] .pilot-panel .commands kbd { font:10px var(--font-mono); letter-spacing:0; text-transform:none; }
+[data-sidebar-workbench] .pilot-panel .composer-actions { width:100%; max-width:calc(58ch + 48px); box-sizing:border-box; align-self:center; padding:0 24px 14px; display:flex; justify-content:flex-end; color:var(--text-muted); font:var(--type-meta); }
+[data-sidebar-workbench] .pilot-panel .composer-actions button { padding:6px 10px; border-radius:4px; }
+[data-sidebar-workbench] .pilot-panel .composer-actions button:hover { background:var(--well); }
+[data-sidebar-workbench] .pilot-panel .composer-actions button:disabled { opacity:.4; cursor:default; }
+
+[data-sidebar-workbench] .pilot-panel .commands { grid-column:2/-1; width:auto; }
+
+[data-sidebar-workbench] #main > .settings > .rail { position:sticky; top:0; align-self:flex-start; }
+
+[data-sidebar-workbench][data-sidebar-search="true"] .drawer:not(.sidebar-quick) { visibility:hidden; pointer-events:none; }
+
+/* One close control belongs to the panel shell, independent of its contents. */
+[data-sidebar-workbench] .sidebar-close { position:fixed; top:calc(34px + var(--sidebar-update-height,0px)); left:calc(var(--sidebar-width) - 64px); z-index:120; display:flex; align-items:center; justify-content:flex-end; gap:5px; width:64px; height:28px; box-sizing:border-box; padding:4px; border:0; border-radius:4px; background:var(--bg); color:var(--text-muted); cursor:pointer; }
+[data-sidebar-workbench] .sidebar-close:hover { background:var(--well); }
+[data-sidebar-workbench] .sidebar-close kbd { font:var(--type-meta); }
+[data-sidebar-workbench][data-sidebar-expanded="true"] .sidebar-close { left:auto; right:24px; }
+
+[data-sidebar-workbench][data-sidebar-settings="true"] .sidebar-close { left:auto; right:24px; }
+[data-sidebar-workbench][data-sidebar-settings="true"] #topbar { background:var(--bg); }
+
+[data-sidebar-workbench] .sidebar-quick .original-note { display:none; }
+
+/* One reading measure, independent of each element's font size (ch differed
+   between the transcript, editor and small Send label). */
+[data-sidebar-workbench] .pilot-panel {
+  /* Grow with the panel while keeping long prose comfortable to scan. */
+  --pilot-reading-width:clamp(42rem, 60cqw, 60rem);
+  --pilot-column-left:max(56px, calc((100% - var(--pilot-reading-width)) / 2));
+  --pilot-column-right:max(24px, calc((100% - var(--pilot-reading-width)) / 2));
+}
+[data-sidebar-workbench] .pilot-panel .transcript {
+  padding-left:var(--pilot-column-left); padding-right:var(--pilot-column-right);
+}
+[data-sidebar-workbench] .pilot-panel .reading-column { max-width:none; }
+[data-sidebar-workbench] .pilot-panel .mention-composer,
+[data-sidebar-workbench] .pilot-panel .composer-actions,
+[data-sidebar-workbench] .pilot-panel .transcript-navigation,
+[data-sidebar-workbench] .pilot-panel .image-draft,
+[data-sidebar-workbench] .pilot-panel .conversation-status,
+[data-sidebar-workbench] .pilot-panel .queued-inputs {
+  width:auto; max-width:none; align-self:stretch;
+  margin-left:var(--pilot-column-left); margin-right:var(--pilot-column-right);
+}
+[data-sidebar-workbench] .pilot-panel .editor { padding-inline:0; }
+[data-sidebar-workbench] .pilot-panel .mention-composer::before { left:0; right:0; }
+[data-sidebar-workbench] .pilot-panel .composer-actions { padding:0 0 14px; }
+[data-sidebar-workbench] .pilot-panel .composer-actions button { padding-right:0; }
+[data-sidebar-workbench] .pilot-panel header {
+  padding:14px var(--pilot-column-right) 12px var(--pilot-column-left);
+  grid-template-columns:0 minmax(0,1fr) auto; column-gap:0;
+}
+[data-sidebar-workbench] .pilot-panel header > :nth-child(2) { transform:translateX(-32px); }
+[data-sidebar-workbench] .pilot-panel header > strong { left:0; }
+
+/* Match the preview card's breathing room when a note opens in the sidebar. */
+[data-sidebar-workbench] .drawer:not(.sidebar-quick) .hud-header { padding:24px 32px 20px; }
+[data-sidebar-workbench] .drawer:not(.sidebar-quick) .briefing { padding:28px 32px 36px; gap:32px; }
+[data-sidebar-workbench] .drawer:not(.sidebar-quick) .briefing-summary { line-height:1.65; }
+@media(max-width:420px) {
+  [data-sidebar-workbench] .drawer:not(.sidebar-quick) .hud-header { padding-inline:24px; }
+  [data-sidebar-workbench] .drawer:not(.sidebar-quick) .briefing { padding-inline:24px; }
+}
+
+/* Home memory navigation and full-width list highlights. */
+.home-memory-list { position:fixed; top:calc(96px + var(--sidebar-update-height,0px)); left:0; z-index:5; width:min(320px,100vw); max-height:calc(100dvh - 120px - var(--sidebar-update-height,0px)); overflow:auto; scrollbar-width:none; transition:opacity 220ms; }
+.home-memory-list button { display:block; width:100%; padding:9px 28px; text-align:left; border:0; border-radius:0; background:transparent; color:var(--text-strong); font:var(--type-meta); font-size:13px; line-height:18px; cursor:pointer; }
+.home-memory-list button:is(:hover,:focus-visible,.current) { background:var(--text-strong); color:var(--bg); outline:none; }
+[data-sidebar-toolbar="false"] .workspace-menu-hint { opacity:0; visibility:hidden; pointer-events:none; }
+html[data-sidebar-workbench] #topbar .search-results { padding-inline:0; }
+html[data-sidebar-workbench] .search-results > :not(.search-viewport):not(.block-scrollbar):not(.recents-heading):not(.list-title-bar) { margin-inline:24px; }
+html[data-sidebar-workbench] .search-results .search-hit { border-radius:0; padding-inline:24px; }
+html[data-sidebar-workbench] .search-viewport { scrollbar-width:none; scrollbar-gutter:auto; }
+html[data-sidebar-workbench] .search-viewport::-webkit-scrollbar { display:none; }
+html[data-sidebar-workbench] .search-results:has(.block-scrollbar) .search-viewport { margin-right:16px; }
+@media(prefers-reduced-motion:reduce) { .home-memory-list { transition:none; } }
+
+/* Fade home chrome, then hide it; disable pointer targets immediately. */
+[data-sidebar-workbench] :is(#topbar,.workspace-menu-hint,.window-corner,.sidebar-nudge,.sidebar-quick) { transition:opacity 140ms ease-out,visibility 0s; }
+[data-sidebar-hidden="true"] :is(#topbar,.workspace-menu-hint,.window-corner,.sidebar-nudge,.sidebar-quick) { opacity:0!important; visibility:hidden!important; pointer-events:none!important; transition:opacity 140ms ease-out,visibility 0s 140ms!important; }
+[data-sidebar-workbench] .sidebar-quick .sheet { border-radius:0; box-shadow:none; border:1px solid var(--text-strong); }
+[data-sidebar-workbench] .sidebar-quick .hud-header { background:var(--text-strong); color:var(--bg); padding:14px 20px; border-bottom:0; }
+[data-sidebar-workbench] .sidebar-quick .note-title { color:inherit; }
+[data-sidebar-workbench] .sidebar-quick .briefing { padding:18px 20px; }
+
+.home-memory-list { --list-hint-inset:28px; }
+/* Shared sidebar row geometry and selection for all navigable lists. */
+html[data-sidebar-workbench] :is(.search-hit,.pilot-row,.source-link) { border-radius:0; }
+html[data-sidebar-workbench] .pilot-list { padding:0 0 16px; }
+html[data-sidebar-workbench] .pilots-pane:has(.block-scrollbar) .pilot-list { margin-right:16px; }
+html[data-sidebar-workbench] .pilot-row { padding-inline:24px; }
+html[data-sidebar-workbench] .search-viewport { border-radius:0; }
+html[data-sidebar-workbench] .note-history { flex-basis:100%; }
+html[data-sidebar-workbench] .hud-identity { flex-basis:100%; }
+html[data-sidebar-workbench] .sidebar-quick .note-history { display:none; }
+
+@media(prefers-reduced-motion:reduce) {
+  html[data-sidebar-workbench] :is(#topbar,.workspace-menu-hint,.window-corner,.sidebar-nudge,.sidebar-quick,.sidebar-backplate,.drawer) { transition:none!important; }
+}
+
+/* A waiting agent uses the same inversion as a selected list row. */
+html[data-sidebar-workbench] #topbar .pilots-trigger:has(.attention-dot) {
+  background:var(--text-strong); color:var(--bg); border-color:var(--text-strong);
+}
+html[data-sidebar-workbench] #topbar .pilots-trigger:has(.attention-dot) .agent-key { color:inherit; }
+
+/* One title-bar measure across list, note and conversation views. Expanded
+   controls live below the title bar so opening them cannot resize it. */
+[data-sidebar-workbench] { --sidebar-title-height:112px; }
+html[data-sidebar-workbench] :is(.pilots-pane > header,.drawer:not(.sidebar-quick) .hud-header,.pilot-panel > header,.agent-drawer section[aria-label="Historical conversation"] > header) {
+  box-sizing:border-box; height:var(--sidebar-title-height); min-height:var(--sidebar-title-height);
+  flex-shrink:0; padding-block:16px; align-content:center;
+}
+html[data-sidebar-workbench] .drawer:not(.sidebar-quick) .hud-header { gap:8px; }
+html[data-sidebar-workbench] .drawer:not(.sidebar-quick) .hud-identity { flex-wrap:nowrap; }
+html[data-sidebar-workbench] .drawer:not(.sidebar-quick) .note-title { white-space:nowrap; }
+html[data-sidebar-workbench] .pilot-panel > header { grid-template-rows:24px 16px 28px; row-gap:2px; }
+html[data-sidebar-workbench] .pilot-panel > header > strong { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+html[data-sidebar-workbench] .pilot-panel > header > .context { grid-row:2; }
+html[data-sidebar-workbench] .pilot-panel > header > .commands { grid-row:3; flex-wrap:nowrap; }
+html[data-sidebar-workbench] #topbar .search-results { padding-top:0; }
+
+/* Page titles share a gutter and sit one step above session titles. */
+[data-sidebar-workbench] { --sidebar-title-inset:32px; --sidebar-page-title-size:24px; }
+html[data-sidebar-workbench] .pilots-pane > header { padding-inline:var(--sidebar-title-inset); }
+html[data-sidebar-workbench] .search-results > .recents-heading { margin-inline:0; padding-inline:var(--sidebar-title-inset); }
+html[data-sidebar-workbench] :is(.pilots-pane > header > strong,.recents-heading > strong) { font:600 var(--sidebar-page-title-size)/1.25 var(--font-app); }
+@media(max-width:420px) { [data-sidebar-workbench] { --sidebar-title-inset:24px; } }
+
+html[data-sidebar-workbench] .recents-title-bar { height:var(--sidebar-title-height); flex:none; box-sizing:border-box; display:flex; flex-direction:column; padding:16px var(--sidebar-title-inset); justify-content:space-between; }
+html[data-sidebar-workbench] .recents-title-bar .recents-heading { height:auto; min-height:0; padding:0; margin:0; }
+html[data-sidebar-workbench] .recents-title-bar .selection-actions { padding:0; min-height:18px; }
+
+/* Shared Search/Recents action row never shrinks into the scrolling results. */
+html[data-sidebar-workbench] .list-title-bar { flex:0 0 auto; box-sizing:border-box; padding:16px var(--sidebar-title-inset); }
+html[data-sidebar-workbench] .list-title-bar .selection-actions { padding:0; min-height:18px; }
+html[data-sidebar-workbench] .search-viewport .search-status { margin-inline:var(--sidebar-title-inset); }
+
+/* Show composer actions only while editing. Escape leaves input focus before closing the conversation. */
+html[data-sidebar-workbench] .pilot-panel:not(:has(.mention-composer:focus-within)) .composer-actions { visibility:hidden; pointer-events:none; }
+
+/* Agent chats have a title and command row, without a history-navigation slot. */
+html[data-sidebar-workbench] .pilot-panel > header { grid-template-rows:24px 24px; row-gap:8px; }
+html[data-sidebar-workbench] .pilot-panel > header > .context { display:none; }
+html[data-sidebar-workbench] .pilot-panel > header > .commands { grid-row:2; }
+html[data-sidebar-workbench] .pilot-panel > header > :first-child { grid-column:1; grid-row:1; }
+html[data-sidebar-workbench] .pilot-panel > header > strong { grid-column:2; grid-row:1; }
+html[data-sidebar-workbench] .pilot-panel > header > .status { grid-column:3; grid-row:1; }
+/* Typing owns keystrokes; keep the notification action available by mouse. */
+html[data-sidebar-workbench] .pilot-panel:has(.mention-composer:focus-within) .notification-actions .keyboard-hint { visibility:hidden; }
+
+[data-sidebar-workbench] .pilot-panel .transcript-navigation { padding-inline:0; }
+
+/* Conversations occupy the screen; note and agent browsing retain the sidebar. */
+html[data-sidebar-workbench][data-fullscreen-chat="true"] .sidebar-backplate { inset:0; width:100vw; border:0; }
+html[data-sidebar-workbench][data-fullscreen-chat="true"] .drawer.chat-drawer {
+  inset:var(--sidebar-update-height,0px) 0 0;
+  width:100vw; height:auto; border:0;
+}
+html[data-sidebar-workbench][data-fullscreen-chat="true"] .sidebar-close { left:auto; right:24px; }
+html[data-sidebar-workbench][data-fullscreen-chat="true"] .pilot-panel {
+  --pilot-reading-width:var(--conversation-reading-width);
+  --pilot-column-left:max(40px, calc((100% - var(--pilot-reading-width)) / 2));
+  --pilot-column-right:var(--pilot-column-left);
+}
+html[data-sidebar-workbench][data-fullscreen-chat="true"] .sidebar-quick { display:none; }
+@media(max-width:600px) {
+  html[data-sidebar-workbench][data-fullscreen-chat="true"] .pilot-panel {
+    --pilot-reading-width:calc(100vw - 48px);
+    --pilot-column-left:24px;
+  }
+}
+
+html[data-sidebar-workbench][data-fullscreen-chat="true"] .pilot-panel > header > strong { transform:none; }
+html[data-sidebar-workbench][data-fullscreen-chat="true"] .pilot-panel > header > :first-child { transform:translateX(-36px); }
+@media(max-width:600px) {
+  html[data-sidebar-workbench][data-fullscreen-chat="true"] .pilot-panel > header { grid-template-columns:36px minmax(0,1fr) auto; }
+  html[data-sidebar-workbench][data-fullscreen-chat="true"] .pilot-panel > header > :first-child { transform:none; }
+}
+
+html[data-sidebar-workbench][data-fullscreen-chat="true"] .drawer.chat-drawer .sheet {
+  background:transparent; backdrop-filter:none; -webkit-backdrop-filter:none;
+}
+
+/* A conversation replaces the tab bar with its own header in the same space. */
+html[data-sidebar-workbench][data-fullscreen-chat="true"] #topbar {
+  visibility:hidden; pointer-events:none; opacity:0;
+}
+html[data-sidebar-workbench][data-fullscreen-chat="true"] #topbar * { pointer-events:none; }
+html[data-sidebar-workbench][data-fullscreen-chat="true"] .drawer.chat-drawer .pilot-panel > header {
+  box-sizing:border-box; height:80px; min-height:80px;
+  padding-top:10px; padding-bottom:10px;
+  grid-template-rows:24px 28px; row-gap:6px; align-content:center;
+}
+@media(max-width:600px) {
+  html[data-sidebar-workbench][data-fullscreen-chat="true"] .pilot-panel > header { padding-right:80px; }
+}
+
+/* Search, Agents, and Recents share the Recents header and row measures. */
+html[data-sidebar-workbench] .pilots-pane > header.list-title-bar {
+  display:flex; flex-direction:column; align-items:stretch; justify-content:space-between;
+  height:var(--sidebar-title-height); padding:16px var(--sidebar-title-inset);
+}
+html[data-sidebar-workbench] .list-heading { display:flex; align-items:center; justify-content:space-between; }
+html[data-sidebar-workbench] .list-heading > strong { font:600 var(--sidebar-page-title-size)/1.25 var(--font-app); }
+html[data-sidebar-workbench] .pilots-pane .selection-actions { display:flex; gap:12px; font:var(--type-meta); color:var(--text-muted); }
+html[data-sidebar-workbench] #topbar .recents-heading { gap:16px; }
+html[data-sidebar-workbench] #topbar .recents-heading .field {
+  flex:1; min-width:0; height:32px; margin:0; padding:0 10px; border-radius:4px;
+}
+html[data-sidebar-workbench] #topbar .recents-heading .field input { min-width:0; font:var(--type-body); }
+html[data-sidebar-workbench] .pilot-row {
+  box-sizing:border-box; height:42px; padding:7px 24px; gap:10px; align-items:center;
+}
+html[data-sidebar-workbench] .pilot-row .row-copy { padding:0; }
+html[data-sidebar-workbench] .pilot-row .row-heading strong {
+  font:650 13px/1.4 var(--font-app); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+html[data-sidebar-workbench] .pilot-row .metadata { margin:0; font:500 11px/1.5 var(--font-mono); letter-spacing:.08em; }
+html[data-sidebar-workbench] .pilot-row .notification-preview { display:none; }
+html[data-sidebar-workbench] .pilot-row .attention-dot { margin:0; }
+
+
+/* One flat outline: no overlapping separator or inset edge. */
+html[data-sidebar-workbench] .pilot-panel .mention-composer::before { content:none; }
+html[data-sidebar-workbench] .pilot-panel .editor {
+  padding:14px 16px; color:var(--text-muted);
+  background:color-mix(in srgb,var(--text-strong) 4%,transparent);
+  box-shadow:none; border:1px solid transparent;
+  transition:background 140ms,color 140ms,border-color 140ms;
+}
+html[data-sidebar-workbench] .pilot-panel .editor:focus {
+  color:var(--text-strong);
+  background:color-mix(in srgb,var(--bg) 85%,transparent);
+  border-color:var(--text-muted);
+}
+@media(prefers-reduced-motion:reduce) {
+  html[data-sidebar-workbench] .pilot-panel .editor { transition:none; }
+}
+
+/* Settings share the full-width conversation's centered reading measure. The
+   navigation rail sits in its left gutter rather than shifting the content. */
+[data-sidebar-workbench] #main > .settings {
+  display:grid; grid-template-columns:minmax(148px,1fr) minmax(0,var(--conversation-reading-width)) minmax(148px,1fr);
+  column-gap:24px; align-items:start;
+}
+[data-sidebar-workbench] #main > .settings > .content { grid-column:2; width:100%; }
+[data-sidebar-workbench] #main > .settings > .content > .list { max-width:none; }
+@media (max-width:1159px) {
+  [data-sidebar-workbench] #main > .settings { display:flex; flex-direction:column; gap:24px; }
+  [data-sidebar-workbench] #main > .settings > .content,
+  [data-sidebar-workbench] #main > .settings > .rail { width:100%; max-width:var(--conversation-reading-width); margin-inline:auto; flex:none; }
+  [data-sidebar-workbench] #main > .settings > .rail { position:static; flex-direction:row; flex-wrap:wrap; gap:12px 20px; }
+  [data-sidebar-workbench] #main > .settings > .rail .rail-eyebrow { display:none; }
+}
+
+@media (max-width:600px) {
+  [data-sidebar-workbench] { --conversation-reading-width:calc(100vw - 48px); }
+}
