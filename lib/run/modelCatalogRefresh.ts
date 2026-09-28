@@ -117,9 +117,22 @@ export function initializeCatalog(runtime: ModelRuntime, owner = refresh, backgr
   const existing = initialized.get(runtime);
   if (existing) return existing;
   const pending = (async () => {
-    for (const provider of builtinProviders()) {
-      if (provider.id !== "radius") runtime.registerNativeProvider(owner.wrap(provider));
-    }
+    // Pi registration starts fire-and-forget offline refreshes. Drain every one
+    // before the final snapshot: models.json reads can finish out of order and
+    // otherwise supersede (abort) the initialization/first launch refresh.
+    const originalRefresh = runtime.refresh;
+    const registrations: ReturnType<ModelRuntime["refresh"]>[] = [];
+    runtime.refresh = options => {
+      const work = originalRefresh.call(runtime, options);
+      registrations.push(work);
+      return work;
+    };
+    try {
+      for (const provider of builtinProviders()) {
+        if (provider.id !== "radius") runtime.registerNativeProvider(owner.wrap(provider));
+      }
+    } finally { runtime.refresh = originalRefresh; }
+    await untilAborted(Promise.allSettled(registrations), signal);
     await runtime.refresh({ allowNetwork: false, signal });
     signal.throwIfAborted();
     if (root) await configureVaultModelAuth(runtime, root);
