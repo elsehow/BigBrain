@@ -6,6 +6,9 @@ const string = { type: "string" };
 const modelParameters = { type: "object", properties: { adapter: { type: "string", enum: ["pi"] }, provider: string, model: string, reasoning: string }, required: ["adapter", "provider", "model"], additionalProperties: false };
 export const AGENT_ORCHESTRATION_TOOLS = [
   { type: "function", name: "list_agent_models", strict: false, description: "List connected models available for launch_agent. Use the exact provider and model IDs; do not launch a substitute for an unavailable requested model.", parameters: { type: "object", properties: {}, additionalProperties: false } },
+  { type: "function", name: "read_action", strict: false,
+    description: "Read this Pilot's own application action receipts. Pass the request ID from a failed or unknown tool reply, or omit it for recent actions. Returns the status, failure stage and cause, and any agent the action created or may have created. Read-only: it never retries. A failed action with retry safe dispatched nothing; an unknown one may have happened, so inspect the named agent instead of repeating the request.",
+    parameters: { type: "object", properties: { request: string }, additionalProperties: false } },
   { type: "function", name: "inspect_agent_environment", strict: false,
     description: "Inspect a candidate project folder's installed tools and names of already connected command credentials. Read-only: no authentication, commands, or permission grants. Use this to prepare a first-time setup through conversation; never ask the user to paste secrets into chat.",
     parameters: { type: "object", properties: { path: string }, required: ["path"], additionalProperties: false } },
