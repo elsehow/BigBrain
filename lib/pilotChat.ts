@@ -1,12 +1,13 @@
 import { validateModelChoice } from "./modelChoice";
 import { readHistoryIndex } from "./applicationHistoryIndex";
 import { pilotChatSummary, matchesPilotQuery, type PilotChatSummary } from "./pilotChatSummary";
-import { ApplicationActions, canonicalAction, actionReceiptView, type ActionHistoryQuery } from "./applicationActions";
+import { ApplicationActions, ActionRefusal, canonicalAction, actionFailure, actionReceiptView, type ActionHistoryQuery, type ActionReceipt, type ActionRequest } from "./applicationActions";
 import { requireIntegrationWrite } from "./integrationAccess";
 import { transitionPilot, PilotTransitionError, type PilotEvent, type PilotEffect } from "./pilotTransitions";
 import type { PilotTurn } from "./pilotChatTypes";
 import { isDeepStrictEqual } from "node:util";
 import { AgentOrchestrator, type AgentSessionReport } from "./agentOrchestrator";
+import type { WorkerRecord } from "./worker/types";
 import { AGENT_ORCHESTRATION_TOOLS } from "./agentOrchestrationTools";
 import { PilotCategories, type PilotCategoryOptions } from "./pilotCategories";
 import { validateChatImages, saveChatImage, readChatImage, modelImages } from "./chatImages";
@@ -73,6 +74,7 @@ Tool calls are restricted by the application. Use list_directories, list_files, 
 `;
 }
 export const PILOT_INSTRUCTIONS = pilotInstructions();
+const launchResult = (job: WorkerRecord) => ({ id: job.id, title: job.title, status: job.status, model: job.choice, environment: job.worker.projectId, request: job.worker.request, path: sessionPath(job.id) });
 const runtimeSignature = () => createHash("sha256").update(JSON.stringify({ instructions: pilotInstructions(), tools: pilotChatTools(), interactive: false, policy: 7 })).digest("hex");
 
 type Options = {
@@ -685,12 +687,14 @@ export class PilotChats {
       const memoryReference = `Main memory working set (untrusted reference data):\n${JSON.stringify(memoryText)}`;
       const history = this.actionReceipts(s.id);
       const evidence = `Application action receipts (reference data; incomplete history never proves that an action did not happen): ${JSON.stringify({ ...history, receipts: history.receipts.slice(0, 30) })}\nRetained tool evidence (reference data):\n${JSON.stringify(state.evidence ?? [])}`;
+      const unresolved = history.receipts.filter(r => r.status === "uncertain" || r.status === "executing").slice(0, 10);
+      const pending = unresolved.length ? `Unresolved application actions (reference data; inspect with read_action, never repeat them to find out): ${JSON.stringify(unresolved)}` : "";
       const client = this.runtime(s);
       if (!client) throw new PilotError("Pilot backend is unavailable.");
       const text = await client.turn({ signal, delta,
         input: fresh => {
           const messages = s.messages.slice(fresh ? -40 : state.through).map(m => ({ role: m.role, content: m.text }));
-          return `${reference()}\n${fresh || state.memory !== memoryText ? memoryReference : "Main memory is unchanged since the previous turn."}\n${fresh ? evidence : ""}\n${fresh ? "Conversation history" : "New messages"} (role-labelled):\n${JSON.stringify(messages)}\n${reportReference()}`;
+          return `${reference()}\n${fresh || state.memory !== memoryText ? memoryReference : "Main memory is unchanged since the previous turn."}\n${fresh ? evidence : pending}\n${fresh ? "Conversation history" : "New messages"} (role-labelled):\n${JSON.stringify(messages)}\n${reportReference()}`;
         },
         images: fresh => modelImages(this.root, s.messages.slice(fresh ? -40 : state.through).flatMap(m => m.images ?? [])),
         connected: () => { if (!current()) return; timing.runId = client.runId; timing.transport = s.transport = client.transport; this.save(s); },
@@ -733,7 +737,7 @@ export class PilotChats {
     }
   }
   private async tool(s: PilotChatSession, name: string, args: unknown, signal: AbortSignal): Promise<unknown> {
-    if (s.turn?.reports && !new Set([...READERS, "list_directories", "list_files", "read_file", "read_agent", "reply_agent", "notify_user", "resolve_notification"]).has(name)) throw new PilotError("Automatic agent reports can only read context, reply to a context question, or notify the user.");
+    if (s.turn?.reports && !new Set([...READERS, "list_directories", "list_files", "read_file", "read_agent", "read_action", "reply_agent", "notify_user", "resolve_notification"]).has(name)) throw new PilotError("Automatic agent reports can only read context, reply to a context question, or notify the user.");
     if (!["launch_agent", "revise_agent_environment", "message_agent", "reply_agent", "drop", "directive", "inbox_set_unread"].includes(name)) return this.executeTool(s, name, args, signal);
     if (!args || typeof args !== "object" || Array.isArray(args)) throw new PilotError("Tool arguments must be an object.");
     const a = args as Record<string, unknown>;
@@ -755,15 +759,59 @@ export class PilotChats {
         requireIntegrationWrite(this.root, "email", account, { kind: "pilot" });
       }
     };
+    const request: ActionRequest = { actor: { kind: "pilot", id: s.id }, request: key, operation: name,
+      scope: [s.id, ...(typeof a.agent === "string" ? [a.agent] : []), ...(typeof a.project === "string" ? [a.project] : []), ...(name === "inbox_set_unread" ? [String(a.ref)] : [])], payload: args };
+    const external = this.options.external;
     try {
-      return await this.actions.execute({ actor: { kind: "pilot", id: s.id }, request: key, operation: name,
-        scope: [s.id, ...(typeof a.agent === "string" ? [a.agent] : []), ...(typeof a.project === "string" ? [a.project] : []), ...(name === "inbox_set_unread" ? [String(a.ref)] : [])], payload: args },
-        { signal, authorize, validate: () => { if (name === "message_agent") this.options.external!.validateMessage(a.agent, a.text); }, legacy: this.conversation(s.id).actions?.[key], execute: async () => {
-          const result = await this.executeTool(s, name, args, signal);
-          if (result && typeof result === "object" && "error" in result) throw new Error(String(result.error));
-          return result;
+      return await this.actions.execute(request, { signal, authorize, legacy: this.conversation(s.id).actions?.[key], recover: r => this.recovered(s, r),
+        validate: async () => {
+          if (name === "message_agent") external!.validateMessage(a.agent, a.text);
+          if (["launch_agent", "revise_agent_environment"].includes(name) && a.model) await this.requireConnected(a.model);
+          if (name === "launch_agent") { if (!external) throw new PilotError("Worker sessions are unavailable in this environment."); external.validateLaunch(a, s.backend); }
+        },
+        execute: async action => {
+          try {
+            const result = await this.executeTool(s, name, args, signal, action);
+            if (result && typeof result === "object" && "error" in result) throw new Error(String(result.error));
+            return result;
+          } catch (error) {
+            // A worker durably tagged with this request exists whatever the reply said.
+            const job = name === "launch_agent" ? external?.forAction(s.id, action.id) : undefined;
+            if (job) action.observe({ agent: job.id });
+            throw error;
+          }
         } });
-    } catch (error) { return { error: error instanceof Error ? error.message : "Application action failed." }; }
+    } catch (error) {
+      let receipt: ActionReceipt | undefined | null;
+      try { receipt = this.actions.receipt(request); } catch { receipt = null; }
+      return actionFailure(name, error, receipt);
+    }
+  }
+  /** An uncertain launch whose worker was durably recorded settles to that worker. Nothing is relaunched. */
+  private recovered(s: PilotChatSession, receipt: ActionReceipt): unknown {
+    if (receipt.operation !== "launch_agent" || receipt.status !== "uncertain" || !this.options.external) return;
+    const external = this.options.external, observed = receipt.observed?.agent;
+    const job = external.forAction(s.id, receipt.id) ?? (observed && external.has(observed) && external.get(observed).origin.pilot === s.id ? external.get(observed) : undefined);
+    return job && launchResult(job);
+  }
+  private settle(s: PilotChatSession, receipt: ActionReceipt): ActionReceipt {
+    const result = this.recovered(s, receipt);
+    try { return result === undefined ? receipt : this.actions.resolve(receipt, result); } catch { return receipt; }
+  }
+  private async requireConnected(model: unknown): Promise<void> {
+    const selected = validateModelChoice(model);
+    const available = await this.models(selected);
+    if (!available.some(p => p.id === `pi/${selected.provider}` && p.ready && p.models.some(m => m.id === selected.model))) throw new PilotError("The requested model is not connected or available. Choose a connected model explicitly.");
+  }
+  /** Only this Pilot's own receipts; another Pilot's identity reads as absent. */
+  private readAction(s: PilotChatSession, request: unknown) {
+    if (request === undefined) return { actions: this.actionReceipts(s.id, { limit: 10 }).receipts };
+    if (typeof request !== "string" || !/^[a-f0-9]{64}$/.test(request)) throw new PilotError("Provide a request ID from a tool reply.");
+    const receipt = this.actions.owned({ kind: "pilot", id: s.id }, request);
+    if (!receipt) throw new PilotError("No action with that request ID belongs to this Pilot.");
+    const view = actionReceiptView(this.settle(s, receipt)), agent = view.observations.find(o => o.kind === "agent")?.target;
+    const job = agent && this.options.external?.has(agent) ? this.options.external.get(agent) : undefined;
+    return { action: view, ...(job && job.origin.pilot === s.id ? { agent: { id: job.id, title: job.title, status: job.status } } : {}) };
   }
   actionReceipts(id: unknown, query: ActionHistoryQuery = {}) {
     const s = this.get(id), actor = { kind: "pilot" as const, id: s.id };
@@ -779,7 +827,7 @@ export class PilotChats {
     const limit = query.limit ?? 30;
     // Validate limits and obtain current damage diagnostics even on legacy pages.
     const history = this.actions.list(actor, { limit, cursor: modern });
-    const receipts: (ReturnType<typeof actionReceiptView> | { id: string; operation: string; status: string })[] = legacy === undefined ? history.receipts.map(actionReceiptView) : [];
+    const receipts: (ReturnType<typeof actionReceiptView> | { id: string; operation: string; status: string })[] = legacy === undefined ? history.receipts.map(r => actionReceiptView(this.settle(s, r))) : [];
     const encode = (value: object) => Buffer.from(JSON.stringify({ context, ...value })).toString("base64url");
     if (legacy === undefined && history.nextCursor) return { ...history, receipts, nextCursor: encode({ modern: history.nextCursor }) };
     const historical = Object.entries(this.conversation(s.id).actions ?? {}).sort(([a], [b]) => a.localeCompare(b))
@@ -789,29 +837,29 @@ export class PilotChats {
     return { ...history, receipts, nextCursor: historical.length > selected.length ? encode({ legacy: selected.at(-1)?.[0] ?? legacy ?? "" }) : undefined };
   }
 
-  private async executeTool(s: PilotChatSession, name: string, args: unknown, signal: AbortSignal): Promise<unknown> {
+  /** With `action`, a failure is rethrown after its evidence is retained, keeping a proven refusal distinct. */
+  private async executeTool(s: PilotChatSession, name: string, args: unknown, signal: AbortSignal, action?: { id: string; observe: (effect: { agent: string }) => void }): Promise<unknown> {
     signal.throwIfAborted(); s.activity = name; this.save(s);
-    let result: unknown;
+    let result: unknown, failure: Error | undefined;
     try {
       if (!args || typeof args !== "object" || Array.isArray(args)) throw new PilotError("Tool arguments must be an object.");
       const a = args as Record<string, unknown>;
       if (AGENT_ORCHESTRATION_TOOLS.some(t => t.name === name)) {
+        if (name === "read_action") return this.readAction(s, a.request);
         const external = this.options.external;
         if (!external) throw new PilotError("Worker sessions are unavailable in this environment.");
         if (name === "list_agent_models") return { agents: await this.models() };
         if (name === "inspect_agent_environment") return external.projects.inspect(String(a.path));
-        if (["launch_agent", "revise_agent_environment"].includes(name) && a.model) {
-          const selected = validateModelChoice(a.model);
-          const available = await this.models(selected);
-          if (!available.some(p => p.id === `pi/${selected.provider}` && p.ready && p.models.some(m => m.id === selected.model))) throw new PilotError("The requested model is not connected or available. Choose a connected model explicitly.");
-        }
+        // An application action already checked this in its validate stage.
+        if (["launch_agent", "revise_agent_environment"].includes(name) && a.model && !action) await this.requireConnected(a.model);
         if (name === "revise_agent_environment") {
           const job = external.reviseEnvironment(s.id, a.agent, a.request, a.environment, a.model);
           return { id: job.id, status: job.status, model: job.choice, request: job.worker.request };
         }
         if (name === "launch_agent") {
-          const job = external.launch(s.id, s.messages.findLast(m => m.role === "user")?.id ?? "", a, s.context, s.backend);
-          result = { id: job.id, title: job.title, status: job.status, model: job.choice, environment: job.worker.projectId, request: job.worker.request, path: sessionPath(job.id) };
+          const job = external.launch(s.id, s.messages.findLast(m => m.role === "user")?.id ?? "", a, s.context, s.backend, action?.id);
+          action?.observe({ agent: job.id });
+          result = launchResult(job);
         } else {
           const job = external.owned(s.id, a.agent);
           if (name === "reply_agent") { external.answer(s.id, a.agent, a.request, a.text, a.evidence); result = { ok: true }; }
@@ -871,12 +919,16 @@ export class PilotChats {
           try { this.addContext(s.id, [ref], true); } catch { /* Unresolvable or full context: preserve the read. */ }
         }
       }
-    } catch (e) { result = { error: e instanceof PilotError || [...PILOT_LOCAL_TOOLS, ...AGENT_ORCHESTRATION_TOOLS].some(t => t.name === name) && e instanceof Error ? e.message : "The context tool failed. Try a different query or source.", context: s.context, revision: s.viewRevision }; }
+    } catch (e) {
+      const message = e instanceof PilotError || [...PILOT_LOCAL_TOOLS, ...AGENT_ORCHESTRATION_TOOLS].some(t => t.name === name) && e instanceof Error ? e.message : "The context tool failed. Try a different query or source.";
+      result = { error: message, context: s.context, revision: s.viewRevision }; failure = e instanceof ActionRefusal ? new ActionRefusal(message) : new Error(message);
+    }
     signal.throwIfAborted();
     const state = this.conversation(s.id);
     (state.evidence ??= []).push({ tool: name, args, result });
     while (state.evidence.length > 1 && JSON.stringify(state.evidence).length > PILOT_RUNTIME.toolResultChars) state.evidence.shift();
     saveConversation(this.root, s.id, state);
+    if (action && failure) throw failure;
     const serialized = JSON.stringify(result) ?? "null";
     return serialized.length <= PILOT_RUNTIME.toolResultChars ? result : { truncated: true, excerpt: serialized.slice(0, PILOT_RUNTIME.toolResultChars), hint: "Read a smaller window to see the rest." };
   }

@@ -18,7 +18,9 @@ import { currentWorkerSignal, workerTools } from "./worker/tools";
 import type { WorkerRecord, WorkerRequest } from "./worker/types";
 import { INTEGRATION_TOOLS, integrationToolCall } from "./integrationTools";
 import type { RunTool } from "./run/machineTools";
+import { ActionRefusal } from "./applicationActions";
 export interface AgentSessionReport { key: string; agent: string; pilot: string; title: string; kind: "question" | "completed" | "failed" | "native" | "access" | "decision" | "resolved"; text: string; at: string }
+type LaunchArgs = { title?: unknown; task?: unknown; context?: unknown; cwd?: unknown; project?: unknown; mode?: unknown; model?: unknown; environment?: unknown };
 type Runtime = { task?: Promise<void>; controller: AbortController; session?: ModelSession; sandbox?: WorkerSandbox; scope?: WorkerScope; tools: RunTool[]; pending?: { id: string; resolve: (answer: unknown) => void; reject: (error: Error) => void } };
 const text = (v: unknown, name: string, max = 32_000): string => { if (typeof v !== "string" || !v.trim() || v.length > max) throw new Error(`Provide ${name} under ${max} characters.`); return v.trim(); };
 const questionSchema = { type: "object", properties: { question: { type: "string" } }, required: ["question"], additionalProperties: false };
@@ -28,7 +30,7 @@ const requestTools = [
   { name: "request_access", description: "Request a specific expanded project scope from the user. Give the complete requested scope and reason. You may request public network or named command credentials such as GH_TOKEN; only the user can connect their values. Only the app user can approve it; awaiting an answer does not grant access.", inputSchema: { type: "object", properties: { reason: { type: "string" }, mode: { type: "string", enum: ["read", "work"] }, references: { type: "array", items: { type: "string" } }, domains: { type: "array", items: { type: "string" } }, network: { type: "string", enum: ["public"] }, credentials: { type: "array", items: { type: "string" } }, accounts: { type: "array", items: { type: "object", properties: { integration: { type: "string", enum: ["email", "granola"] }, account: { type: "string" } }, required: ["integration", "account"], additionalProperties: false } } }, required: ["reason", "mode", "references", "domains", "accounts"], additionalProperties: false } },
 ];
 const sourceTools = INTEGRATION_TOOLS.filter(t => !["inbox_set_unread", "source_read_state"].includes(t.name));
-const persisted = z.object({ version: z.literal(1), reportOutbox: z.array(z.object({ key: z.string(), agent: z.string(), pilot: z.string(), title: z.string(), kind: z.enum(["question", "completed", "failed", "native", "access", "decision", "resolved"]), text: z.string(), at: z.string() })).optional(), id: z.string().regex(/^work-[a-f0-9]{32}$/), provider: z.literal("pi"), title: z.string(), cwd: z.string(), model: z.string(), choice: z.unknown(), status: z.enum(["starting", "working", "needs-input", "idle", "interrupted", "failed"]), origin: z.object({ pilot: z.string(), message: z.string() }), context: z.object({}).passthrough(), created: z.string(), updated: z.string(), messages: z.array(z.object({ id: z.string(), role: z.enum(["user", "agent", "activity"]), text: z.string(), at: z.string() })), receipts: z.array(z.string()), worker: z.object({ projectId: z.string().optional(), grant: grantSchema.optional(), ceiling: grantSchema.optional(), operations: z.array(z.object({ id: z.string(), tool: z.string(), status: z.enum(["started", "completed", "failed", "uncertain"]), at: z.string() })), request: z.discriminatedUnion("kind", [z.object({ id: z.string(), kind: z.literal("context"), text: z.string() }), z.object({ id: z.string(), kind: z.literal("question"), text: z.string() }), z.object({ id: z.string(), kind: z.literal("access"), text: z.string(), grant: grantSchema, label: z.string().optional(), initial: z.boolean().optional() })]).optional() }).passthrough() }).passthrough();
+const persisted = z.object({ version: z.literal(1), reportOutbox: z.array(z.object({ key: z.string(), agent: z.string(), pilot: z.string(), title: z.string(), kind: z.enum(["question", "completed", "failed", "native", "access", "decision", "resolved"]), text: z.string(), at: z.string() })).optional(), id: z.string().regex(/^work-[a-f0-9]{32}$/), provider: z.literal("pi"), title: z.string(), cwd: z.string(), model: z.string(), choice: z.unknown(), status: z.enum(["starting", "working", "needs-input", "idle", "interrupted", "failed"]), origin: z.object({ pilot: z.string(), message: z.string(), action: z.string().regex(/^[a-f0-9]{64}$/).optional() }), context: z.object({}).passthrough(), created: z.string(), updated: z.string(), messages: z.array(z.object({ id: z.string(), role: z.enum(["user", "agent", "activity"]), text: z.string(), at: z.string() })), receipts: z.array(z.string()), worker: z.object({ projectId: z.string().optional(), grant: grantSchema.optional(), ceiling: grantSchema.optional(), operations: z.array(z.object({ id: z.string(), tool: z.string(), status: z.enum(["started", "completed", "failed", "uncertain"]), at: z.string() })), request: z.discriminatedUnion("kind", [z.object({ id: z.string(), kind: z.literal("context"), text: z.string() }), z.object({ id: z.string(), kind: z.literal("question"), text: z.string() }), z.object({ id: z.string(), kind: z.literal("access"), text: z.string(), grant: grantSchema, label: z.string().optional(), initial: z.boolean().optional() })]).optional() }).passthrough() }).passthrough();
 export class AgentOrchestrator {
   readonly loadIssues: SessionLoadIssue[] = [];
   readonly projects: Projects;
@@ -87,7 +89,10 @@ export class AgentOrchestrator {
     this.reconcileReports();
   }
   private messageRecord(job: WorkerRecord, role: "user" | "agent" | "activity", value: string) { job.messages.push({ id: crypto.randomUUID(), role, text: value, at: new Date().toISOString() }); this.save(job); }
-  launch(pilot: string, message: string, args: { title?: unknown; task?: unknown; context?: unknown; cwd?: unknown; project?: unknown; mode?: unknown; model?: unknown; environment?: unknown }, nodes: string[], choice = DEFAULT_PILOT_BACKEND): WorkerRecord {
+  /** The worker a Pilot's application action created, if one was durably recorded. */
+  forAction(pilot: string, action: string): WorkerRecord | undefined { return [...this.jobs.values()].find(j => j.origin.pilot === pilot && j.origin.action === action); }
+  /** Every launch refusal, without effects; launch() applies exactly this plan. */
+  validateLaunch(args: LaunchArgs, choice = DEFAULT_PILOT_BACKEND) {
     if (this.closed) throw new Error("Agent sessions are shutting down.");
     if ([...this.jobs.values()].filter(j => ["starting", "working", "needs-input"].includes(j.status)).length >= 4) throw new Error("Four agent sessions are active. Wait for or stop one first.");
     const title = text(args.title, "a title", 100), task = text(args.task, "a task"), context = text(args.context, "context", 64_000);
@@ -100,10 +105,17 @@ export class AgentOrchestrator {
     const desired = proposal ? this.projects.validate(proposal.grant) : path ? { path, mode, references: project?.references ?? [], domains: project?.domains ?? [], accounts: project?.accounts ?? [], ...(project?.network ? { network: project.network } : {}), ...(project?.credentials ? { credentials: project.credentials } : {}) } as ProjectGrant : undefined;
     const approved = !desired || !!project && covers(project, desired);
     const ceiling = project && (approved ? desired : { path: project.path, mode: project.mode, references: project.references, domains: project.domains, accounts: project.accounts, network: project.network, credentials: project.credentials });
-    const at = new Date().toISOString(), id = `work-${crypto.randomUUID().replaceAll("-", "")}`, selected = validateModelChoice(args.model ?? project?.model ?? choice);
-    const job: WorkerRecord = { version: 1, id, title, cwd: path ?? "", provider: "pi", model: selected.model, choice: selected, status: approved ? "starting" : "needs-input", origin: { pilot, message }, context: { nodes: [...nodes], text: context }, created: at, updated: at, receipts: [], messages: [], worker: { operations: [], ...(project ? { projectId: project.id, ceiling } : {}), ...(approved && desired ? { grant: desired } : {}) } };
+    return { title, task, context, project, path, proposal, desired, approved, ceiling, selected: validateModelChoice(args.model ?? project?.model ?? choice) };
+  }
+  launch(pilot: string, message: string, args: LaunchArgs, nodes: string[], choice = DEFAULT_PILOT_BACKEND, action?: string): WorkerRecord {
+    let plan: ReturnType<AgentOrchestrator["validateLaunch"]>;
+    try { plan = this.validateLaunch(args, choice); } catch (error) { throw new ActionRefusal(error instanceof Error ? error.message : "Launch refused."); }
+    const { title, task, context, project, path, proposal, desired, approved, ceiling, selected } = plan;
+    const at = new Date().toISOString(), id = `work-${crypto.randomUUID().replaceAll("-", "")}`;
+    const job: WorkerRecord = { version: 1, id, title, cwd: path ?? "", provider: "pi", model: selected.model, choice: selected, status: approved ? "starting" : "needs-input", origin: { pilot, message, ...(action ? { action } : {}) }, context: { nodes: [...nodes], text: context }, created: at, updated: at, receipts: [], messages: [{ id: crypto.randomUUID(), role: "user", text: task, at }], worker: { operations: [], ...(project ? { projectId: project.id, ceiling } : {}), ...(approved && desired ? { grant: desired } : {}) } };
     if (!approved) job.worker.request = { id: crypto.randomUUID(), kind: "access", text: "Review the proposed project environment in Pilot.", grant: desired!, label: proposal?.label ?? project?.label ?? basename(path!), initial: true };
-    this.jobs.set(id, job); this.messageRecord(job, "user", task);
+    // Durable before visible: a failed write must never leave a live job no restart can see.
+    this.save(job); this.jobs.set(id, job);
     if (approved) this.start(job, task);
     else this.emit(job, "access", job.worker.request!.id, job.worker.request!.text);
     return job;

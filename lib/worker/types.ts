@@ -7,7 +7,7 @@ export interface WorkerRecord {
   revision?: number;
   version: 1; id: string; title: string; cwd: string; provider: "pi"; model: string; choice: ModelChoice;
   status: "starting" | "working" | "needs-input" | "idle" | "interrupted" | "failed";
-  origin: { pilot: string; message: string }; context: WorkContext;
+  origin: { pilot: string; message: string; action?: string }; context: WorkContext;
   created: string; updated: string; lastActivityAt?: string; messages: WorkMessage[]; receipts: string[]; error?: string; cancelRequested?: boolean;
   worker: { projectId?: string; grant?: ProjectGrant; ceiling?: ProjectGrant; request?: WorkerRequest; archivedAt?: string; isolation?: "scratch" | "checkout" | "direct" | "read";
     operations: { id: string; tool: string; status: "started" | "completed" | "failed" | "uncertain"; at: string }[] };
