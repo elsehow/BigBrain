@@ -2,7 +2,7 @@ import { pilotInputReceipt } from "./pilotInputReceipt";
 import { pilotChatDetail, type PilotChatDetail } from "../../../../lib/pilotChatSummary";
 import { vaultStorageKey, initializeVault } from "./vaultScope";
 import { vaultFetch as fetch } from "./vaultScope";
-import { applicationCursor, applicationResponseCurrent } from "./applicationUpdates";
+import { epochRequest } from "./applicationUpdates";
 import { mergePilotSummary, fullPilotView, acceptsPilotView, type PilotChatView, isEmptyPublicPilotDraft } from "./pilotChatSync";
 import type { PilotChatSummary } from "../../../../lib/pilotChatSummary";
 import { usageAction } from "./telemetry";
@@ -34,16 +34,15 @@ export const chatSessions = (): PilotChatView[] => {
 export const activeChat = (): PilotChatView | undefined => chatSessions().find(s => s.id === chat.activeId);
 const discarded = new Set<string>();
 const deactivating = new Set<string>();
-async function request<T>(path = "", body?: unknown, timeoutMs = 30_000): Promise<T> {
-  const epoch = applicationCursor.epoch;
-  const r = await fetch(`/api/pilot/chat${path}`, { signal: AbortSignal.timeout(timeoutMs), ...(body === undefined ? {} : { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }) });
-  if (!r.ok) {
-    const result = await r.json().catch(() => ({}));
-    throw Object.assign(new Error(result.error ?? "Pilot could not reach the engine."), { status: r.status });
-  }
-  const result = await r.json();
-  if (!applicationResponseCurrent(epoch)) throw new Error("The engine restarted. Refreshing application views.");
-  return result;
+function request<T>(path = "", body?: unknown, timeoutMs = 30_000): Promise<T> {
+  return epochRequest(async () => {
+    const r = await fetch(`/api/pilot/chat${path}`, { signal: AbortSignal.timeout(timeoutMs), ...(body === undefined ? {} : { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }) });
+    if (!r.ok) {
+      const result = await r.json().catch(() => ({}));
+      throw Object.assign(new Error(result.error ?? "Pilot could not reach the engine."), { status: r.status });
+    }
+    return r.json();
+  }, body === undefined);
 }
 /** Retry an uncertain delivery with the same ID, including after a page reload. */
 export async function submitPilotInput(id: string, text: string, input: { id: string; mode: "text" | "voice"; target?: string; notificationId?: string; images?: ChatImage[] }): Promise<PilotChatDetail> {
