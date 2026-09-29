@@ -10,7 +10,7 @@
   import { getContext, tick, untrack } from "svelte";
   import { api, swr } from "../lib/api";
   import { cursor, kbdTakes } from "../lib/cursor.svelte";
-  import { copyDiscussPrompt } from "../lib/discuss";
+  import { startChat } from "../lib/pilotChat.svelte";
   import { editable, isMac } from "../lib/dom";
   import { currentRow, navDelta, stepped, createListJump } from "../lib/listNav";
   import { md, sanitizeHtml } from "../lib/markdown";
@@ -246,15 +246,11 @@
   // the rail's accessible name
   const railLabel = $derived(`Links connected to ${title}`);
 
-  // DISCUSS — the same copyable grounding line the feed rows offer. One
-  // note open at a time here, so a plain boolean is enough.
-  let copied = $state(false);
   async function discuss() {
-    const p = notePath;
-    if (!p || multiple) return;
-    await copyDiscussPrompt(p, (on) => { copied = on; });
+    if (!notePath || multiple) return;
+    await startChat([notePath]);
   }
-  // Shift+↵ copies the DISCUSS line here too — same key the feed rows answer to
+  // The button and Shift+Enter open a Pilot grounded in this note.
   function discussKey(e: KeyboardEvent) {
     if (e.defaultPrevented || multiple || e.key !== "Enter" || !e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) return;
     if (app.view !== "vault" || !notePath || editable(e.target)) return;
@@ -406,7 +402,7 @@
 <svelte:window onkeydown={noteKey} />
 
 {#if notePath}
-  <header class="hud-header">
+  <header class="hud-header note-header">
     <HistoryNavigation />
     <div class="hud-identity">
       <h1 class="note-title" use:tooltip={title}>{title}</h1>
@@ -414,8 +410,9 @@
         <time class="note-ts" datetime={new Date(modified).toISOString()}>Updated {updatedLabel}</time>
       {/if}
     </div>
-    <div class="note-shortcuts" aria-label="Note actions">
-      {#if !multiple}<button class="discuss-shortcut" class:copied onclick={discuss} onkeydown={controlKey} aria-keyshortcuts="Shift+Enter"><span aria-live="polite">{copied ? "COPIED" : sidebar ? "Discuss in Pilot" : "PILOT"}</span></button>{/if}
+    <div class="note-actions" aria-label="Note actions">
+      {#if !multiple && origin}<OriginChip {origin} failed={openFailed} onclick={openSource} />{/if}
+      {#if !multiple}<button class="pchip discuss-shortcut" onclick={discuss} onkeydown={controlKey} aria-keyshortcuts="Shift+Enter"><span>Discuss with Pilot</span><kbd aria-hidden="true"><KeyboardModifier name="shift" />↵</kbd></button>{/if}
     </div>
   </header>
   <div class="note-scroll">
@@ -437,11 +434,9 @@
             <p class="briefing-error" class:with-summary={!!summary} role="status">{summary ? "Couldn’t finish the descriptions." : briefingError} <button class="retry" onclick={() => briefingAttempt++}>Retry</button></p>
           {:else if briefingLoading && (!summary || briefingAttempt > 0)}
             <span class="briefing-spinner" class:with-summary={!!summary} role="status" aria-label={summary ? "Retrying descriptions" : "Generating summary and relationships"}></span>
-            {#if !summary}<p class="links-empty" role="status">Preparing summary and connections…</p>{/if}
           {/if}
-          {#if !multiple && (origin || threadMessages.length)}
+          {#if !multiple && threadMessages.length}
             <div class="note-chips">
-              {#if origin}<OriginChip {origin} failed={openFailed} onclick={openSource} />{/if}
               {#if threadMessages.length}
                 <details class="thread-messages">
                   <summary>{threadMessages.length} messages</summary>
@@ -483,14 +478,17 @@
   .hud-header { display: flex; flex: none; align-items: center; justify-content: space-between; gap: 24px;
     padding: 14px 20px; border-bottom: 1px solid var(--rule);
     font: 500 10.5px/1.5 var(--font-mono); letter-spacing: .13em; text-transform: uppercase; }
-  .hud-identity { display: flex; align-items: baseline; min-width: 0; gap: 28px; }
+  .hud-identity { display: flex; flex-direction: column; align-items: flex-start; width: 100%; min-width: 0; gap: 8px; }
   .note-title { font: 500 22px/1.25 var(--font-app); letter-spacing: -.02em; text-transform: none; color: var(--text-strong); margin: 0;
-    min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .note-ts { color: var(--text-muted); flex: none; white-space: nowrap; font-variant-numeric: tabular-nums; }
+    min-width: 0; white-space: normal; overflow-wrap: anywhere; }
+  .note-ts { color: var(--text-muted); font: 11px/1.5 var(--font-app); letter-spacing: 0; text-transform: none; font-variant-numeric: tabular-nums; }
+  .note-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .note-actions kbd { color: var(--text-muted); }
+  .note-actions button:focus-visible { outline: 1px solid var(--text-strong); outline-offset: 3px; }
   .note-shortcuts { display: flex; flex: none; align-items: center; gap: 18px; color: var(--text-muted); }
   .note-shortcuts button { display: inline-flex; align-items: center; gap: 6px; border: 0; padding: 0; background: transparent;
     color: inherit; cursor: pointer; font: inherit; letter-spacing: inherit; white-space: nowrap; }
-  .note-shortcuts button:hover:not(:disabled), .note-shortcuts .copied { color: var(--text-strong); }
+  .note-shortcuts button:hover:not(:disabled) { color: var(--text-strong); }
   .note-shortcuts button:disabled { opacity: .45; cursor: default; }
   .note-shortcuts button:focus-visible { outline: 1px solid var(--text-strong); outline-offset: 4px; border-radius: 2px; }
   kbd { font: inherit; color: var(--text-strong); border: 0; padding: 0; background: none; }
@@ -539,13 +537,11 @@
   @keyframes content-arrive { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: translateY(0); } }
   @container (max-width: 900px) {
     .hud-header { flex-wrap: wrap; gap: 8px; padding: 12px 20px; }
-    .hud-identity { width: 100%; justify-content: space-between; }
     .briefing { gap: 28px; }
     .source-link { grid-template-columns: minmax(80px, 32%) minmax(0, 1fr); gap: 12px; }
   }
   @container (max-width: 560px) {
     .hud-header { padding: 12px 16px; }
-    .hud-identity { gap: 12px; }
     .note-shortcuts { gap: 14px; font-size: 9px; letter-spacing: .08em; flex-wrap: wrap; }
     .note-scroll { overflow-y: auto; }
     .note-links { height: auto; }

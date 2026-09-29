@@ -48,6 +48,7 @@
 [data-sidebar-workbench] .sidebar-quick .note-title { font-size:var(--fs-body); }
 [data-sidebar-workbench] .sidebar-quick .note-ts,
 [data-sidebar-workbench] .sidebar-quick .note-shortcuts,
+[data-sidebar-workbench] .sidebar-quick .note-actions,
 [data-sidebar-workbench] .sidebar-quick .source-links,
 [data-sidebar-workbench] .sidebar-quick .body-disclosure { display:none; }
 [data-sidebar-workbench] .sidebar-quick .briefing { display:block; padding:12px 16px; }
@@ -244,8 +245,8 @@ html[data-sidebar-workbench] :is(.pilots-pane > header,.drawer:not(.sidebar-quic
   flex-shrink:0; padding-block:16px; align-content:center;
 }
 html[data-sidebar-workbench] .drawer:not(.sidebar-quick) .hud-header { gap:8px; }
-html[data-sidebar-workbench] .drawer:not(.sidebar-quick) .hud-identity { flex-wrap:nowrap; }
-html[data-sidebar-workbench] .drawer:not(.sidebar-quick) .note-title { white-space:nowrap; }
+/* Note titles grow with their content; conversation headers keep their fixed rhythm. */
+html[data-sidebar-workbench] .drawer:not(.sidebar-quick) .note-header { height:auto; gap:14px; }
 html[data-sidebar-workbench] .pilot-panel > header { grid-template-rows:24px 16px 28px; row-gap:2px; }
 html[data-sidebar-workbench] .pilot-panel > header > strong { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 html[data-sidebar-workbench] .pilot-panel > header > .context { grid-row:2; }
