@@ -62,7 +62,9 @@ test("composer heartbeats protect open tabs without changing activity; expired l
   // The persisted lease survives an engine restart while the tab reconnects.
   const restored = new PilotChats(f.root, f.options); await restored.sweep(); expect(restored.get(f.s.id).lifecycle).toBe("dormant");
   f.advance(timing.composerLeaseMs); await restored.sweep(); expect(restored.get(f.s.id).lifecycle).toBe("ingested");
-});
+// A simulated day of minute heartbeats is 1,440 real session writes: a loaded CI
+// runner needs more than bun's 5s default (it took 5.7s there), not fewer heartbeats.
+}, 30_000);
 test("closing one composer cannot clear a second tab's lease", async () => {
   const f = fixture(); await f.answer(); f.chats.presence("test-client-one", f.s.id); f.chats.presence("test-client-two", f.s.id);
   f.chats.presence("test-client-one", null); expect(f.s.composerLeaseUntil).toBeGreaterThan(Date.parse(f.s.lastActivityAt!));
