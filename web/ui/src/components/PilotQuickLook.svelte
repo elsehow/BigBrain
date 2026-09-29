@@ -2,11 +2,12 @@
   import { untrack } from 'svelte';
   import { chatSessions, loadChatDetail } from '../lib/pilotChat.svelte';
   import { pilotRoster } from '../lib/pilotAttention';
+  import { delegatingPilotIds } from '../lib/workSessions.svelte';
   import { mentionText, parseMentions } from '../../../../lib/pilotMentions';
   import type { GraphData } from '../lib/types';
   let { id, graph }: { id: string; graph: GraphData | null } = $props();
   const session = $derived(chatSessions().find(s => s.id === id));
-  const entry = $derived(pilotRoster(session ? [session] : [])[0]);
+  const entry = $derived(pilotRoster(session ? [session] : [], false, delegatingPilotIds())[0]);
   const text = $derived(session ? entry?.preview || session.live || (session.phase === 'draft' ? mentionText(parseMentions(session.draft)) : '')
     || session.messages?.findLast(m => m.role === 'assistant')?.text || session.messages?.at(-1)?.text || '' : '');
   const connections = $derived((session?.context ?? []).map(key => graph?.nodes.find(n => n.id === key || n.path === key)?.title ?? key));

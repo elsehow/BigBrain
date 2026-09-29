@@ -6,7 +6,7 @@
   import { editable } from "../lib/dom";
   import PilotsPane from "./PilotsPane.svelte";
   import { pilotRoster, type PilotRosterEntry, type PilotRequest } from "../lib/pilotAttention";
-  import { work, refreshWork, refreshWorkIds } from "../lib/workSessions.svelte";
+  import { work, refreshWork, refreshWorkIds, delegatingPilotIds } from "../lib/workSessions.svelte";
   import { chat, chatSessions, openChat, refreshChats, refreshChatIds } from "../lib/pilotChat.svelte";
   import { sourceAttention, refreshSourceAttention, unreadNodeIds, selectUnreadSources } from "../lib/sourceAttention.svelte";
   import { searchOverlay } from "../lib/omnibox.svelte";
@@ -17,10 +17,10 @@
   import { sessionPath } from "../../../../lib/workSessionIdentity";
   const sidebar = getContext<SidebarLayout | undefined>(SIDEBAR_LAYOUT);
   let open = $state(false), error = $state("");
-  const roster = $derived(pilotRoster(chatSessions()));
+  const roster = $derived(pilotRoster(chatSessions(), false, delegatingPilotIds()));
   const sidebarRoster = $derived.by(() => {
     const sessions = chatSessions();
-    const entries: (PilotRosterEntry & { created: string })[] = pilotRoster(sessions, true).map(entry => ({
+    const entries: (PilotRosterEntry & { created: string })[] = pilotRoster(sessions, true, delegatingPilotIds()).map(entry => ({
       ...entry, created: sessions.find(s => s.id === entry.id)!.created,
     }));
     const migrated = new Set(sessions.flatMap(s => s.legacyWork ? [s.legacyWork.id] : []));

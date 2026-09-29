@@ -13,7 +13,7 @@ import {
   PILOT_MARK_SEGMENTS, drawPilotIndicator, pilotDraftContradicted, pilotHollow, pilotMarkPath,
   pilotStatusView, pilotTriangleRadius, pilotVisualPhase, type GlyphSegment, type PilotVisualPhase,
 } from "../web/ui/src/lib/pilotAppearance";
-import { pilotRoster, rosterStatusView } from "../web/ui/src/lib/pilotAttention";
+import { delegatingPilots, pilotRoster, rosterStatusView } from "../web/ui/src/lib/pilotAttention";
 import { phaseCode } from "../web/ui/src/lib/graph/status";
 
 const PHASES: PilotVisualPhase[] = ["idle", "active", "draft", "working", "interrupted", "failed", "answered", "unknown"];
@@ -192,4 +192,30 @@ test("activity, worker reports and ingestion are not sent user messages", () => 
   expect(pilotDraftContradicted(reported)).toBe(false);
   expect(pilotVisualPhase(reported)).toBe("draft");
   expect(pilotStatusView(pilotVisualPhase(reported)).label).toBe("Draft");
+});
+
+test("a Pilot whose worker is still running reads as Working, not Ready", () => {
+  const base = newPilotChatSession([], "pilot-" + "c".repeat(32));
+  const answered = { ...base, title: "Delegating Pilot", phase: "answered" as const, messages: [{ id: "m1", role: "user" as const, text: "Go", at: base.created }] };
+  const worker = (status: string, extra: Record<string, unknown> = {}) => ({ status, origin: { pilot: answered.id }, ...extra });
+  // Only a starting or running, unarchived worker counts; stops and finishes never pin "Working".
+  expect([...delegatingPilots([worker("starting"), worker("working")])]).toEqual([answered.id]);
+  for (const settled of [worker("idle"), worker("interrupted"), worker("failed"), worker("needs-input"), worker("working", { worker: { archivedAt: base.created } })])
+    expect(delegatingPilots([settled]).size).toBe(0);
+  expect(delegatingPilots([{ status: "working" }]).size).toBe(0);
+
+  const row = (sessions = [answered], ids: string[] = []) => pilotRoster(sessions, false, new Set(ids))[0]!;
+  expect(rosterStatusView(row()).label).toBe("Ready");
+  const delegated = row([answered], [answered.id]);
+  expect(delegated).toMatchObject({ phase: "working", state: "running", delegated: true });
+  expect(rosterStatusView(delegated)).toEqual({ label: "Working", description: "Working — an agent is running for this Pilot" });
+  // Its own turn outranks its workers; a question outranks both.
+  const own = row([{ ...answered, phase: "working" as const }], [answered.id]);
+  expect(own.delegated).toBeUndefined();
+  expect(rosterStatusView(own).description).toBe("Working — a turn is running");
+  const asking = { ...answered, notifications: [{ id: "n1", messageId: "m2", pilotId: answered.id, pilotTitle: answered.title, key: "k", kind: "question" as const, text: "Which fixture?", at: base.created, seen: false }] };
+  expect(rosterStatusView(row([asking], [answered.id])).label).toBe("Needs you");
+  // Another Pilot's worker does not change this row; archived Pilots stay archived.
+  expect(rosterStatusView(row([answered], ["pilot-" + "d".repeat(32)])).label).toBe("Ready");
+  expect(pilotRoster([{ ...answered, deactivatedAt: base.created }], true, new Set([answered.id]))[0]).toMatchObject({ archived: true });
 });

@@ -1,6 +1,7 @@
 import { vaultFetch as fetch } from "./vaultScope";
 import { applicationDisconnected, epochRequest } from "./applicationUpdates";
 import { singleFlight } from "./singleFlight";
+import { delegatingPilots } from "./pilotAttention";
 import type { WorkContextView, WorkSummary } from "../../../../lib/workViews";
 import { sessionPath } from "../../../../lib/workSessionView";
 import type { GraphData } from "./types";
@@ -37,6 +38,9 @@ async function fetchWork(ids?: string[]): Promise<void> {
   }
 }
 export const refreshWork = singleFlight(() => fetchWork());
+// Pilots whose workers are running, keyed as a string so views only update when the set changes.
+const delegatingKey = $derived([...delegatingPilots(work.sessions)].sort().join("\n"));
+export function delegatingPilotIds(): ReadonlySet<string> { return new Set(delegatingKey ? delegatingKey.split("\n") : []); }
 export const refreshWorkIds = (ids: string[]) => fetchWork(ids);
 export function selectWork(id: string): void {
   gotoNote(work.graph?.nodes.find(n => n.sourcePaths?.includes(sessionPath(id)))?.path ?? sessionPath(id));

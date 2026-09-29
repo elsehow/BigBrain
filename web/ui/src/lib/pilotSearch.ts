@@ -8,7 +8,7 @@ import type { ImportanceGraph } from "../../../../lib/graphImportance";
 
 /** Merge durable/optimistic sessions with vault hits. Ingested chapters and
  * virtual threads resolve to the same session, even across result pages. */
-export function withPilotSearch(hits: SearchHit[], sessions: PilotViewData[], query: string, options: { graph?: ImportanceGraph | null; mention?: boolean; idleOnly?: boolean; matches?: ReadonlySet<string> } = {}): SearchHit[] {
+export function withPilotSearch(hits: SearchHit[], sessions: PilotViewData[], query: string, options: { graph?: ImportanceGraph | null; mention?: boolean; idleOnly?: boolean; matches?: ReadonlySet<string>; delegating?: ReadonlySet<string> } = {}): SearchHit[] {
   const byId = new Map(sessions.map(s => [s.id, s]));
   const byPath = new Map(sessions.flatMap(s => (s.ingestions ?? []).map(r => [r.path, s] as const)));
   const found = new Set<string>();
@@ -25,7 +25,7 @@ export function withPilotSearch(hits: SearchHit[], sessions: PilotViewData[], qu
     else ordinary.push(hit);
   }
   const words = query.toLocaleLowerCase().trim().split(/\s+/).filter(Boolean);
-  const roster = new Map(pilotRoster(sessions).map(p => [p.id, p]));
+  const roster = new Map(pilotRoster(sessions, false, options.delegating).map(p => [p.id, p]));
   const eligible = options.idleOnly && !words.length ? sessions.filter(s => pilotVisualPhase(s) === "idle") : sessions;
   // Ending an unsent draft should not promote it into Recents as an idle
   // conversation. Keep its saved content recoverable through typed search.

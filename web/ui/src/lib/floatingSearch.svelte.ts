@@ -9,7 +9,7 @@ import { api, type RecentPage } from "./api";
 import { createPagedSearch, emptyPagedResults } from "./pagedSearch";
 import type { SearchHit } from "./omnibox.svelte";
 import { chat, chatSessions } from "./pilotChat.svelte";
-import { work } from "./workSessions.svelte";
+import { work, delegatingPilotIds } from "./workSessions.svelte";
 import { withWorkSearch } from "./workSearch";
 import { withPilotSearch } from "./pilotSearch";
 
@@ -49,7 +49,7 @@ export const floatingSearch = createPagedSearch(floatingResults, async (q, offse
     if (!response.ok) throw new Error("Pilot history search is unavailable.");
     const { sessions } = await response.json() as { sessions: (PilotChatSummary | PilotChatDetail)[] };
     const matches = sessions.filter(s => !("messages" in s) || matchesPilotQuery(s, q)).map(s => "messages" in s ? s : mergePilotSummary(s));
-    return { ...page, hits: withPilotSearch(page.hits, matches, q, { graph: chat.graph, matches: new Set(matches.map(s => s.id)) }) };
+    return { ...page, hits: withPilotSearch(page.hits, matches, q, { graph: chat.graph, matches: new Set(matches.map(s => s.id)), delegating: delegatingPilotIds() }) };
   }
   if (searchPresentation.unreadOnly) {
     if (!sourceAttention.checked) await refreshSourceAttention();
@@ -61,7 +61,7 @@ export const floatingSearch = createPagedSearch(floatingResults, async (q, offse
   // not abort the warm that will make the next opening instant.
   return recentHits(await (offset ? api.recent(RECENT_PAGE, offset, signal) : firstRecents()));
 }, { project: (hits, q) => {
-  const rows = withPilotSearch(withWorkSearch(hits, work.sessions, q, { idleOnly: true }), chatSessions(), q, { graph: chat.graph, idleOnly: true });
+  const rows = withPilotSearch(withWorkSearch(hits, work.sessions, q, { idleOnly: true }), chatSessions(), q, { graph: chat.graph, idleOnly: true, delegating: delegatingPilotIds() });
   return searchPresentation.includeAgents ? rows : rows.filter(hit => hit.dir !== "pilot" && hit.dir !== "agent" && !hit.agentState && !hit.sessionId && !hit.note.path.startsWith("sessions/"));
 }, cached: q => {
   if (q || searchPresentation.unreadOnly) return undefined;

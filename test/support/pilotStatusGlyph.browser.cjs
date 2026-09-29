@@ -84,8 +84,39 @@ const assert = require('node:assert/strict');
     await glyph(2).hover();
     await page.getByText('Interrupted — the turn stopped before it finished', { exact: true }).waitFor();
 
+    // 4. A finished Pilot whose worker is still running reads as Working, with a live
+    //    (hollow) glyph, and returns to Ready when the worker settles. The fake engine
+    //    reports the worker too: worker lists are authoritative.
+    const setWorker = status => page.evaluate(async status => {
+      const { work, refreshWork } = await import('/src/lib/workSessions.svelte.ts');
+      const at = new Date().toISOString();
+      window.statusFixtureWorkers = [{ id: 'work-' + 'e'.repeat(32), title: 'Delegated task', provider: 'pi', status, model: 'fixture',
+        cwd: '/sample', created: at, updated: at, revision: status === 'working' ? 1 : 2, pending: false,
+        context: { requestKey: 'k', nodes: [], node: null, title: '', text: '', session: null, cwd: '/sample' },
+        origin: { pilot: 'pilot-' + '4'.repeat(32), message: 'm1' }, worker: { operations: [] } }];
+      if (!window.statusFixtureWorkerFetch) {
+        window.statusFixtureWorkerFetch = true;
+        const original = window.fetch;
+        window.fetch = async (input, init) => {
+          const url = new URL(String(input), location.href);
+          if (url.pathname === '/api/pilot/work' && !url.searchParams.has('id')) return new Response(JSON.stringify({ sessions: window.statusFixtureWorkers }));
+          return original(input, init);
+        };
+      }
+      work.sessions = window.statusFixtureWorkers;
+      await refreshWork();
+    }, status);
+    await setWorker('working');
+    await page.waitForFunction(() => (document.querySelector('.pilot-row[data-pilot="pilot-' + '4'.repeat(32) + '"]')?.getAttribute('aria-label') ?? '').endsWith(', Working'));
+    assert.equal(await glyph(4).locator('path.pilot-triangle.hollow').count(), 1, 'a delegating Pilot draws the live glyph');
+    await glyph(4).hover();
+    await page.getByText('Working — an agent is running for this Pilot', { exact: true }).waitFor();
+    for (const id of [1, 2, 3]) assert.doesNotMatch(await name(id), /Working$/, 'only the owning Pilot changes');
+    await setWorker('idle');
+    await page.waitForFunction(() => (document.querySelector('.pilot-row[data-pilot="pilot-' + '4'.repeat(32) + '"]')?.getAttribute('aria-label') ?? '').endsWith(', Ready'));
+
     assert.deepEqual(errors, []);
-    console.log('PASS distinct draft/interrupted/failed marks at 28px, named rows, explained tooltip');
+    console.log('PASS distinct draft/interrupted/failed marks at 28px, named rows, explained tooltip, delegated Working');
   } finally {
     await browser.close();
   }

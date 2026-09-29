@@ -7,7 +7,7 @@
   import { canonicalGraphView } from "../../../../lib/graphView";
   import { SIDEBAR_LAYOUT, type SidebarLayout } from "../lib/sidebarLayout";
   import { withAgentOrchestrator } from "../lib/agentSessionGraph";
-  import { work } from "../lib/workSessions.svelte";
+  import { work, delegatingPilotIds } from "../lib/workSessions.svelte";
   import WorkSessionPanel from "./WorkSessionPanel.svelte";
   import Pilot from "./Pilot.svelte";
   import { activeChat, chat, chatSessions, loadChatDetail, openChat, startChat, leaveChat, stopChat } from "../lib/pilotChat.svelte";
@@ -54,7 +54,7 @@
   $effect(() => { if (sourceAttention.selection && !isUnreadSelection()) sourceAttention.selection = ""; });
   const arrivalGraph = $derived(withArrivals(graph, arrivals.nodes));
   const readGraph = $derived(withSourceReadStates(arrivalGraph, sourceAttention.rows));
-  const pilotGraph = $derived(preparePilotChats(readGraph, chatSessions()));
+  const pilotGraph = $derived(preparePilotChats(readGraph, chatSessions(), {}, delegatingPilotIds()));
   const visibleGraph = $derived(withAgentOrchestrator(readGraph ? pilotGraph(sidebar ? null : viewSession?.id ?? null) : null, work.sessions));
   const overviewRoot = $derived(visibleGraph?.nodes.find(n => n.group === "memory" && /(^|\/)MEMORY\.md$/.test(n.path ?? n.id)));
   const studyGraph = $derived.by(() => {

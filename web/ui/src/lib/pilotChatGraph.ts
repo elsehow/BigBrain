@@ -13,13 +13,13 @@ export function withPilotChats(graph: GraphData | null, sessions: PilotViewData[
 
 /** Prepare coalescing and context links once per graph/session update. Selection
  * only applies styling and visibility to that immutable overlay. */
-export function preparePilotChats(graph: GraphData | null, sessions: PilotViewData[], drafts: Record<string, string> = {}): (activeId: string | null) => GraphData | null {
+export function preparePilotChats(graph: GraphData | null, sessions: PilotViewData[], drafts: Record<string, string> = {}, delegating: ReadonlySet<string> = new Set()): (activeId: string | null) => GraphData | null {
   if (!sessions.length) return () => graph;
   // Emit in creation order, not arrival order: the node array's order decides
   // whether the renderer can update in place or must rebuild, and coalescing
   // resolves first match first. Neither may depend on which session last moved.
   const ordered = inSessionOrder(sessions);
-  const attention = new Map(pilotRoster(sessions).map(p => [p.id, p]));
+  const attention = new Map(pilotRoster(sessions, false, delegating).map(p => [p.id, p]));
   let nodes: GraphNode[] = (graph?.nodes ?? []).map(n => ({ ...n, pilotContext: undefined }));
   const contextNodes = new Set(nodes);
   // Keep first-match alias semantics while sessions coalesce/remove nodes.

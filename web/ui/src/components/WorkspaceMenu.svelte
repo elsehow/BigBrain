@@ -6,6 +6,7 @@
   import { archiveChat, chatSessions, openChat, startChat, chat } from '../lib/pilotChat.svelte';
   import { GENERAL_WORKSPACE, workspaceMembershipIndex } from '../lib/workspaceMembership';
   import { pilotRoster, rosterStatusView, type PilotRosterEntry } from '../lib/pilotAttention';
+  import { delegatingPilotIds } from '../lib/workSessions.svelte';
   import { navDelta, stepped, createListJump } from '../lib/listNav';
   import { editable } from '../lib/dom';
   import { searchOverlay } from '../lib/omnibox.svelte';
@@ -36,7 +37,7 @@
   const jump = createListJump();
   let pointer = { x: -1, y: -1 };
   function trackPointer(e: PointerEvent) { pointer = { x: e.clientX, y: e.clientY }; }
-  const roster = $derived(pilotRoster(chatSessions().map(session => ({ ...session, draft: chat.drafts[session.id] ?? session.draft }))));
+  const roster = $derived(pilotRoster(chatSessions().map(session => ({ ...session, draft: chat.drafts[session.id] ?? session.draft })), false, delegatingPilotIds()));
   const membershipIndex = $derived(workspaceMembershipIndex(memories));
   const agentsByWorkspace = $derived.by(() => {
     const active = new Set(roster.map(agent => agent.id));
