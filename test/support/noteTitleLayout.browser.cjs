@@ -31,6 +31,7 @@ const assert = require('node:assert/strict');
       });
       assert.ok(Object.values(geometry).every(Boolean), JSON.stringify({ width, geometry }));
     }
+    assert.equal(await header.getByRole('button', { name: 'Open source ⌘O', exact: true }).count(), 1);
     assert.equal(await header.locator('.discuss-shortcut').getAttribute('aria-keyshortcuts'), 'Shift+Enter');
     assert.match(await header.locator('.discuss-shortcut kbd').textContent(), /⇧.*↵/);
     assert.equal(await page.locator('.summary-column .pchip').count(), 0, 'Open lives with header actions');
@@ -39,7 +40,7 @@ const assert = require('node:assert/strict');
     await page.keyboard.press('Shift+Enter');
     await page.waitForURL(/session\/pilot-/);
     await page.goto(`${base}/sidebar-workbench.html?titleView=ready&graphTheme=dusk`);
-    await header.getByRole('button', { name: 'Discuss in Pilot', exact: true }).click();
+    await header.getByRole('button', { name: 'Discuss with Pilot', exact: true }).click();
     await page.waitForURL(/session\/pilot-/);
     await page.goto(`${base}/sidebar-workbench.html?titleView=loading&graphTheme=dusk`);
     await page.locator('.briefing-spinner').waitFor();

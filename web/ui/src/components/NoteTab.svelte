@@ -412,7 +412,7 @@
     </div>
     <div class="note-actions" aria-label="Note actions">
       {#if !multiple && origin}<OriginChip {origin} failed={openFailed} onclick={openSource} />{/if}
-      {#if !multiple}<button class="pchip discuss-shortcut" onclick={discuss} onkeydown={controlKey} aria-keyshortcuts="Shift+Enter"><span>Discuss in Pilot</span><kbd aria-hidden="true"><KeyboardModifier name="shift" />↵</kbd></button>{/if}
+      {#if !multiple}<button class="pchip discuss-shortcut" onclick={discuss} onkeydown={controlKey} aria-keyshortcuts="Shift+Enter"><span>Discuss with Pilot</span><kbd aria-hidden="true"><KeyboardModifier name="shift" />↵</kbd></button>{/if}
     </div>
   </header>
   <div class="note-scroll">
