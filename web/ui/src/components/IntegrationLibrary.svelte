@@ -14,7 +14,7 @@
 <div class="integration-library settings">
   {#if error}<p role="alert">{error}<button onclick={()=>request().catch(e=>error=e.message)}>Retry</button></p>{/if}
   {#if entries.some(i=>i.added)}<section aria-label="Your integrations"><h2>Your integrations</h2>
-    {#each entries.filter(i=>i.added) as entry}<div class="installed"><div class="row"><h3>{entry.name}</h3><button aria-expanded={editing===entry.id} onclick={()=>editing=editing===entry.id?'':entry.id}>{editing===entry.id?'Done':'Configure'}</button></div>
+    {#each entries.filter(i=>i.added) as entry}<div class="installed"><div class="row"><h3>{entry.name}</h3><button aria-expanded={editing===entry.id} onclick={()=>editing=editing===entry.id?'':entry.id}>{editing===entry.id?'Close':'Configure'}</button></div>
       {#if editing===entry.id}<div class="configuration">{#if entry.id==='browser'}<BrowserPair />{:else}<IntegrationAccountSettings source={entry.id} openFirst />{/if}</div>{/if}
     </div>{/each}
   </section>{/if}

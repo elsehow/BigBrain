@@ -35,9 +35,10 @@ explicitly saves it. Remote changes never silently alter a saved local rule.
 There is one optional enabled rule per connection. Removing it stops future
 matching without withdrawing previous contributions.
 
-The editor uses the existing entity mention picker. Test rule evaluates all time
-or sources added since a date and lets the member import selected matches.
-Save and enable applies to future arrivals. Model settings has an optional Jev API
+The editor uses the existing entity mention picker and interactive source ratings
+described below. Done saves a calibrated rule for future arrivals. The legacy
+historical test/import API remains available, but is not exposed in this editor.
+Model settings has an optional Jev API
 key flow: Add API key, Save key (validates using sample text), Replace, and Remove.
 The key is stored locally in `jev-settings.json` beside connection credentials,
 with mode 0600, outside all vaults. The UI never receives saved secrets. Legacy
@@ -74,3 +75,43 @@ is required to read remote-only items; offline remote views are currently omitte
 Combined search includes remote sources, but not remote assertion-only hits.
 The snapshot is not a two-way sync. This is an owner pilot, with no public signup,
 member administration UI, automated backup, or hard-erasure workflow.
+
+## Interactive inclusion review
+
+Shared vaults and managed integrations (Email, Granola, That Tracks) use the same
+`InclusionRuleEditor`, review API, scoring cache, and saved policy. Three complete
+source records are offered at a time with short display excerpts. Opening a title
+shows the full source. Rating replaces that card after the selection animation.
+Neither scores nor cutoffs are returned by the review API.
+
+Rules and human labels are stored under the local connection directory in
+`inclusion-rules/<vault hash>/`, outside source logs. Labels contain private source
+snapshots so reevaluation still works after an integration item leaves staging.
+Starting another review of the same scope supersedes the earlier session. Draft
+labels persist; Cancel leaves the active rule unchanged. Editing a rule preserves
+labels and recomputes scores. Model/provider or entity-context changes invalidate
+an active calibration and require review again. Provider errors are not negative
+labels and never silently switch providers.
+
+Readiness currently requires two includes and two excludes, with every included
+score at least 0.05 above every excluded score. The cutoff is the midpoint of that
+gap. The displayed remaining count reflects missing labels from each class; when
+scores overlap, the UI asks for refinement instead of pretending
+that a fixed number of clicks will fix it. This is a provisional fit to the rated
+examples, not a validated error-rate or confidence guarantee. A rule with no
+available negative examples cannot yet complete this review flow.
+
+For new items, the same evaluator and saved cutoff decide inclusion. Exact rated
+content follows the member's explicit judgment. Changing the source content
+requires a new score. Reviewed integrations reserve their staged items for this
+controller; gardener admission/pass cannot bypass its verdict. Account connection,
+active remembering, rule version, and credentials are rechecked before applying a
+decision. Errors leave items staged and appear in integration settings; retries
+are backed off. Existing unreviewed integrations retain their gardener behavior
+until explicitly reviewed. Existing unreviewed shared rules retain their prior
+cutoff until reviewed. No existing sources are retroactively withdrawn or imported
+by reviewing a rule.
+
+The controller currently runs with the web/app process. The pilot remains a
+snapshot preview and is not an installed desktop release. Mock workbench pages
+remain fabricated UI studies; live review is in the normal settings screens.

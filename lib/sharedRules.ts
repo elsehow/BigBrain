@@ -1,15 +1,15 @@
 /** Local contribution controller. Source logs are read-only; config and evaluation
  * receipts live beside local credentials, outside both personal and shared vaults. */
-import {existsSync,readFileSync,mkdirSync} from 'node:fs';
-import {join,dirname} from 'node:path';
+import {existsSync,readFileSync} from 'node:fs';
 import {randomUUID} from 'node:crypto';
 import {writeAtomic} from './fsx';
 import {sha256hex} from './hash';
 import {readSourceInsertionLog,type SourceInsertion} from './insertionLog';
 import {readConnections,sharedRequest,type SharedConnection} from './sharedConnections';
-import type {JevDecision} from './sharedJev';
+import {decideInclusion} from './inclusionEvaluation';
+import {sharedRuleScope} from './inclusionPolicy';
 import {ruleEvaluator} from './sharedRuleEvaluator';
-import {resolveRuleMentions,ruleCandidateFilter,ruleMentionContext} from './sharedRuleMentions';
+import {resolveRuleMentions,ruleCandidateFilter} from './sharedRuleMentions';
 interface Rule {text:string;version:string;created:string;seen:string[];error?:string;lastRun?:string}
 type Config=Record<string,Rule>;
 export interface Contribution {path?:string;id:string;source_id:string;title:string;insertion_id:string;status:string;version:number;added_at:string;other_contributors:string[]}
@@ -36,16 +36,8 @@ const tests=new Map<string,TestResult>();
 export function getTest(id:string,connection:string){const t=tests.get(id);return t?.connection===connection?t:undefined;}
 function publicTest(t:TestResult){const {sourceIds:_,...view}=t;return view;}
 export const testView=(id:string,connection:string)=>{const t=getTest(id,connection);return t?publicTest(t):null;};
-async function classify(root:string,store:string,text:string,batch:SourceInsertion[]):Promise<string[]> {
- const evaluator=ruleEvaluator(root,store),entities=ruleMentionContext(root,text).map(e=>({id:e.id,title:e.title,aliases:e.aliases}));
- const ids:string[]=[];
- const dir=join(dirname(store),'shared-rule-evaluations');mkdirSync(dir,{recursive:true,mode:0o700});
- for(const source of batch){const hash=sha256hex(JSON.stringify({version:4,evaluator:evaluator.identity,text,entities,body:source.body,title:source.title})),path=join(dir,hash+'.json');
- const decision:JevDecision=existsSync(path)?JSON.parse(readFileSync(path,'utf8')):await evaluator.evaluate(text,entities,source);
- if(!existsSync(path))writeAtomic(path,JSON.stringify(decision),0o600);
- if(decision.include)ids.push(source.id);}
-
- return ids;
+async function classify(root:string,store:string,text:string,batch:SourceInsertion[],connection:string):Promise<string[]> {
+ const ids:string[]=[];for(const source of batch)if(await decideInclusion(root,store,sharedRuleScope(connection),text,source))ids.push(source.id);return ids;
 }
 async function* batches(rows:SourceInsertion[]) {
  let batch:SourceInsertion[]=[],size=0;
@@ -65,7 +57,7 @@ export function startTest(root:string,store:string,c:SharedConnection,text:unkno
  const pending:SourceInsertion[][]=[];for await(const batch of groups)pending.push(batch);
  const results: {batch:SourceInsertion[];selected:Set<string>}[]=[];
  let next=0;
- await Promise.all(Array.from({length:3},async()=>{while(next<pending.length){const batch=pending[next++]!;const selected=new Set(await classify(root,store,t.text,batch));results.push({batch,selected});t.scanned+=batch.length;}}));
+ await Promise.all(Array.from({length:3},async()=>{while(next<pending.length){const batch=pending[next++]!;const selected=new Set(await classify(root,store,t.text,batch,c.id));results.push({batch,selected});t.scanned+=batch.length;}}));
  for(const {batch,selected} of results)for(const s of batch){if(!selected.has(s.id))continue;const contribution=bySource.get('origin:'+sourceKey(s));t.sourceIds.push(s.id);t.rows.push({id:s.id,title:s.title,date:s.received_at??s.occurred_at??'',status:contribution?.status??'new',contribution});}
 
  }catch(e){t.error=e instanceof Error?e.message:String(e)}finally{t.complete=true;}})();return publicTest(t);
@@ -97,7 +89,7 @@ export async function tickRules(root:string,store:string) {
  // Saving covers future arrivals; old matches require an explicit test/import.
  const fresh=sources(root).filter(s=>!seen.has(s.id)&&(s.received_at??'')>=rule.created);
  const groups=batches(fresh.filter(ruleCandidateFilter(root,rule.text)));
- for await(const batch of groups){const ids=new Set(await classify(root,store,rule.text,batch));if(getRule(store,c.id)?.version!==rule.version)break;await sendSources(store,c,batch.filter(s=>ids.has(s.id)&&!blocked.has('origin:'+sourceKey(s))));batch.forEach(s=>seen.add(s.id));}
+ for await(const batch of groups){const ids=new Set(await classify(root,store,rule.text,batch,c.id));if(getRule(store,c.id)?.version!==rule.version)break;await sendSources(store,c,batch.filter(s=>ids.has(s.id)&&!blocked.has('origin:'+sourceKey(s))));batch.forEach(s=>seen.add(s.id));}
  const config=configs(store);if(config[c.id]?.version===rule.version){config[c.id]={...rule,seen:[...seen],error:undefined,lastRun:new Date().toISOString()};save(store,config);}
  }catch(e){const config=configs(store);if(config[c.id]?.version===rule.version){config[c.id]!.error=e instanceof Error?e.message:String(e);save(store,config);}}
  }}finally{locks.delete(store);}

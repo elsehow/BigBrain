@@ -10,13 +10,21 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
  if(!output.includes('\n'))throw Error('Fixture startup failed: '+errors);
  const fixture=JSON.parse(readFileSync(output.trim().split('\n')[0],'utf8'));
  for(let i=0;i<100;i++){try{if((await fetch(fixture.base+'/api/vault')).ok)break}catch{}await pause(100)}
- browser=await chromium.launch({channel:process.env.PLAYWRIGHT_CHANNEL||'chrome',headless:true});const page=await browser.newPage({viewport:{width:1440,height:1000}});const pageErrors=[];page.on('pageerror',e=>pageErrors.push(e.message));
+ browser=await chromium.launch({channel:process.env.PLAYWRIGHT_CHANNEL||'chrome',headless:true});const page=await browser.newPage({viewport:{width:1440,height:1000}});page.setDefaultTimeout(15000);const pageErrors=[];page.on('pageerror',e=>pageErrors.push(e.message));
  await page.goto(fixture.base+'/#sharedVaultSettings');
  await page.getByRole('button',{name:'+ Connect vault',exact:true}).click();const dialog=page.getByRole('dialog');await dialog.waitFor();assert.equal(await dialog.locator('input').count(),1);await page.getByLabel('Invite link',{exact:true}).fill(fixture.invite);await dialog.getByRole('button',{name:'Connect',exact:true}).click();await dialog.waitFor({state:'detached'});
  await page.getByRole('button',{name:'Use suggestion',exact:true}).click();const editor=page.getByRole('textbox',{name:'Inclusion rule',exact:true});await editor.waitFor();assert((await editor.innerText()).includes('Example project'));assert.equal(await editor.locator('[data-mention]').count(),1);
  // Exercise the real @ picker independently of the suggested draft.
  await editor.fill('Sources about @Example');await page.getByRole('option').filter({hasText:'Example project'}).click();assert.equal(await editor.locator('[data-mention]').count(),1);
- await page.getByRole('button',{name:'Save and enable',exact:true}).click();await page.getByText('Automatically adding new matches',{exact:true}).waitFor();assert.equal(await page.getByRole('button',{name:'Test rule',exact:true}).count(),0);
+ // Real review API and persisted policy; only model score responses were seeded in the fixture.
+ const done=page.getByRole('button',{name:'Done',exact:true});await done.waitFor();assert(await done.isDisabled());
+ for(let i=0;i<8;i++){
+  await page.waitForFunction(()=>!document.querySelector('.editor [role=alert]')&&document.querySelector('article .judgments button:not(:disabled)'));
+  if(await done.isEnabled())break;
+  const card=page.locator('article').first();const title=await card.locator('.title').innerText();await card.getByRole('button',{name:(title.startsWith('Include')?'Include: ':'Exclude: ')+title,exact:true}).click();
+  await page.waitForFunction(old=>!Array.from(document.querySelectorAll('article .title')).some(e=>e.textContent===old),title);
+ }
+ await done.click();await page.getByText('Automatically adding new matches',{exact:true}).waitFor();assert.equal(await page.getByRole('button',{name:'Test rule',exact:true}).count(),0);
  await page.getByRole('button',{name:'Remove rule',exact:true}).click();await page.getByRole('button',{name:'Use suggestion',exact:true}).waitFor();
  await page.getByRole('button',{name:'Added by you',exact:false}).click();await page.getByRole('button',{name:'Withdraw',exact:true}).click();await page.getByText('No shared sources.',{exact:true}).waitFor();assert.equal(await page.getByRole('button',{name:'Shared launch decision',exact:true}).count(),0);assert.equal(await page.getByRole('button',{name:'Restore',exact:true}).count(),0);
  const connected=await (await fetch(fixture.base+'/api/shared-connections')).json();const owner=connected.connections.find(c=>c.id!==fixture.readonly);
@@ -25,6 +33,12 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
  await page.reload();await page.getByRole('button',{name:'Added by you',exact:false}).click();await page.getByText('No shared sources.',{exact:true}).waitFor();
  mkdirSync('artifacts',{recursive:true});await page.screenshot({path:'artifacts/shared-settings-real-shell.png',fullPage:true});
  const storage=await page.evaluate(()=>JSON.stringify({local:{...localStorage},session:{...sessionStorage}}));assert(!storage.includes(fixture.token));assert(!storage.includes(fixture.invite));
+ console.log('Shared review and withdrawal passed.');
+ // Integrations mount the exact same editor and persist through the same review API.
+ await page.goto(fixture.base+'/#integrations');await page.getByRole('button',{name:'Configure',exact:true}).click();await page.getByText('fixture@example.test',{exact:true}).first().waitFor();if(!await page.getByRole('button',{name:'Edit inclusion rule',exact:true}).isVisible())await page.getByText('fixture@example.test',{exact:true}).first().click();await page.getByRole('button',{name:'Edit inclusion rule',exact:true}).click();
+ const integrationDone=page.getByRole('group',{name:'Inclusion rule review',exact:true}).getByRole('button',{name:'Done',exact:true});await integrationDone.waitFor();assert(await integrationDone.isDisabled());
+ for(let i=0;i<8;i++){await page.waitForFunction(()=>document.querySelector('article .judgments button:not(:disabled)'));if(await integrationDone.isEnabled())break;const card=page.locator('article').first(),title=await card.locator('.title').innerText();await card.getByRole('button',{name:(title.startsWith('Include')?'Include: ':'Exclude: ')+title,exact:true}).click();await page.waitForFunction(old=>!Array.from(document.querySelectorAll('article .title')).some(e=>e.textContent===old),title);}
+ await integrationDone.click();await page.getByRole('button',{name:'Edit inclusion rule',exact:true}).waitFor();
  // Exercise model-settings key entry without calling a paid provider.
  writeFileSync(fixture.home+'/jev-settings.json',JSON.stringify({apiKey:null}),{mode:0o600});
  await page.route('**/api/models/jev',async route=>{if(route.request().method()!=='POST')return route.continue();const {apiKey}=route.request().postDataJSON();writeFileSync(fixture.home+'/jev-settings.json',JSON.stringify({apiKey}),{mode:0o600});await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({configured:true,evaluator:'jev'})});});

@@ -1,3 +1,7 @@
+import {integrationAccountRoutes} from '../lib/integrationAccountRoutes';
+import {IntegrationAccounts} from '../lib/integrationAccounts';
+import {inclusionReviewApi} from '../lib/inclusionReviewApi';
+import {tickIntegrationInclusion} from '../lib/inclusionStages';
 import { unionGraph, unionRecent, unionSearch, unionNote } from '../lib/sharedReadUnion';
 import { jevSettingsApi } from '../lib/jevSettingsApi';
 import { sharedSettingsApi } from '../lib/sharedSettingsApi';
@@ -684,6 +688,7 @@ function events({ req, res }: Ctx): void {
 }
 
 export const ROUTES: readonly Route[] = [
+  ...(!DESKTOP&&!isDev()&&process.env.NODE_ENV!=='test'?integrationAccountRoutes(new IntegrationAccounts(ROOT)):[]),
   { method: "GET", path: "/", handler: serveIndex },
   { method: "GET", path: "/assets/*", handler: serveAsset },
   { method: "GET", path: "/api/vault", handler: vaultIndex },
@@ -786,10 +791,11 @@ export function start(): void {
   // server's death.
   const metrics = isDesktop() ? telemetry(ROOT) : undefined;
   metrics?.start();
-  const sharedRuleTimer=setInterval(()=>void tickRules(ROOT,connectionStorePath()),30000);sharedRuleTimer.unref();
+  const sharedRuleTimer=setInterval(()=>{void tickRules(ROOT,connectionStorePath());void tickIntegrationInclusion(ROOT).catch(()=>{});},30000);sharedRuleTimer.unref();
   const server = createServer(async (req, res) => {
     armor(res);
     if (!allowLoopbackRequest(req, res)) return;
+    if (await inclusionReviewApi(req,res,ROOT)) return;
     if (await jevSettingsApi(req,res,ROOT)) return;
     if (await sharedSettingsApi(req,res,ROOT)) return;
     if (await sharedWorkspace(req, res)) return;

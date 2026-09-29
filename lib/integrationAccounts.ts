@@ -1,3 +1,5 @@
+import {inclusionStatus,integrationRuleScope} from './inclusionPolicy';
+import {connectionStorePath} from './sharedConnections';
 import { integrationLibrary, addLibraryIntegration, hasAccountPolicy } from "./integrationLibrary";
 /** Independent connection, remembering, and live access for each configured account. */
 import { startGranolaSignIn, cancelGranolaSignIn, granolaSignInStatus, granolaConnection, disconnectGranola } from './granolaMcp';
@@ -20,7 +22,7 @@ export const LIVE_ACCESS_DESCRIPTIONS = {
 };
 export function configuredAccounts(root:string){
   const inboxes=emailConfig(loadManifest(root).integrations.email).inboxes;
-  return [...MANAGED_INTEGRATIONS].flatMap(name=>integrationAccounts(root,name).map(account=>({name,account,...accountPolicy(root,name,account),
+  return [...MANAGED_INTEGRATIONS].flatMap(name=>integrationAccounts(root,name).map(account=>({name,account,...accountPolicy(root,name,account),inclusion:inclusionStatus(root,connectionStorePath(),integrationRuleScope(name,account)),
     label:extraAccounts(root,name).find(a=>a.id===account)?.label ?? account,removable:name==='email'||account!==name,...(name==='email'?{gmail:gmailReadOnly(root,account),google:inboxes.some(i=>i.address===account&&isGmailInbox(i)),host:inboxes.find(i=>i.address===account)?.host,sync:readEmailState(root).inboxes[account]?.last}:{}),capabilities:name==='email'?{...LIVE_ACCESS_DESCRIPTIONS.email,...(gmailReadOnly(root,account)?{write:null}:{})}:name==='granola'?LIVE_ACCESS_DESCRIPTIONS.granola:{read:null,write:null},...(name==='granola'?{transport:'mcp',auth:granolaSignInStatus(root,account),identity:granolaConnection(root,account)?.identity}:{})})));
 }
 export class IntegrationAccounts {
