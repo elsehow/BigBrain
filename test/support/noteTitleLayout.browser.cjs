@@ -1,6 +1,10 @@
 // Production AppShell, synthetic source: title wrapping, actions, and loading.
 const { chromium } = require('./browserHarness.cjs');
 const assert = require('node:assert/strict');
+const { join } = require('node:path');
+const { tmpdir } = require('node:os');
+// Screenshots go with the run's failure artifacts, or the OS temp dir: /private/tmp is macOS-only.
+const shot = name => join(process.env.CI_BROWSER_ARTIFACTS || tmpdir(), name);
 (async () => {
   const browser = await chromium.launch({ channel: process.env.PLAYWRIGHT_CHANNEL || 'chrome', headless: true });
   try {
@@ -36,7 +40,7 @@ const assert = require('node:assert/strict');
     assert.match(await header.locator('.discuss-shortcut kbd').textContent(), /⇧.*↵/);
     assert.equal(await page.locator('.summary-column .pchip').count(), 0, 'Open lives with header actions');
     await page.setViewportSize({ width: 1440, height: 1000 });
-    await page.screenshot({ path: '/private/tmp/note-title-ready.png' });
+    await page.screenshot({ path: shot('note-title-ready.png') });
     await page.keyboard.press('Shift+Enter');
     await page.waitForURL(/session\/pilot-/);
     await page.goto(`${base}/sidebar-workbench.html?titleView=ready&graphTheme=dusk`);
@@ -46,7 +50,7 @@ const assert = require('node:assert/strict');
     await page.locator('.briefing-spinner').waitFor();
     assert.equal(await page.getByText('Preparing summary and connections…').count(), 0);
     assert.ok(await page.locator('.briefing-spinner').getAttribute('aria-label'));
-    await page.screenshot({ path: '/private/tmp/note-title-loading.png' });
+    await page.screenshot({ path: shot('note-title-loading.png') });
     assert.deepEqual(errors, []);
     console.log('PASS: production shell wraps titles, groups actions, opens Pilot with Shift+Enter, and shows spinner-only loading');
   } finally { await browser.close(); }
