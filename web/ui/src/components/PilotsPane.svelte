@@ -16,10 +16,9 @@
   import { SIDEBAR_LAYOUT, type SidebarLayout } from '../lib/sidebarLayout';
   const sidebar = getContext<SidebarLayout | undefined>(SIDEBAR_LAYOUT);
   let { items: allItems, open = $bindable(false), onopen }: { items: PilotRosterEntry[]; open?: boolean; onopen: (pilot: PilotRosterEntry, request?: PilotRequest) => void } = $props();
-  let showOrchestrations = $state(false);
   let showArchived = $state(false);
   const items = $derived(sidebar ? allItems.filter(p =>
-    (showOrchestrations || !p.id.startsWith("work-")) && (showArchived || !p.archived)
+    !p.id.startsWith("work-") && (showArchived || !p.archived)
   ) : allItems);
   let archiving = $state(false), archiveError = $state(""), announcement = $state("");
   let selected = $state<string | null>(null), root: HTMLDivElement, trigger: HTMLButtonElement;
@@ -85,7 +84,7 @@
   </button>
   {#if open}
     <section class="pilots-pane" id="pilots-pane" aria-label={sidebar ? "Agents" : "Pilots"}>
-      <header class:list-title-bar={!!sidebar}><div class="list-heading"><strong>{sidebar ? "Agents" : "Pilots"} <span>{items.length}</span></strong>{#if sidebar}<div class="agent-filters"><button class="unread-filter" aria-pressed={showArchived} onclick={()=>showArchived=!showArchived}>Show archived</button><button class="unread-filter orchestration-filter" aria-pressed={showOrchestrations} onclick={()=>showOrchestrations=!showOrchestrations}>Show orchestrations</button></div>{/if}{#if !sidebar}<button class="close" onclick={close} aria-label="Close Pilots">×</button>{/if}</div>{#if sidebar}<div class="selection-actions keyboard-hint">j/k ↑/↓ <span>↵ open</span><span>⇧Esc archive</span></div>{/if}</header>
+      <header class:list-title-bar={!!sidebar}><div class="list-heading"><strong>{sidebar ? "Agents" : "Pilots"} <span>{items.length}</span></strong>{#if sidebar}<div class="agent-filters"><button class="unread-filter" aria-pressed={showArchived} onclick={()=>showArchived=!showArchived}>Show archived</button></div>{/if}{#if !sidebar}<button class="close" onclick={close} aria-label="Close Pilots">×</button>{/if}</div>{#if sidebar}<div class="selection-actions keyboard-hint">j/k ↑/↓ <span>↵ open</span><span>⇧Esc archive</span></div>{/if}</header>
       {#if archiveError}<p class="archive-feedback" role="alert">{archiveError}</p>{/if}
       {#if announcement}<span class="archive-announcement" role="status">{announcement}</span>{/if}
       <div class="pilot-list" id="pilot-list" bind:this={viewport}>
@@ -103,7 +102,7 @@
             <button class="archive-agent" disabled={archiving} aria-label={`Archive ${p.title}`} title="Archive (Shift-Esc)" aria-keyshortcuts="Shift+Escape" onfocus={() => selected = p.id} onclick={() => void archive(p)}><ArchiveIcon /></button>
           {/if}
           </div>
-        {:else}<p class="empty">{sidebar ? (showOrchestrations ? "No agent conversations yet." : "No pilot conversations yet.") : "No active Pilots."}</p>{/each}
+        {:else}<p class="empty">{sidebar ? "No pilot conversations yet." : "No active Pilots."}</p>{/each}
       </div>
       {#if sidebar}<BlockScrollbar {viewport} label="Scroll agents" controls="pilot-list" />{/if}
       {#if !sidebar && current?.requests.length}

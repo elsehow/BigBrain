@@ -1,7 +1,6 @@
 <script lang="ts">
   import SharedContribution from "./SharedContribution.svelte";
   import { selectedWorkspace } from "../lib/vaultScope";
-  import VaultSwitcher from "./VaultSwitcher.svelte";
   import { getContext, untrack } from "svelte";
   import { nativeWindowMaximized, toggleNativeWindow } from "../lib/native";
   import { singleFlight } from "../lib/singleFlight";
@@ -215,8 +214,7 @@
 
 <div id="topbar" class:down={!barUp()}>
  <div class="bar">
-  <div class="vault-controls"><VaultSwitcher />
-  {#if selectedWorkspace}<SharedContribution />{/if}</div>
+  {#if selectedWorkspace&&!inSettings}<div class="vault-controls"><SharedContribution /></div>{/if}
   {#if !inSettings}
     <div class="search-box" bind:this={searchBox}>
     {#snippet searchField()}

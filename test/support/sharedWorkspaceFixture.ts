@@ -45,9 +45,15 @@ writeAccountPolicy(personal,'email','fixture@example.test',{...accountPolicy(per
 const staged=[];for(let i=0;i<8;i++){const item={id:'integration-review-'+i,source:'email',account:'fixture@example.test',at:new Date().toISOString(),line:(i<4?'Include':'Exclude')+' integration '+i,name:'example.md',scopes:{},content:'---\nid: integration-review-'+i+'\nsource: email\nkind: email\ntitle: '+(i<4?'Include':'Exclude')+' integration '+i+'\n---\nComplete fabricated Example project message.'};stage(personal,item);staged.push(item);}
 const fetchOriginal=globalThis.fetch;
 globalThis.fetch=(async(_input,init)=>{const request=JSON.parse(String(init?.body));return Response.json({answers:{relevant:{noul:request.state.source.title.startsWith('Include')?.94:.15}}});}) as typeof fetch;
-try{for(const rule of ['Sources that mention '+mention+'. Audience: project collaborators.','Sources about '+mention])for(const row of readSourceInsertionLog(personal))await inclusionEvaluator(personal,connections,rule).score(row);}finally{globalThis.fetch=fetchOriginal;}
-globalThis.fetch=(async(_input,init)=>{const request=JSON.parse(String(init?.body));return Response.json({answers:{relevant:{noul:request.state.source.title.startsWith('Include')?.94:.15}}});}) as typeof fetch;
-try{for(const item of staged)await inclusionEvaluator(personal,connections,'Sources about Example project.').score(stagedInclusionSource(item));}finally{globalThis.fetch=fetchOriginal;}
+async function prime(rule:string,rows:import('../../lib/inclusionPolicy').InclusionSource[]){
+ for(const labels of [[],...rows.map(source=>[{source,include:source.title.startsWith('Include')}])])
+  for(const row of rows)await inclusionEvaluator(personal,connections,rule,labels).score(row);
+}
+try{
+ const rows=readSourceInsertionLog(personal).map(s=>({id:s.id,title:s.title,body:s.body,origin:'Personal'}));
+ for(const rule of ['Sources that mention '+mention+'. Audience: project collaborators.','Sources about '+mention])await prime(rule,rows);
+ await prime('Sources about Example project.',staged.map(stagedInclusionSource));
+}finally{globalThis.fetch=fetchOriginal;}
 const invite=issueSharedInvite(members,'owner',endpoint);
 const readonly = await saveConnection(connections,{name:'Example read only',endpoint,token:reader.token});
 const probe=createServer(); await new Promise<void>(r=>probe.listen(0,'127.0.0.1',r));const port=(probe.address() as {port:number}).port;await new Promise<void>(r=>probe.close(()=>r()));

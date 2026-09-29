@@ -1,11 +1,14 @@
 /** One document belongs to one vault. A switch replaces the document, so old
  * closures, component state, and queued writes cannot become the new vault's work. */
 type BrowserFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
-export const selectedWorkspace = typeof location === "undefined" ? null : new URL(location.href).searchParams.get("workspace");
+const requestedWorkspace = typeof location === "undefined" ? null : new URL(location.href).searchParams.get("workspace");
+export const personalOnly=requestedWorkspace==='personal';
+export const selectedWorkspace=personalOnly?null:requestedWorkspace;
 export const workspaceURL = (path: string) => selectedWorkspace ? `${path}${path.includes("?") ? "&" : "?"}workspace=${encodeURIComponent(selectedWorkspace)}` : path;
 export function switchWorkspace(id: string | null): void {
   const url = new URL(location.href);
   if (id) url.searchParams.set("workspace", id); else url.searchParams.delete("workspace");
+  url.searchParams.set("vaultMenu","1");
   url.hash = "#/home";
   document.documentElement.style.visibility = "hidden";
   location.replace(url.href);
@@ -68,6 +71,7 @@ export class VaultScope {
 }
 const scope = new VaultScope(async (input, init) => {
   const headers = new Headers(init?.headers);
+  if(personalOnly)headers.set("x-bigbrain-vault-filter","personal");
   if (selectedWorkspace) headers.set("x-bigbrain-workspace", selectedWorkspace);
   const response = await globalThis.fetch(input, { ...init, headers });
   return response;
@@ -76,7 +80,7 @@ const scope = new VaultScope(async (input, init) => {
   document.documentElement.style.visibility = "hidden";
   location.reload();
 });
-export const vaultStorageKey = (key: string) => scope.key(key);
+export const vaultStorageKey = (key: string) => scope.key((personalOnly?"personal:":"")+key);
 export const vaultReady = () => scope.ready();
 export const onVaultSwitch = (fn: () => void) => scope.onSwitch(fn);
 export const observeVault = (identity: string | null) => scope.observe(identity);

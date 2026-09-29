@@ -36,7 +36,7 @@ There is one optional enabled rule per connection. Removing it stops future
 matching without withdrawing previous contributions.
 
 The editor uses the existing entity mention picker and interactive source ratings
-described below. Done saves a calibrated rule for future arrivals. The legacy
+described below. Done saves the rule and its teaching examples for future arrivals. The legacy
 historical test/import API remains available, but is not exposed in this editor.
 Model settings has an optional Jev API
 key flow: Add API key, Save key (validates using sample text), Replace, and Remove.
@@ -93,15 +93,18 @@ labels and recomputes scores. Model/provider or entity-context changes invalidat
 an active calibration and require review again. Provider errors are not negative
 labels and never silently switch providers.
 
-Readiness currently requires two includes and two excludes, with every included
-score at least 0.05 above every excluded score. The cutoff is the midpoint of that
-gap. The displayed remaining count reflects missing labels from each class; when
-scores overlap, the UI asks for refinement instead of pretending
-that a fixed number of clicks will fix it. This is a provisional fit to the rated
-examples, not a validated error-rate or confidence guarantee. A rule with no
-available negative examples cannot yet complete this review flow.
+Done is available after at least one rating and after pending evaluation completes.
+There is no perfect-separation requirement or claim of measured accuracy. Every
+rating changes the evaluator context and cache identity. Both Jev and Quick get
+up to three nearby include and three exclude examples (bounded excerpts), while
+the candidate itself is still evaluated in full. Exact rated content follows
+its explicit label. The automatic confidence cutoff remains 0.8; it is no longer
+fit to the examples. Scores are provider judgments, not calibrated probabilities.
+Candidates are sampled near the uncertain region with an exploration slot.
+Predictions made before each rating are retained separately from the human label,
+so later evaluation need not grade examples after revealing their answers.
 
-For new items, the same evaluator and saved cutoff decide inclusion. Exact rated
+For new items, the example-conditioned evaluator and conservative cutoff decide inclusion. Exact rated
 content follows the member's explicit judgment. Changing the source content
 requires a new score. Reviewed integrations reserve their staged items for this
 controller; gardener admission/pass cannot bypass its verdict. Account connection,

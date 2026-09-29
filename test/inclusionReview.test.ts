@@ -3,23 +3,18 @@ import {mkdtempSync,writeFileSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {startReview,getReview,reviewState,rateReview,editReview,finishReview} from '../lib/inclusionReview';
-import {calibrateInclusion,readInclusionPolicy,sharedRuleScope,integrationRuleScope} from '../lib/inclusionPolicy';
+import {readInclusionPolicy,sharedRuleScope,integrationRuleScope} from '../lib/inclusionPolicy';
 import {inclusionEvaluator,decideInclusion} from '../lib/inclusionEvaluation';
 import {saveJevKey} from '../lib/jevSettings';
 function fixture(){const root=mkdtempSync(join(tmpdir(),'rule-review-')),store=join(root,'connections.json');writeFileSync(join(root,'vault.yaml'),'integrations: {}\n');saveJevKey(store,'fabricated-key');return {root,store,scope:sharedRuleScope('fixture'),text:'Sources about the Example project.',sources:[.95,.9,.85,.1,.2,.3,.65,.45].map((score,i)=>({id:String(i),title:'Example source '+i,origin:'Fixture',body:'Complete source '+score})),check:()=>{},save:(_text:string)=>{}};}
-const factory=(root:string,store:string,text:string)=>({identity:inclusionEvaluator(root,store,text).identity,score:async(source:{body:string})=>Number(source.body.split(' ').at(-1))});
+const factory:typeof inclusionEvaluator=(root,store,text,labels)=>({identity:inclusionEvaluator(root,store,text,labels).identity,score:async(source:{body:string})=>Number(source.body.split(' ').at(-1))});
 async function idle(root:string,id:string){for(let i=0;i<100;i++){const s=getReview(root,id);if(!reviewState(s).busy)return s;await Bun.sleep(1);}throw Error('Review did not settle');}
-test('threshold needs both labels and a real separation; overlap never claims ready',()=>{
- expect(calibrateInclusion([{include:true,score:.95}])).toMatchObject({ready:false,remaining:3});
- expect(calibrateInclusion([{include:true,score:.9},{include:true,score:.85},{include:false,score:.2},{include:false,score:.3}])).toMatchObject({ready:true,threshold:.575});
- expect(calibrateInclusion([{include:true,score:.9},{include:true,score:.6},{include:false,score:.7},{include:false,score:.1}])).toMatchObject({ready:false,reason:'overlap'});
-});
 test('real review persists judgments, hides scores, scopes policies and enforces provider/rule changes',async()=>{
  const c=fixture();try{
   const initial=startReview(c,factory);let s=await idle(c.root,initial.id);
   expect(reviewState(s).items).toHaveLength(3);expect(()=>finishReview(s)).toThrow();
-  for(let i=0;i<8&&!reviewState(s).ready;i++){
-   const row=reviewState(s).items[0]!;rateReview(s,row.id,Number(row.body.split(' ').at(-1))>=.8,s.revision);s=await idle(c.root,s.id);
+  for(let i=0;i<4;i++){
+   const row=reviewState(s).items[0]!;rateReview(s,row.id,i%2===0,s.revision);s=await idle(c.root,s.id);
   }
   expect(reviewState(s).ready).toBe(true);expect(JSON.stringify(reviewState(s))).not.toContain('threshold');expect(JSON.stringify(reviewState(s))).not.toContain('"score"');
   const count=reviewState(s).judged;editReview(s,c.text+' Exclude routine chatter.',s.revision,factory);s=await idle(c.root,s.id);expect(reviewState(s).judged).toBe(count);expect(reviewState(s).ready).toBe(true);

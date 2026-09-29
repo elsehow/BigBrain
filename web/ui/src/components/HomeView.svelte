@@ -233,7 +233,7 @@
 <svelte:window bind:innerWidth={viewportWidth} bind:innerHeight={viewportHeight} onpointermove={edges} onpointerdown={ground} />
 
 {#if sidebar && !sidebar.open && !chat.open}
-  {#if !selectedWorkspace}<WorkspaceMenu {memories} {sidebar} />{/if}
+  <WorkspaceMenu memories={selectedWorkspace?[]:memories} {sidebar} />
 {/if}
 
 <section class="view">

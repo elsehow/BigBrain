@@ -399,10 +399,10 @@ function fileRead({ res, url }: Ctx): void {
 // The home feed: the source insertion log, newest first — the one arm
 // since #495 (the references/ + git-log reconstruction served vaults that
 // predate the assertion-native substrate; none remain).
-async function recentFeed({ res, url }: Ctx): Promise<void> {
+async function recentFeed({ req, res, url }: Ctx): Promise<void> {
   const limit = clampLimit(url.searchParams.get("limit"), 40, 200);
   const offset = Math.trunc(Math.min(Math.max(Number(url.searchParams.get("offset")) || 0, 0), 1_000_000));
-  try { const personal=await recentSourcePageAsync(ROOT,0,offset+limit);json(res,200,await unionRecent(ROOT,personal.recent,offset,limit,personal.total)); }
+  try { if(req.headers["x-bigbrain-vault-filter"]==="personal"){json(res,200,await recentSourcePageAsync(ROOT,offset,limit));return;} const personal=await recentSourcePageAsync(ROOT,0,offset+limit);json(res,200,await unionRecent(ROOT,personal.recent,offset,limit,personal.total)); }
   catch (error) { json(res, 500, { error: errText(error) }); }
 }
 
@@ -489,7 +489,7 @@ function search({ req, res, url }: Ctx): void {
         };
       });
       const seen = new Set<string>();
-      const ranked = rankNavigationSearch([...hits,...await unionSearch(ROOT,q)], q, graph, url.searchParams.get("purpose") === "mention").filter(h => {
+      const ranked = rankNavigationSearch([...hits,...(req.headers["x-bigbrain-vault-filter"]==="personal"?[]:await unionSearch(ROOT,q))], q, graph, url.searchParams.get("purpose") === "mention").filter(h => {
         if (seen.has(h.note.path)) return false;
         seen.add(h.note.path); return true;
       });
@@ -509,9 +509,10 @@ function search({ req, res, url }: Ctx): void {
 // assertion, the graph is the ontology-free projection over assertions and
 // cited source insertions. An assertion-empty legacy vault tolerantly keeps
 // its link graph until that additive substrate exists.
-async function graph({ res }: Ctx): Promise<void> {
+async function graph({ req, res }: Ctx): Promise<void> {
   try {
-    json(res, 200, await unionGraph(ROOT,graphWithReadState(ROOT, await primaryGraphWithLayoutAsync(ROOT))));
+    const personal=graphWithReadState(ROOT, await primaryGraphWithLayoutAsync(ROOT));
+    json(res, 200, req.headers["x-bigbrain-vault-filter"]==="personal"?personal:await unionGraph(ROOT,personal));
   } catch (error) {
     json(res, 500, { error: errText(error) });
   }

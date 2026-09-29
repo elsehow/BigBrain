@@ -22,7 +22,7 @@
  async function retry(){if(!view)return void start();sending=true;problem='';const g=++generation;try{await follow(await request('retry',{id:view.id}),g);}catch(e){problem=(e as Error).message;}finally{sending=false;}}
  async function done(){if(!view||sending||editing)return;sending=true;problem='';try{await request('finish',{id:view.id});onsave(view.text);}catch(e){problem=(e as Error).message;}finally{sending=false;}}
  async function search(q:string,signal:AbortSignal){const r=await vaultFetch('/api/inclusion-review/entities?q='+encodeURIComponent(q),{signal});if(!r.ok)throw Error('Entity search unavailable');return(await r.json()).items;}
- const status=$derived(editing||view?.busy?'Retesting against your judgments…':view?.ready?'Ready when you are.':view?.overlap?'The rule does not separate your ratings. Refine it to continue.':view?.exhausted?'No more examples available. Sync more sources to continue.':`Rate ${view?.remaining??4} more ${(view?.remaining??4)===1?'example':'examples'} to refine the inclusion rule.`);
+ const status=$derived(editing||view?.busy?'Learning from your examples…':view?.ready?'Ready when you are.':view?.exhausted?'No more examples available. Sync more sources to continue.':`Rate ${view?.remaining??4} more ${(view?.remaining??4)===1?'example':'examples'} to refine the inclusion rule.`);
 </script>
 <div class="editor" role="group" aria-label="Inclusion rule review">
  <div class="rule-input"><PilotMentionComposer ariaLabel="Inclusion rule" value={draft} recents={[]} currentId="inclusion-rule" {search} onchange={parts=>changed(serializeMentions(parts))} onsend={()=>{}} placeholder="Describe what belongs here. Use @ to mention a topic." /></div>

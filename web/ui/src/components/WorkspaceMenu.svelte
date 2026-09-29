@@ -1,4 +1,6 @@
 <script lang="ts">
+  import VaultSwitcher from "./VaultSwitcher.svelte";
+  import {selectedWorkspace} from "../lib/vaultScope";
   import ArchiveIcon from "./ArchiveIcon.svelte";
   import { onMount, tick } from 'svelte';
   import type { GraphNode } from '../lib/types';
@@ -14,7 +16,7 @@
   import ListNavigationHint from '../components/ListNavigationHint.svelte';
   import PilotAttentionGlyph from '../components/PilotAttentionGlyph.svelte';
   let { memories, sidebar }: { memories: GraphNode[]; sidebar: SidebarLayout } = $props();
-  let open = $state(false);
+  let open = $state(!!selectedWorkspace||new URL(location.href).searchParams.has("vaultMenu"));
   let index = $state(0);
   let selectedId = $state<string | null>(null);
   const general: GraphNode = { id: GENERAL_WORKSPACE, title: 'Uncategorized agents', group: 'memory', degree: 0 };
@@ -36,7 +38,7 @@
   const jump = createListJump();
   let pointer = { x: -1, y: -1 };
   function trackPointer(e: PointerEvent) { pointer = { x: e.clientX, y: e.clientY }; }
-  const roster = $derived(pilotRoster(chatSessions().map(session => ({ ...session, draft: chat.drafts[session.id] ?? session.draft }))));
+  const roster = $derived(pilotRoster((selectedWorkspace?[]:chatSessions()).map(session => ({ ...session, draft: chat.drafts[session.id] ?? session.draft }))));
   const membershipIndex = $derived(workspaceMembershipIndex(memories));
   const agentsByWorkspace = $derived.by(() => {
     const active = new Set(roster.map(agent => agent.id));
@@ -126,7 +128,7 @@
     } catch (e) { error = (e as Error).message; }
   }
   function key(e: KeyboardEvent): boolean {
-    if (e.defaultPrevented || e.isComposing || e.metaKey || e.ctrlKey || e.altKey || editable(e.target)
+    if ((e.target instanceof Element&&e.target.closest('nav[aria-label="Vaults"]')) || e.defaultPrevented || e.isComposing || e.metaKey || e.ctrlKey || e.altKey || editable(e.target)
       || sidebar.open || chat.open || searchOverlay.open || stage.pilotsOpen) return false;
     if (!open) {
       if (e.shiftKey || !['j', 'k'].includes(e.key) || !count) return false;
@@ -208,6 +210,7 @@
     <ListNavigationHint />
     <span class="archive-status" role="status">{announcement}</span>
   </footer>
+  <VaultSwitcher />
 </section>
 {:else}
   <div class="workspace-menu-hint"><ListNavigationHint /></div>

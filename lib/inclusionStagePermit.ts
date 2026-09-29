@@ -10,7 +10,7 @@ const path=(root:string,store:string,scope:string,item:StagedItem)=>join(dirname
 export function recordInclusionPermit(root:string,store:string,scope:string,version:string,text:string,item:StagedItem,include:boolean){writeAtomic(path(root,store,scope,item),JSON.stringify({version,text,include}),0o600);}
 export function inclusionPermit(root:string,store:string,scope:string,text:string,item:StagedItem,include:boolean){
  const policy=readInclusionPolicy(root,store,scope);if(!policy)return true;
- if(!policy.calibration||policy.calibration.identity!==inclusionEvaluator(root,store,text).identity)return false;
+ if(!policy.calibration||policy.calibration.identity!==inclusionEvaluator(root,store,text,policy.labels).identity)return false;
  const file=path(root,store,scope,item);if(!existsSync(file))return false;
  const permit=JSON.parse(readFileSync(file,'utf8'));return policy.text===text&&permit.text===text&&permit.version===policy.version&&permit.include===include;
 }
