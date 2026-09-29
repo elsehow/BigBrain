@@ -28,7 +28,8 @@
  ];
  let visible=$state(examples.slice(0,3)),next=$state(3),judgments=$state<Record<string,boolean>>({});
  const ready=$derived(!!rule.trim()&&Object.values(judgments).includes(true)&&Object.values(judgments).includes(false));
- const reviewStatus=$derived(retesting?'Retesting against your judgments…':!rule.trim()?'Write an inclusion rule to continue.':ready?'Ready when you are.':'Include and exclude examples to refine the rule.');
+ const remaining=$derived(2-Number(Object.values(judgments).includes(true))-Number(Object.values(judgments).includes(false)));
+ const reviewStatus=$derived(retesting?'Retesting against your judgments…':!rule.trim()?'Write an inclusion rule to continue.':ready?'Ready when you are.':`Rate ${remaining} more ${remaining===1?'example':'examples'} to refine the inclusion rule.`);
  function reset(){clearTimeout(retestTimer);retesting=false;session++;visible=examples.slice(0,3);next=3;judgments={};saved=false;}
  function judge(id:string,include:boolean){judgments={...judgments,[id]:include};const replacement=examples[next++];visible=visible.flatMap(item=>item.id===id?(replacement?[replacement]:[]):[item]);}
  $effect(()=>{document.documentElement.dataset.theme=theme;});
