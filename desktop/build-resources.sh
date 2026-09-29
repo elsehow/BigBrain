@@ -11,8 +11,8 @@
 # The engine spawns every job as `process.execPath <ENGINE_ROOT>/bin/x.ts`
 # and reads its templates from ENGINE_ROOT (lib/engine.ts resolves it from
 # the file's own location), so a copied tree behaves exactly like a checkout.
-# No `bun build --compile`: subprocesses (the worker sandbox helper,
-# tend, publish, integrations) keep working unchanged.
+# No `bun build --compile`: subprocesses (tend, publish, integrations)
+# keep working unchanged.
 #
 #   sh build-resources.sh             everything (what `tauri build` runs)
 #   sh build-resources.sh --bun-only  just the sidecar, for `tauri dev`

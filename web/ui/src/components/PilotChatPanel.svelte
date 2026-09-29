@@ -1,10 +1,7 @@
 <script lang="ts">
-  import PilotEnvironmentRequest from "./PilotEnvironmentRequest.svelte";
   import { inspectActions } from "../lib/actionHistory.svelte";
   import ArchiveIcon from "./ArchiveIcon.svelte";
   import { renameChat, loadChatDetail } from "../lib/pilotChat.svelte";
-  import AgentHandoff from './AgentHandoff.svelte';
-  import { work } from '../lib/workSessions.svelte';
   import { pilotVisualPhase } from "../lib/pilotAppearance";
   import KeyboardModifier from "./KeyboardModifier.svelte";
   import { changeNotification, refreshNotifications } from "../lib/notifications.svelte";
@@ -55,7 +52,6 @@
   });
   const s = $derived(activeChat());
   const sessionId = $derived(s?.id);
-  const connectedAgents = $derived(work.sessions.filter(agent => agent.worker && !agent.worker.archivedAt && agent.origin?.pilot === s?.id));
   const sessionError = $derived.by(() => {
     const error = chat.error || s?.error || s?.ingestionError || "";
     return error === "Pilot completed without an answer."
@@ -108,7 +104,7 @@
   const title = (id: string) => chat.graph?.nodes.find(n => n.id === id)?.title ?? s?.contextNodes?.find(n => n.id === id)?.title ?? chat.sessions.find(n => n.id === id)?.title ?? id;
   const images = $derived(s ? draftImages(s.id) : []);
   const context = $derived(s ? pilotContextLabel(s, title) : "");
-  const activity = (tool: string) => ({ connecting: "Message queued", load_memory: "Reading memory", search_vault: "Searching", read_note: "Reading", inbox_list: "Checking inbox", inbox_read: "Reading thread", set_context: "Updating context", recent: "Reading recent items", read_file: "Reading file", write_scratch: "Writing scratch", list_files: "Reading folder", list_directories: "Finding projects", launch_agent: "Launching agent", read_agent: "Checking agent", reply_agent: "Answering agent" }[tool] ?? "Working");
+  const activity = (tool: string) => ({ connecting: "Message queued", load_memory: "Reading memory", search_vault: "Searching", read_note: "Reading", inbox_list: "Checking inbox", inbox_read: "Reading thread", set_context: "Updating context", recent: "Reading recent items", read_file: "Reading file", write_scratch: "Writing scratch", list_files: "Reading folder", list_directories: "Finding projects" }[tool] ?? "Working");
   function render(text: string): string {
     const linked = text.replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_, path: string, label: string) => `[${(label ?? title(path)).replace(/[\[\]]/g, "") }](#/vault/${encodeURIComponent(path)})`);
     return sanitizeHtml(md(linked));
@@ -263,7 +259,6 @@
             <div class="user-text">{#each parseMentions(message.text) as part}{#if "text" in part}{part.text}{:else}<button class="sent-mention" onclick={() => { if (chat.sessions.some(s => s.id === part.mention.id)) openChat(part.mention.id); else gotoNote(part.mention.id); }}>{part.mention.title}</button>{/if}{/each}</div>
           {:else}{@html render(message.text)}{/if}
           <ChatImages images={message.images ?? []} />
-          {#if notice?.workerRequest && !notice.resolved}<PilotEnvironmentRequest requestKey={notice.workerRequest} pilotId={s.id} unread={!notice.seen} />{/if}
           {#if notice && !hasNextTurn(notice)}
             <div class="notification-actions">
               <button onclick={() => void markUnread(notice)} disabled={!notice.seen} use:tooltip={'Mark unread (Shift-U)'}>{notice.seen ? 'Mark unread' : 'Unread'} <kbd class="keyboard-hint"><KeyboardModifier name="shift" />U</kbd></button>
@@ -283,11 +278,6 @@
       <div class="working-status" role="status">
         <PilotChatIndicator phase="working" />
         <span>{chat.interrupting[s.id] ? "Stopping…" : `${activity(s.activity)}…`}</span>
-      </div>
-    {/if}
-    {#if connectedAgents.length}
-      <div class="connected-activity" role="status" aria-label="Connected agent activity">
-        {#each connectedAgents as agent (agent.id)}<AgentHandoff {agent} compact unavailable={!!work.error} />{/each}
       </div>
     {/if}
     {#if pilot.error}<p class="error" role="alert">{pilot.error}<button onclick={() => retryPilotInput(s.id).catch(e => pilot.error = e.message)}>Retry delivery</button></p>{/if}
@@ -334,7 +324,6 @@
   .backend-settings { padding: 12px 24px; overflow: auto; flex: none; max-height: 250px; }
   .conversation-status { flex: none; width: calc(100% - 48px); max-width: 58ch; align-self: center; font: 400 18px/1.5 var(--font-app); }
   .conversation-status .error { margin: 10px 0; }
-  .connected-activity { display: flex; flex-direction: column; align-items: flex-start; max-height: 140px; overflow-y: auto; padding-block: 8px; }
   .working-status { display: flex; align-items: center; gap: 8px; padding: 0 0 24px; margin-top: 18px; color: var(--text-muted); font: var(--type-meta); }
   .pilot-panel { container: session-panel / inline-size; --pilot-color: var(--activity); display: flex; flex-direction: column; min-height: 0; height: 100%; }
   header { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; flex: none; padding: 12px 20px; border-bottom: 1px solid var(--rule); font: 10px var(--font-mono); letter-spacing: 1.3px; text-transform: uppercase; }

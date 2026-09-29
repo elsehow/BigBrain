@@ -1,5 +1,4 @@
 import { isEmptyPilotDraft, type PilotChatSession, type PilotChatMessage, type PilotInput, type PilotTurn } from "./pilotChatTypes";
-import type { HistoricalWorkerReport } from "./workHistory";
 import type { PilotNotification } from "./pilotNotifications";
 import { PILOT_LIFECYCLE } from "./pilotLifecycleConfig";
 import { pilotChatChapter } from "./pilotChatIngestion";
@@ -11,15 +10,13 @@ type Chapter = NonNullable<PilotChatSession["pendingIngestion"]>;
 export type PilotEffect =
   | { kind: "start"; turn: PilotTurn }
   | { kind: "abort"; turn: string }
-  | { kind: "release" | "advance" | "schedule-reports" | "discard" }
+  | { kind: "release" | "advance" | "discard" }
   | { kind: "publish"; id: string; chapter: Chapter; activity?: string };
 export type PilotEvent =
   | { kind: "restart" }
   | { kind: "activity"; at: string }
   | { kind: "input"; input: PilotInput; message: string; turn: string; at: string; queue: boolean }
   | { kind: "resume"; message: string; turn: string; at: string }
-  | { kind: "reports"; turn: string; at: string }
-  | { kind: "worker-report"; report: HistoricalWorkerReport; notification?: PilotNotification }
   | { kind: "delta"; turn: string; text: string }
   | { kind: "message"; turn: string; message: PilotChatMessage }
   | { kind: "settled"; turn: string; outcome: "answered" | "interrupted" | "failed"; error?: string; at: string; advance: boolean }
@@ -44,7 +41,7 @@ export function transitionPilot(current: PilotChatSession, event: PilotEvent): {
     effects.push({ kind: "start", turn });
   };
   const accept = (input: PilotInput, message: string, turn: string, at: string) => {
-    activity(at); delete s.reportStoppedAt;
+    activity(at);
     s.messages = [...s.messages, { id: message, role: "user", text: input.text, at, ...(input.images?.length ? { images: input.images } : {}) }];
     s.inputs = [...(s.inputs ?? []), { ...input, message }];
     begin({ id: turn, status: "running", replyTo: message });
@@ -93,22 +90,6 @@ export function transitionPilot(current: PilotChatSession, event: PilotEvent): {
       accept(next, event.message, event.turn, event.at);
       break;
     }
-    case "reports":
-      if (s.turn || s.reportStoppedAt || s.deactivatedAt || s.phase === "interrupted" || s.phase === "failed" || s.pendingInputs?.length || !s.pendingAgentSessionReports?.length) return unchanged();
-      begin({ id: event.turn, status: "running", reports: [...s.pendingAgentSessionReports] });
-      break;
-    case "worker-report":
-      if (s.workEvents?.some(r => r.key === event.report.key)) return unchanged();
-      s.workEvents = [...(s.workEvents ?? []), event.report];
-      if (event.notification) {
-        const n = event.notification;
-        s.messages = [...s.messages, { id: n.messageId, role: "assistant", text: n.text, at: n.at }];
-        s.notifications = [...(s.notifications ?? []), n];
-      } else {
-        s.pendingAgentSessionReports = [...(s.pendingAgentSessionReports ?? []), event.report.key];
-        if (!s.deactivatedAt) effects.push({ kind: "schedule-reports" });
-      }
-      break;
     case "delta": s.live += event.text; break;
     case "message":
       if (s.messages.some(m => m.id === event.message.id)) return unchanged();
@@ -130,7 +111,6 @@ export function transitionPilot(current: PilotChatSession, event: PilotEvent): {
     }
     case "stop":
     case "deactivate":
-      s.reportStoppedAt = event.at;
       if (s.turn) { s.turn = { ...s.turn, status: "stopping" }; effects.push({ kind: "abort", turn: s.turn.id }); }
       if (s.phase === "working") { s.phase = "interrupted"; s.activity = ""; if (!s.deactivatedAt) activity(event.at); }
       if (event.kind === "deactivate") {

@@ -6,7 +6,7 @@
   import { findNode } from "../../../../lib/graphIdentity";
   import { canonicalGraphView } from "../../../../lib/graphView";
   import { SIDEBAR_LAYOUT, type SidebarLayout } from "../lib/sidebarLayout";
-  import { withAgentOrchestrator } from "../lib/agentSessionGraph";
+  import { withAgentHistory } from "../lib/agentSessionGraph";
   import { work } from "../lib/workSessions.svelte";
   import WorkSessionPanel from "./WorkSessionPanel.svelte";
   import Pilot from "./Pilot.svelte";
@@ -55,7 +55,7 @@
   const arrivalGraph = $derived(withArrivals(graph, arrivals.nodes));
   const readGraph = $derived(withSourceReadStates(arrivalGraph, sourceAttention.rows));
   const pilotGraph = $derived(preparePilotChats(readGraph, chatSessions()));
-  const visibleGraph = $derived(withAgentOrchestrator(readGraph ? pilotGraph(sidebar ? null : viewSession?.id ?? null) : null, work.sessions));
+  const visibleGraph = $derived(withAgentHistory(readGraph ? pilotGraph(sidebar ? null : viewSession?.id ?? null) : null, work.sessions));
   const overviewRoot = $derived(visibleGraph?.nodes.find(n => n.group === "memory" && /(^|\/)MEMORY\.md$/.test(n.path ?? n.id)));
   const studyGraph = $derived.by(() => {
     if (!visibleGraph || !sidebar || !overviewRoot) return visibleGraph;

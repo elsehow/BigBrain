@@ -20,7 +20,7 @@ const savedPilot = z.object({
   access: sessionAccessSchema.optional(),
   githubRequest: z.object({ id: z.string(), repository: z.string().optional(), access: z.enum(["read", "write"]).optional(), scope: z.literal("account").optional(), reason: z.string(), status: z.enum(["pending", "allowed", "declined"]), reconnect: z.boolean().optional(), inputId: z.string().optional() }).optional(),
   githubActions: z.record(z.string(), z.object({ status: z.enum(["pending", "done"]), result: z.unknown().optional() })).optional(),
-  legacyWork: z.object({ id: z.string(), provider: z.enum(["codex", "claude-code"]), cwd: z.string(), thread: z.string().optional(),
+  legacyWork: z.object({ id: z.string(), provider: z.enum(["codex", "claude-code", "pi"]), cwd: z.string(), thread: z.string().optional(),
     outputs: z.array(z.object({ id: z.string(), path: z.string(), title: z.string(), at: z.string() }).passthrough()) }).passthrough().optional(),
   localCommand: z.object({ id: z.string(), command: z.string(), cwd: z.string(), status: z.enum(["running", "completed", "uncertain"]), exitCode: z.number().optional() }).passthrough().optional(),
   backend: z.object({ adapter: z.string(), model: z.string(), provider: z.string().optional(), reasoning: z.string().optional() }).passthrough().optional(),

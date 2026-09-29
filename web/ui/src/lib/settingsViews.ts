@@ -7,7 +7,6 @@ export const SETTINGS_TABS = [
   { label: "models", view: "agents" },
   { label: "integrations", view: "integrations" },
   { label: "connected clients", view: "connectedClients" },
-  { label: "connected agents", view: "agentOrchestration" },
   // diagnostics last (#710): the logs and the facts, read when something
   // has stopped — a screen for the bad day, below the ones for the good
   { label: "diagnostics", view: "diagnostics" },

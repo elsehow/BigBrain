@@ -12,10 +12,6 @@ for (const seed of [41, 73]) for (const trace of pilotScenarios(seed)) test(`app
     const result = runPilotScenario(trace, { write: state => writeAtomic(file, JSON.stringify(state), 0o600), read: () => validateSavedPilot(JSON.parse(readFileSync(file, "utf8")), file) });
     expect(result).toEqual(runPilotScenario(trace));
     expect(result.view.messages.map(m => m.text)).toEqual(trace.expected.messages);
-    if (trace.id === "archived-report") {
-      expect(result.state.workEvents).toHaveLength(1);
-      expect(result.frames.flatMap(f => f.effects).filter(e => e.kind === "schedule-reports")).toEqual([]);
-    }
     if (trace.id === "restart-pending") {
       expect(result.frames[1].state.revision).toBe(result.frames[0].state.revision);
       expect(result.state.turn).toBeUndefined();

@@ -22,9 +22,6 @@ test("image queue survives interruption/restart; new text cannot overtake or res
   send("image", [{ id: "image-fixture", name: "fabricated.png" }]);
   s = transitionPilot(s, { kind: "restart" }).state;
   send("text");
-  s.pendingAgentSessionReports = ["fabricated-report"];
-  s = transitionPilot(s, { kind: "reports", turn: "report-turn", at }).state;
-  expect(s.pendingAgentSessionReports).toEqual(["fabricated-report"]);
   expect(s.turn).toBeUndefined();
   expect(s.phase).toBe("interrupted");
   expect(s.pendingInputs?.map(i => i.id)).toEqual(["image", "text"]);
