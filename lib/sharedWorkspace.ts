@@ -8,6 +8,7 @@ import { insertionEventRel, sourceMoment, type SourceInsertion, type SourceMetad
 import { sourceInsertionMarkdown, insertionFiler } from './sourceFeed';
 import { assertionSourceReferences, type AssertionEvent } from './assertionLog';
 import type { AssertionView } from './sharedVault';
+import { sharedGraphLayout } from './sharedGraphLayout';
 import type { GraphNode, GraphEdge } from './graph';
 import { sha256hex } from './hash';
 
@@ -45,7 +46,7 @@ export function sharedProjection(sources: SharedSource[], views: AssertionView[]
     if (entity) { const list = assertions.filter(a => a.entities.some(e => e.id === entity.id)).map(assertionView); return { path, content: `# ${entity.label}\n\n${list.map(a => a.text).join('\n\n')}`, projectedEntity: { ...entity, assertions: list } }; }
     return null;
   };
-  return { sources, assertions, recent, note, graph: { nodes, edges, projection: 'assertions', hash: sha256hex(JSON.stringify([sources, assertions])) } };
+  return { sources, assertions, recent, note, graph: { nodes, edges, projection: 'assertions' as const, hash: sha256hex(JSON.stringify([sources, assertions])) } };
 }
 
 export async function sharedWorkspace(req: IncomingMessage, res: ServerResponse, store = connectionStorePath()): Promise<boolean> {
@@ -114,7 +115,7 @@ export async function sharedWorkspace(req: IncomingMessage, res: ServerResponse,
     const view = sharedProjection(sources, assertions);
     const offset = Math.max(0, Number(url.searchParams.get('offset')) || 0), limit = Math.min(200, Math.max(1, Number(url.searchParams.get('limit')) || 50));
     if (path === '/api/vault') json(res, 200, { view: { references: sources.length, entities: view.graph.nodes.filter(n => n.group === 'entity').length }, inbox: { pending: 0, unsorted: 0 }, requests: { open: 0, done: 0 } });
-    else if (path === '/api/graph') json(res, 200, view.graph);
+    else if (path === '/api/graph') json(res, 200, sharedGraphLayout(view.graph));
     else if (path === '/api/recent') json(res, 200, { recent: view.recent.slice(offset, offset+limit), total: sources.length, nextOffset: offset+limit < sources.length ? offset+limit : null });
     else if (path === '/api/note') { const note = view.note(url.searchParams.get('path') ?? ''); json(res, note ? 200 : 404, note ?? { error: 'Not found.' }); }
     else if (path === '/api/notes') json(res, 200, { dir: url.searchParams.get('dir'), notes: [] });

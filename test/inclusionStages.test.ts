@@ -25,3 +25,18 @@ test('reviewed integration policy gates gardener bypass, imports includes, skips
   stage(root,later);const p=accountPolicy(root,'email',account);writeAccountPolicy(root,'email',account,{...p,remembering:{...p.remembering,enabled:false}});await tickIntegrationInclusion(root,store);expect(stagedItems(root,'email')).toHaveLength(1);
  }finally{if(before===undefined)delete process.env.BIGBRAIN_SHARED_CONNECTIONS;else process.env.BIGBRAIN_SHARED_CONNECTIONS=before;rmSync(root,{recursive:true,force:true});}
 });
+
+test('include everything automatically admits verbatim Granola, retaining older summary-only pending items',async()=>{
+ const {fakeIntegrationActivation}=await import('./support/integrationActivation');
+ const root=gitVault({files:{'vault.yaml':'integrations: {}\n'}}),store=join(root,'connections.json');
+ const before=process.env.BIGBRAIN_SHARED_CONNECTIONS;process.env.BIGBRAIN_SHARED_CONNECTIONS=store;
+ try{
+  fakeIntegrationActivation(root,'granola');
+  const current=accountPolicy(root,'granola','granola');writeAccountPolicy(root,'granola','granola',{...current,remembering:{enabled:true,rule:'Include everything.'}});
+  for(let i=0;i<12;i++)stage(root,{id:'legacy-'+i,source:'granola',account:'granola',at:'2026-09-01',line:'Old note',scopes:{},name:'old.md',content:'---\nid: old-'+i+'\nsource: granola\nkind: meeting\n---\nVendor summary'});
+  stage(root,{id:'raw-new',source:'granola',account:'granola',at:'2026-09-29',line:'Raw meeting',scopes:{},name:'raw.md',content:'---\nid: raw-new\nformat: granola-transcript-v1\nsource: granola\nkind: meeting\n---\nAttendees: Ada\n\nSpeaker: Exact words.'});
+  expect(admitStaged(root,['legacy-0'])[0]?.ok).toBe(false);
+  await tickIntegrationInclusion(root,store);
+  expect(readSourceInsertionLog(root)).toHaveLength(1);expect(readSourceInsertionLog(root)[0]?.body).toContain('Speaker: Exact words.');expect(stagedItems(root,'granola')).toHaveLength(12);
+ }finally{if(before===undefined)delete process.env.BIGBRAIN_SHARED_CONNECTIONS;else process.env.BIGBRAIN_SHARED_CONNECTIONS=before;rmSync(root,{recursive:true,force:true});}
+});

@@ -1,18 +1,22 @@
 /** One document belongs to one vault. A switch replaces the document, so old
  * closures, component state, and queued writes cannot become the new vault's work. */
 type BrowserFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
-const requestedWorkspace = typeof location === "undefined" ? null : new URL(location.href).searchParams.get("workspace");
-export const personalOnly=requestedWorkspace==='personal';
-export const selectedWorkspace=personalOnly?null:requestedWorkspace;
+const params = typeof location === "undefined" ? new URLSearchParams() : new URL(location.href).searchParams;
+export const selectedVaults = [...new Set((params.get("vaults") ?? params.get("workspace") ?? "").split(",").filter(Boolean))];
+export const personalIncluded = !selectedVaults.length || selectedVaults.includes('personal');
+export const personalOnly = selectedVaults.length === 1 && personalIncluded;
+export const selectedWorkspace = selectedVaults.length === 1 && !personalIncluded ? selectedVaults[0]! : null;
 export const workspaceURL = (path: string) => selectedWorkspace ? `${path}${path.includes("?") ? "&" : "?"}workspace=${encodeURIComponent(selectedWorkspace)}` : path;
-export function switchWorkspace(id: string | null): void {
+export function switchVaults(ids: string[]): void {
   const url = new URL(location.href);
-  if (id) url.searchParams.set("workspace", id); else url.searchParams.delete("workspace");
+  url.searchParams.delete("workspace");
+  if (ids.length) url.searchParams.set("vaults", [...new Set(ids)].sort().join(',')); else url.searchParams.delete("vaults");
   url.searchParams.set("vaultMenu","1");
   url.hash = "#/home";
-  document.documentElement.style.visibility = "hidden";
+  // A new query replaces the document even when the hash route is unchanged.
   location.replace(url.href);
 }
+export function switchWorkspace(id: string | null): void { switchVaults(id ? [id] : []); }
 export function sharedUnavailable(): void {
   if (!selectedWorkspace) return;
   // Drop persisted response caches before restarting the document's auth gate.
@@ -71,7 +75,7 @@ export class VaultScope {
 }
 const scope = new VaultScope(async (input, init) => {
   const headers = new Headers(init?.headers);
-  if(personalOnly)headers.set("x-bigbrain-vault-filter","personal");
+  if(selectedVaults.length)headers.set("x-bigbrain-vault-filter",selectedVaults.join(","));
   if (selectedWorkspace) headers.set("x-bigbrain-workspace", selectedWorkspace);
   const response = await globalThis.fetch(input, { ...init, headers });
   return response;
@@ -80,7 +84,7 @@ const scope = new VaultScope(async (input, init) => {
   document.documentElement.style.visibility = "hidden";
   location.reload();
 });
-export const vaultStorageKey = (key: string) => scope.key((personalOnly?"personal:":"")+key);
+export const vaultStorageKey = (key: string) => scope.key((selectedVaults.length?selectedVaults.slice().sort().join(",")+":":"")+key);
 export const vaultReady = () => scope.ready();
 export const onVaultSwitch = (fn: () => void) => scope.onSwitch(fn);
 export const observeVault = (identity: string | null) => scope.observe(identity);

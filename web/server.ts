@@ -2,7 +2,7 @@ import {integrationAccountRoutes} from '../lib/integrationAccountRoutes';
 import {IntegrationAccounts} from '../lib/integrationAccounts';
 import {inclusionReviewApi} from '../lib/inclusionReviewApi';
 import {tickIntegrationInclusion} from '../lib/inclusionStages';
-import { unionGraph, unionRecent, unionSearch, unionNote } from '../lib/sharedReadUnion';
+import { unionGraph, unionRecent, unionSearch, unionNote, vaultFilter, includesPersonal } from '../lib/sharedReadUnion';
 import { jevSettingsApi } from '../lib/jevSettingsApi';
 import { sharedSettingsApi } from '../lib/sharedSettingsApi';
 import { tickRules } from '../lib/sharedRules';
@@ -402,7 +402,7 @@ function fileRead({ res, url }: Ctx): void {
 async function recentFeed({ req, res, url }: Ctx): Promise<void> {
   const limit = clampLimit(url.searchParams.get("limit"), 40, 200);
   const offset = Math.trunc(Math.min(Math.max(Number(url.searchParams.get("offset")) || 0, 0), 1_000_000));
-  try { if(req.headers["x-bigbrain-vault-filter"]==="personal"){json(res,200,await recentSourcePageAsync(ROOT,offset,limit));return;} const personal=await recentSourcePageAsync(ROOT,0,offset+limit);json(res,200,await unionRecent(ROOT,personal.recent,offset,limit,personal.total)); }
+  try { if(req.headers?.["x-bigbrain-vault-filter"]==="personal"){json(res,200,await recentSourcePageAsync(ROOT,offset,limit));return;} const personal=await recentSourcePageAsync(ROOT,0,offset+limit);json(res,200,await unionRecent(ROOT,personal.recent,offset,limit,personal.total,vaultFilter(req.headers?.["x-bigbrain-vault-filter"]))); }
   catch (error) { json(res, 500, { error: errText(error) }); }
 }
 
@@ -489,7 +489,7 @@ function search({ req, res, url }: Ctx): void {
         };
       });
       const seen = new Set<string>();
-      const ranked = rankNavigationSearch([...hits,...(req.headers["x-bigbrain-vault-filter"]==="personal"?[]:await unionSearch(ROOT,q))], q, graph, url.searchParams.get("purpose") === "mention").filter(h => {
+      const ranked = rankNavigationSearch([...(includesPersonal(vaultFilter(req.headers?.["x-bigbrain-vault-filter"]))?hits:[]),...(req.headers?.["x-bigbrain-vault-filter"]==="personal"?[]:await unionSearch(ROOT,q,vaultFilter(req.headers?.["x-bigbrain-vault-filter"])))], q, graph, url.searchParams.get("purpose") === "mention").filter(h => {
         if (seen.has(h.note.path)) return false;
         seen.add(h.note.path); return true;
       });
@@ -512,7 +512,7 @@ function search({ req, res, url }: Ctx): void {
 async function graph({ req, res }: Ctx): Promise<void> {
   try {
     const personal=graphWithReadState(ROOT, await primaryGraphWithLayoutAsync(ROOT));
-    json(res, 200, req.headers["x-bigbrain-vault-filter"]==="personal"?personal:await unionGraph(ROOT,personal));
+    json(res, 200, req.headers?.["x-bigbrain-vault-filter"]==="personal"?personal:await unionGraph(ROOT,personal,vaultFilter(req.headers?.["x-bigbrain-vault-filter"])));
   } catch (error) {
     json(res, 500, { error: errText(error) });
   }

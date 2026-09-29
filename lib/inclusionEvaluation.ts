@@ -1,3 +1,4 @@
+import {includesEverything} from './inclusionMode';
 import {teachingExamples} from './inclusionExamples';
 import {existsSync,readFileSync,mkdirSync} from 'node:fs';
 import {dirname,join} from 'node:path';
@@ -17,6 +18,7 @@ export function inclusionEvaluator(root:string,store:string,text:string,labels:I
  }};
 }
 export async function decideInclusion(root:string,store:string,scope:string,text:string,source:Pick<InclusionSource,'title'|'body'>) {
+ if(includesEverything(text))return true;
  const policy=readInclusionPolicy(root,store,scope),evaluator=inclusionEvaluator(root,store,text,policy?.labels);
  if(policy&&(!policy.calibration||policy.text!==text||policy.calibration.identity!==evaluator.identity))throw Error('Review this inclusion rule again: its rule, entities, or model changed.');
  const label=policy?.labels.find(l=>sourceDigest(l.source)===sourceDigest(source));

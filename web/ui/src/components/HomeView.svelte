@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { selectedWorkspace } from "../lib/vaultScope";
+  import { personalIncluded } from "../lib/vaultScope";
   import PilotQuickLook from "./PilotQuickLook.svelte";
   import WorkspaceMenu from "./WorkspaceMenu.svelte";
   import { getContext, onMount, untrack, tick } from "svelte";
@@ -40,10 +40,11 @@
   // Graph responses are replaced as snapshots; deep proxies make every
   // graph traversal pay reactive lookup costs without enabling useful updates.
   let graph = $state.raw<GraphData | null>(null);
+  let graphError = $state('');
   liveResource(() => "graph", () => swr.graph(), g => {
-    graph = g;
+    graph = g; graphError = '';
     reconcileArrivals(g);
-  });
+  }, {onError: (error) => {graphError = error instanceof Error ? error.message : 'Could not load this vault.';}});
 
   // Session activity belongs to the same sources as the rest of the vault.
   // Wait for the cached vault graph before adding sessions. On a remount,
@@ -55,8 +56,8 @@
   $effect(() => { if (sourceAttention.selection && !isUnreadSelection()) sourceAttention.selection = ""; });
   const arrivalGraph = $derived(withArrivals(graph, arrivals.nodes));
   const readGraph = $derived(withSourceReadStates(arrivalGraph, sourceAttention.rows));
-  const pilotGraph = $derived(preparePilotChats(readGraph, chatSessions()));
-  const visibleGraph = $derived(withAgentHistory(readGraph ? pilotGraph(sidebar ? null : viewSession?.id ?? null) : null, work.sessions));
+  const pilotGraph = $derived(preparePilotChats(readGraph, personalIncluded ? chatSessions() : []));
+  const visibleGraph = $derived(withAgentHistory(readGraph ? pilotGraph(sidebar ? null : viewSession?.id ?? null) : null, personalIncluded ? work.sessions : []));
   const overviewRoot = $derived(visibleGraph?.nodes.find(n => n.group === "memory" && /(^|\/)MEMORY\.md$/.test(n.path ?? n.id)));
   const studyGraph = $derived.by(() => {
     if (!visibleGraph || !sidebar || !overviewRoot) return visibleGraph;
@@ -233,10 +234,11 @@
 <svelte:window bind:innerWidth={viewportWidth} bind:innerHeight={viewportHeight} onpointermove={edges} onpointerdown={ground} />
 
 {#if sidebar && !sidebar.open && !chat.open}
-  <WorkspaceMenu memories={selectedWorkspace?[]:memories} {sidebar} />
+  <WorkspaceMenu memories={personalIncluded?memories:[]} {sidebar} />
 {/if}
 
 <section class="view">
+  {#if !graph && graphError}<div class="graph-error" role="alert">{graphError} <button onclick={()=>{graphError='';app.rev++;}}>Retry</button></div>{/if}
   <div class="pane" class:side-expanded={sideExpanded}>
     <!-- the memory pass's fold proposals (#728), above everything (Nick,
          2026-09-03) so they get triaged: labels that look like one thing,
@@ -284,6 +286,7 @@
 <Pilot />
 
 <style>
+  .graph-error{position:absolute;top:90px;left:32px;z-index:5;color:var(--text-muted);font:var(--type-meta)}
   /* the app's one frame — see app.css's --app-pad-*: every view pads with
      these two numbers, so no screen invents its own margin */
   /* The column holds the rail (and fold proposals, when there are any).

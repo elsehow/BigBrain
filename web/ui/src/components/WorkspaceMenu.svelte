@@ -1,6 +1,6 @@
 <script lang="ts">
   import VaultSwitcher from "./VaultSwitcher.svelte";
-  import {selectedWorkspace} from "../lib/vaultScope";
+  import {selectedWorkspace,personalIncluded} from "../lib/vaultScope";
   import ArchiveIcon from "./ArchiveIcon.svelte";
   import { onMount, tick } from 'svelte';
   import type { GraphNode } from '../lib/types';
@@ -38,7 +38,7 @@
   const jump = createListJump();
   let pointer = { x: -1, y: -1 };
   function trackPointer(e: PointerEvent) { pointer = { x: e.clientX, y: e.clientY }; }
-  const roster = $derived(pilotRoster((selectedWorkspace?[]:chatSessions()).map(session => ({ ...session, draft: chat.drafts[session.id] ?? session.draft }))));
+  const roster = $derived(pilotRoster((personalIncluded?chatSessions():[]).map(session => ({ ...session, draft: chat.drafts[session.id] ?? session.draft }))));
   const membershipIndex = $derived(workspaceMembershipIndex(memories));
   const agentsByWorkspace = $derived.by(() => {
     const active = new Set(roster.map(agent => agent.id));

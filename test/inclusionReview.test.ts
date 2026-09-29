@@ -36,3 +36,12 @@ test('old asynchronous results cannot mark an edited rule ready; draft labels su
   const reopened=startReview({...c,text:'New rule'},factory),newSession=await idle(c.root,reopened.id);expect(reviewState(newSession).judged).toBe(1);expect(()=>getReview(c.root,s.id)).toThrow('replaced');
  }finally{rmSync(c.root,{recursive:true,force:true});}
 });
+
+test('include everything needs neither ratings nor model calls',async()=>{
+ const c=fixture();try{
+  let calls=0;const initial=startReview({...c,text:'Include everything.'},(root,store,text,labels)=>({identity:inclusionEvaluator(root,store,text,labels).identity,score:async()=>{calls++;throw Error('Should not call model');}}));
+  const s=await idle(c.root,initial.id);expect(reviewState(s).ready).toBe(true);expect(reviewState(s).items).toEqual([]);expect(reviewState(s).remaining).toBe(0);
+  expect(finishReview(s).saved).toBe(true);expect(calls).toBe(0);
+  expect(await decideInclusion(c.root,c.store,c.scope,'Include everything.',c.sources[0]!)).toBe(true);
+ }finally{rmSync(c.root,{recursive:true,force:true});}
+});

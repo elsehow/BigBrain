@@ -1,3 +1,4 @@
+import {includesEverything} from './inclusionMode';
 import {parseEnvelope} from './envelope';
 import type {StagedItem} from './stageStorage';
 /** Integration adapter: the same inclusion decision as shared vaults. */
@@ -20,14 +21,14 @@ export async function tickIntegrationInclusion(root:string,store=connectionStore
  if(running.has(root))return;running.add(root);
  try{for(const name of MANAGED_INTEGRATIONS)for(const account of integrationAccounts(root,name)){
   const scope=integrationRuleScope(name,account),policy=readInclusionPolicy(root,store,scope);
-  if(!policy||!integrationActive(root,name,account))continue;
+  if(!integrationActive(root,name,account)||(!policy&&!includesEverything(accountPolicy(root,name,account).remembering.rule)))continue;
   const text=accountPolicy(root,name,account).remembering.rule,fingerprint=accountFingerprint(root,name,account);
-  for(const item of stagedItems(root,name).filter(s=>stagedAccount(root,s)===account).slice(0,10)){
-   const retryKey=JSON.stringify([root,scope,policy.version,item.id]);if((retryAfter.get(retryKey)??0)>Date.now())continue;
+  for(const item of stagedItems(root,name).filter(s=>stagedAccount(root,s)===account).filter(s=>name!=='granola'||!includesEverything(text)||parseEnvelope(s.content).envelope.format==='granola-transcript-v1').slice(0,10)){
+   const retryKey=JSON.stringify([root,scope,policy?.version,item.id]);if((retryAfter.get(retryKey)??0)>Date.now())continue;
    try{
     const include=await decideInclusion(root,store,scope,text,stagedInclusionSource(item));
-    if(!integrationActive(root,name,account)||accountFingerprint(root,name,account)!==fingerprint||readInclusionPolicy(root,store,scope)?.version!==policy.version||accountPolicy(root,name,account).remembering.rule!==text)break;
-    recordInclusionPermit(root,store,scope,policy.version,text,item,include);
+    if(!integrationActive(root,name,account)||accountFingerprint(root,name,account)!==fingerprint||readInclusionPolicy(root,store,scope)?.version!==policy?.version||accountPolicy(root,name,account).remembering.rule!==text)break;
+    recordInclusionPermit(root,store,scope,policy?.version??'include-everything',text,item,include);
     const result=include?admitStaged(root,[item.id]):passStaged(root,[item.id],'Excluded by the reviewed inclusion rule.');
     if(!result[0]?.ok)throw Error(result[0]?.error??'Could not apply inclusion decision');
     writeInclusionStatus(root,store,scope);retryAfter.delete(retryKey);

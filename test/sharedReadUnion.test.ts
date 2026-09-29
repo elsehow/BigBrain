@@ -20,6 +20,10 @@ test('combined reads link own copies, expose shared-only sources and preserve pe
  const c=await saveConnection(store,{name:'Example',endpoint:`http://127.0.0.1:${server.port}`,token:owner.token});
  const graph={nodes:[{id:'personal-node',title:source.title,group:'source',degree:0,path:insertionEventRel(source)}],edges:[],hash:'example'};
  const merged=await unionGraph(personal,graph);expect(merged.nodes).toHaveLength(2);expect(merged.nodes.filter(n=>n.title===source.title)).toHaveLength(1);
+ expect(merged.nodes.every(n=>Number.isFinite(n.x)&&Number.isFinite(n.y))).toBe(true);
+ const focused=await unionGraph(personal,graph,[c.id]);expect(focused.nodes).toHaveLength(2);expect(focused.nodes.some(n=>n.id==='personal-node')).toBe(false);
+ expect((await unionRecent(personal,[],0,40,0,[c.id])).recent).toHaveLength(2);
+ expect((await unionGraph(personal,graph,['personal'])).nodes).toHaveLength(1);
  const recents=await unionRecent(personal,[],0,40,0);expect(recents.recent.map(r=>r.title)).toEqual(['Remote only']);
  const remotePath=`shared/${c.id}/${other.id}.md`;expect((await unionNote(remotePath))?.content).toContain('Remote evidence');
  const mine=vault.contributions(verified.actor).find(x=>x.insertion_id===other.id)!;vault.transitionContribution(verified.actor,mine.id,'withdrawn',{request_id:'withdraw-example',version:0});await expect(unionNote(remotePath)).rejects.toThrow();

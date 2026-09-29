@@ -1,3 +1,4 @@
+import {includesEverything} from './inclusionMode';
 import {inclusionExcerpt} from './inclusionExamples';
 import {randomUUID} from 'node:crypto';
 import {readInclusionPolicy,writeInclusionPolicy,sourceDigest,type InclusionPolicy,type InclusionSource} from './inclusionPolicy';
@@ -11,8 +12,8 @@ const labelKey=(s:InclusionSource)=>sourceDigest(s);
 function persist(s:Session){writeInclusionPolicy(s.context.root,s.context.store,s.policy,true);}
 function active(s:Session){return latest.get(key(s.context))===s.id;}
 export function reviewState(s:Session){
- const ready=s.policy.labels.length>0&&!s.busy&&!s.error;
- return {id:s.id,text:s.policy.text,revision:s.revision,busy:s.busy,ready,remaining:Math.max(0,4-s.policy.labels.length),overlap:false,judged:s.policy.labels.length,unresolved:s.failed.size,error:s.error,
+ const ready=(includesEverything(s.policy.text)||s.policy.labels.length>0)&&!s.busy&&!s.error;
+ return {id:s.id,text:s.policy.text,revision:s.revision,busy:s.busy,ready,remaining:includesEverything(s.policy.text)?0:Math.max(0,4-s.policy.labels.length),overlap:false,judged:s.policy.labels.length,unresolved:s.failed.size,error:s.error,
  items:s.cards.slice(0,3).map(({id,title,origin,body})=>({id,title,origin,excerpt:inclusionExcerpt(body),body})),
  exhausted:!s.busy&&s.cards.length===0};
 }
@@ -29,6 +30,7 @@ export function startReview(context:ReviewContext,factory= inclusionEvaluator){
  latest.set(key(context),s.id);sessions.set(s.id,s);persist(s);void refill(s);return reviewState(s);
 }
 async function refill(s:Session){
+ if(includesEverything(s.policy.text)){s.cards=[];s.busy=false;s.error=undefined;persist(s);return;}
  const revision=s.revision;s.busy=true;s.error=undefined;
  const valid=()=>active(s)&&revision===s.revision;
  try{
@@ -64,7 +66,7 @@ export function retryReview(s:Session){if(s.busy)return reviewState(s);const eva
 export function finishReview(s:Session){
  s.context.check();const current=inclusionEvaluator(s.context.root,s.context.store,s.policy.text,s.policy.labels);
  if(current.identity!==s.evaluator.identity)throw Error('The model changed. Reopen this review to recalibrate.');
- if(s.busy||s.error||!s.policy.labels.length)throw Error('Rate an example before saving.');
+ if(s.busy||s.error||(!s.policy.labels.length&&!includesEverything(s.policy.text)))throw Error('Rate an example before saving.');
  const policy={...s.policy,version:randomUUID(),updated:new Date().toISOString(),calibration:{identity:s.evaluator.identity,threshold:.8}};
  writeInclusionPolicy(s.context.root,s.context.store,policy);s.context.save(policy.text);writeInclusionPolicy(s.context.root,s.context.store,policy,true);latest.delete(key(s.context));sessions.delete(s.id);return {saved:true,judged:policy.labels.length};
 }

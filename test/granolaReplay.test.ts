@@ -20,9 +20,9 @@ function vault(){const root=nativeVault({files:{"vault.yaml":"integrations: {}\n
 const meeting={id:'11111111-1111-4111-8111-111111111111',title:'Synthetic decision',date:'2026-09-24T12:00:00Z',url:'https://example.test/meeting'};
 const result=(text:string)=>({content:[{type:'text' as const,text}]});
 function content(version:string,account='granola',identity:unknown={workspace:'fixture'}){
- return granolaMcpContent(account,identity,meeting,result(`<meeting id="${meeting.id}"><summary>${version}</summary></meeting>`));
+ return granolaMcpContent(account,identity,meeting,result(`<meeting id="${meeting.id}"><summary>Discarded</summary></meeting>`),result(JSON.stringify({id:meeting.id,transcript:`Transcript ${version}`})));
 }
-function pending(root:string,version:string){return stagedItems(root,'granola').find(i=>i.content.includes(`<summary>${version}</summary>`))!;}
+function pending(root:string,version:string){return stagedItems(root,'granola').find(i=>i.content.includes(`Transcript ${version}`))!;}
 const observe=(root:string,v:string)=>stageGranolaContent(root,'granola',content(v));
 const resetCaches=(root:string)=>{rmSync(join(root,'.state'),{recursive:true,force:true});rmSync(join(root,'.spool/integration-cursors'),{recursive:true,force:true});};
 
@@ -116,8 +116,8 @@ test('the MCP poller recovers admitted and passed decisions after cursor loss an
  const root=vault();let version='A';
  const run:NonNullable<Parameters<typeof pollGranolaMcp>[2]>['run']=async fn=>fn({callTool:async({name}:{name:string})=>name==='list_meetings'
   ?result(`<meetings_data count="1"><meeting id="${meeting.id}" title="${meeting.title}" date="${meeting.date}" url="${meeting.url}"></meeting></meetings_data>`)
-  :result(`<meeting id="${meeting.id}"><summary>${version}</summary></meeting>`)} as Client,
-  ['list_meetings','get_meetings'].map(name=>({name,inputSchema:{type:'object' as const}})));
+  :name==='get_meeting_transcript'?result(JSON.stringify({id:meeting.id,transcript:`Transcript ${version}`})):result(`<meeting id="${meeting.id}"><summary>Discarded</summary></meeting>`)} as Client,
+  ['list_meetings','get_meetings','get_meeting_transcript'].map(name=>({name,inputSchema:{type:'object' as const}})));
  const poll=()=>pollGranolaMcp(root,'granola',{now:new Date('2026-09-25T00:00:00Z'),since:'2026-09-24T00:00:00Z',run});
  expect(await poll()).toEqual({arrivals:1});admitStaged(root,[pending(root,'A').id]);
  resetCaches(root);expect(await poll()).toEqual({arrivals:0});
@@ -139,4 +139,15 @@ test('concurrent admission of one revision has one immutable insertion and one r
   expect(err).toBe('');expect(code).toBe(0);return JSON.parse(out);
  };
  const [a,b]=await Promise.all([run(),run()]);expect(a.id).toBe(b.id);expect(a.insertionId).toBe(b.insertionId);expect(readSourceInsertionLog(root)).toHaveLength(1);
+});
+
+test('transcript contract copies provider attendees and exact speech, excluding vendor summaries',()=>{
+ const speech='Microphone: Um, the raw wor—word.\nSystem: Okay.';
+ const transcript=result(JSON.stringify({id:meeting.id,transcript:speech}));
+ const notes=(summary:string)=>result(`<meeting id="${meeting.id}"><known_participants>Ada &amp; Briar</known_participants><summary>${summary}</summary></meeting>`);
+ const a=granolaMcpContent('granola',{},meeting,notes('Invented summary A'),transcript);
+ expect(a).toContain('Attendees: Ada & Briar');expect(a).toContain(speech);expect(a).not.toContain('Invented summary');
+ expect(granolaMcpContent('granola',{},meeting,notes('Edited summary B'),transcript)).toBe(a);
+ expect(()=>granolaMcpContent('granola',{},meeting,notes('A'))).toThrow('transcript access');
+ expect(()=>granolaMcpContent('granola',{},meeting,notes('A'),result(JSON.stringify({id:meeting.id,transcript:''})))).toThrow('unavailable');
 });

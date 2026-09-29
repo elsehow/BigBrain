@@ -21,7 +21,7 @@ test("connected overview keeps bridge notes and excludes peripheral components w
 
 test("connected overview handles empty graphs, isolates and deterministic component ties", () => {
   expect([...overviewNodes(new Float32Array(), 10, [], [])]).toEqual([]);
-  expect([...overviewNodes(new Float32Array([0.4, 0.8]), 10, [], [[], []])]).toEqual([0, 1]);
+  expect([...overviewNodes(new Float32Array([0.4, 0.8]), 10, [], [[], []])]).toEqual([1, 1]);
   const adj = [[1], [0], [3], [2]];
   expect([...overviewNodes(new Float32Array([1, 1, 1, 1]), 10, ["z", "y", "a", "b"], adj)])
     .toEqual([0, 0, 1, 1]);
@@ -58,4 +58,9 @@ test("revealed background siblings have collision space without moving the overv
       .toBeGreaterThanOrEqual(nodes[i]!.r + nodes[j]!.r + 12);
   }
   expect(compactOverview(nodes, adj, visible, 1)).toEqual(positions);
+});
+
+test('an unorganized vault shows disconnected sources up to the overview limit',()=>{
+ const scores=Float32Array.from([1,1,1,1]);
+ expect(Array.from(overviewNodes(scores,3,['a','b','c','d'],[[],[],[],[]],true))).toEqual([1,1,1,0]);
 });

@@ -1,3 +1,4 @@
+import {includesEverything} from './inclusionMode';
 import {readInclusionPolicy,integrationRuleScope} from './inclusionPolicy';
 import {connectionStorePath} from './sharedConnections';
 import {inclusionPermit} from './inclusionStagePermit';
@@ -214,5 +215,5 @@ function stagedRememberingEnabled(root:string,item:StagedHead):boolean {
 // Preserve maintenance entry points while low-level consumers import storage directly.
 export { stage, stageDir, preserveStaged, stagedCount, stagedItems, type StagedHead, type StagedItem } from "./stageStorage";
 
-function reviewOwnsStage(root:string,item:StagedHead){const account=stagedAccount(root,item);return !!account&&!!readInclusionPolicy(root,connectionStorePath(),integrationRuleScope(item.source,account));}
+function reviewOwnsStage(root:string,item:StagedHead){const account=stagedAccount(root,item);return !!account&&(includesEverything(rememberingRule(root,item.source,account))||!!readInclusionPolicy(root,connectionStorePath(),integrationRuleScope(item.source,account)));}
 function enforceReview(root:string,item:import('./stageStorage').StagedItem,include:boolean){const account=stagedAccount(root,item);if(account&&!inclusionPermit(root,connectionStorePath(),integrationRuleScope(item.source,account),rememberingRule(root,item.source,account),item,include))throw Error('This item is awaiting its reviewed inclusion rule.');}
