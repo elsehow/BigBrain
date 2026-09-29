@@ -1,7 +1,7 @@
 <script lang="ts">
  import {onDestroy} from "svelte";
  export interface RuleExample {id:string;title:string;origin:string;excerpt:string;body:string}
- let {items,onjudge,ondone,ready=true,retesting=false,status=""}:{items:RuleExample[];onjudge:(id:string,include:boolean)=>void;ondone:()=>void;ready?:boolean;retesting?:boolean;status?:string}=$props();
+ let {items,onjudge,ondone,ready=true,retesting=false,status="",showExamples=true}:{items:RuleExample[];onjudge:(id:string,include:boolean)=>void;ondone:()=>void;ready?:boolean;retesting?:boolean;status?:string;showExamples?:boolean}=$props();
  let opened=$state<RuleExample|null>(null);
  let pending=$state<Record<string,{include:boolean;fading:boolean}>>({});
  const timers=new Map<string,ReturnType<typeof setTimeout>>();
@@ -24,6 +24,7 @@
  function show(dialog:HTMLDialogElement){dialog.showModal();}
 </script>
 <div class="review">
+ {#if showExamples}
  <div class="heading"><span>Include these?</span></div>
  <div class="cards">
  {#each items.slice(0,3) as item (item.id)}
@@ -36,6 +37,7 @@
   </article>
  {:else}<p class="empty">No more examples.</p>{/each}
  </div>
+ {/if}
  <div class="review-footer"><p role="status" aria-live="polite">{status}</p><button class="done" disabled={!ready||retesting||Object.keys(pending).length>0} onclick={done}>Done</button></div>
 </div>
 {#if opened}

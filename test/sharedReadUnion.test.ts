@@ -24,6 +24,8 @@ test('combined reads link own copies, expose shared-only sources and preserve pe
  const focused=await unionGraph(personal,graph,[c.id]);expect(focused.nodes).toHaveLength(2);expect(focused.nodes.some(n=>n.id==='personal-node')).toBe(false);
  expect((await unionRecent(personal,[],0,40,0,[c.id])).recent).toHaveLength(2);
  expect((await unionGraph(personal,graph,['personal'])).nodes).toHaveLength(1);
+ const withMemories={...graph,nodes:[...graph.nodes,{id:'related-memory',title:'Project memory',group:'memory',degree:1,path:'memories/project.md'},{id:'unrelated-memory',title:'Other memory',group:'memory',degree:0,path:'memories/other.md'}],edges:[{source:'related-memory',target:'personal-node'}],hash:'memories'};
+ const scoped=await unionGraph(personal,withMemories,[c.id]);expect(scoped.nodes.some(n=>n.id==='related-memory')).toBe(true);expect(scoped.nodes.some(n=>n.id==='unrelated-memory')).toBe(false);expect(scoped.edges.some(e=>e.source==='related-memory'&&e.target.includes(c.id))).toBe(true);
  const recents=await unionRecent(personal,[],0,40,0);expect(recents.recent.map(r=>r.title)).toEqual(['Remote only']);
  const remotePath=`shared/${c.id}/${other.id}.md`;expect((await unionNote(remotePath))?.content).toContain('Remote evidence');
  const mine=vault.contributions(verified.actor).find(x=>x.insertion_id===other.id)!;vault.transitionContribution(verified.actor,mine.id,'withdrawn',{request_id:'withdraw-example',version:0});await expect(unionNote(remotePath)).rejects.toThrow();

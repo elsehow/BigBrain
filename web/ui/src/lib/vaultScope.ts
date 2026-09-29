@@ -5,7 +5,9 @@ const params = typeof location === "undefined" ? new URLSearchParams() : new URL
 export const selectedVaults = [...new Set((params.get("vaults") ?? params.get("workspace") ?? "").split(",").filter(Boolean))];
 export const personalIncluded = !selectedVaults.length || selectedVaults.includes('personal');
 export const personalOnly = selectedVaults.length === 1 && personalIncluded;
-export const selectedWorkspace = selectedVaults.length === 1 && !personalIncluded ? selectedVaults[0]! : null;
+// New vault tags filter the unified local app. Only legacy direct-workspace
+// links enter the isolated remote workspace adapter.
+export const selectedWorkspace = !params.has('vaults') && params.get('workspace') !== 'personal' ? params.get('workspace') : null;
 export const workspaceURL = (path: string) => selectedWorkspace ? `${path}${path.includes("?") ? "&" : "?"}workspace=${encodeURIComponent(selectedWorkspace)}` : path;
 export function switchVaults(ids: string[]): void {
   const url = new URL(location.href);

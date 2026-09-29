@@ -1,4 +1,5 @@
 <script lang="ts">
+ import {includesEverything} from '../../../../lib/inclusionMode';
  import {onMount,onDestroy,untrack} from 'svelte';
  import {vaultFetch} from '../lib/vaultScope';
  import PilotMentionComposer from './PilotMentionComposer.svelte';
@@ -26,7 +27,7 @@
 </script>
 <div class="editor" role="group" aria-label="Inclusion rule review">
  <div class="rule-input"><PilotMentionComposer ariaLabel="Inclusion rule" value={draft} recents={[]} currentId="inclusion-rule" {search} onchange={parts=>changed(serializeMentions(parts))} onsend={()=>{}} placeholder="Describe what belongs here. Use @ to mention a topic." /></div>
- {#if view}<InclusionRuleReview items={view.items} onjudge={judge} ondone={done} ready={view.ready&&!editing&&!sending&&!!draft.trim()} retesting={view.busy||editing||sending} {status}/>
+ {#if view}<InclusionRuleReview showExamples={!includesEverything(draft)} items={view.items} onjudge={judge} ondone={done} ready={view.ready&&!editing&&!sending&&!!draft.trim()} retesting={view.busy||editing||sending} status={includesEverything(draft)?'':status}/>
  {:else if sending}<p role="status">Finding examples…</p>
  {:else}<button class="settings-add" disabled={!draft.trim()} onclick={start}>Try rule</button>{/if}
  {#if problem||view?.error}<p role="alert">{problem||view?.error}</p><button class="settings-add" disabled={sending} onclick={retry}>Retry</button>{/if}

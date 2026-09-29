@@ -234,7 +234,7 @@
 <svelte:window bind:innerWidth={viewportWidth} bind:innerHeight={viewportHeight} onpointermove={edges} onpointerdown={ground} />
 
 {#if sidebar && !sidebar.open && !chat.open}
-  <WorkspaceMenu memories={personalIncluded?memories:[]} {sidebar} />
+  <WorkspaceMenu memories={memories} sources={(visibleGraph?.nodes??[]).filter(n=>n.group==='source'&&n.path)} loading={!graph&&!graphError} {sidebar} />
 {/if}
 
 <section class="view">

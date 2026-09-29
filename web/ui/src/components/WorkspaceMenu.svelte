@@ -15,7 +15,7 @@
   import { stage } from '../lib/stage.svelte';
   import ListNavigationHint from '../components/ListNavigationHint.svelte';
   import PilotAttentionGlyph from '../components/PilotAttentionGlyph.svelte';
-  let { memories, sidebar }: { memories: GraphNode[]; sidebar: SidebarLayout } = $props();
+  let { memories, sources = [], loading = false, sidebar }: { memories: GraphNode[]; sources?: GraphNode[]; loading?: boolean; sidebar: SidebarLayout } = $props();
   let open = $state(!!selectedWorkspace||new URL(location.href).searchParams.has("vaultMenu"));
   let index = $state(0);
   let selectedId = $state<string | null>(null);
@@ -51,7 +51,7 @@
     }
     return grouped;
   });
-  const workspaces = $derived([...memories, ...(agentsByWorkspace.get(GENERAL_WORKSPACE)?.length ? [general] : [])]);
+  const workspaces = $derived([...(memories.length ? memories : sources), ...(agentsByWorkspace.get(GENERAL_WORKSPACE)?.length ? [general] : [])]);
   const needsAttention = $derived(new Set(
     [...agentsByWorkspace].filter(([, agents]) => agents.some(agent => agent.unread || agent.state === 'waiting')).map(([id]) => id)
   ));
@@ -204,10 +204,11 @@
         {/if}
       </button>
     {/each}
+    {#if !rows.length}<p class="empty" role="status">{loading?'Loading…':'No items'}</p>{/if}
   </div>
   {#if error}<p role="alert">{error}</p>{/if}
   <footer>
-    <ListNavigationHint />
+    {#if rows.length}<ListNavigationHint />{/if}
     <span class="archive-status" role="status">{announcement}</span>
   </footer>
   <VaultSwitcher />
@@ -219,7 +220,8 @@
   .workspace-menu-hint { position:fixed; left:32px; top:calc(88px + var(--sidebar-update-height,0px)); z-index:3; pointer-events:none; }
   .workspace-menu-hint :global(.list-navigation-hint) { padding:0; font-size:12px; }
   .workspace-menu { position:fixed; z-index:3; left:20px; top:96px; width:min(460px,calc(100vw - 40px)); max-height:calc(100dvh - 160px); display:flex; flex-direction:column; background:var(--panel-bg); backdrop-filter:var(--panel-blur); -webkit-backdrop-filter:var(--panel-blur); color:var(--text-strong); }
-  .menu-rows { overflow:auto; min-height:0; }
+  .menu-rows { overflow:auto; min-height:39px; }
+  .empty {margin:0;padding:9px 16px;font:500 15px/1.4 var(--font-app);color:var(--text-muted)}
   .menu-row { box-sizing:border-box; display:flex; align-items:center; gap:10px; width:100%; height:39px; text-align:left; border:0; padding:9px 16px; background:transparent; color:inherit; font:500 15px/1.4 var(--font-app); cursor:pointer; }
   .agent-row { font-weight:400; }
   /* The triangle is inset within its 20px status canvas. Align its visible edge. */

@@ -17,6 +17,9 @@ export const includesPersonal = (filter: string[]) => !filter.length || filter.i
 async function views(filter: string[] = []){const results=await Promise.allSettled(readConnections(connectionStorePath()).filter(c => !filter.length || filter.includes(c.id)).map(async c=>({c,view:sharedProjection(await pages<SourceInsertion>(c,'evidence'),await pages<AssertionView>(c,'assertions'))})));return results.flatMap(r=>r.status==='fulfilled'?[r.value]:[]);}
 function localSources(root:string){return new Map(readSourceInsertionLog(root,{strict:true}).map(s=>['origin:'+sourceKey(s),s]));}
 export async function unionGraph(root:string,graph:Graph,filter:string[] = []):Promise<Graph>{
+ const personalGraph=graph;
+ const localPaths=new Map(personalGraph.nodes.flatMap(n=>[n.path,...(n.memberPaths??[])].filter((p):p is string=>!!p).map(p=>[p,n])));
+ const remoteCopies=new Map<string,string[]>();
  if(!includesPersonal(filter)) graph = {...graph,nodes:[],edges:[]};
  if(filter.length===1&&filter[0]==="personal")return graph;
  if(!readConnections(connectionStorePath()).length)return graph;
@@ -26,8 +29,21 @@ export async function unionGraph(root:string,graph:Graph,filter:string[] = []):P
  const ids=new Map<string,string>();
  for(const n of view.graph.nodes){const source=view.sources.find(s=>'source:'+s.id===n.id),personal=source?local.get(source.source_id):undefined,existing=personal?paths.get(insertionEventRel(personal)):undefined;
  if(existing){ids.set(n.id,existing.id);byId.get(existing.id)!.vaults.push(c.id);continue;}
- const id=`shared:${c.id}:${n.id}`;ids.set(n.id,id);nodes.push({...n,id,path:remotePath(c,source?.id??n.id),vaults:[c.id]});}
+ const id=`shared:${c.id}:${n.id}`;ids.set(n.id,id);
+ const localNode=personal?localPaths.get(insertionEventRel(personal)):undefined;
+ if(localNode)remoteCopies.set(localNode.id,[...(remoteCopies.get(localNode.id)??[]),id]);nodes.push({...n,id,path:remotePath(c,source?.id??n.id),vaults:[c.id]});}
  for(const e of view.graph.edges)edges.push({...e,source:ids.get(e.source)!,target:ids.get(e.target)!});
+ }
+ if(!includesPersonal(filter)){
+  const memories=new Map(personalGraph.nodes.filter(n=>n.group==='memory').map(n=>[n.id,n]));
+  const connected=new Set<string>();
+  for(const edge of personalGraph.edges){
+   const memory=memories.get(edge.source)??memories.get(edge.target);
+   if(!memory)continue;
+   const other=memory.id===edge.source?edge.target:edge.source;
+   for(const remote of remoteCopies.get(other)??[]){connected.add(memory.id);edges.push({...edge,source:memory.id,target:remote});}
+  }
+  for(const id of connected)nodes.push({...memories.get(id)!,vaults:['personal']});
  }
  return sharedGraphLayout({...graph,nodes,edges,hash:sha256hex(JSON.stringify([graph.hash,nodes.map(n=>[n.id,n.vaults]),edges]))});
 }
