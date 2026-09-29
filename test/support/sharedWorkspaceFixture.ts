@@ -57,7 +57,9 @@ try{
 const invite=issueSharedInvite(members,'owner',endpoint);
 const readonly = await saveConnection(connections,{name:'Example read only',endpoint,token:reader.token});
 const probe=createServer(); await new Promise<void>(r=>probe.listen(0,'127.0.0.1',r));const port=(probe.address() as {port:number}).port;await new Promise<void>(r=>probe.close(()=>r()));
-const child = Bun.spawn(['bun','web/server.ts'],{env:{...process.env,BIGBRAIN_VAULT:personal,BIGBRAIN_WEB_PORT:String(port),BIGBRAIN_SHARED_CONNECTIONS:connections,PI_OFFLINE:'1',NODE_ENV:'test'},stdout:'ignore',stderr:'ignore'});
+const child = Bun.spawn(['bun','web/server.ts'],{env:{...process.env,BIGBRAIN_VAULT:personal,BIGBRAIN_WEB_PORT:String(port),BIGBRAIN_SHARED_CONNECTIONS:connections,PI_OFFLINE:'1',NODE_ENV:'test'},stdout:'ignore',stderr:'pipe'});
+void new Response(child.stderr).text().then(log=>{if(log)process.stderr.write(log);});
+void child.exited.then(code=>{if(code)console.error('Fixture web server exited with status '+code);});
 const metadata = {invite,base:`http://127.0.0.1:${port}`,endpoint,token:owner.token,readonly:readonly.id,source:source.id,home};
 writeFileSync(join(home,'browser.json'),JSON.stringify(metadata),{mode:0o600});
 console.log(join(home,'browser.json'));

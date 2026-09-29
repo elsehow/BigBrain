@@ -9,7 +9,7 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
  for(let i=0;!output.includes('\n')&&i<150;i++){if(child.exitCode!==null)throw Error(errors);await pause(100);}
  const fixture=JSON.parse(readFileSync(output.trim().split('\n')[0],'utf8'));
  for(let i=0;i<100;i++){try{if((await fetch(fixture.base+'/api/vault')).ok)break;}catch{}await pause(100);}
- browser=await chromium.launch({channel:'chrome',headless:true});const page=await browser.newPage({viewport:{width:1440,height:1000}});const pageErrors=[];page.on('pageerror',e=>pageErrors.push(e.message));
+ browser=await chromium.launch({channel:process.env.PLAYWRIGHT_CHANNEL||'chrome',headless:true});const page=await browser.newPage({viewport:{width:1440,height:1000}});const pageErrors=[];page.on('pageerror',e=>pageErrors.push(e.message));
  await page.goto(fixture.base+'/#sharedVaultSettings');await page.getByRole('button',{name:'+ Connect vault',exact:true}).click();await page.getByLabel('Invite link',{exact:true}).fill(fixture.invite);await page.getByRole('dialog').getByRole('button',{name:'Connect',exact:true}).click();await page.getByRole('dialog').waitFor({state:'detached'});
  await page.getByRole('button',{name:'Members',exact:true}).click();await page.getByRole('button',{name:'Invite someone',exact:true}).click();await page.getByLabel('Name',{exact:true}).fill('Mara Example');await page.getByRole('button',{name:'Create invite link'}).click();const link=await page.getByLabel('Invite link',{exact:true}).inputValue();assert(!link.includes(fixture.token));await page.getByRole('button',{name:'Done',exact:true}).click();
  // An independent local connection store redeems the new member's link.

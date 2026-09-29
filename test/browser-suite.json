@@ -37,5 +37,6 @@
   "pilotStatusGlyph",
   "graphCameraStability",
   "actionHistory",
-  "sharedWorkspace"
+  "sharedWorkspace",
+  "sharedMembership"
 ]
