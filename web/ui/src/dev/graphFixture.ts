@@ -57,6 +57,15 @@ export async function installGraphFixture() {
     for (const memory of workspaces.slice(0, 2)) scene.graph.edges.push({ source: sharedNote, target: memory.id });
     scene.notes![sharedNote] = { path: sharedNote, content: "# Shared design review\n\nDesign decisions shared by Atlas planning and Design system." };
   }
+  const titleView = new URLSearchParams(location.search).get('titleView');
+  if (titleView) {
+    const path = BRIEFINGS.source.hash!.replace('/vault/', '');
+    const title = 'How neighborhood workshops are making room for a new generation of independent makers';
+    scene.graph.nodes.find(node => node.path === path)!.title = title;
+    scene.notes![path] = { ...scene.notes![path]!, content: `# ${title}\n`, modified: Date.parse('2026-09-28T17:12:00Z') };
+    if (titleView === 'loading') scene.briefing = 'loading';
+    location.hash = `/vault/${path}`;
+  }
   setVaultState(scene);
   const integrationScene = new URLSearchParams(location.search).get("integration-activation");
   installIntegrationAccessScene(integrationScene === "fail");

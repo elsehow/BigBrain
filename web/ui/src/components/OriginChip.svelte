@@ -17,7 +17,7 @@
 </script>
 
 <button class="pchip" data-talks-when-empty class:failed use:tooltip={failed ? "The engine could not open it — see its log" : originHint(origin)} {onclick}>
-  {failed ? "COULDN'T OPEN" : "OPEN"}{#if !failed}<span class="kbd">⌘O</span>{/if}
+  {failed ? "Couldn’t open" : "Open"}{#if !failed}<span class="kbd">⌘O</span>{/if}
 </button>
 
 <style>
