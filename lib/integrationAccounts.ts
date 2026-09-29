@@ -129,6 +129,7 @@ export class IntegrationAccounts {
     if(action!=='save')throw Error('Unknown account action.');
     if(!prior.connected)throw Error('Connect this account before changing access or remembering.');
     const remembering=value.remembering;
+    if(remembering?.inactiveRule!==undefined&&(typeof remembering.inactiveRule!=='string'||remembering.inactiveRule.length>8000))throw Error('The saved inclusion rule must be under 8,000 characters.');
     if(!remembering||typeof remembering.enabled!=='boolean'||typeof remembering.rule!=='string'||remembering.rule.length>8000||(remembering.enabled&&!remembering.rule.trim()))throw Error('Automatic remembering needs a nonblank rule (up to 8,000 characters).');
     if(name==='email' && gmailReadOnly(this.root,account)) {
       const email={...prior.email??{startAt:new Date().toISOString(),attachments:false}};
@@ -146,7 +147,7 @@ export class IntegrationAccounts {
     }
     if(value.liveAccess!==undefined){
       if(typeof value.liveAccess!=='boolean'||(name==='that-tracks'&&value.liveAccess))throw Error('Choose supported live access.');
-      writeAccountPolicy(this.root,name,account,{...prior,liveAccess:value.liveAccess,grants:[],remembering:{enabled:remembering.enabled,rule:remembering.rule.trim()}});
+      writeAccountPolicy(this.root,name,account,{...prior,liveAccess:value.liveAccess,grants:[],remembering:{enabled:remembering.enabled,rule:remembering.rule.trim(),...(remembering.inactiveRule?{inactiveRule:remembering.inactiveRule}: {})}});
       return this.list();
     }
     const callers=new Set(integrationCallerChoices(this.root).map(c=>c.id)),seen=new Set<string>();
@@ -155,7 +156,7 @@ export class IntegrationAccounts {
       if(!g||!callers.has(g.caller)||seen.has(g.caller)||!['off','read','read-write'].includes(g.access)||(name==='that-tracks'&&g.access!=='off')||((name==='granola'||(name==='email'&&gmailReadOnly(this.root,account)))&&g.access==='read-write'))throw Error('Choose a supported access level for an existing caller.');
       seen.add(g.caller);return {caller:g.caller,access:g.access as LiveAccess};
     });
-    writeAccountPolicy(this.root,name,account,{...prior,remembering:{enabled:remembering.enabled,rule:remembering.rule.trim()},grants});
+    writeAccountPolicy(this.root,name,account,{...prior,remembering:{enabled:remembering.enabled,rule:remembering.rule.trim(),...(remembering.inactiveRule?{inactiveRule:remembering.inactiveRule}: {})},grants});
     return this.list();
   }
 }

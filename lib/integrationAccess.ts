@@ -101,7 +101,7 @@ export type LiveAccess = "off" | "read" | "read-write";
 export interface AccountPolicy {
   version:2; connected:boolean; fingerprint:string; checkedAt:string|null; liveAccess?:boolean;
   email?: { startAt: string; attachments: boolean; backfill?: { since: string; request: string } };
-  remembering:{enabled:boolean;rule:string}; grants:{caller:string;access:LiveAccess}[];
+  remembering:{enabled:boolean;rule:string;inactiveRule?:string}; grants:{caller:string;access:LiveAccess}[];
 }
 function accountPolicyFile(root:string,name:string,account:string):string {
   file(root,name); // Validate the adapter namespace.

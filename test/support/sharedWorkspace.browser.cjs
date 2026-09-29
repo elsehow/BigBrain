@@ -39,6 +39,13 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
  const integrationDone=page.getByRole('group',{name:'Inclusion rule review',exact:true}).getByRole('button',{name:'Done',exact:true});await integrationDone.waitFor();assert(await integrationDone.isDisabled());
  for(let i=0;i<8;i++){await page.waitForFunction(()=>document.querySelector('article .judgments button:not(:disabled)'));if(await integrationDone.isEnabled())break;const card=page.locator('article').first(),title=await card.locator('.title').innerText();await card.getByRole('button',{name:(title.startsWith('Include')?'Include: ':'Exclude: ')+title,exact:true}).click();await page.waitForFunction(old=>!Array.from(document.querySelectorAll('article .title')).some(e=>e.textContent===old),title);}
  await integrationDone.click();await page.getByRole('button',{name:'Edit inclusion rule',exact:true}).waitFor();
+ const ruleToggle=page.getByRole('checkbox',{name:'Inclusion rule',exact:true});assert(await ruleToggle.isChecked());
+ await ruleToggle.uncheck();await page.getByRole('button',{name:'Save',exact:true}).click();
+ assert.equal(await page.getByRole('button',{name:'Edit inclusion rule',exact:true}).count(),0);
+ await page.reload();await page.getByRole('button',{name:'Configure',exact:true}).click();await page.getByText('fixture@example.test',{exact:true}).first().waitFor();if(!await ruleToggle.isVisible())await page.getByText('fixture@example.test',{exact:true}).first().click();
+ await ruleToggle.waitFor();assert(!(await ruleToggle.isChecked()));await ruleToggle.check();
+ await page.getByRole('button',{name:'Edit inclusion rule',exact:true}).waitFor();await page.getByText('Sources about Example project.',{exact:true}).waitFor();
+
  // Exercise model-settings key entry without calling a paid provider.
  writeFileSync(fixture.home+'/jev-settings.json',JSON.stringify({apiKey:null}),{mode:0o600});
  await page.route('**/api/models/jev',async route=>{if(route.request().method()!=='POST')return route.continue();const {apiKey}=route.request().postDataJSON();writeFileSync(fixture.home+'/jev-settings.json',JSON.stringify({apiKey}),{mode:0o600});await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({configured:true,evaluator:'jev'})});});

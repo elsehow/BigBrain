@@ -74,3 +74,10 @@ copy of the former Granola transformation default is read as this new default;
 custom rules are preserved. Existing sources are never rewritten. Older pending
 Granola payloads remain retained until refreshed as transcript-only payloads and
 cannot block newer arrivals or be automatically admitted under this default.
+
+Integration settings expose an optional inclusion-rule toggle beneath automatic
+remembering. Off uses unconditional inclusion and hides the editor/rating flow;
+turning it off retains the custom text as `remembering.inactiveRule`. Restoring
+that rule keeps its existing learned policy. Account Save persists the toggle,
+consistent with the other account settings. A newly blank rule starts off;
+existing custom rules remain on.
