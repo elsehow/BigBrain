@@ -18,34 +18,39 @@
         {id:6,title:'A small experiment in discovery',from:'Article · Sep 18',rule:2,added:'Sep 21',manual:true}]},
     { id:2,name:'Field notes',endpoint:'notes.example.org',writable:false,rules:[],sources:[] }
   ]);
-  let expanded = $state<number|null>(1), tab = $state<'rules'|'added'>('rules'), preview = $state<number|null>(null);
+  let selected = $state<number|null>(1), tab = $state<'rules'|'added'>('rules'), preview = $state<number|null>(null);
   let checked = $state<number[]>([]), edit = $state<number|null>(null), inspect = $state<Source|null>(null);
   let adding = $state(false), newName = $state(''), newEndpoint = $state(''), notice = $state(''), theme = $state('default');
   let nextId = 10;
+  function chooseVault(id: number) { selected=id; adding=false; tab='rules'; preview=null; edit=null; checked=[]; inspect=null; notice=''; }
+  const sidebarItems = $derived([
+    {label:'Personal',selected:!adding&&selected===0,onselect:()=>chooseVault(0)},
+    ...vaults.map(v=>({label:v.name,selected:!adding&&selected===v.id,onselect:()=>chooseVault(v.id)})),
+    {label:'+ Connect vault',selected:adding,onselect:()=>{adding=true;notice='';}}
+  ]);
   function showPreview(v: Vault, r: Rule) { preview=r.id; checked=v.sources.filter(s=>s.rule===r.id&&!s.added).map(s=>s.id); notice=''; }
   function importSelected(v: Vault) { const n=checked.length; for(const s of v.sources)if(checked.includes(s.id)&&!s.added)s.added='Just now'; checked=[];notice=`${n} ${n===1?'source added':'sources added'} to ${v.name}`;tab='added';preview=null; }
-  function addVault(e: SubmitEvent) { e.preventDefault();const id=nextId++;vaults.push({id,name:newName,endpoint:newEndpoint,writable:true,rules:[],sources:[]});expanded=id;newName='';newEndpoint='';adding=false;tab='rules';notice='Sample connection added'; }
+  function addVault(e: SubmitEvent) { e.preventDefault();const id=nextId++;vaults.push({id,name:newName,endpoint:newEndpoint,writable:true,rules:[],sources:[]});selected=id;newName='';newEndpoint='';adding=false;tab='rules';notice='Sample connection added'; }
   function addRule(v: Vault) { const id=nextId++;v.rules.push({id,name:'New inclusion rule',text:'',enabled:false});edit=id; }
   $effect(()=>{ document.documentElement.dataset.theme=theme; });
 </script>
 
 <div class="workbench-bar"><span>Vaults settings · interactive study</span><div><label>Theme <select bind:value={theme}><option value="default">Light</option><option value="web">Web blue</option><option value="dusk">Dusk</option></select></label><button onclick={()=>location.reload()}>Reset</button></div></div>
 <main>
-<SettingsPage active="vaultSettings" title="VAULTS" count={`Personal + ${vaults.length} shared`} notice={notice?{ok:true,text:notice}:null}
-  extraTab={{label:'vaults',active:true,onselect:()=>{expanded=1;tab='rules';}}}>
-  <p class="intro">Search and read across all your vaults. Choose what you contribute to each shared vault.</p>
+<SettingsPage active="vaultSettings" title={adding?'CONNECT VAULT':selected===0?'PERSONAL':vaults.find(v=>v.id===selected)?.name.toUpperCase()??'VAULT'} notice={notice?{ok:true,text:notice}:null}
+  extraSection={{label:'VAULTS',active:true,items:sidebarItems}}>
   <section class="settings-list" aria-label="Vaults">
-    <div class="settings-card personal">
+    {#if !adding && selected===0}<div class="settings-card personal">
       <div class="settings-card-row"><div class="settings-card-main"><h2 class="settings-card-name">Personal</h2><span class="settings-item-note">Only you · Default for new sources</span></div><span class="local">On this device</span></div>
-    </div>
-    {#each vaults as v (v.id)}
+      <p class="quiet personal-note">Your personal sources are private. Choose a shared vault in the sidebar to manage what you contribute.</p>
+    </div>{/if}
+    {#each vaults.filter(v=>!adding&&v.id===selected) as v (v.id)}
     <section class="settings-card" aria-label={`${v.name} vault`}>
       <div class="settings-card-row">
-        <div class="settings-card-main"><h2 class="settings-card-name"><button class="vault-name" aria-expanded={expanded===v.id} onclick={()=>{expanded=expanded===v.id?null:v.id;preview=null;edit=null;tab='rules';notice='';}}>{v.name}<span aria-hidden="true">{expanded===v.id?'−':'+'}</span></button></h2>
+        <div class="settings-card-main"><h2 class="settings-card-name">{v.name}</h2>
           <span class="settings-status"><i class="ready"></i>{v.writable?'Owner · Read and write':'Member · Read only'}<code>{v.endpoint}</code></span>
         </div>
       </div>
-      {#if expanded===v.id}
       <div class="settings-card-body">
         {#if !v.writable}<p class="quiet">Everything in this vault is available in your search and graph. Read-only access doesn’t allow contributions.</p>
         {:else}
@@ -84,21 +89,20 @@
         {/if}
         {/if}
       </div>
-      {/if}
     </section>
     {/each}
     {#if adding}
       <form class="connect" onsubmit={addVault}><h2>Connect a shared vault</h2><label>Name<input required bind:value={newName} placeholder="Research group"/></label><label>Server address<input type="url" required bind:value={newEndpoint} placeholder="https://vault.example.org"/></label><label>Member credential<input type="password" placeholder="Sample credential" autocomplete="off"/></label><div><button class="settings-add" type="submit">Connect</button> <button class="text-button" type="button" onclick={()=>adding=false}>Cancel</button></div></form>
-    {:else}<button class="settings-add" onclick={()=>adding=true}>Connect shared vault</button>{/if}
+    {/if}
   </section>
 </SettingsPage>
 </main>
-<footer>Component workbench · Sample data and simulated imports · SettingsPage + SettingsRail · Based on c036939 / main 9686f88</footer>
-{#if inspect}<div class="scrim" role="presentation" onclick={e=>{if(e.target===e.currentTarget)inspect=null;}}><div class="source-preview" role="dialog" aria-modal="true" aria-label="Source preview" tabindex="-1" onkeydown={e=>{if(e.key==='Escape')inspect=null;}}><button class="close" onclick={()=>inspect=null} aria-label="Close source preview">×</button><span class="quiet">Personal → {vaults.find(v=>v.id===expanded)?.name}</span><h2>{inspect.title}</h2><p>This sample source explores how evidence, attribution, and shared knowledge can work together in a personal knowledge tool.</p><p class="quiet">{inspect.added?`Added ${inspect.added}. The personal original is retained.`:'This source has not been contributed yet.'}</p></div></div>{/if}
+<footer>Component workbench · Sample data and simulated imports · SettingsPage + SettingsRail · Based on 02b206f / main 9686f88</footer>
+{#if inspect}<div class="scrim" role="presentation" onclick={e=>{if(e.target===e.currentTarget)inspect=null;}}><div class="source-preview" role="dialog" aria-modal="true" aria-label="Source preview" tabindex="-1" onkeydown={e=>{if(e.key==='Escape')inspect=null;}}><button class="close" onclick={()=>inspect=null} aria-label="Close source preview">×</button><span class="quiet">Personal → {vaults.find(v=>v.id===selected)?.name}</span><h2>{inspect.title}</h2><p>This sample source explores how evidence, attribution, and shared knowledge can work together in a personal knowledge tool.</p><p class="quiet">{inspect.added?`Added ${inspect.added}. The personal original is retained.`:'This source has not been contributed yet.'}</p></div></div>{/if}
 <style>
-  :global(body){margin:0;background:var(--bg);color:var(--text);} main{padding:26px 0 50px;} .intro{font:var(--type-body);color:var(--text-muted);margin:0;line-height:1.55;max-width:590px;}
+  :global(body){margin:0;background:var(--bg);color:var(--text);} main{padding:26px 0 50px;} .personal-note{margin-top:24px;}
   .workbench-bar{display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--rule);padding:14px 32px;font:var(--type-meta);color:var(--text-muted);} .workbench-bar>div{display:flex;gap:20px;align-items:center;} .workbench-bar button, select{font:inherit;background:var(--bg);color:var(--text);border:1px solid var(--rule);padding:4px 8px;}footer{padding:18px 32px;font:var(--type-meta);color:var(--text-faint);border-top:1px solid var(--rule);}
-  .local{font:var(--type-meta);color:var(--text-faint);padding-top:4px;} .vault-name{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer;display:flex;gap:14px;align-items:center;} .vault-name span{font:var(--type-meta);color:var(--text-muted);}
+  .local{font:var(--type-meta);color:var(--text-faint);padding-top:4px;}
   .section-tabs{display:flex;gap:28px;border-bottom:1px solid var(--rule);} .section-tabs button{padding:0 0 12px;border:0;border-bottom:2px solid transparent;background:none;color:var(--text-muted);font:var(--type-body);cursor:pointer;}.section-tabs button[aria-selected=true]{border-bottom-color:var(--text);color:var(--text-strong);} .section-tabs span{font:var(--type-meta);margin-left:8px;color:var(--text-faint);}
   .quiet{font:var(--type-meta);color:var(--text-muted);line-height:1.6;margin:0;} .rule{border-bottom:1px solid var(--rule);padding-bottom:22px;} .rule-heading{display:flex;justify-content:space-between;align-items:center;gap:16px;} .rule-name{font:var(--type-body);font-weight:500;color:var(--text-strong);background:none;border:0;padding:0;cursor:pointer;text-align:left;}.rule-description{font:var(--type-body);color:var(--text-muted);line-height:1.55;margin:10px 0 14px;max-width:520px;}
   .toggle{display:flex;align-items:center;gap:8px;background:none;border:0;padding:0;font:var(--type-meta);color:var(--text-muted);cursor:pointer;white-space:nowrap;}.track{width:27px;height:15px;border:1px solid var(--text-faint);display:flex;align-items:center;padding:2px;box-sizing:border-box;}.track i{display:block;width:9px;height:9px;background:var(--text-faint);}.toggle[aria-checked=true] .track{border-color:var(--activity);}.toggle[aria-checked=true] i{background:var(--activity);margin-left:auto;}

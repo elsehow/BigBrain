@@ -6,7 +6,10 @@ type, tokens and tooltips. It is not a full-app preview or a connected vault.
 Baseline: continuing shared-vault experiment c036939, based on main 9686f88.
 Vite's provenance badge reports current divergence from cached origin/main.
 
-The study includes Personal, one writable shared vault, and one read-only vault.
+The settings sidebar lists Personal, one writable shared vault, and one read-only
+vault under VAULTS. Selecting a vault shows only its settings in the main panel.
+Connect vault adds another sidebar entry. This navigates settings; it does not
+switch the app’s reading context.
 Each writable shared vault owns inclusion rules and an Added by you history.
 A rule's new-source toggle is independent of reviewing/importing historical
 matches. Imports keep personal originals and remove contributed items from
