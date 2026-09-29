@@ -79,3 +79,13 @@ Primary sources:
 - https://docs.typesafe.ai/models
 - https://docs.typesafe.ai/model-jaggedness/jev-1.13
 - https://docs.typesafe.ai/legal
+
+## Withdrawal study
+
+History and recent rule contributions offer Withdraw / Restore on the signed-in
+sample member's contributions. Withdrawn rows remain in history, are omitted
+from import selections, and show that restoration is explicit. One sample has
+another contributor (Mara), whose contribution remains. These are in-memory
+states and illustrative identities, not authentication enforcement. See
+[implementation plan](../plans/shared-source-withdrawal.md) for server identity,
+permissions, replay and inclusion-worker changes.
