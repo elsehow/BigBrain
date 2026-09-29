@@ -42,14 +42,30 @@ const agent = 'pilot-11111111111111111111111111111111';
     // 2. A worker appearing IS new geometry — the renderer is rebuilt — but the
     //    rebuilt renderer adopts the camera instead of refitting the vault.
     const before = await nodeCount();
+    // Injected workers exist at the fake engine too. Worker lists are authoritative: a
+    // refresh (polling, the 30-second reconcile) drops a worker the engine does not report.
+    await page.evaluate(() => {
+      window.injectedWorkers = [];
+      const fetch = window.fetch;
+      window.fetch = async (...args) => {
+        const response = await fetch(...args);
+        const url = new URL(String(args[0] instanceof Request ? args[0].url : args[0]), location.href);
+        if (url.pathname !== '/api/pilot/work' || url.searchParams.has('id') || !window.injectedWorkers.length) return response;
+        const body = await response.json(), wanted = url.searchParams.get('ids')?.split(',');
+        const injected = window.injectedWorkers.filter(s => !wanted || wanted.includes(s.id)), ids = new Set(injected.map(s => s.id));
+        return Response.json({ ...body, sessions: [...injected, ...body.sessions.filter(s => !ids.has(s.id))] });
+      };
+    });
     await page.evaluate(async id => {
-      const { work } = await import('/src/lib/workSessions.svelte.ts');
+      const { work, refreshWork } = await import('/src/lib/workSessions.svelte.ts');
       const at = new Date().toISOString();
-      work.sessions = [{ id: 'work-11111111111111111111111111111111', title: 'Background worker', provider: 'claude',
+      window.injectedWorkers = [{ id: 'work-11111111111111111111111111111111', title: 'Background worker', provider: 'claude',
         status: 'running', cwd: '/sample/project', created: at, updated: at, revision: 1, pending: false,
         context: { requestKey: 'k', nodes: [], node: null, title: '', text: '', session: null, cwd: '/sample/project' },
         origin: { pilot: id, message: 'm1' },
-        worker: { projectId: 'p', operations: [], isolation: 'worktree' } }, ...work.sessions];
+        worker: { projectId: 'p', operations: [], isolation: 'worktree' } }];
+      work.sessions = [...window.injectedWorkers, ...work.sessions];
+      await refreshWork(); // An authoritative refresh keeps it: the engine reports it.
     }, agent);
     await page.waitForFunction(count => document.querySelector('.graph-renderer canvas').profilePresentation().nodes.length > count, before);
     const firstFrame = await camera();
@@ -69,8 +85,9 @@ const agent = 'pilot-11111111111111111111111111111111';
     await page.evaluate(async id => {
       const { work } = await import('/src/lib/workSessions.svelte.ts');
       const at = new Date().toISOString();
-      work.sessions = [{ ...work.sessions[0], status: 'waiting', updated: at, revision: 2 },
+      window.injectedWorkers = [{ ...work.sessions[0], status: 'waiting', updated: at, revision: 2 },
         { ...work.sessions[0], id: 'work-22222222222222222222222222222222', title: 'Second worker', created: at, updated: at }];
+      work.sessions = [...window.injectedWorkers];
       const { chat } = await import('/src/lib/pilotChat.svelte.ts');
       const session = chat.sessions.find(s => s.id === id);
       chat.sessions = [...chat.sessions.filter(s => s.id !== id), { ...session, phase: 'answered', revision: session.revision + 1 }];
