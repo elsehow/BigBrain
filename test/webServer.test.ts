@@ -274,7 +274,7 @@ describe("every response is armored (#692)", () => {
     const { readFileSync } = require("node:fs") as typeof import("node:fs");
     for (const f of ["web/server.ts", "bin/desktop.ts"]) {
       const src = readFileSync(join(import.meta.dir, "..", f), "utf8");
-      const at = src.indexOf("createServer((req, res) => {");
+      const at = src.search(/createServer\((?:async )?\(req, res\) => \{/);
       expect(at).toBeGreaterThan(0);
       expect(src.slice(at, at + 80)).toContain("armor(res);");
     }
