@@ -57,7 +57,8 @@ and revision. Combined reads use this mapping to avoid displaying one's own copy
 twice. Later personal edits do not automatically update an existing contribution.
 Personal assertions are not automatically published with sources.
 
-Added by you lists authenticated contributions. Only their contributing member
+Added by you lists active authenticated contributions; withdrawn rows disappear
+from this tab and recent contributions. Only their contributing member
 can withdraw or restore them, including after credential rotation. Withdrawal
 hides that contribution from normal reads and prevents automatic re-addition;
 it leaves personal originals and other members' contributions intact. It is not
