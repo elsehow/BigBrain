@@ -21,6 +21,10 @@
   let open = $state(false);
   let query = $state("");
   let selected = $state(0);
+  // The highlighted item, not its position: recents and connected rows load after the
+  // menu opens, and Tab/Enter must insert what was highlighted when it was chosen.
+  let anchor: string | undefined;
+  const highlight = (i: number) => { selected = i; anchor = rows[i]?.id; };
   let trigger: Range | undefined;
   const items = new Map<string, MentionItem>();
   $effect(() => { onmenu(open); });
@@ -37,10 +41,13 @@
     search: async (q, signal) => ({ hits: await search!(q, signal) }),
     pending: () => { pending = true; failed = false; found = []; },
     cleared: () => { pending = false; failed = false; found = []; },
-    settle: ({ hits, failed: error }) => { pending = false; failed = !!error; found = hits.filter(r => r.id !== currentId); selected = 0; },
+    settle: ({ hits, failed: error }) => { pending = false; failed = !!error; found = hits.filter(r => r.id !== currentId); selected = 0; anchor = undefined; },
   });
   $effect(() => { runSearch(open && searching ? query.trim() : ""); });
-  $effect(() => { if (selected >= rows.length) selected = 0; });
+  $effect(() => {
+    const i = anchor === undefined ? -1 : rows.findIndex(r => r.id === anchor);
+    if (i >= 0) { if (i !== selected) selected = i; } else if (selected >= rows.length) selected = 0;
+  });
   let published = "";
   let mounted = $state(false);
   // Local typing owns the DOM/caret. Only external draft changes replace it
@@ -130,7 +137,7 @@
     if (!at) { escaped = undefined; dismiss(); return; }
     if (escaped && escaped.node === at.node && escaped.query === at.query) return;
     escaped = undefined;
-    if (!open || query !== at.query) selected = 0;
+    if (!open || query !== at.query) { selected = 0; anchor = undefined; }
     query = at.query;
     trigger = at.range.cloneRange(); trigger.setStart(at.node, at.range.startOffset - at.query.length - 1);
     open = true;
@@ -161,7 +168,7 @@
         e.preventDefault(); e.stopPropagation();
         if (e.key === "Escape") escape();
         else if (["Home", "End", "ArrowDown", "ArrowUp"].includes(e.key)) {
-          selected = e.key === "Home" ? 0 : e.key === "End" ? Math.max(0, rows.length - 1) : rows.length ? stepped(selected, e.key === "ArrowDown" ? 1 : -1, rows.length) : 0;
+          highlight(e.key === "Home" ? 0 : e.key === "End" ? Math.max(0, rows.length - 1) : rows.length ? stepped(selected, e.key === "ArrowDown" ? 1 : -1, rows.length) : 0);
           void tick().then(() => document.getElementById(`${uid}-${selected}`)?.scrollIntoView({ block: "nearest" }));
         } else if (rows[selected]) choose(rows[selected]);
         return;
@@ -192,7 +199,7 @@
           {#if !searching && connectedRows.length && i === connectedRows.length}<div class="menu-label" role="presentation">Recent</div>{/if}
           <!-- svelte-ignore a11y_click_events_have_key_events (the editor owns keyboard navigation) -->
           <div role="option" tabindex="-1" id={`${uid}-${i}`} aria-selected={selected === i} class:chosen={selected === i}
-            onpointerdown={e => e.preventDefault()} onpointermove={() => selected = i} onclick={() => choose(item)}>
+            onpointerdown={e => e.preventDefault()} onpointermove={() => highlight(i)} onclick={() => choose(item)}>
             <span class="glyph" aria-hidden="true">{mentionGlyph(item)}</span>
             <span class="title">{item.title}{#if item.hint}<small>{item.hint}</small>{/if}</span><span class="tag">{item.tag}</span><span class="date">{item.date}</span>
           </div>
