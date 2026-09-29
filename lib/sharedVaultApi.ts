@@ -30,6 +30,7 @@
  * never became a path.
  */
 
+import { sharedVaultIdentity, redeemSharedInvite } from './sharedInvites';
 import {
   hasPermission,
   touchCredential,
@@ -161,8 +162,9 @@ const decodedSegment = (raw: string, json: Json): string | Response => {
 
 // ── handlers ──────────────────────────────────────────────────────────────
 
-const whoami = ({ actor, json }: RouteCtx): Response =>
+const whoami = ({ actor, vault, json }: RouteCtx): Response =>
   json(200, {
+    vault: sharedVaultIdentity(vault.root),
     handle: actor.handle,
     display: actor.display,
     member_id: actor.member_id,
@@ -273,6 +275,14 @@ function feed({ url, vault, json }: RouteCtx): Response {
 // ── the route table ──────────────────────────────────────────────────────
 
 const ROUTE_TABLE: Route[] = [
+  {method:'POST',path:'/v1/evidence/batch',permission:'write',rateLimited:true,handler:({body,vault,actor,json})=>{
+    const items=(body as {items?:unknown[]})?.items;
+    if(!Array.isArray(items)||items.length<1||items.length>20)return json(400,{error:'Batch requires 1–20 items'});
+    return json(200,{results:items.map(item=>{try{const r=vault.dropEvidence(actor,item);return {ok:true,id:r.insertion.id,deduped:r.deduped};}catch(e){return {ok:false,error:e instanceof SharedVaultError?e.message:'Contribution failed'};}})});
+  }},
+  {method:'GET',path:'/v1/contributions',permission:'read',handler:({vault,actor,json})=>json(200,{items:vault.contributions(actor)})},
+  {method:'POST',path:'/v1/contributions/:id/withdraw',permission:'write',rateLimited:true,handler:({vault,actor,params,body,json})=>json(200,vault.transitionContribution(actor,params.id!,'withdrawn',body))},
+  {method:'POST',path:'/v1/contributions/:id/restore',permission:'write',rateLimited:true,handler:({vault,actor,params,body,json})=>json(200,vault.transitionContribution(actor,params.id!,'active',body))},
   { method: "GET", path: "/v1/whoami", handler: whoami },
   { method: "POST", path: "/v1/evidence", permission: "write", rateLimited: true, handler: postEvidence },
   { method: "GET", path: "/v1/evidence", permission: "read", handler: listEvidence },
@@ -338,6 +348,14 @@ export function makeSharedApiHandler(deps: SharedApiDeps): (req: Request) => Pro
     const authHeader = req.headers.get("authorization") ?? "";
     // The scheme is case-insensitive (RFC 9110 §11.1); the credential is not.
     const presented = /^bearer /iu.test(authHeader) ? authHeader.slice(7).trim() : "";
+    if(path==='/v1/invites/redeem'&&req.method==='POST') {
+      // Invite travels in Authorization, never URL or logs. No request body.
+      const rate=takeToken('invite-redemptions');
+      if(!rate.ok)return respond(json(429,{error:'Try again shortly'}));
+      const result=redeemSharedInvite(deps.storePath,presented,now());
+      if(!result)return respond(unauthorized());
+      return respond(json(200,{token:result.token,vault:sharedVaultIdentity(deps.root)}));
+    }
     const verdict = verifyCredential(deps.storePath, presented);
     if (!verdict.ok) {
       const idHint = /^sv_([0-9a-f]{8})_/u.exec(presented)?.[1];

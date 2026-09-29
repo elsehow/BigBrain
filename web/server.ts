@@ -1,3 +1,7 @@
+import { unionGraph, unionRecent, unionSearch, unionNote } from '../lib/sharedReadUnion';
+import { sharedSettingsApi } from '../lib/sharedSettingsApi';
+import { tickRules } from '../lib/sharedRules';
+import { connectionStorePath } from '../lib/sharedConnections';
 import { sharedWorkspace } from "../lib/sharedWorkspace";
 import { allowVaultRequest, vaultIdentity } from "../lib/vaultBoundary";
 import { ApplicationChanges } from "../lib/applicationChanges";
@@ -281,8 +285,9 @@ function noteList({ res, url }: Ctx): void {
   json(res, 200, { dir, notes: listNotes(dir) });
 }
 
-function noteRead({ res, url }: Ctx): void {
+async function noteRead({ res, url }: Ctx): Promise<void> {
   const rel = url.searchParams.get("path") ?? "";
+  if(rel.startsWith('shared/')){try{const note=await unionNote(rel);json(res,note?200:404,note??{error:'Shared source unavailable'});}catch{json(res,404,{error:'Shared source unavailable'});}return;}
   const resolved = resolveNote(ROOT, rel, { markdown: path => {
     const file = noteFile(path);
     return file ? readNoteFile(ROOT, file) : undefined;
@@ -392,7 +397,7 @@ function fileRead({ res, url }: Ctx): void {
 async function recentFeed({ res, url }: Ctx): Promise<void> {
   const limit = clampLimit(url.searchParams.get("limit"), 40, 200);
   const offset = Math.trunc(Math.min(Math.max(Number(url.searchParams.get("offset")) || 0, 0), 1_000_000));
-  try { json(res, 200, await recentSourcePageAsync(ROOT, offset, limit)); }
+  try { const personal=await recentSourcePageAsync(ROOT,0,offset+limit);json(res,200,await unionRecent(ROOT,personal.recent,offset,limit,personal.total)); }
   catch (error) { json(res, 500, { error: errText(error) }); }
 }
 
@@ -479,7 +484,7 @@ function search({ req, res, url }: Ctx): void {
         };
       });
       const seen = new Set<string>();
-      const ranked = rankNavigationSearch(hits, q, graph, url.searchParams.get("purpose") === "mention").filter(h => {
+      const ranked = rankNavigationSearch([...hits,...await unionSearch(ROOT,q)], q, graph, url.searchParams.get("purpose") === "mention").filter(h => {
         if (seen.has(h.note.path)) return false;
         seen.add(h.note.path); return true;
       });
@@ -501,7 +506,7 @@ function search({ req, res, url }: Ctx): void {
 // its link graph until that additive substrate exists.
 async function graph({ res }: Ctx): Promise<void> {
   try {
-    json(res, 200, graphWithReadState(ROOT, await primaryGraphWithLayoutAsync(ROOT)));
+    json(res, 200, await unionGraph(ROOT,graphWithReadState(ROOT, await primaryGraphWithLayoutAsync(ROOT))));
   } catch (error) {
     json(res, 500, { error: errText(error) });
   }
@@ -780,9 +785,11 @@ export function start(): void {
   // server's death.
   const metrics = isDesktop() ? telemetry(ROOT) : undefined;
   metrics?.start();
+  const sharedRuleTimer=setInterval(()=>void tickRules(ROOT,connectionStorePath()),30000);sharedRuleTimer.unref();
   const server = createServer(async (req, res) => {
     armor(res);
     if (!allowLoopbackRequest(req, res)) return;
+    if (await sharedSettingsApi(req,res,ROOT)) return;
     if (await sharedWorkspace(req, res)) return;
     if (!allowVaultRequest(req, res, vaultIdentity(ROOT))) return;
     const path = (req.url ?? "").split("?")[0] ?? "";

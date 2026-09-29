@@ -48,6 +48,7 @@
  * sequence numbers. The event files themselves are create-only either way.
  */
 
+import { contributionLog, type ContributionTransition } from './sharedContributionLog';
 import { appendFileSync, closeSync, existsSync, fstatSync, openSync, readFileSync, readSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import {
@@ -89,7 +90,7 @@ const FEED_FILE = "feed.ndjson";
 export const FEED_PAGE_CAP = 200;
 export const LIST_PAGE_CAP = 200;
 export const SEARCH_CAP = 50;
-export const MAX_EVIDENCE_BYTES = 1024 * 1024;
+export const MAX_EVIDENCE_BYTES = 16 * 1024 * 1024;
 export const MAX_SOURCES_PER_ASSERTION = 20;
 
 const INS_ID = /^ins_[a-f0-9]{24}$/u;
@@ -120,6 +121,7 @@ export type FeedEntry = {
   path: string;
   actor: FeedActor;
 } & (
+  | { kind: "contribution"; id: string; contribution_id: string; status: "active" | "withdrawn" }
   | { kind: "evidence"; id: string; source_id: string }
   | { kind: "assertion"; id: string; supersedes?: string }
   | { kind: "revocation"; id: string; assertion_id: string; superseded_by?: string; mode: "correction" | "retraction" | "moderation" }
@@ -398,7 +400,7 @@ class EventIndex<T extends { id: string }> {
 
 // ── the vault ───────────────────────────────────────────────────────────────
 
-type PendingWrite = { event: SourceInsertion | AssertionEvent | RevocationEvent; feed: FeedInput };
+type PendingWrite = { event: SourceInsertion | AssertionEvent | RevocationEvent | ContributionTransition; feed: FeedInput };
 
 export interface SharedVaultOpts {
   now?: () => Date;
@@ -435,7 +437,9 @@ export class SharedVault {
   private applyPending(pending: PendingWrite[]): void {
     for (const { event, feed } of pending) {
       if (feed.id !== event.id) throw new Error("Corrupt shared write journal");
-      if (feed.kind === "evidence") {
+      if (feed.kind === "contribution") {
+        contributionLog.append(this.root, event as ContributionTransition);
+      } else if (feed.kind === "evidence") {
         const e = event as SourceInsertion;
         validateSourceInsertion(e);
         const result = appendSourceInsertionEvent(this.root, e, { wake: false });
@@ -550,6 +554,8 @@ export class SharedVault {
     const sourceId = origin.id
       ? `origin:${origin.id}`
       : `shared:${sha256hex(`${title}\u0000${body}\u0000${originAuthor}`).slice(0, 24)}`;
+    if(this.contributionState(this.contributionId(actor.member_id,sourceId))?.status==='withdrawn')
+      throw new SharedVaultError(409,'This contribution was withdrawn. Restore it explicitly before contributing again.');
     const envelope: Record<string, unknown> = {
       id: sourceId,
       kind: origin.kind ?? "note",
@@ -589,13 +595,57 @@ export class SharedVault {
     return { insertion: event, ...result };
   }
 
+  contributionId(member: string, source: string): string { return `sc_${sha256hex(`${member}\0${source}`).slice(0,24)}`; }
+  private statesHead=-1;
+  private states=new Map<string,ContributionTransition>();
+  private contributionState(id: string): ContributionTransition | undefined {
+    const head=this.head();if(head!==this.statesHead){this.states.clear();for(const event of contributionLog.read(this.root,{strict:true})){const previous=this.states.get(event.contribution_id);if(!previous||event.version>previous.version)this.states.set(event.contribution_id,event);}this.statesHead=head;}
+    return this.states.get(id);
+  }
+  private activeEvidence(e: SourceInsertion): boolean {
+    const member=e.envelope.submitted_by_id;
+    return typeof member!=='string'||this.contributionState(this.contributionId(member,e.source_id))?.status!=='withdrawn';
+  }
+  contributions(actor: SharedActor) {
+    const rows=new Map<string,{id:string;source_id:string;member_id:string;title:string;insertion_id:string;added_at:string;status:string;version:number;other_contributors:string[]}>();
+    const all=this.insertions.all();
+    for(const e of all) {
+      if(e.envelope.submitted_by_id!==actor.member_id)continue;
+      const id=this.contributionId(actor.member_id,e.source_id), state=this.contributionState(id);
+      const at=this.submittedAt(e.id)??'';
+      if(rows.has(id)&&rows.get(id)!.added_at>at)continue;
+      rows.set(id,{id,source_id:e.source_id,member_id:actor.member_id,title:e.title,insertion_id:e.id,added_at:at,status:state?.status??'active',version:state?.version??0,
+        other_contributors:[...new Set(all.filter(x=>x.source_id===e.source_id&&x.envelope.submitted_by_id!==actor.member_id&&this.activeEvidence(x)).map(x=>String(x.envelope.submitted_by)))]});
+    }
+    return [...rows.values()].sort((a,b)=>b.added_at.localeCompare(a.added_at)||a.id.localeCompare(b.id));
+  }
+  transitionContribution(actor: SharedActor,id:string,status:'active'|'withdrawn',raw:unknown) {
+    if(!/^sc_[a-f0-9]{24}$/.test(id)||!isPlainObject(raw))throw new SharedVaultError(400,'Invalid contribution request');
+    refuseForgedKeys(raw);
+    const request=raw.request_id, version=raw.version;
+    if(typeof request!=='string'||! /^[a-zA-Z0-9_-]{8,80}$/.test(request)||!Number.isSafeInteger(version)||Number(version)<0)throw new SharedVaultError(400,'request_id and version required');
+    const own=this.contributions(actor).find(c=>c.id===id);
+    if(!own)throw new SharedVaultError(403,'Only the contributor can withdraw or restore this contribution');
+    const prior=contributionLog.read(this.root,{strict:true}).find(e=>e.member_id===actor.member_id&&e.request_id===request);
+    if(prior) {
+      if(prior.contribution_id!==id||prior.status!==status||prior.version!==Number(version)+1)throw new SharedVaultError(409,'Request ID reused for another operation');
+      return {contribution:own,deduped:true};
+    }
+    if(own.version!==version)throw new SharedVaultError(409,'Contribution changed; refresh and retry');
+    if(own.status===status)return {contribution:own,deduped:true};
+    const event:ContributionTransition={event:'shared.contribution',id:`sct_${sha256hex(`${actor.member_id}\0${request}`).slice(0,24)}`,contribution_id:id,member_id:actor.member_id,source_id:own.source_id,status,version:Number(version)+1,request_id:request,created_at:this.now().toISOString(),credential_id:actor.credential_id};
+    this.commit([{event,feed:{kind:'contribution',id:event.id,contribution_id:id,status,at:event.created_at,path:contributionLog.rel(event),actor:feedActor(actor)}}]);
+    return {contribution:this.contributions(actor).find(c=>c.id===id)!,deduped:false};
+  }
+
   evidence(id: string): SourceInsertion | undefined {
     if (!INS_ID.test(id)) throw new SharedVaultError(400, "not an insertion id (ins_ + 24 hex)");
-    return this.insertions.get(id);
+    const e=this.insertions.get(id);
+    return e&&this.activeEvidence(e)?e:undefined;
   }
 
   listEvidence(opts: { limit: number; cursor?: string | null }): Page<SourceInsertion> {
-    const rows = this.insertions.all().sort((a, b) => cmp(a.id, b.id));
+    const rows = this.insertions.all().filter(e=>this.activeEvidence(e)).sort((a, b) => cmp(a.id, b.id));
     return pageBy(rows, (r) => r.id, opts);
   }
 
@@ -870,6 +920,7 @@ export class SharedVault {
     };
     const hits: SearchHit[] = [];
     for (const e of this.insertions.all()) {
+      if(!this.activeEvidence(e))continue;
       const s = score(`${e.title}\n${e.body}`);
       if (s) hits.push({ kind: "evidence", id: e.id, text: e.title, author: e.author, snippet: snippet(`${e.title}\n${e.body}`), score: s });
     }

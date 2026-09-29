@@ -1,0 +1,19 @@
+[Unit]
+Description=BigBrain authenticated shared vault
+After=network-online.target
+Wants=network-online.target
+[Service]
+User=exedev
+Group=exedev
+WorkingDirectory=/home/exedev/shared-vault-private
+ExecStart=/home/exedev/bigbrain-shared-server serve --vault /home/exedev/shared-vault-private/vault --members /home/exedev/shared-vault-private/members.json --host 0.0.0.0 --port 8000 --remote
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/exedev/shared-vault-private
+[Install]
+WantedBy=multi-user.target

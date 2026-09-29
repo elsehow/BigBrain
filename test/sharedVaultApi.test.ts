@@ -13,7 +13,7 @@ import { join } from "node:path";
 import { readAssertionLog } from "../lib/assertionLog";
 import { readRevocationLog } from "../lib/revocationLog";
 import { addMember, initMemberStore, listCredentials, mintCredential, revokeCredential, revokeMember, setMemberPermissions, usagePath } from "../lib/sharedMembers";
-import { SHARED_FEED_DIR, SharedVault } from "../lib/sharedVault";
+import { MAX_EVIDENCE_BYTES, SHARED_FEED_DIR, SharedVault } from "../lib/sharedVault";
 import { makeSharedApiHandler, SHARED_ROUTES } from "../lib/sharedVaultApi";
 
 interface World {
@@ -432,7 +432,7 @@ describe("shared vault — citations, ids and paths", () => {
       ["/v1/evidence", { title: "x", body: "y", origin: { date: "yesterday" } }, 400, /origin.date/u],
       ["/v1/evidence", { title: "x", body: "y", origin: { kind: "Not A Slug" } }, 400, /origin.kind/u],
       ["/v1/evidence", { title: "x", body: "y", origin: { steer: "the model" } }, 400, /unknown origin field/u],
-      ["/v1/evidence", { title: "x", body: "y".repeat(1024 * 1024 + 1) }, 413, /exceeds/u],
+      ["/v1/evidence", { title: "x", body: "y".repeat(MAX_EVIDENCE_BYTES + 1) }, 413, /exceeds/u],
       ["/v1/evidence", [], 400, /JSON object/u],
       ["/v1/evidence", "null", 400, /JSON object/u],
       ["/v1/evidence", "{not json", 400, /bad JSON/u],

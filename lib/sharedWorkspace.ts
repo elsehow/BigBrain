@@ -3,7 +3,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { json, readBody } from './httpx';
 import { allowVaultRequest } from './vaultBoundary';
-import { connectionStorePath, readConnections, publicConnection, saveConnection, sharedRequest, SharedConnectionError, type SharedConnection, type SharedIdentity } from './sharedConnections';
+import { connectionStorePath, readConnections, publicConnection, refreshConnectionNames, saveConnection, connectInvite, sharedRequest, SharedConnectionError, type SharedConnection, type SharedIdentity } from './sharedConnections';
 import { insertionEventRel, sourceMoment, type SourceInsertion, type SourceMetadata } from './insertionLog';
 import { sourceInsertionMarkdown, insertionFiler } from './sourceFeed';
 import { assertionSourceReferences, type AssertionEvent } from './assertionLog';
@@ -56,8 +56,8 @@ export async function sharedWorkspace(req: IncomingMessage, res: ServerResponse,
   if (selected == null && url.pathname !== '/api/shared-connections') return false;
   try {
     if (url.pathname === '/api/shared-connections') {
-      if (req.method === 'GET') json(res, 200, { connections: readConnections(store).map(publicConnection) });
-      else if (req.method === 'POST') json(res, 201, await saveConnection(store, JSON.parse(await readBody(req, 16384))));
+      if (req.method === 'GET') json(res, 200, { connections: await refreshConnectionNames(store) });
+      else if (req.method === 'POST') { const input=JSON.parse(await readBody(req,16384)); json(res,201,input.invite?await connectInvite(store,input.invite):await saveConnection(store,input)); }
       else json(res, 405, { error: 'Method not allowed.' });
       return true;
     }

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import SharedVaultSettings from "./components/SharedVaultSettings.svelte";
   import ConnectedClientsView from "./components/ConnectedClientsView.svelte";
   import { chat } from "./lib/pilotChat.svelte";
   import { navigateHistory } from "./lib/routeHistory.svelte";
@@ -112,7 +113,7 @@
   $effect(() => { startUpdateChecks(); });
 
   $effect(() => {
-    const names = { home: "Home", top: "Top", vault: "Vault", graph: "Graph", agentOrchestration: "Agent Orchestration", connectedClients: "Connected Clients", pilotSettings: "Pilot", integrations: "Integrations", agents: "Models", vaultSettings: "General", themes: "General", diagnostics: "Diagnostics", search: "Search" };
+    const names = { sharedVaultSettings: "Shared vaults", home: "Home", top: "Top", vault: "Vault", graph: "Graph", agentOrchestration: "Agent Orchestration", connectedClients: "Connected Clients", pilotSettings: "Pilot", integrations: "Integrations", agents: "Models", vaultSettings: "General", themes: "General", diagnostics: "Diagnostics", search: "Search" };
     document.title = `${names[app.view]} — BigBrain`;
   });
 
@@ -181,6 +182,8 @@
     <PilotSettingsView />
   {:else if app.view === "agents"}
     <AgentsView />
+  {:else if app.view === "sharedVaultSettings"}
+    <SharedVaultSettings />
   {:else if app.view === "vaultSettings"}
     <VaultSettingsView />
   {:else if app.view === "themes"}
