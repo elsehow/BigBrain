@@ -9,7 +9,7 @@ exact miss before rejection. No choice or saved preference is rewritten.
 
 Pi owns installed provider adapters, runtime model snapshots, authentication and
 its locked `models-store.json` persistence. BigBrain replaces the permissive Pi
-0.85.1 public overlay loader with a bounded, validating provider wrapper, using
+public overlay loader (Pi 0.87.1 today) with a bounded, validating provider wrapper, using
 Pi's `refreshModels` / generation-checked `publish` interface. There is no second
 curated model list. Only Pi built-in public providers are refreshed; Radius and
 custom provider discovery are not redirected to the public service.
@@ -32,9 +32,16 @@ Policy:
   unknown fields cannot enter runtime models; a shard carrying them, invalid
   numbers, duplicate IDs or headers other than an installed record's exact headers
   is rejected whole and the last good snapshot stays.
-- Newer pi.dev metadata that Pi 0.85.1's adapters never read (`type`,
-  `inputLimits`, `promptCache`) is dropped; non-`chat` records are skipped.
-  Tiered prices (`cost.tiers`) are installed Pi semantics and are validated and kept.
+- Fields the installed Pi reads are validated and kept. Pi 0.87 resizes prompt,
+  `read` and tool-result images to `inputLimits.images.resize` and times prompt
+  cache lifetimes by `promptCache`, so both keep their exact Pi shape within
+  bounds: image sides 256–16,384 px, 64 KiB–64 MiB per image, JPEG quality
+  10–100, requests 1 MiB–1 GiB, 1–10,000 images, cache lifetimes up to a day.
+  A malformed or out-of-bounds value rejects the shard; a well-formed key Pi
+  predates skips that record. Tiered prices (`cost.tiers`) are validated and kept.
+- `type` is never read by Pi: it is dropped, and non-`chat` records are skipped.
+  `samplingParams` enter the provider request verbatim, so, like `compat`, a
+  record must carry exactly an installed record's (none ship today) or is skipped.
 - API, endpoint, compatibility and reasoning-map combinations must already occur in
   the installed provider. A record needing new semantics is skipped by itself,
   never adapted; its bundled record (if any) stays.
@@ -58,11 +65,14 @@ Pi session preparation, concurrency, freshness, offline and malformed responses.
 Normal tests set `PI_OFFLINE`; catalog tests opt in only with injected transport.
 No paid inference, live credentials, or real vault are needed.
 
-Live check, 2026-09-28 (anonymous GETs, scratch store, no inference): all 39
-public provider shards returned 200 with an ETag and validated; 399 records were
-accepted, 62 of them newer than the bundled catalog, and the rest were skipped
-because their `compat` has moved past the installed adapters (notably most
-`anthropic` and `openai-codex` records). A credentialed-provider refresh
+Live check, 2026-09-29 (anonymous GETs, no inference), through the production
+validator: with Pi 0.85.1 398 of 1,477 records in 39 shards were accepted
+(`anthropic` 10/16, `openai-codex` 1/8), the rest skipped because their `compat`
+had moved past the installed adapters. With Pi 0.87.1 all 40 shards validated
+and 1,465 of 1,482 records were accepted, 36 newer than the bundle (`anthropic`
+16/16, `openai-codex` 8/8). The 17 still skipped (`mistral`, `openai`,
+`opencode`, `opencode-go`, `cloudflare-ai-gateway`, `github-copilot`) carry
+compat combinations no installed record has yet. On 2026-09-28 a credentialed-provider refresh
 persisted, restored offline, and revalidated with a 304; the catalog request
 carried no credential. Pi only network-refreshes providers with a stored
 credential. Publication latency and any specific future model remain unverified.
