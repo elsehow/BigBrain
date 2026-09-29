@@ -1,7 +1,7 @@
 <script lang="ts">
   import SettingsPage from '../components/SettingsPage.svelte';
   type Rule = { text: string };
-  type Source = { id: number; title: string; from: string; addedToPersonal: string; matches: boolean; added?: string; manual?: boolean };
+  type Source = { id: number; title: string; from: string; addedToPersonal: string; matches: boolean; added?: string; addedAt?: string; manual?: boolean };
   type Vault = { id: number; name: string; endpoint: string; writable: boolean; rule: Rule | null; sources: Source[] };
   let vaults = $state<Vault[]>([
     { id: 1, name: 'BigBrain', endpoint: 'vault.bigbrain.example', writable: true,
@@ -10,9 +10,9 @@
         {id:1,title:'Notes on evidence and authorship',from:'Note · Today',addedToPersonal:'2026-09-29',matches:true},
         {id:2,title:'Designing a shared knowledge graph',from:'Article · Yesterday',addedToPersonal:'2026-09-28',matches:true},
         {id:3,title:'Import preview interaction study',from:'Document · Sep 24',addedToPersonal:'2026-09-24',matches:true},
-        {id:4,title:'Local-first software: a reading list',from:'Note · Sep 22',addedToPersonal:'2026-09-22',matches:true,added:'Sep 23'},
+        {id:4,title:'Local-first software: a reading list',from:'Note · Sep 22',addedToPersonal:'2026-09-22',matches:true,added:'Sep 23',addedAt:'2026-09-23'},
         {id:5,title:'How readers choose what to read next',from:'Article · Sep 20',addedToPersonal:'2026-09-20',matches:false},
-        {id:6,title:'A small experiment in discovery',from:'Article · Sep 18',addedToPersonal:'2026-09-18',matches:false,added:'Sep 21',manual:true}]},
+        {id:6,title:'A small experiment in discovery',from:'Article · Sep 18',addedToPersonal:'2026-09-18',matches:false,added:'Sep 21',addedAt:'2026-09-21',manual:true}]},
     { id:2,name:'Field notes',endpoint:'notes.example.org',writable:false,rule:null,sources:[] }
   ]);
   let selected = $state<number|null>(1), tab = $state<'rule'|'added'>('rule'), preview = $state(false);
@@ -34,7 +34,7 @@
   function matchesInRange(v: Vault) { return v.sources.filter(s=>s.matches&&(allTime||s.addedToPersonal>=since)); }
   function showPreview(v: Vault) { preview=true; checked=matchesInRange(v).filter(s=>!s.added).map(s=>s.id); notice=''; }
   function invalidatePreview() { preview=false; checked=[]; notice=''; }
-  function importSelected(v: Vault) { const n=checked.length; for(const s of v.sources)if(checked.includes(s.id)&&!s.added)s.added='Just now'; checked=[];notice=`${n} ${n===1?'source added':'sources added'} to ${v.name}`;tab='added';preview=false; }
+  function importSelected(v: Vault) { const n=checked.length; for(const s of v.sources)if(checked.includes(s.id)&&!s.added){s.added='Just now';s.addedAt=new Date().toISOString();} checked=[];notice=`${n} ${n===1?'source added':'sources added'} to ${v.name}`;tab='added';preview=false; }
   function addVault(e: SubmitEvent) { e.preventDefault();const id=nextId++;vaults.push({id,name:newName,endpoint:newEndpoint,writable:true,rule:null,sources:[]});chooseVault(id);newName='';newEndpoint='';adding=false;tab='rule';notice='Sample connection added'; }
   $effect(()=>{ document.documentElement.dataset.theme=theme; });
 </script>
@@ -76,6 +76,12 @@
                 <div class="edit-actions"><button class="text-button" onclick={()=>editRule(v)}>Edit rule</button><button class="text-button" onclick={()=>removeRule(v)}>Remove rule</button></div>
               </div>
               <p class="rule-text">{v.rule.text}</p>
+              <details class="recent-items">
+                <summary>Recently added by this rule</summary>
+                {#each v.sources.filter(s=>s.added&&!s.manual).sort((a,b)=>(b.addedAt??'').localeCompare(a.addedAt??'')).slice(0,5) as source (source.id)}
+                  <div class="contribution"><button class="source-title" onclick={()=>inspect=source}>{source.title}<small>{source.from}</small></button><span class="added-status">{source.added}</span></div>
+                {:else}<p class="quiet">No items added by this rule yet.</p>{/each}
+              </details>
             {/if}
             {#if editing}
             <div class="test-range">
@@ -122,6 +128,7 @@
   .local{font:var(--type-meta);color:var(--text-faint);padding-top:4px;}
   .section-tabs{display:flex;gap:28px;border-bottom:1px solid var(--rule);} .section-tabs button{padding:0 0 12px;border:0;border-bottom:2px solid transparent;background:none;color:var(--text-muted);font:var(--type-body);cursor:pointer;}.section-tabs button[aria-selected=true]{border-bottom-color:var(--text);color:var(--text-strong);} .section-tabs span{font:var(--type-meta);margin-left:8px;color:var(--text-faint);}
   .quiet{font:var(--type-meta);color:var(--text-muted);line-height:1.6;margin:0;} .rule{border-bottom:1px solid var(--rule);padding-bottom:22px;} .rule-heading{display:flex;justify-content:space-between;align-items:center;gap:16px;}
+  .recent-items summary{font:var(--type-meta);color:var(--text-muted);cursor:pointer;}.recent-items[open] summary{margin-bottom:18px;}.recent-items .contribution{padding-top:12px;}
   .rule-text{font:var(--type-body);line-height:1.6;margin:20px 0 24px;}.edit-actions{display:flex;align-items:center;gap:18px;}
   .test-range{display:flex;align-items:center;gap:24px;margin:0 0 18px;flex-wrap:wrap;}.all-time{display:flex;align-items:center;gap:8px;}.date-range{white-space:nowrap;display:flex;align-items:center;gap:10px;}.date-range input{width:auto;}.date-range.inactive{opacity:.4;}
 
