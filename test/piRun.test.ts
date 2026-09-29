@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import * as pi from "@earendil-works/pi-coding-agent";
-import { InMemoryCredentialStore, createAssistantMessageEventStream, type AssistantMessage } from "@earendil-works/pi-ai";
+import { InMemoryCredentialStore, createAssistantMessageEventStream, getCurrentTools, type AssistantMessage } from "@earendil-works/pi-ai";
 import { spawnSync } from "node:child_process";
 import { applyConfig } from "../lib/config";
 import { runAgent } from "../lib/run/agent";
@@ -65,16 +65,16 @@ test("ChatGPT background jobs use Pi with role-scoped tools and machine identity
     expect(readFileSync(join(f.root, "memory/MEMORY.md"), "utf8")).toContain("Ada");
     expect(readModelRuns(f.root, "").some(r => r.sessionId === memory.sessionId)).toBe(true);
     expect(memory.usage).toMatchObject({ turns: 2, input_tokens: 20, cost_usd: null });
-    expect(f.contexts[0].tools.map((t: any) => t.name)).not.toContain("bash");
+    expect(getCurrentTools(f.contexts[0].messages).map((t: any) => t.name)).not.toContain("bash");
     frames.push(call("read_note", { path: "memory/MEMORY.md" }));
     await runPi({ root: f.root, provider: "openai-codex", role: "tend", model: f.model, prompt: "Try to read memory", timeoutMs: 2000 }, f.load);
     expect(f.contexts.at(-1).messages.some((m: any) => m.role === "toolResult" && m.isError)).toBe(true);
-    expect(f.contexts.at(-1).tools.map((t: any) => t.name)).not.toContain("write_memory");
+    expect(getCurrentTools(f.contexts.at(-1).messages).map((t: any) => t.name)).not.toContain("write_memory");
     frames.push(call("write_memory", { path: "log/forbidden.md", content: "Forbidden" }));
     await runPi({ root: f.root, provider: "openai-codex", role: MEMORY_ROLE, model: f.model, prompt: "Try to write outside memory", timeoutMs: 2000 }, f.load);
     expect(f.contexts.at(-1).messages.some((m: any) => m.role === "toolResult" && m.isError)).toBe(true);
     await runPi({ root: f.root, provider: "openai-codex", role: "quick", model: f.model, prompt: "Summarize", noTools: true, timeoutMs: 2000 }, f.load);
-    expect(f.contexts.at(-1).tools ?? []).toHaveLength(0);
+    expect(getCurrentTools(f.contexts.at(-1).messages)).toHaveLength(0);
   } finally { f.close(); }
 });
 test("a dropped arrival is settled through Pi's gardener tools", async () => {

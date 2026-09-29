@@ -8,18 +8,43 @@ import type { CreateModelRuntimeOptions, ModelRuntime } from "@earendil-works/pi
 
 export const CATALOG_INTERVAL = 4 * 60 * 60_000;
 const MAX_BYTES = 4 * 1024 * 1024;
-const keys = new Set(["id", "name", "provider", "api", "baseUrl", "reasoning", "input", "cost", "contextWindow", "maxTokens", "compat", "thinkingLevelMap", "headers"]);
-// Newer pi.dev metadata that the installed adapters never read: dropping it is
+const keys = new Set(["id", "name", "provider", "api", "baseUrl", "reasoning", "input", "cost", "contextWindow", "maxTokens", "compat", "thinkingLevelMap", "headers", "samplingParams", "inputLimits", "promptCache"]);
+// pi.dev metadata that the installed adapters never read: dropping it is
 // exactly what the installed runtime does with it.
-const descriptive = new Set(["type", "inputLimits", "promptCache"]);
+const descriptive = new Set(["type"]);
 const finite = (n: unknown) => typeof n === "number" && Number.isFinite(n) && n >= 0;
 const text = (s: unknown) => typeof s === "string" && s.length > 0 && s.length <= 256 && !/[\x00-\x1f\x7f]/.test(s);
 const equal = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
-const rates = (c: unknown, extra: string[] = []) => !!c && typeof c === "object" && !Array.isArray(c)
+const plain = (o: unknown): o is Record<string, unknown> => !!o && typeof o === "object" && !Array.isArray(o);
+const rates = (c: unknown, extra: string[] = []) => plain(c)
   && Object.keys(c).sort().join() === ["cacheRead", "cacheWrite", "input", "output", ...extra].sort().join() && Object.values(c).every(finite);
 // Pi prices a request by its highest matching input tier (ModelCost.tiers).
 const validCost = (c: unknown) => { if (!c || typeof c !== "object") return false; const { tiers, ...base } = c as { tiers?: unknown };
   return rates(base) && (tiers === undefined || Array.isArray(tiers) && tiers.length <= 16 && tiers.every(t => rates(t, ["inputTokensAbove"]))); };
+const integer = (min: number, max: number) => (n: unknown) => Number.isSafeInteger(n) && (n as number) >= min && (n as number) <= max;
+type Shape = { [key: string]: ((v: unknown) => boolean) | Shape };
+const MiB = 1024 * 1024;
+// Pi 0.87 resizes prompt, read and tool-result images to `inputLimits.images.resize`
+// and warms prompt caches for `promptCache` lifetimes (seconds). Bounds keep a
+// hostile shard from shrinking images to nothing or holding a cache open for days.
+const inputLimits: Shape = { maxRequestBytes: integer(MiB, 1024 * MiB), images: {
+  resize: { maxWidth: integer(256, 16_384), maxHeight: integer(256, 16_384), maxBytes: integer(64 * 1024, 64 * MiB), jpegQuality: integer(10, 100) },
+  maxPerMessage: integer(1, 10_000), maxPerRequest: integer(1, 10_000) } };
+const lifetime = (n: unknown) => finite(n) && (n as number) > 0 && (n as number) <= 86_400;
+const promptCache: Shape = { short: lifetime, long: lifetime };
+/** "bad": malformed or out of bounds; "newer": well formed but carries keys the installed Pi predates. */
+function conform(value: unknown, shape: Shape): "ok" | "bad" | "newer" {
+  if (!plain(value)) return "bad";
+  let result: "ok" | "newer" = "ok";
+  for (const [key, v] of Object.entries(value)) {
+    const rule = shape[key];
+    if (!rule) { result = "newer"; continue; }
+    const inner = typeof rule === "function" ? (rule(v) ? "ok" : "bad") : conform(v, rule);
+    if (inner === "bad") return "bad";
+    if (inner === "newer") result = "newer";
+  }
+  return result;
+}
 /** Hostile or malformed records reject the whole shard (last good stays). Records the
  * installed adapter cannot serve as published are skipped one by one, never adapted. */
 export function validateCatalog(value: unknown, provider: Provider): Model<Api>[] {
@@ -38,17 +63,20 @@ export function validateCatalog(value: unknown, provider: Provider): Model<Api>[
       || typeof m.reasoning !== "boolean" || !Array.isArray(m.input) || !m.input.length || m.input.some((v: unknown) => v !== "text" && v !== "image")
       || !Number.isSafeInteger(m.contextWindow) || m.contextWindow <= 0 || !Number.isSafeInteger(m.maxTokens) || m.maxTokens <= 0
       || !(validCost(m.cost) || !!installed && equal(installed.cost, m.cost))) throw new Error("Invalid catalog model");
+    const limits = [m.inputLimits === undefined ? "ok" : conform(m.inputLimits, inputLimits), m.promptCache === undefined ? "ok" : conform(m.promptCache, promptCache)];
+    if (limits.includes("bad")) throw new Error("Invalid catalog model");
     // Remote headers never enter a runtime model: only an installed record's exact headers.
     if (m.headers !== undefined && !baseline.some(b => b.headers && equal(b.headers, m.headers))) throw new Error("Invalid catalog model");
     ids.add(m.id);
-    if ("type" in record && record.type !== "chat") return [];
+    if ("type" in record && record.type !== "chat" || limits.includes("newer")) return [];
     // A server-side fallback serves a different model than the one chosen: a remote
     // record may keep the installed record's exact list, never introduce one.
     if (m.compat?.allowedFallbackModels !== undefined && !equal((installed?.compat as Record<string, unknown> | undefined)?.allowedFallbackModels, m.compat.allowedFallbackModels)) return [];
     // Unknown protocol/configuration semantics require an adapter release. Never
     // infer compatibility from a model name or copy remote headers/instructions.
+    // Sampling parameters enter the provider request verbatim: installed ones only.
     if (!baseline.some(b => b.api === m.api && b.baseUrl === m.baseUrl
-      && equal(b.compat, m.compat) && equal(b.thinkingLevelMap, m.thinkingLevelMap))) return [];
+      && equal(b.compat, m.compat) && equal(b.thinkingLevelMap, m.thinkingLevelMap) && equal(b.samplingParams, m.samplingParams))) return [];
     return [{ ...m, provider: provider.id } as Model<Api>];
   });
 }

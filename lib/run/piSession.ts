@@ -64,7 +64,9 @@ export class PiSession implements ModelSession {
     if (this.setup.output?.maxTokens && model.api === "openai-codex-responses")
       throw new Error("ChatGPT subscription transport cannot enforce a hard output-token limit. Use maxCharacters for a host-enforced output bound.");
     const cwd = sessionRuntimeDirectory(this.setup);
-    const settingsManager = sdk.SettingsManager.inMemory({ retry: { enabled: false }, enableAnalytics: false, enableInstallTelemetry: false });
+    // Pi's cache warming re-sends requests on its own timer, outside this wrapper's
+    // accounting, subscription checks and output bounds: no unrequested inference.
+    const settingsManager = sdk.SettingsManager.inMemory({ retry: { enabled: false }, enableAnalytics: false, enableInstallTelemetry: false, cacheWarming: "off" });
     const resourceLoader = new sdk.DefaultResourceLoader({ cwd, agentDir: cwd, settingsManager,
       noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
       systemPrompt: this.setup.instructions });

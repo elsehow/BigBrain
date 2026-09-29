@@ -11,7 +11,7 @@ import { fakePi } from "./support/pi";
 
 const cleanups: (() => void)[] = [];
 afterEach(() => { for (const fn of cleanups.splice(0).reverse()) fn(); });
-// The bundled record that carries a fallback list (Pi 0.85.1: claude-fable-5).
+// The bundled record that carries a fallback list (Pi 0.87.1: claude-fable-5).
 const withFallback = () => builtinProviders().find(p => p.id === "anthropic")!.getModels()
   .find(m => (m.compat as { allowedFallbackModels?: unknown[] } | undefined)?.allowedFallbackModels?.length) as Model<Api>;
 

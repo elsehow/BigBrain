@@ -189,12 +189,31 @@ test("different runtime accounts share public metadata, never configured auth or
   expect(disconnected.getAvailableSnapshot().some(m => m.id === f.model.id)).toBe(false);
 });
 
-test("the live pi.dev record shape is accepted without its unread metadata, and never adds a fallback model", async () => {
+test("the live pi.dev record shape keeps the limits Pi reads, drops its unread type, and never adds a fallback model", async () => {
   const f = await fixture();
-  // Shape observed on https://pi.dev/api/models/providers/* on 2026-09-28 (fabricated values).
-  const live = { ...f.model, type: "chat", promptCache: { short: 300, long: 3600 }, inputLimits: { maxRequestBytes: 1024, images: { maxPerRequest: 2 } } };
+  // Shape observed on https://pi.dev/api/models/providers/* on 2026-09-29 (fabricated values).
+  const limits = { maxRequestBytes: 32 * 1024 * 1024, images: { maxPerMessage: 20, maxPerRequest: 100, resize: { maxWidth: 2000, maxHeight: 2000, maxBytes: 4_718_592, jpegQuality: 80 } } };
+  const live = { ...f.model, type: "chat", promptCache: { short: 300, long: 3600 }, inputLimits: limits };
   const [accepted] = validateCatalog({ [live.id]: live }, f.provider);
-  expect(accepted).toEqual({ ...f.model, provider: "openai-codex" });
+  // Pi 0.87 resizes images to inputLimits and times cache lifetimes by promptCache: both are kept.
+  const { type: _type, ...kept } = live;
+  expect(accepted).toEqual({ ...kept, provider: "openai-codex" });
+  // Out-of-bounds or malformed limits are hostile: the whole shard is rejected.
+  for (const change of [{ inputLimits: { images: { resize: { maxWidth: 1 } } } }, { inputLimits: { maxRequestBytes: 1.5 } }, { inputLimits: "none" },
+    { inputLimits: { images: { resize: { jpegQuality: 101 } } } }, { promptCache: { long: 30 * 86_400 } }, { promptCache: { short: -1 } }, { promptCache: [300] }]) {
+    expect(() => validateCatalog([f.model, { ...live, ...change, id: "fabricated-limits" }], f.provider)).toThrow();
+  }
+  // Well-formed limits the installed Pi predates, and sampling parameters it never
+  // shipped, are newer semantics: that record alone is skipped.
+  for (const change of [{ inputLimits: { ...limits, audio: { maxSeconds: 60 } } }, { promptCache: { short: 300, extended: 86_400 } }, { samplingParams: { temperature: 2 } }]) {
+    expect(validateCatalog([f.model, { ...live, ...change, id: "fabricated-newer" }], f.provider).map(m => m.id)).toEqual([f.model.id]);
+  }
+  // Pi 0.87 ships the compat of the current Anthropic and Codex records; a new model reusing it is accepted.
+  for (const id of ["anthropic", "openai-codex"]) {
+    const provider = f.runtime.getProvider(id)!;
+    const current = provider.getModels().find(m => Object.keys(m.compat ?? {}).includes("supportsMidConvoSystemMessages") && !(m.compat as Record<string, unknown>).allowedFallbackModels)!;
+    expect(validateCatalog([{ ...current, id: `fabricated-${id}-next`, type: "chat" }], provider).map(m => m.id)).toEqual([`fabricated-${id}-next`]);
+  }
   // Tiered pricing is installed Pi semantics (ModelCost.tiers) and is kept.
   const tiered = { ...f.model.cost, tiers: [{ ...f.model.cost, input: 9, inputTokensAbove: 200_000 }] };
   expect(validateCatalog([{ ...live, cost: tiered }], f.provider)[0]?.cost).toEqual(tiered);
@@ -209,6 +228,19 @@ test("the live pi.dev record shape is accepted without its unread metadata, and 
   expect(validateCatalog([installed], anthropic).map(m => m.id)).toEqual([installed.id]);
   expect(validateCatalog([{ ...installed, id: "fabricated-borrower" }], anthropic)).toEqual([]);
   expect(validateCatalog([{ ...installed, compat: { ...installed.compat, allowedFallbackModels: [...fallback, { provider: "anthropic", model: "fabricated-other", cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }] } }], anthropic)).toEqual([]);
+});
+
+test("a refreshed record's image limits reach the runtime model Pi resizes against, and survive a restart", async () => {
+  const f = await fixture();
+  const resize = { maxWidth: 1600, maxHeight: 1600, maxBytes: 3_000_000, jpegQuality: 75 };
+  const owner = new CatalogRefresh((async () => Response.json([{ ...f.model, type: "chat", inputLimits: { images: { resize } } }])) as typeof fetch);
+  await initializeCatalog(f.runtime, owner, false);
+  delete process.env.PI_OFFLINE;
+  expect((await exactCatalogModel(f.runtime, "openai-codex", f.model.id))?.inputLimits?.images?.resize).toEqual(resize);
+  process.env.PI_OFFLINE = "1";
+  const restarted = await pi.ModelRuntime.create(f.options);
+  await initializeCatalog(restarted, owner, false);
+  expect(restarted.getModel("openai-codex", f.model.id)?.inputLimits?.images?.resize).toEqual(resize);
 });
 
 test("real fetch: ETag revalidation keeps the snapshot on 304 and redirects are refused", async () => {
