@@ -10,11 +10,16 @@ The settings sidebar lists Personal, one writable shared vault, and one read-onl
 vault under VAULTS. Selecting a vault shows only its settings in the main panel.
 Connect vault adds another sidebar entry. This navigates settings; it does not
 switch the app’s reading context.
-Each writable shared vault owns inclusion rules and an Added by you history.
-A rule's new-source toggle is independent of reviewing/importing historical
+Each writable shared vault owns one inclusion rule and a separate Added by you tab.
+The rule is always editable. Test rule displays historical matches directly below
+it without contributing anything. All time is selected by default and disables
+the Added since date picker. Turning it off filters on the date a source was
+added to Personal (inclusive), not its publication date. This range applies only
+to the historical test. Editing the rule or range clears stale test results.
+The automatic new-match toggle is independent of testing/importing historical
 matches. Imports keep personal originals and remove contributed items from
 future sample import selections. History includes manual and rule contributions.
-Rule editing, adding a rule/vault, selection, import, history and source preview
+Rule editing, connecting a vault, testing, selection, import, history and source preview
 are simulated in memory; reload resets everything. Editing prose does not run a
 classifier: sample matches remain fabricated. No credentials or source content
 are sent to a server by the study. Connect is a simulated form.

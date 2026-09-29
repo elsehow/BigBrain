@@ -1,37 +1,37 @@
 <script lang="ts">
   import SettingsPage from '../components/SettingsPage.svelte';
   import { tooltip } from '../lib/tooltip';
-  type Rule = { id: number; name: string; text: string; enabled: boolean };
-  type Source = { id: number; title: string; from: string; rule: number; added?: string; manual?: boolean };
-  type Vault = { id: number; name: string; endpoint: string; writable: boolean; rules: Rule[]; sources: Source[] };
+  type Rule = { text: string; enabled: boolean };
+  type Source = { id: number; title: string; from: string; addedToPersonal: string; matches: boolean; added?: string; manual?: boolean };
+  type Vault = { id: number; name: string; endpoint: string; writable: boolean; rule: Rule; sources: Source[] };
   let vaults = $state<Vault[]>([
     { id: 1, name: 'BigBrain', endpoint: 'vault.bigbrain.example', writable: true,
-      rules: [
-        {id:1, name:'BigBrain development', text:'Sources about BigBrain’s design, implementation, or research. Exclude personal conversations.', enabled:true},
-        {id:2, name:'Reading and recommendations', text:'Articles about personal knowledge tools, reading interfaces, and recommender systems.', enabled:false}],
+      rule: {text:'Sources about BigBrain’s design, implementation, or research. Exclude personal conversations.', enabled:true},
       sources:[
-        {id:1,title:'Notes on evidence and authorship',from:'Note · Today',rule:1},
-        {id:2,title:'Designing a shared knowledge graph',from:'Article · Yesterday',rule:1},
-        {id:3,title:'Import preview interaction study',from:'Document · Sep 24',rule:1},
-        {id:4,title:'Local-first software: a reading list',from:'Note · Sep 22',rule:1,added:'Sep 23'},
-        {id:5,title:'How readers choose what to read next',from:'Article · Sep 20',rule:2},
-        {id:6,title:'A small experiment in discovery',from:'Article · Sep 18',rule:2,added:'Sep 21',manual:true}]},
-    { id:2,name:'Field notes',endpoint:'notes.example.org',writable:false,rules:[],sources:[] }
+        {id:1,title:'Notes on evidence and authorship',from:'Note · Today',addedToPersonal:'2026-09-29',matches:true},
+        {id:2,title:'Designing a shared knowledge graph',from:'Article · Yesterday',addedToPersonal:'2026-09-28',matches:true},
+        {id:3,title:'Import preview interaction study',from:'Document · Sep 24',addedToPersonal:'2026-09-24',matches:true},
+        {id:4,title:'Local-first software: a reading list',from:'Note · Sep 22',addedToPersonal:'2026-09-22',matches:true,added:'Sep 23'},
+        {id:5,title:'How readers choose what to read next',from:'Article · Sep 20',addedToPersonal:'2026-09-20',matches:false},
+        {id:6,title:'A small experiment in discovery',from:'Article · Sep 18',addedToPersonal:'2026-09-18',matches:false,added:'Sep 21',manual:true}]},
+    { id:2,name:'Field notes',endpoint:'notes.example.org',writable:false,rule:{text:'',enabled:false},sources:[] }
   ]);
-  let selected = $state<number|null>(1), tab = $state<'rules'|'added'>('rules'), preview = $state<number|null>(null);
-  let checked = $state<number[]>([]), edit = $state<number|null>(null), inspect = $state<Source|null>(null);
+  let selected = $state<number|null>(1), tab = $state<'rule'|'added'>('rule'), preview = $state(false);
+  let checked = $state<number[]>([]), inspect = $state<Source|null>(null);
   let adding = $state(false), newName = $state(''), newEndpoint = $state(''), notice = $state(''), theme = $state('default');
+  let allTime = $state(true), since = $state('2026-09-01');
   let nextId = 10;
-  function chooseVault(id: number) { selected=id; adding=false; tab='rules'; preview=null; edit=null; checked=[]; inspect=null; notice=''; }
+  function chooseVault(id: number) { selected=id; adding=false; tab='rule'; preview=false; allTime=true; since='2026-09-01'; checked=[]; inspect=null; notice=''; }
   const sidebarItems = $derived([
     {label:'Personal',selected:!adding&&selected===0,onselect:()=>chooseVault(0)},
     ...vaults.map(v=>({label:v.name,selected:!adding&&selected===v.id,onselect:()=>chooseVault(v.id)})),
     {label:'+ Connect vault',selected:adding,onselect:()=>{adding=true;notice='';}}
   ]);
-  function showPreview(v: Vault, r: Rule) { preview=r.id; checked=v.sources.filter(s=>s.rule===r.id&&!s.added).map(s=>s.id); notice=''; }
-  function importSelected(v: Vault) { const n=checked.length; for(const s of v.sources)if(checked.includes(s.id)&&!s.added)s.added='Just now'; checked=[];notice=`${n} ${n===1?'source added':'sources added'} to ${v.name}`;tab='added';preview=null; }
-  function addVault(e: SubmitEvent) { e.preventDefault();const id=nextId++;vaults.push({id,name:newName,endpoint:newEndpoint,writable:true,rules:[],sources:[]});selected=id;newName='';newEndpoint='';adding=false;tab='rules';notice='Sample connection added'; }
-  function addRule(v: Vault) { const id=nextId++;v.rules.push({id,name:'New inclusion rule',text:'',enabled:false});edit=id; }
+  function matchesInRange(v: Vault) { return v.sources.filter(s=>s.matches&&(allTime||s.addedToPersonal>=since)); }
+  function showPreview(v: Vault) { preview=true; checked=matchesInRange(v).filter(s=>!s.added).map(s=>s.id); notice=''; }
+  function invalidatePreview() { preview=false; checked=[]; notice=''; }
+  function importSelected(v: Vault) { const n=checked.length; for(const s of v.sources)if(checked.includes(s.id)&&!s.added)s.added='Just now'; checked=[];notice=`${n} ${n===1?'source added':'sources added'} to ${v.name}`;tab='added';preview=false; }
+  function addVault(e: SubmitEvent) { e.preventDefault();const id=nextId++;vaults.push({id,name:newName,endpoint:newEndpoint,writable:true,rule:{text:'',enabled:false},sources:[]});chooseVault(id);newName='';newEndpoint='';adding=false;tab='rule';notice='Sample connection added'; }
   $effect(()=>{ document.documentElement.dataset.theme=theme; });
 </script>
 
@@ -55,36 +55,35 @@
         {#if !v.writable}<p class="quiet">Everything in this vault is available in your search and graph. Read-only access doesn’t allow contributions.</p>
         {:else}
         <div class="section-tabs" role="tablist" aria-label={`${v.name} contributions`}>
-          <button role="tab" aria-selected={tab==='rules'} onclick={()=>{tab='rules';notice='';}}>Inclusion rules <span>{v.rules.length}</span></button>
+          <button role="tab" aria-selected={tab==='rule'} onclick={()=>{tab='rule';notice='';}}>Inclusion rule</button>
           <button role="tab" aria-selected={tab==='added'} onclick={()=>{tab='added';notice='';}}>Added by you <span>{v.sources.filter(s=>s.added).length}</span></button>
         </div>
-        {#if tab==='rules'}
-          <p class="quiet">Rules select sources from Personal. Import existing matches, or add new matches automatically.</p>
-          {#each v.rules as rule (rule.id)}
-          <section class="rule" aria-label={rule.name}>
-            <div class="rule-heading"><button class="rule-name" onclick={()=>edit=edit===rule.id?null:rule.id}>{rule.name}</button>
-              <button class="toggle" role="switch" aria-checked={rule.enabled} aria-label={`Automatically add new sources: ${rule.name}`} onclick={()=>rule.enabled=!rule.enabled} use:tooltip={'Applies to new sources only. Existing contributions stay shared.'}><span class="track"><i></i></span>New sources {rule.enabled?'on':'off'}</button>
+        {#if tab==='rule'}
+          <p class="quiet">Choose what to contribute from Personal. Test the rule to review existing matches.</p>
+          <section class="rule" aria-label="Inclusion rule">
+            <div class="rule-edit"><label>Include sources that…<textarea rows="4" bind:value={v.rule.text} oninput={invalidatePreview} placeholder="Describe which sources belong in this vault."></textarea></label></div>
+            <div class="test-range">
+              <label class="all-time"><input type="checkbox" bind:checked={allTime} onchange={invalidatePreview}/>All time</label>
+              <label class="date-range" class:inactive={allTime}>Added since<input type="date" bind:value={since} disabled={allTime} onchange={invalidatePreview}/></label>
             </div>
-            {#if edit===rule.id}
-              <div class="rule-edit"><label>Name<input bind:value={rule.name}/></label><label>Include sources that…<textarea rows="3" bind:value={rule.text}></textarea></label><button class="settings-add" onclick={()=>{edit=null;preview=null;}}>Done</button></div>
-            {:else}<p class="rule-description">{rule.text||'Describe which sources belong in this vault.'}</p>{/if}
-            <button class="text-button" onclick={()=>preview===rule.id?preview=null:showPreview(v,rule)}>{preview===rule.id?'Hide matches':'Review existing matches'} <span aria-hidden="true">{preview===rule.id?'↑':'→'}</span></button>
-            {#if preview===rule.id}
+            <div class="rule-heading">
+              <button class="settings-add" disabled={!v.rule.text.trim()||(!allTime&&!since)} onclick={()=>showPreview(v)}>Test rule</button>
+              <button class="toggle" role="switch" aria-checked={v.rule.enabled} aria-label="Automatically add new matches" onclick={()=>v.rule.enabled=!v.rule.enabled} use:tooltip={'Applies to new sources only. Existing contributions stay shared.'}><span class="track"><i></i></span>Automatically add new matches</button>
+            </div>
+            {#if preview}
               <div class="matches">
-                <p class="quiet">{v.sources.filter(s=>s.rule===rule.id&&!s.added).length} not yet added · {v.sources.filter(s=>s.rule===rule.id&&s.added).length} already added</p>
-                {#each v.sources.filter(s=>s.rule===rule.id&&!s.added) as source (source.id)}
+                <p class="quiet">{matchesInRange(v).filter(s=>!s.added).length} not yet added · {matchesInRange(v).filter(s=>s.added).length} already added</p>
+                {#each matchesInRange(v).filter(s=>!s.added) as source (source.id)}
                   <div class="source-row"><input type="checkbox" aria-label={`Select ${source.title}`} checked={checked.includes(source.id)} onchange={e=>checked=e.currentTarget.checked?[...checked,source.id]:checked.filter(id=>id!==source.id)}/><button class="source-title" onclick={()=>inspect=source}>{source.title}<small>{source.from}</small></button></div>
                 {:else}<p class="quiet">No new matches to import.</p>{/each}
-                {#if v.sources.some(s=>s.rule===rule.id&&!s.added)}<div class="import-row"><button class="settings-add" disabled={!checked.length} onclick={()=>importSelected(v)}>Import {checked.length} {checked.length===1?'source':'sources'} to {v.name}</button><span class="quiet">Personal originals stay in your vault.</span></div>{/if}
+                {#if matchesInRange(v).some(s=>!s.added)}<div class="import-row"><button class="settings-add" disabled={!checked.length} onclick={()=>importSelected(v)}>Import {checked.length} {checked.length===1?'source':'sources'} to {v.name}</button><span class="quiet">Personal originals stay in your vault.</span></div>{/if}
               </div>
             {/if}
           </section>
-          {/each}
-          <button class="settings-add" onclick={()=>addRule(v)}>Add inclusion rule</button>
         {:else}
-          <p class="quiet">Sources you’ve contributed from Personal, through rules or by hand.</p>
+          <p class="quiet">Sources you’ve contributed from Personal, through this rule or by hand.</p>
           {#each v.sources.filter(s=>s.added).reverse() as source (source.id)}
-            <div class="contribution"><button class="source-title" onclick={()=>inspect=source}>{source.title}<small>{source.manual?'Added manually':v.rules.find(r=>r.id===source.rule)?.name}</small></button><span class="added-status">Added<small>{source.added}</small></span></div>
+            <div class="contribution"><button class="source-title" onclick={()=>inspect=source}>{source.title}<small>{source.manual?'Added manually':'Inclusion rule'}</small></button><span class="added-status">Added<small>{source.added}</small></span></div>
           {:else}<p class="quiet">You haven’t contributed any sources yet.</p>{/each}
         {/if}
         {/if}
@@ -97,16 +96,17 @@
   </section>
 </SettingsPage>
 </main>
-<footer>Component workbench · Sample data and simulated imports · SettingsPage + SettingsRail · Based on 02b206f / main 9686f88</footer>
+<footer>Component workbench · Sample data, matches and imports · SettingsPage + SettingsRail · Based on 185d6e8 / main 9686f88</footer>
 {#if inspect}<div class="scrim" role="presentation" onclick={e=>{if(e.target===e.currentTarget)inspect=null;}}><div class="source-preview" role="dialog" aria-modal="true" aria-label="Source preview" tabindex="-1" onkeydown={e=>{if(e.key==='Escape')inspect=null;}}><button class="close" onclick={()=>inspect=null} aria-label="Close source preview">×</button><span class="quiet">Personal → {vaults.find(v=>v.id===selected)?.name}</span><h2>{inspect.title}</h2><p>This sample source explores how evidence, attribution, and shared knowledge can work together in a personal knowledge tool.</p><p class="quiet">{inspect.added?`Added ${inspect.added}. The personal original is retained.`:'This source has not been contributed yet.'}</p></div></div>{/if}
 <style>
   :global(body){margin:0;background:var(--bg);color:var(--text);} main{padding:26px 0 50px;} .personal-note{margin-top:24px;}
   .workbench-bar{display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--rule);padding:14px 32px;font:var(--type-meta);color:var(--text-muted);} .workbench-bar>div{display:flex;gap:20px;align-items:center;} .workbench-bar button, select{font:inherit;background:var(--bg);color:var(--text);border:1px solid var(--rule);padding:4px 8px;}footer{padding:18px 32px;font:var(--type-meta);color:var(--text-faint);border-top:1px solid var(--rule);}
   .local{font:var(--type-meta);color:var(--text-faint);padding-top:4px;}
   .section-tabs{display:flex;gap:28px;border-bottom:1px solid var(--rule);} .section-tabs button{padding:0 0 12px;border:0;border-bottom:2px solid transparent;background:none;color:var(--text-muted);font:var(--type-body);cursor:pointer;}.section-tabs button[aria-selected=true]{border-bottom-color:var(--text);color:var(--text-strong);} .section-tabs span{font:var(--type-meta);margin-left:8px;color:var(--text-faint);}
-  .quiet{font:var(--type-meta);color:var(--text-muted);line-height:1.6;margin:0;} .rule{border-bottom:1px solid var(--rule);padding-bottom:22px;} .rule-heading{display:flex;justify-content:space-between;align-items:center;gap:16px;} .rule-name{font:var(--type-body);font-weight:500;color:var(--text-strong);background:none;border:0;padding:0;cursor:pointer;text-align:left;}.rule-description{font:var(--type-body);color:var(--text-muted);line-height:1.55;margin:10px 0 14px;max-width:520px;}
+  .quiet{font:var(--type-meta);color:var(--text-muted);line-height:1.6;margin:0;} .rule{border-bottom:1px solid var(--rule);padding-bottom:22px;} .rule-heading{display:flex;justify-content:space-between;align-items:center;gap:16px;}
+  .test-range{display:flex;align-items:center;gap:24px;margin:0 0 18px;flex-wrap:wrap;}.all-time{display:flex;align-items:center;gap:8px;}.date-range{display:flex;align-items:center;gap:10px;}.date-range input{width:auto;}.date-range.inactive{opacity:.4;}
   .toggle{display:flex;align-items:center;gap:8px;background:none;border:0;padding:0;font:var(--type-meta);color:var(--text-muted);cursor:pointer;white-space:nowrap;}.track{width:27px;height:15px;border:1px solid var(--text-faint);display:flex;align-items:center;padding:2px;box-sizing:border-box;}.track i{display:block;width:9px;height:9px;background:var(--text-faint);}.toggle[aria-checked=true] .track{border-color:var(--activity);}.toggle[aria-checked=true] i{background:var(--activity);margin-left:auto;}
-  .text-button{font:var(--type-meta);color:var(--text);background:none;border:0;padding:0;cursor:pointer;}.text-button:hover{text-decoration:underline;}.text-button span{margin-left:8px;}.matches{margin-top:18px;border-left:2px solid var(--rule);padding-left:18px;}.source-row{display:flex;align-items:center;gap:12px;padding:14px 0;border-bottom:1px solid var(--rule);}input[type=checkbox]{accent-color:var(--text);width:15px;height:15px;}.source-title{display:flex;flex-direction:column;gap:5px;min-width:0;text-align:left;font:var(--type-body);color:var(--text);background:none;border:0;padding:0;cursor:pointer;}.source-title:hover{text-decoration:underline;}small{font:var(--type-meta);color:var(--text-muted);}.import-row{display:flex;align-items:center;gap:18px;flex-wrap:wrap;margin-top:18px;}button:disabled{opacity:.4;cursor:default;}
+  .text-button{font:var(--type-meta);color:var(--text);background:none;border:0;padding:0;cursor:pointer;}.text-button:hover{text-decoration:underline;}.matches{margin-top:18px;border-left:2px solid var(--rule);padding-left:18px;}.source-row{display:flex;align-items:center;gap:12px;padding:14px 0;border-bottom:1px solid var(--rule);}input[type=checkbox]{accent-color:var(--text);width:15px;height:15px;}.source-title{display:flex;flex-direction:column;gap:5px;min-width:0;text-align:left;font:var(--type-body);color:var(--text);background:none;border:0;padding:0;cursor:pointer;}.source-title:hover{text-decoration:underline;}small{font:var(--type-meta);color:var(--text-muted);}.import-row{display:flex;align-items:center;gap:18px;flex-wrap:wrap;margin-top:18px;}button:disabled{opacity:.4;cursor:default;}
   .contribution{display:flex;justify-content:space-between;gap:24px;padding:6px 0 20px;border-bottom:1px solid var(--rule);}.added-status{display:flex;flex-direction:column;gap:5px;align-items:flex-end;font:var(--type-meta);color:var(--text);white-space:nowrap;}.rule-edit,.connect{display:grid;gap:16px;margin:18px 0;}label{display:grid;gap:7px;font:var(--type-meta);color:var(--text-muted);}input:not([type=checkbox]),textarea{box-sizing:border-box;width:100%;padding:10px;border:1px solid var(--rule);background:var(--bg);color:var(--text);font:var(--type-body);}textarea{resize:vertical;}.connect h2{font:var(--type-heading);margin:0;}
   .scrim{position:fixed;inset:0;background:#0005;display:grid;place-items:center;z-index:20;}.source-preview{position:relative;width:min(560px,calc(100vw - 80px));padding:32px;background:var(--bg);border:1px solid var(--rule);font:var(--type-body);line-height:1.6;}.source-preview h2{font:var(--type-heading);}.close{position:absolute;top:12px;right:16px;font-size:24px;color:var(--text);border:0;background:none;cursor:pointer;}
   @media(max-width:720px){.rule-heading{align-items:flex-start;flex-direction:column;}.workbench-bar{gap:12px;flex-wrap:wrap;} :global(.settings){gap:24px!important;padding-left:20px!important;padding-right:20px!important;}:global(.settings .rail){width:115px;} }
