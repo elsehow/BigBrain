@@ -31,6 +31,9 @@ const port = (name: string, fallback: number): number =>
 /** Explicit vault, ahead of the cwd walk-up and the pointer file — see
  * lib/engine.ts's discoverVaultRoot for the full order. */
 export const vaultOverride = (): string | undefined => str("BIGBRAIN_VAULT");
+/** The SHARED vault bin/shared.ts serves — explicit only, never discovered
+ * (docs/shared-vault.md): serving a vault to others is not an accident. */
+export const sharedVaultOverride = (): string | undefined => str("BIGBRAIN_SHARED_VAULT");
 export const pilotDevContextRoot = (): string | undefined => str("BIGBRAIN_PILOT_CONTEXT_ROOT");
 export const pilotDevPort = (): number => Number(str("BIGBRAIN_PILOT_DEV_PORT") ?? 5220);
 export const pilotDevUiPort = (): number => Number(str("BIGBRAIN_PILOT_UI_PORT") ?? 5221);
@@ -44,6 +47,10 @@ export const webPort = (): number => port("BIGBRAIN_WEB_PORT", 4747);
 
 /** The intake API (bin/api.ts) — the door the plugin and extension use. */
 export const apiPort = (): number => port("BIGBRAIN_API_PORT", 4748);
+
+/** The shared-vault server (bin/shared.ts) — a member-authenticated door
+ * over ONE shared vault, loopback by default (docs/shared-vault.md). */
+export const sharedPort = (): number => port("BIGBRAIN_SHARED_PORT", 4749);
 
 // ── who is running ───────────────────────────────────────────────────────────
 
@@ -80,6 +87,10 @@ export const tokenStore = (): string | undefined => str("BIGBRAIN_TOKENS");
 
 /** Override for the client-token store (lib/auth.ts). */
 export const clientTokenStore = (): string | undefined => str("BIGBRAIN_CLIENT_TOKENS");
+
+/** Override for a shared vault's member store (lib/sharedMembers.ts) —
+ * members and their credentials live OUTSIDE the vault, like drop tokens. */
+export const sharedMemberStore = (): string | undefined => str("BIGBRAIN_SHARED_MEMBERS");
 
 // ── test and diagnostic hooks ────────────────────────────────────────────────
 

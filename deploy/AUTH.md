@@ -29,3 +29,7 @@ deliberately does not proxy the viewer.
 ## See also
 
 - `docs/self-host.md` — reaching the viewer from another machine.
+- `docs/shared-vault.md` — the SHARED vault door (`bigbrain shared serve`,
+  `:4749`): member credentials rather than drop tokens, one authoritative
+  vault several people write to. Loopback by default, TLS in front when
+  remote; never the viewer.
