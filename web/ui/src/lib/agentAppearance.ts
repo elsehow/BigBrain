@@ -1,6 +1,16 @@
 import type { WorkDetail } from "../../../../lib/workViews";
+import type { PilotStatusView } from "./pilotAppearance";
 export const AGENT_STATES = ["running", "waiting", "done", "stopped"] as const;
 export type AgentVisualState = typeof AGENT_STATES[number];
+/** A worker's own words, beside the Pilot vocabulary in pilotAppearance: a
+ *  finished turn is idle and resumable, which is not the same as an answer. */
+const AGENT_STATUS: Record<AgentVisualState, PilotStatusView> = {
+  running: { label: "Working", description: "Working \u2014 this agent is running" },
+  waiting: { label: "Needs you", description: "Needs you \u2014 this agent is waiting on an answer" },
+  done: { label: "Turn finished", description: "Turn finished \u2014 idle, and resumable" },
+  stopped: { label: "Stopped", description: "Stopped \u2014 this worker is no longer running" },
+};
+export const agentStatusView = (state: AgentVisualState): PilotStatusView => AGENT_STATUS[state];
 export function agentVisualState(s: Pick<WorkDetail, "status" | "external" | "worker">): AgentVisualState {
   if (s.worker?.archivedAt || s.external?.archivedAt) return "stopped";
   return s.status === "working" || s.status === "starting" ? "running" : s.status === "needs-input" ? "waiting"

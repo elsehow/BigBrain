@@ -36,10 +36,15 @@
     untrack(() => {
       renderer?.setEffects(preset);
       if (renderer?.update(graph, draft)) { kick(); return; }
+      // New topology rebuilds the GPU graph; it must not also reframe the
+      // picture. The successor adopts the camera after its own setView.
+      const carried = renderer?.getCameraState();
       cancelGesture(); cancelAnimationFrame(frame); frame = 0; renderer?.dispose(); renderer = null;
       try {
         const next = new GraphRenderer(canvas, graph, inset, coveredLeft, preset); renderer = next;
-        next.update(graph, draft); next.setView(viewState, selected, performance.now(), reduced, centerFocus); next.highlight([highlight, probe]);
+        next.update(graph, draft); next.setView(viewState, selected, performance.now(), reduced, centerFocus);
+        if (carried?.ready) next.adoptCamera(carried.camera, carried.manual);
+        next.highlight([highlight, probe]);
         Object.assign(canvas, { profileStats: next.stats, profilePresentation: () => next.getPresentation() }); error = ''; kick();
       } catch (e) { error = String(e); }
     });
@@ -115,7 +120,9 @@
     if (id) {
       const action = graphViewAction(id, event);
       viewState = changeGraphView(committedView ?? viewState, action);
-      renderer?.setView(viewState, action.type === 'select' ? id : selected, performance.now(), reduced);
+      // A click is deliberate navigation, so it recentres even on the current
+      // view; the effect above re-applies centerFocus for the settled state.
+      renderer?.setView(viewState, action.type === 'select' ? id : selected, performance.now(), reduced, false, 'navigate');
       if (action.type === 'select') { if (onselect) onselect(id); else gotoNote(id); }
     } else clear();
     kick();

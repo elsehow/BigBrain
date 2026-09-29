@@ -2,7 +2,9 @@
   import PilotIdentityGlyph from "./PilotIdentityGlyph.svelte";
   import { SELECTOR_RATIO } from "./pilotSessionScenes";
 
-  const activities = ["draft", "idle", "active", "working"] as const;
+  // Including the states a live vault will not produce on demand: the three
+  // that must stay apart at 20-36px are draft, interrupted and failed.
+  const activities = ["draft", "idle", "active", "working", "interrupted", "failed", "unknown"] as const;
   let activity = $state<typeof activities[number]>("draft");
   let shape = $state<"triangle" | "circle">("triangle");
   let selected = $state<string | null>("session");

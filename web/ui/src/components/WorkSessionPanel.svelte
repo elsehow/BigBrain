@@ -109,6 +109,9 @@
     {#each session?.messages ?? [] as message (message.id)}
       <article><strong>{message.role === "user" ? "Task / follow-up" : message.role === "agent" ? (session?.worker ? "Agent" : session?.provider === "claude-code" ? "Claude Code" : "Codex") : "Activity"}</strong><div>{@html sanitizeHtml(md(message.text))}</div></article>
     {/each}
+    {#each session?.worker?.steering?.filter(s => (s.status === "queued" && s.delivery === "steer") || (s.status === "withdrawn" && (s.withdrawnAt ?? s.at) > (session?.messages.at(-1)?.at ?? ""))) ?? [] as s (s.id)}
+      <p>{s.status === "queued" ? "Queued for the agent" : "Not delivered"}: {s.text}{#if s.reason} ({s.reason}){/if}</p>
+    {/each}
   </div>
   {#if session?.worker && !session.worker.archivedAt && !active}<form onsubmit={e=>{e.preventDefault();void action('send',{text:followUp});}}><label>Follow-up<textarea bind:value={followUp} required></textarea></label><button disabled={busy || !followUp.trim()}>Send follow-up</button></form>{/if}
 </section>

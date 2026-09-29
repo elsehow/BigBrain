@@ -1,6 +1,7 @@
 import { anthropicQuota, type AnthropicQuota } from "./anthropicQuota";
 /** Pi supplies the agent loop and provider auth. BigBrain supplies every tool,
  * including sandboxed execution; Pi's unrestricted built-ins never run here. */
+import { createCatalogRuntime, exactCatalogModel } from "./modelCatalogRefresh";
 import { configureVaultModelAuth } from "./piModelRuntime";
 import { connectionProblem, resolveModel, type ModelExecution } from "../modelResolution";
 import { existsSync } from "node:fs";
@@ -37,9 +38,8 @@ export class PiSession implements ModelSession {
     if (this.broken) return false;
     const provider = this.setup.config.provider!;
     const signal = AbortSignal.any([this.controller.signal, AbortSignal.timeout(10_000)]);
-    const runtime = await sdk.ModelRuntime.create({ allowModelNetwork: false, signal });
-    await configureVaultModelAuth(runtime, this.setup.root);
-    const model = runtime.getModel(provider, this.setup.config.model);
+    const runtime = await createCatalogRuntime(sdk, signal, this.setup.root);
+    const model = await exactCatalogModel(runtime, provider, this.setup.config.model, signal);
     if (!model) throw new Error(runtime.getProvider(provider) ? "Choose an available model from Settings > Models." : connectionProblem(this.setup.config));
     this.transport = runtime.isUsingSubscription(provider) ? "subscription" : "api";
     if (provider === "anthropic" && this.transport !== "subscription")
@@ -135,6 +135,8 @@ export class PiSession implements ModelSession {
       const session = this.session;
       this.unsubscribe = session.subscribe(event => {
         if (!args.signal.aborted && event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") args.delta(event.assistantMessageEvent.delta);
+        // Delivery is observed here: Pi appends queued steering to the context just before the next model request.
+        if (event.type === "message_end" && event.message.role === "user") { const c = event.message.content; args.event?.("userMessage", typeof c === "string" ? c : c.filter(b => b.type === "text").map(b => b.text).join("")); }
         if (event.type === "message_end" && event.message.role === "assistant") {
           this.saveSession();
           const message = event.message;
@@ -166,6 +168,12 @@ export class PiSession implements ModelSession {
       args.signal.removeEventListener("abort", abort);
     }
   }
+  steer(text: string): boolean {
+    if (!this.active || !this.session || this.broken || this.active.signal.aborted) return false;
+    void this.session.steer(text).catch(() => {}); // Enqueues synchronously; delivery is observed as a user message.
+    return true;
+  }
+  clearSteering(): void { this.session?.clearQueue(); }
   private saveSession(): void {
     const file = this.session?.sessionFile;
     if (file && existsSync(file)) { this.setup.state.piSession = file; this.fresh = false; this.setup.save(); }

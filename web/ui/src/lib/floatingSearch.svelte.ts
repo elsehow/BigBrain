@@ -3,7 +3,8 @@ import { mergePilotSummary } from "./pilotChatSync";
 import { matchesPilotQuery, type PilotChatSummary } from "../../../../lib/pilotChatSummary";
 import type { PilotChatDetail } from "./pilotChatSync";
 import { sourceAttention, refreshSourceAttention } from "./sourceAttention.svelte";
-import { sourceReadIndex } from "./sourceReadIndex";
+import { sourceReadIndex, sourceUnreadKey } from "./sourceReadIndex";
+import { scanUnreadPage } from "./unreadSearch";
 import { api, type RecentPage } from "./api";
 import { createPagedSearch, emptyPagedResults } from "./pagedSearch";
 import type { SearchHit } from "./omnibox.svelte";
@@ -37,6 +38,10 @@ export function warmRecents(nextRevision: number): void {
 }
 // The sidebar study gives conversations their own A-key list.
 export const searchPresentation = $state({ includeAgents: true, unreadOnly: false });
+// Track the same effective membership as badges, without restarting for graph
+// geometry or unchanged provider polls. Svelte tracks node aliases and rows.
+const unreadContext = $derived(sourceUnreadKey(sourceReadIndex(chat.graph?.nodes ?? [], sourceAttention.rows)));
+export function unreadSearchContext(): string { return unreadContext; }
 export const floatingResults = $state(emptyPagedResults<SearchHit>());
 export const floatingSearch = createPagedSearch(floatingResults, async (q, offset, signal) => {
   if (q) {
@@ -48,15 +53,9 @@ export const floatingSearch = createPagedSearch(floatingResults, async (q, offse
   }
   if (searchPresentation.unreadOnly) {
     if (!sourceAttention.checked) await refreshSourceAttention();
+    signal.throwIfAborted();
     const readStates = sourceReadIndex(chat.graph?.nodes ?? [], sourceAttention.rows);
-    const hits: SearchHit[] = [];
-    let next: number | null = offset;
-    do {
-      const page = recentHits(await api.recent(100, next, signal));
-      hits.push(...page.hits.filter(hit => readStates.get(hit.note.path)?.unread === true));
-      next = page.nextOffset;
-    } while (next !== null && hits.length < RECENT_PAGE && !signal.aborted);
-    return { hits, nextOffset: next };
+    return scanUnreadPage(async (next, signal) => recentHits(await api.recent(100, next, signal)), readStates, offset, signal, RECENT_PAGE);
   }
   // The initial prefetch is shared with opening the popup; dismissing it must
   // not abort the warm that will make the next opening instant.

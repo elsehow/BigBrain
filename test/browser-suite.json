@@ -23,6 +23,7 @@
   "pilotCategories",
   "chatWritingSuggestions",
   "sidebarWorkbench",
+  "unreadSearch",
   "documentTab",
   "notePreviewPath",
   "quickBriefing",
@@ -31,7 +32,10 @@
   "sidebarDensity",
   "applicationUpdates",
   "applicationScenarios",
+  "pilotInputQueue",
   "vaultScope",
   "pilotDetailStates",
+  "pilotStatusGlyph",
+  "graphCameraStability",
   "actionHistory"
 ]

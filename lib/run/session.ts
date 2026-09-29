@@ -35,6 +35,11 @@ export interface ModelSession {
   readonly transport: "subscription" | "api";
   prepare(): Promise<boolean>;
   turn(args: ModelSessionTurn): Promise<string | null>;
+  /** Queue input for the active turn's next safe point: after its running tool
+   * calls, before its next model request. False when no turn can take it. */
+  steer?(text: string): boolean;
+  /** Withdraw steering the provider accepted but did not deliver. */
+  clearSteering?(): void;
   close(): void;
 }
 

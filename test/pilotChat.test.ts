@@ -114,7 +114,7 @@ describe("text Pilot sessions", () => {
   reopened.close();
  });
  test("shared tools include readers, vault submissions and agent sessions", () => {
-  expect(pilotChatTools().map(t=>t.name).sort()).toEqual(["inspect_agent_environment","revise_agent_environment","list_agent_models","launch_agent","reply_agent","read_agent","message_agent","list_directories","list_files","read_file","write_scratch","notify_user","resolve_notification","integration_capabilities","email_search", "email_read", "inbox_set_unread","inbox_list","inbox_read","granola_tools","granola_read","source_read_state","load_memory","read_note","recent","search_vault","set_context","capabilities","drop","directive","status"].sort());
+  expect(pilotChatTools().map(t=>t.name).sort()).toEqual(["inspect_agent_environment","revise_agent_environment","list_agent_models","launch_agent","reply_agent","read_agent","read_action","message_agent","list_directories","list_files","read_file","write_scratch","notify_user","resolve_notification","integration_capabilities","email_search", "email_read", "inbox_set_unread","inbox_list","inbox_read","granola_tools","granola_read","source_read_state","load_memory","read_note","recent","search_vault","set_context","capabilities","drop","directive","status"].sort());
  });
  test("canonical seed, replacement, stale revisions, and durable draft", () => {
   const root=vault(), sessions=new PilotChats(root,{graph:()=>nodes,fetch:fetch});

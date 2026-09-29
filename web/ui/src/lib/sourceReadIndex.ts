@@ -17,3 +17,11 @@ export function sourceReadIndex(
   }
   return index;
 }
+
+/** Exact dependency of the strict-unread predicate, including aliases that
+ * arrive after provider state. Unknown/read and observation timestamps do not
+ * affect membership. A changed key must rescan, not just filter cached hits:
+ * previously excluded rows may now match. */
+export function sourceUnreadKey(index: ReadonlyMap<string, SourceReadState>): string {
+  return JSON.stringify([...index].filter(([, state]) => state.unread === true).map(([path]) => path).sort());
+}

@@ -6,6 +6,9 @@ const string = { type: "string" };
 const modelParameters = { type: "object", properties: { adapter: { type: "string", enum: ["pi"] }, provider: string, model: string, reasoning: string }, required: ["adapter", "provider", "model"], additionalProperties: false };
 export const AGENT_ORCHESTRATION_TOOLS = [
   { type: "function", name: "list_agent_models", strict: false, description: "List connected models available for launch_agent. Use the exact provider and model IDs; do not launch a substitute for an unavailable requested model.", parameters: { type: "object", properties: {}, additionalProperties: false } },
+  { type: "function", name: "read_action", strict: false,
+    description: "Read this Pilot's own application action receipts. Pass the request ID from a failed or unknown tool reply, or omit it for recent actions. Returns the status, failure stage and cause, and any agent the action created or may have created. Read-only: it never retries. A failed action with retry safe dispatched nothing; an unknown one may have happened, so inspect the named agent instead of repeating the request.",
+    parameters: { type: "object", properties: { request: string }, additionalProperties: false } },
   { type: "function", name: "inspect_agent_environment", strict: false,
     description: "Inspect a candidate project folder's installed tools and names of already connected command credentials. Read-only: no authentication, commands, or permission grants. Use this to prepare a first-time setup through conversation; never ask the user to paste secrets into chat.",
     parameters: { type: "object", properties: { path: string }, required: ["path"], additionalProperties: false } },
@@ -20,6 +23,6 @@ export const AGENT_ORCHESTRATION_TOOLS = [
     parameters: { type: "object", properties: { agent: string, request: string, text: string, evidence: { type: "array", items: string } }, required: ["agent", "request", "text", "evidence"], additionalProperties: false } },
   { type: "function", name: "read_agent", strict: false, description: "Read the status and public conversation of an agent session owned by this Pilot.",
     parameters: { type: "object", properties: { agent: string }, required: ["agent"], additionalProperties: false } },
-  { type: "function", name: "message_agent", strict: false, description: "Send an authorized follow-up to an agent session owned by this Pilot. The worker must be idle or interrupted first. Does not answer permissions or pending questions.",
+  { type: "function", name: "message_agent", strict: false, description: "Send an authorized follow-up instruction to an agent session owned by this Pilot. An idle or interrupted worker starts a new turn with it (delivery: started). A running worker, including one waiting on a pending request, queues it and receives queued instructions in order at its next safe point, after current tool calls and before its next model request (delivery: queued). accepted means durably recorded, not delivered; read_agent shows each instruction's status in worker.steering: queued, delivered, or withdrawn. Interrupt, archive, revoked access, failure, or app restart withdraw undelivered instructions and never resume the worker; withdrawn instructions are not resent, so send again to continue. Never answers ask_pilot (use reply_agent), user decisions, or access requests, and never changes the worker's scope or model.",
     parameters: { type: "object", properties: { agent: string, text: string }, required: ["agent", "text"], additionalProperties: false } },
 ];

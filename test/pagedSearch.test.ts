@@ -139,3 +139,21 @@ test("explicitly choosing even the first optimistic result preserves it when ser
   expect(state.sel).toBe(0);
   runner.cancel();
 });
+
+test("retry retains unread dependency context and cancels superseded work", async () => {
+  const state = emptyPagedResults<Hit>();
+  let fail = true, calls = 0;
+  const runner = createPagedSearch(state, async () => {
+    calls++;
+    if (fail) throw Error('offline');
+    return { hits: [hit('unread')], nextOffset: null };
+  });
+  runner.start('', 'revision+unread-membership'); await pause();
+  expect(state.failed).toBe('error');
+  fail = false; runner.retry(); await pause();
+  expect(state.hits).toEqual([hit('unread')]);
+  runner.start('', 'revision+unread-membership');
+  expect(calls).toBe(2); // retry populated this exact dependency's cache
+  expect(state.hits).toEqual([hit('unread')]);
+  runner.cancel();
+});

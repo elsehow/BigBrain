@@ -1,5 +1,6 @@
 import type { PilotViewData } from "./pilotChatSync";
 import { pilotRoster } from "./pilotAttention";
+import { inSessionOrder } from "./sessionOrder";
 import { pilotVisualPhase } from "./pilotAppearance";
 import { belongsToSession, sessionPath } from "../../../../lib/workSessionIdentity";
 import type { GraphData, GraphNode } from "./types";
@@ -14,6 +15,10 @@ export function withPilotChats(graph: GraphData | null, sessions: PilotViewData[
  * only applies styling and visibility to that immutable overlay. */
 export function preparePilotChats(graph: GraphData | null, sessions: PilotViewData[], drafts: Record<string, string> = {}): (activeId: string | null) => GraphData | null {
   if (!sessions.length) return () => graph;
+  // Emit in creation order, not arrival order: the node array's order decides
+  // whether the renderer can update in place or must rebuild, and coalescing
+  // resolves first match first. Neither may depend on which session last moved.
+  const ordered = inSessionOrder(sessions);
   const attention = new Map(pilotRoster(sessions).map(p => [p.id, p]));
   let nodes: GraphNode[] = (graph?.nodes ?? []).map(n => ({ ...n, pilotContext: undefined }));
   const contextNodes = new Set(nodes);
@@ -29,7 +34,7 @@ export function preparePilotChats(graph: GraphData | null, sessions: PilotViewDa
   const append = (n: GraphNode) => { nodes.push(n); indexNode(n); };
   const resolve = (key: string) => identities.get(key)?.values().next().value;
   nodes.forEach(indexNode);
-  for (const s of sessions) {
+  for (const s of ordered) {
     const context = new Set(s.context);
     for (const n of s.contextNodes ?? []) if (context.has(n.id) && !resolve(n.id)) {
       const node = { ...n, degree: 0, pilotContext: undefined };
@@ -38,7 +43,7 @@ export function preparePilotChats(graph: GraphData | null, sessions: PilotViewDa
   }
   const redirects = new Map<string, string>();
   const edges: GraphData["edges"] = [];
-  for (const s of sessions) {
+  for (const s of ordered) {
     const paths = new Set((s.ingestions ?? []).flatMap(r => [r.path, r.sourceId, `source:${r.insertionId}`]));
     const legacy = s.legacyWork;
     if (legacy) { paths.add(sessionPath(legacy.id)); paths.add(legacy.id); }
@@ -68,7 +73,7 @@ export function preparePilotChats(graph: GraphData | null, sessions: PilotViewDa
   }
   // Resolve links after every virtual Pilot node exists, including @ mentions
   // of a conversation that occurs later in the session list.
-  for (const s of sessions) {
+  for (const s of ordered) {
     const styled = attention.has(s.id);
     for (const id of s.context) {
       const n = resolve(id);

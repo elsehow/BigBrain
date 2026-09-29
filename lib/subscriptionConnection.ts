@@ -1,3 +1,4 @@
+import { createCatalogRuntime } from "./run/modelCatalogRefresh";
 import { availableDefaults } from "./modelDefaults";
 /** Browser sign-in owned by Pi. Only public progress crosses the setup API;
  * credentials remain in Pi's local, locked credential store. */
@@ -11,8 +12,8 @@ export type { SubscriptionStatus } from "./providerConnection";
 
 export const subscriptionConnected = (root: string, provider: SubscriptionProvider): boolean =>
   readEnvValues(root)[SUBSCRIPTION_PROVIDERS[provider].connectedKey] === "1";
-export const subscriptionRuntime = async (): Promise<ModelRuntime> =>
-  (await loadPi()).ModelRuntime.create({ allowModelNetwork: false, signal: AbortSignal.timeout(10_000) });
+export const subscriptionRuntime = async (root?: string): Promise<ModelRuntime> =>
+  createCatalogRuntime(await loadPi(), AbortSignal.timeout(10_000), root);
 
 const AUTH = {
   chatgpt: { origin: "https://auth.openai.com", callback: "http://localhost:1455/auth/callback" },
@@ -124,7 +125,7 @@ function connection(provider: SubscriptionProvider): SubscriptionConnection {
   return new SubscriptionConnection(provider, {
     runtime: subscriptionRuntime, connected: root => subscriptionConnected(root, provider),
     finish: async (root, signal) => {
-      const runtime = await subscriptionRuntime();
+      const runtime = await subscriptionRuntime(root);
       if (!runtime.isUsingSubscription(spec.providerId)) throw new Error("Subscription authentication is required.");
       const available = await runtime.getAvailable(spec.providerId, { signal });
       const { getSupportedThinkingLevels } = await import("@earendil-works/pi-ai/compat");
