@@ -34,6 +34,8 @@
   sidebar.goHome = () => { void home(); };
   sidebar.openRecents = () => { void recents(); };
   sidebar.openSearch = () => { void search(); };
+  // The deferred re-focus below must never undo a dismissal that happened first.
+  let searchFocusFrame = 0;
   async function search(seed = '') {
     sidebar.tab = 'search';
     if (!['home', 'vault', 'search', 'graph', 'top'].includes(app.view)) goto('home');
@@ -41,7 +43,7 @@
     app.query = seed; searchOverlay.open = true;
     await tick();
     const focus = () => { if (sidebar.open && searchOverlay.open) document.querySelector<HTMLInputElement>('#topbar input')?.focus(); };
-    focus(); requestAnimationFrame(focus);
+    focus(); cancelAnimationFrame(searchFocusFrame); searchFocusFrame = requestAnimationFrame(focus);
   }
   async function recents() {
     sidebar.tab = 'recents'; sidebar.unreadOnly = false;
@@ -51,6 +53,7 @@
     if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
   }
   function close() {
+    cancelAnimationFrame(searchFocusFrame);
     sidebar.open = false; sidebar.searchVisible = false; sidebar.agents = false; sidebar.expanded = false;
     searchOverlay.open = false; stage.pilotsOpen = false;
     if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
@@ -130,7 +133,7 @@
     if (e.key === 'Escape' && e.shiftKey && sidebar.agents) return;
     if (e.key === 'Escape' && sidebar.tab === 'search' && sidebar.searchVisible
         && e.target instanceof HTMLInputElement && e.target.closest('#topbar')) {
-      e.preventDefault(); e.stopImmediatePropagation(); e.target.blur(); return;
+      e.preventDefault(); e.stopImmediatePropagation(); cancelAnimationFrame(searchFocusFrame); e.target.blur(); return;
     }
     if (e.key === 'Escape') {
       e.preventDefault(); e.stopImmediatePropagation();
