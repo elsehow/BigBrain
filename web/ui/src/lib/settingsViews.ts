@@ -12,8 +12,8 @@ export const SETTINGS_TABS = [
   { label: "diagnostics", view: "diagnostics" },
 ] as const satisfies readonly { label: string; view: View }[];
 
-export type SettingsTab = (typeof SETTINGS_TABS)[number]["view"];
+export type SettingsTab = (typeof SETTINGS_TABS)[number]["view"] | "sharedVaultSettings";
 
 export function isSettingsView(view: View): view is SettingsTab {
-  return view === "pilotSettings" || SETTINGS_TABS.some((t) => t.view === view);
+  return view === "sharedVaultSettings" || view === "pilotSettings" || SETTINGS_TABS.some((t) => t.view === view);
 }

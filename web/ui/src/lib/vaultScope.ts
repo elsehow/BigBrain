@@ -1,6 +1,23 @@
 /** One document belongs to one vault. A switch replaces the document, so old
  * closures, component state, and queued writes cannot become the new vault's work. */
 type BrowserFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+export const selectedWorkspace = typeof location === "undefined" ? null : new URL(location.href).searchParams.get("workspace");
+export const workspaceURL = (path: string) => selectedWorkspace ? `${path}${path.includes("?") ? "&" : "?"}workspace=${encodeURIComponent(selectedWorkspace)}` : path;
+export function switchWorkspace(id: string | null): void {
+  const url = new URL(location.href);
+  if (id) url.searchParams.set("workspace", id); else url.searchParams.delete("workspace");
+  url.hash = "#/home";
+  document.documentElement.style.visibility = "hidden";
+  location.replace(url.href);
+}
+export function sharedUnavailable(): void {
+  if (!selectedWorkspace) return;
+  // Drop persisted response caches before restarting the document's auth gate.
+  try {
+    for (const key of Object.keys(sessionStorage)) if (key.startsWith(`bb:vault:shared:${selectedWorkspace}:`)) sessionStorage.removeItem(key);
+  } catch { /* Storage may be disabled; the authentication gate still closes. */ }
+  window.dispatchEvent(new Event("shared-unavailable"));
+}
 const HEADER = "x-bigbrain-vault";
 export class VaultScope {
   private identity: string | undefined;
@@ -49,7 +66,12 @@ export class VaultScope {
     return response;
   }
 }
-const scope = new VaultScope((input, init) => globalThis.fetch(input, init), () => {
+const scope = new VaultScope(async (input, init) => {
+  const headers = new Headers(init?.headers);
+  if (selectedWorkspace) headers.set("x-bigbrain-workspace", selectedWorkspace);
+  const response = await globalThis.fetch(input, { ...init, headers });
+  return response;
+}, () => {
   // Hide A immediately, including when the new document cannot reach B.
   document.documentElement.style.visibility = "hidden";
   location.reload();

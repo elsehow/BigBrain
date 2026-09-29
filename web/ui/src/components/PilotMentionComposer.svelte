@@ -7,8 +7,8 @@
 
   import type { MentionSuggestion } from "../lib/pilotMentionSuggestions";
   import { createSearchRunner } from "../lib/omnibox";
-  const { onmenu = () => {}, controls, inputHint, initial = [], onimagepaste, value, autofocus = true, connected = [], connectedLabel = "Connected", recents, currentId, onchange, onsend, search, recentLoading = false, recentError = false, placeholder = "Message… type @ to mention" }: {
-    controls?: Snippet; inputHint?: string;
+  const { ariaLabel = 'Message Pilot', onmenu = () => {}, controls, inputHint, initial = [], onimagepaste, value, autofocus = true, connected = [], connectedLabel = "Connected", recents, currentId, onchange, onsend, search, recentLoading = false, recentError = false, placeholder = "Message… type @ to mention" }: {
+    ariaLabel?: string; controls?: Snippet; inputHint?: string;
     onmenu?: (open: boolean) => void;
     connected?: MentionSuggestion[]; connectedLabel?: string;
     onimagepaste?: (e: ClipboardEvent) => boolean;
@@ -209,7 +209,7 @@
     </div>
   {/if}
   <!-- Opt out of WebKit's inline predictions without disabling spellcheck or the @ picker. -->
-  <div bind:this={editor} class="editor" contenteditable="true" writingsuggestions="false" role="textbox" tabindex="0" aria-label="Message Pilot"
+  <div bind:this={editor} class="editor" contenteditable="true" writingsuggestions="false" role="textbox" tabindex="0" aria-label={ariaLabel}
     aria-multiline="true" aria-autocomplete="list" aria-haspopup="listbox"
     aria-controls={open ? `${uid}-list` : undefined} aria-activedescendant={open && rows.length ? `${uid}-${selected}` : undefined}
     aria-keyshortcuts={inputHint} data-input-hint={inputHint} data-placeholder={placeholder} oninput={changed} onkeydown={keydown} onblur={dismiss}

@@ -1,3 +1,4 @@
+import { workspaceURL, selectedWorkspace } from "./vaultScope";
 import { pilotInputReceipt } from "./pilotInputReceipt";
 import { pilotChatDetail, type PilotChatDetail } from "../../../../lib/pilotChatSummary";
 import { vaultStorageKey, initializeVault } from "./vaultScope";
@@ -168,6 +169,7 @@ export function openChat(id: string, options: { replace?: boolean; focus?: boole
   pilotCoordination().navigate(id, options.replace, options.focus);
 }
 export async function startChat(selection?: string[]): Promise<void> {
+  if (selectedWorkspace) return;
   if (activeChat()) { if (!selection) return; await leaveChat(); }
   chat.error = "";
   const context = (selection ?? pilotCoordination().selection()).filter(id => !chat.sessions.some(s => s.id === id));
@@ -203,7 +205,7 @@ export function holdChatComposer(id: string): () => void {
     void pending.catch(() => {}).then(() => fetch("/api/pilot/chat/presence", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ client, id: null }), keepalive: true })).catch(() => {});
   };
   pulse(); const timer = setInterval(pulse, PILOT_LIFECYCLE.composerHeartbeatMs);
-  const hide = () => { disposed = true; navigator.sendBeacon("/api/pilot/chat/presence", new Blob([JSON.stringify({ client, id: null })], { type: "application/json" })); };
+  const hide = () => { disposed = true; navigator.sendBeacon(workspaceURL("/api/pilot/chat/presence"), new Blob([JSON.stringify({ client, id: null })], { type: "application/json" })); };
   window.addEventListener("pagehide", hide);
   return () => { clearInterval(timer); window.removeEventListener("pagehide", hide); release(); };
 }
