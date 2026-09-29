@@ -190,7 +190,10 @@ test('conversational environment proposals wait for approval, revise scopes, and
  expect(()=>f.agents.reviseEnvironment(pilot.id,job.id,first.id,environment)).toThrow('no longer');
  f.agents.approve(job.id,next.id,true,true);await until(()=>job.status==='idle');
  expect(f.agents.projects.at(path)).toMatchObject({label:'Atlas environment',mode:'read',domains:[]});
- expect(chats.notifications().every(n=>n.resolved)).toBe(true);
+ // Every approval notification for this worker is settled. Its completion report may also
+ // escalate (this Pilot has no model to handle it); that never resumes work or grants access.
+ expect(chats.notifications().filter(n=>n.key.startsWith(`${job.id}:`)).every(n=>n.resolved)).toBe(true);
+ expect(chats.notifications().filter(n=>!n.resolved).every(n=>n.key.startsWith(`report:${job.id}:`)&&/No task was resumed or permission granted/.test(n.text))).toBe(true);
  const reuse=launch(f.agents,{cwd:path},pilot.id);await until(()=>reuse.status==='idle');expect(f.requests()).toBe(2);
 });
 
