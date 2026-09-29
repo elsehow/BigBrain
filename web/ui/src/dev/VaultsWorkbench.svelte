@@ -17,7 +17,7 @@
   ]);
   let selected = $state<number|null>(1), tab = $state<'rule'|'added'>('rule'), preview = $state(false);
   let checked = $state<number[]>([]), inspect = $state<Source|null>(null);
-  let adding = $state(false), newName = $state(''), newEndpoint = $state(''), notice = $state(''), theme = $state('default');
+  let adding = $state(false), inviteLink = $state(''), notice = $state(''), theme = $state('default');
   let allTime = $state(true), since = $state('2026-09-01');
   let editing = $state(false), draft = $state('');
   function editRule(v: Vault) { draft=v.rule?.text??''; editing=true; invalidatePreview(); }
@@ -27,9 +27,8 @@
   let nextId = 10;
   function chooseVault(id: number) { selected=id; editing=false; draft=''; adding=false; tab='rule'; preview=false; allTime=true; since='2026-09-01'; checked=[]; inspect=null; notice=''; }
   const sidebarItems = $derived([
-    {label:'Personal',selected:!adding&&selected===0,onselect:()=>chooseVault(0)},
-    ...vaults.map(v=>({label:v.name,selected:!adding&&selected===v.id,onselect:()=>chooseVault(v.id)})),
-    {label:'+ Connect vault',selected:adding,onselect:()=>{adding=true;notice='';}}
+    ...vaults.map(v=>({label:v.name,selected:selected===v.id,onselect:()=>chooseVault(v.id)})),
+    {label:'+ Connect vault',selected:false,onselect:()=>{adding=true;inviteLink='';notice='';}}
   ]);
   const viewerId = 'member-you';
   function withdraw(v: Vault, s: Source) {
@@ -45,7 +44,13 @@
   function showPreview(v: Vault) { preview=true; checked=matchesInRange(v).filter(s=>!s.added).map(s=>s.id); notice=''; }
   function invalidatePreview() { preview=false; checked=[]; notice=''; }
   function importSelected(v: Vault) { const n=checked.length; for(const s of v.sources)if(checked.includes(s.id)&&!s.added){s.added='Just now';s.addedAt=new Date().toISOString();s.contributedBy=viewerId;} checked=[];notice=`${n} ${n===1?'source added':'sources added'} to ${v.name}`;tab='added';preview=false; }
-  function addVault(e: SubmitEvent) { e.preventDefault();const id=nextId++;vaults.push({id,name:newName,endpoint:newEndpoint,writable:true,rule:null,sources:[]});chooseVault(id);newName='';newEndpoint='';adding=false;tab='rule';notice='Sample connection added'; }
+  function addVault(e: SubmitEvent) {
+    e.preventDefault(); const id=nextId++;
+    // Simulated invite redemption: name and permissions come from a remote response.
+    vaults.push({id,name:'Research group',endpoint:'vault.example.org',writable:true,rule:null,sources:[]});
+    chooseVault(id); inviteLink=''; notice='Sample invite accepted';
+  }
+  function openInvite(dialog: HTMLDialogElement) { dialog.showModal(); }
   $effect(()=>{ document.documentElement.dataset.theme=theme; });
 </script>
 
@@ -55,22 +60,18 @@
       {#if source.withdrawn}<p class="quiet">Won’t be added again unless you restore it.</p>{/if}
       {#if source.otherContributors?.length}<p class="quiet">Also shared by {source.otherContributors.join(', ')}</p>{/if}
     </div>
-    <div class="added-status"><span>{source.withdrawn?'Withdrawn':'Added'}</span>
-      {#if source.contributedBy===viewerId && v.writable}<button class="text-button" aria-label={`${source.withdrawn?'Restore contribution':'Withdraw from vault'}: ${source.title}`} onclick={()=>source.withdrawn?restore(v,source):withdraw(v,source)}>{source.withdrawn?'Restore':'Withdraw'}</button>{/if}
+    <div class="added-status">{#if source.withdrawn}<span>Withdrawn</span>{/if}
+      {#if source.contributedBy===viewerId && v.writable}<button class="settings-add" aria-label={`${source.withdrawn?'Restore contribution':'Withdraw from vault'}: ${source.title}`} onclick={()=>source.withdrawn?restore(v,source):withdraw(v,source)}>{source.withdrawn?'Restore':'Withdraw'}</button>{/if}
     </div>
   </div>
 {/snippet}
 
 <div class="workbench-bar"><span>Vaults settings · interactive study</span><div><label>Theme <select bind:value={theme}><option value="default">Light</option><option value="web">Web blue</option><option value="dusk">Dusk</option></select></label><button onclick={()=>location.reload()}>Reset</button></div></div>
 <main>
-<SettingsPage active="vaultSettings" title={adding?'CONNECT VAULT':selected===0?'PERSONAL':vaults.find(v=>v.id===selected)?.name.toUpperCase()??'VAULT'} notice={notice?{ok:true,text:notice}:null}
-  extraSection={{label:'VAULTS',active:true,items:sidebarItems}}>
+<SettingsPage active="vaultSettings" title={vaults.find(v=>v.id===selected)?.name.toUpperCase()??'VAULT'} notice={notice?{ok:true,text:notice}:null}
+  extraSection={{label:'SHARED VAULTS',active:true,items:sidebarItems}}>
   <section class="settings-list" aria-label="Vaults">
-    {#if !adding && selected===0}<div class="settings-card personal">
-      <div class="settings-card-row"><div class="settings-card-main"><h2 class="settings-card-name">Personal</h2><span class="settings-item-note">Only you · Default for new sources</span></div><span class="local">On this device</span></div>
-      <p class="quiet personal-note">Your personal sources are private. Choose a shared vault in the sidebar to manage what you contribute.</p>
-    </div>{/if}
-    {#each vaults.filter(v=>!adding&&v.id===selected) as v (v.id)}
+    {#each vaults.filter(v=>v.id===selected) as v (v.id)}
     <section class="settings-card" aria-label={`${v.name} vault`}>
       <div class="settings-card-row">
         <div class="settings-card-main"><h2 class="settings-card-name">{v.name}</h2>
@@ -136,18 +137,23 @@
       </div>
     </section>
     {/each}
-    {#if adding}
-      <form class="connect" onsubmit={addVault}><h2>Connect a shared vault</h2><label>Name<input required bind:value={newName} placeholder="Research group"/></label><label>Server address<input type="url" required bind:value={newEndpoint} placeholder="https://vault.example.org"/></label><label>Member credential<input type="password" placeholder="Sample credential" autocomplete="off"/></label><div><button class="settings-add" type="submit">Connect</button> <button class="text-button" type="button" onclick={()=>adding=false}>Cancel</button></div></form>
-    {/if}
   </section>
 </SettingsPage>
 </main>
 <footer>Component workbench · Sample data, matches and imports · SettingsPage + SettingsRail · Based on ce998be / main 9686f88</footer>
+{#if adding}
+  <dialog class="invite-dialog" use:openInvite onclose={()=>adding=false} onclick={e=>{if(e.target===e.currentTarget){const r=e.currentTarget.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)e.currentTarget.close();}}}>
+    <form class="connect" onsubmit={addVault}>
+      <h2>Connect a shared vault</h2>
+      <label>Invite link<input type="url" required bind:value={inviteLink} placeholder="https://vault.example.org/invite/…" autocomplete="off"/></label>
+      <div class="edit-actions"><button class="settings-add" type="submit">Connect</button><button class="text-button" type="button" onclick={()=>adding=false}>Cancel</button></div>
+    </form>
+  </dialog>
+{/if}
 {#if inspect}<div class="scrim" role="presentation" onclick={e=>{if(e.target===e.currentTarget)inspect=null;}}><div class="source-preview" role="dialog" aria-modal="true" aria-label="Source preview" tabindex="-1" onkeydown={e=>{if(e.key==='Escape')inspect=null;}}><button class="close" onclick={()=>inspect=null} aria-label="Close source preview">×</button><span class="quiet">Personal → {vaults.find(v=>v.id===selected)?.name}</span><h2>{inspect.title}</h2><p>This sample source explores how evidence, attribution, and shared knowledge can work together in a personal knowledge tool.</p><p class="quiet">{inspect.withdrawn?'Your contribution is withdrawn. Your personal original is retained.':inspect.added?`Added ${inspect.added}. The personal original is retained.`:'This source has not been contributed yet.'}</p></div></div>{/if}
 <style>
-  :global(body){margin:0;background:var(--bg);color:var(--text);} main{padding:26px 0 50px;} .personal-note{margin-top:24px;}
+  :global(body){margin:0;background:var(--bg);color:var(--text);} main{padding:26px 0 50px;}
   .workbench-bar{display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--rule);padding:14px 32px;font:var(--type-meta);color:var(--text-muted);} .workbench-bar>div{display:flex;gap:20px;align-items:center;} .workbench-bar button, select{font:inherit;background:var(--bg);color:var(--text);border:1px solid var(--rule);padding:4px 8px;}footer{padding:18px 32px;font:var(--type-meta);color:var(--text-faint);border-top:1px solid var(--rule);}
-  .local{font:var(--type-meta);color:var(--text-faint);padding-top:4px;}
   .section-tabs{display:flex;gap:28px;border-bottom:1px solid var(--rule);} .section-tabs button{padding:0 0 12px;border:0;border-bottom:2px solid transparent;background:none;color:var(--text-muted);font:var(--type-body);cursor:pointer;}.section-tabs button[aria-selected=true]{border-bottom-color:var(--text);color:var(--text-strong);} .section-tabs span{font:var(--type-meta);margin-left:8px;color:var(--text-faint);}
   .quiet{font:var(--type-meta);color:var(--text-muted);line-height:1.6;margin:0;} .rule{border-bottom:1px solid var(--rule);padding-bottom:22px;} .rule-heading{display:flex;justify-content:space-between;align-items:center;gap:16px;}
   .contribution-main{display:grid;gap:7px;}.withdrawn .source-title{color:var(--text-muted);}
@@ -157,6 +163,7 @@
 
   .text-button{font:var(--type-meta);color:var(--text);background:none;border:0;padding:0;cursor:pointer;}.text-button:hover{text-decoration:underline;}.matches{margin-top:18px;border-left:2px solid var(--rule);padding-left:18px;}.source-row{display:flex;align-items:center;gap:12px;padding:14px 0;border-bottom:1px solid var(--rule);}input[type=checkbox]{accent-color:var(--text);width:15px;height:15px;}.source-title{display:flex;flex-direction:column;gap:5px;min-width:0;text-align:left;font:var(--type-body);color:var(--text);background:none;border:0;padding:0;cursor:pointer;}.source-title:hover{text-decoration:underline;}small{font:var(--type-meta);color:var(--text-muted);}.import-row{display:flex;align-items:center;gap:18px;flex-wrap:wrap;margin-top:18px;}button:disabled{opacity:.4;cursor:default;}
   .contribution{display:flex;justify-content:space-between;gap:24px;padding:6px 0 20px;border-bottom:1px solid var(--rule);}.added-status{display:flex;flex-direction:column;gap:5px;align-items:flex-end;font:var(--type-meta);color:var(--text);white-space:nowrap;}.rule-edit,.connect{display:grid;gap:16px;margin:18px 0;}label{display:grid;gap:7px;font:var(--type-meta);color:var(--text-muted);}input:not([type=checkbox]),textarea{box-sizing:border-box;width:100%;padding:10px;border:1px solid var(--rule);background:var(--bg);color:var(--text);font:var(--type-body);}textarea{resize:vertical;}.connect h2{font:var(--type-heading);margin:0;}
+  .invite-dialog{width:min(560px,calc(100vw - 48px));box-sizing:border-box;padding:32px;background:var(--bg);color:var(--text);border:1px solid var(--rule);}.invite-dialog::backdrop{background:#0005;}.invite-dialog .connect{margin:0;gap:24px;}
   .scrim{position:fixed;inset:0;background:#0005;display:grid;place-items:center;z-index:20;}.source-preview{position:relative;width:min(560px,calc(100vw - 80px));padding:32px;background:var(--bg);border:1px solid var(--rule);font:var(--type-body);line-height:1.6;}.source-preview h2{font:var(--type-heading);}.close{position:absolute;top:12px;right:16px;font-size:24px;color:var(--text);border:0;background:none;cursor:pointer;}
   @media(max-width:720px){.rule-heading{align-items:flex-start;flex-direction:column;}.workbench-bar{gap:12px;flex-wrap:wrap;} :global(.settings){gap:24px!important;padding-left:20px!important;padding-right:20px!important;}:global(.settings .rail){width:115px;} }
 </style>

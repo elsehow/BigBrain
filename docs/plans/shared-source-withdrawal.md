@@ -120,3 +120,19 @@ First backend slice: authenticated own-contribution history + withdrawal/restore
 visibility filtering and replay tests. Then connect the settings UI. Automatic
 inclusion machinery consumes this contract when implemented; it must not ship
 with only a client-side exclusion check.
+
+## Invite-only connection UI
+
+The connection entry opens a native modal styled with the settings tokens. Its
+only input is an invite URL; the authoritative vault name comes from the server.
+The workbench returns a fixed fabricated name, and never fetches the pasted URL.
+Backend prerequisite: issue scoped, expiring single-use invitations; redeem over
+HTTPS into a member/device credential stored by the local engine, never the UI.
+An invitation is not a long-lived member credential. Define how redemption binds
+to a specific member (new invitation recipient or an already authenticated
+member); possession grants only the inviter's explicitly assigned permissions.
+Return stable vault ID, vault name and verified membership. Reusing or expiring an
+invite must show an actionable error, not create a second identity. Validate URLs
+and redirects before fetching, redact invite secrets from logs/history, and clear
+the input after redemption. Owner invite issuance must retain existing owner/root
+security boundaries rather than exposing arbitrary member management by accident.

@@ -6,8 +6,8 @@ type, tokens and tooltips. It is not a full-app preview or a connected vault.
 Baseline: continuing shared-vault experiment c036939, based on main 9686f88.
 Vite's provenance badge reports current divergence from cached origin/main.
 
-The settings sidebar lists Personal, one writable shared vault, and one read-only
-vault under VAULTS. Selecting a vault shows only its settings in the main panel.
+The settings sidebar lists one writable shared vault and one read-only
+vault under SHARED VAULTS. Personal is not an entry in this section. Selecting a vault shows only its settings in the main panel.
 Connect vault adds another sidebar entry. This navigates settings; it does not
 switch the app’s reading context.
 Each writable shared vault can have one inclusion rule and has a separate Added by you tab.
@@ -30,7 +30,9 @@ future sample import selections. History includes manual and rule contributions.
 Rule editing, connecting a vault, testing, selection, import, history and source preview
 are simulated in memory; reload resets everything. Editing prose does not run a
 classifier: sample matches remain fabricated. No credentials or source content
-are sent to a server by the study. Connect is a simulated form.
+are sent to a server by the study. Connect opens an in-theme modal with only an invite link. Redemption is simulated;
+the fixed sample remote response supplies the name Research group. Escape, Cancel
+and backdrop dismissal close the modal. No pasted link is fetched.
 
 ## Jev assessment — 2026-09-29
 
