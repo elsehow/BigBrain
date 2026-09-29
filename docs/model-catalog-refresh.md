@@ -41,6 +41,8 @@ Policy:
 - A remote record may never introduce `compat.allowedFallbackModels` (a
   server-side fallback serves a different model than the one chosen): only an
   installed record's exact list is accepted.
+  Independently, `PiSession` strips `allowedFallbackModels` from every model request
+  (`exactModel`), so no record, bundled or refreshed, can switch models server-side.
 - `authentication: configured` and `ready` do not mean account entitlement.
   Discovery reports `entitlement: unverified`, model `availability: unverified`,
   and `adapterCompatibility: installed-configuration`. This checks declared adapter

@@ -15,6 +15,15 @@ import { chatgptAccount, chatgptAccountHash, readChatgptQuota, type QuotaReader 
 
 export type PiSDK = typeof import("@earendil-works/pi-coding-agent");
 export const loadPi = () => import("@earendil-works/pi-coding-agent");
+/** The selected model and nothing else: a record's `compat.allowedFallbackModels` makes the
+ * adapter send a server-side fallback list, letting the provider answer with another model at
+ * another price. Exact selection strips it from every request. */
+export function exactModel<T extends { compat?: unknown }>(model: T): T {
+  const compat = model.compat as Record<string, unknown> | undefined;
+  if (!compat || !("allowedFallbackModels" in compat)) return model;
+  const { allowedFallbackModels: _fallbacks, ...rest } = compat;
+  return { ...model, compat: rest };
+}
 export class PiSession implements ModelSession {
   transport: "subscription" | "api" = "api";
   execution?: ModelExecution;
@@ -110,7 +119,7 @@ export class PiSession implements ModelSession {
       }
       const accountId = this.accountId ?? null;
       const id = crypto.randomUUID();
-      const response = await stream(model, context, { ...options, ...(token ? { apiKey: token } : {}),
+      const response = await stream(exactModel(model), context, { ...options, ...(token ? { apiKey: token } : {}),
         ...(maxTokens !== undefined ? { maxTokens } : {}) });
       // The stream result resolves once per request, including errors/aborts
       // and SDK compaction requests. Message events can repeat or omit those.
