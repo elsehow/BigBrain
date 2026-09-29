@@ -1,6 +1,6 @@
 const {chromium}=require('./browserHarness.cjs');
 const {spawn}=require('node:child_process');
-const {readFileSync,mkdirSync}=require('node:fs');
+const {readFileSync,mkdirSync,writeFileSync}=require('node:fs');
 const assert=require('node:assert/strict');
 const child=spawn('bun',['test/support/sharedWorkspaceFixture.ts'],{stdio:['pipe','pipe','pipe']});
 let errors='',output='';child.stderr.on('data',b=>errors+=b);child.stdout.on('data',b=>output+=b);
@@ -24,6 +24,15 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
  await page.getByRole('button',{name:'Restore',exact:true}).click();await page.getByRole('button',{name:'Withdraw',exact:true}).waitFor();
  mkdirSync('artifacts',{recursive:true});await page.screenshot({path:'artifacts/shared-settings-real-shell.png',fullPage:true});
  const storage=await page.evaluate(()=>JSON.stringify({local:{...localStorage},session:{...sessionStorage}}));assert(!storage.includes(fixture.token));assert(!storage.includes(fixture.invite));
+ // Exercise model-settings key entry without calling a paid provider.
+ writeFileSync(fixture.home+'/jev-settings.json',JSON.stringify({apiKey:null}),{mode:0o600});
+ await page.route('**/api/models/jev',async route=>{if(route.request().method()!=='POST')return route.continue();const {apiKey}=route.request().postDataJSON();writeFileSync(fixture.home+'/jev-settings.json',JSON.stringify({apiKey}),{mode:0o600});await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({configured:true,evaluator:'jev'})});});
+ await page.goto(fixture.base+'/#agents');await page.getByText('Using Quick',{exact:true}).waitFor();
+ await page.getByRole('button',{name:'Add API key',exact:true}).click();const keyInput=page.getByLabel('Jev API key',{exact:true});assert.equal(await keyInput.getAttribute('type'),'password');await keyInput.fill('example-browser-key');await page.getByRole('button',{name:'Save key',exact:true}).click();await page.getByText('Jev configured',{exact:true}).waitFor();assert.equal(await page.getByLabel('Jev API key',{exact:true}).count(),0);
+ assert(!JSON.stringify(await(await fetch(fixture.base+'/api/models/jev')).json()).includes('example-browser-key'));
+ await page.reload();await page.getByText('Jev configured',{exact:true}).waitFor();await page.getByRole('button',{name:'Remove key and use Quick',exact:true}).click();await page.getByText('Using Quick',{exact:true}).waitFor();
+ assert(!(await page.evaluate(()=>JSON.stringify({local:{...localStorage},session:{...sessionStorage}}))).includes('example-browser-key'));
+ await page.screenshot({path:'artifacts/jev-model-settings.png',fullPage:true});
  await page.goto(fixture.base+'/?workspace='+fixture.readonly);await page.getByText('Read only',{exact:true}).waitFor();assert.equal(await page.getByRole('button',{name:'Add evidence',exact:true}).count(),0);
- assert.deepEqual(pageErrors,[]);console.log('PASS: real AppShell invite-only connection, remote suggestion, entity chips/picker, explicit activation/removal, withdrawal visibility/restore, read-only and no browser secrets.');
+ assert.deepEqual(pageErrors,[]);console.log('PASS: real AppShell invite-only connection, remote suggestion, entity chips/picker, explicit activation/removal, withdrawal visibility/restore, read-only, Jev key settings and no browser secrets.');
 }finally{if(browser)await browser.close();child.kill()}})().catch(e=>{console.error(e);process.exitCode=1});

@@ -7,7 +7,8 @@ import {writeAtomic} from './fsx';
 import {sha256hex} from './hash';
 import {readSourceInsertionLog,type SourceInsertion} from './insertionLog';
 import {readConnections,sharedRequest,type SharedConnection} from './sharedConnections';
-import {evaluateJev,jevKey,JEV_MODEL,type JevDecision} from './sharedJev';
+import type {JevDecision} from './sharedJev';
+import {ruleEvaluator} from './sharedRuleEvaluator';
 import {resolveRuleMentions,ruleCandidateFilter,ruleMentionContext} from './sharedRuleMentions';
 interface Rule {text:string;version:string;created:string;seen:string[];error?:string;lastRun?:string}
 type Config=Record<string,Rule>;
@@ -36,11 +37,11 @@ export function getTest(id:string,connection:string){const t=tests.get(id);retur
 function publicTest(t:TestResult){const {sourceIds:_,...view}=t;return view;}
 export const testView=(id:string,connection:string)=>{const t=getTest(id,connection);return t?publicTest(t):null;};
 async function classify(root:string,store:string,text:string,batch:SourceInsertion[]):Promise<string[]> {
- const key=jevKey(store),entities=ruleMentionContext(root,text).map(e=>({id:e.id,title:e.title,aliases:e.aliases}));
+ const evaluator=ruleEvaluator(root,store),entities=ruleMentionContext(root,text).map(e=>({id:e.id,title:e.title,aliases:e.aliases}));
  const ids:string[]=[];
  const dir=join(dirname(store),'shared-rule-evaluations');mkdirSync(dir,{recursive:true,mode:0o700});
- for(const source of batch){const hash=sha256hex(JSON.stringify({version:2,model:JEV_MODEL,text,entities,body:source.body,title:source.title})),path=join(dir,hash+'.json');
- const decision:JevDecision=existsSync(path)?JSON.parse(readFileSync(path,'utf8')):await evaluateJev(key,text,entities,source);
+ for(const source of batch){const hash=sha256hex(JSON.stringify({version:4,evaluator:evaluator.identity,text,entities,body:source.body,title:source.title})),path=join(dir,hash+'.json');
+ const decision:JevDecision=existsSync(path)?JSON.parse(readFileSync(path,'utf8')):await evaluator.evaluate(text,entities,source);
  if(!existsSync(path))writeAtomic(path,JSON.stringify(decision),0o600);
  if(decision.include)ids.push(source.id);}
 
@@ -55,7 +56,7 @@ export function startTest(root:string,store:string,c:SharedConnection,text:unkno
  if(typeof since!=='string'||(since&&!/^\d{4}-\d{2}-\d{2}$/.test(since)))throw Error('Invalid date');
  if([...tests.values()].some(t=>t.connection===c.id&&!t.complete))throw Error('A test is already running');
  for(const [id,t] of tests)if(t.complete&&Date.now()-t.created>3600000)tests.delete(id);
- resolveRuleMentions(root,text);jevKey(store);
+ resolveRuleMentions(root,text);ruleEvaluator(root,store);
  const t:TestResult={id:randomUUID(),connection:c.id,text:text.trim(),since,rows:[],scanned:0,complete:false,created:Date.now(),sourceIds:[]};tests.set(t.id,t);
  void (async()=>{try{
  const existing=await contributions(c),bySource=new Map(existing.map(x=>[x.source_id,x]));
@@ -97,7 +98,7 @@ export async function tickRules(root:string,store:string) {
  const fresh=sources(root).filter(s=>!seen.has(s.id)&&(s.received_at??'')>=rule.created);
  const groups=batches(fresh.filter(ruleCandidateFilter(root,rule.text)));
  for await(const batch of groups){const ids=new Set(await classify(root,store,rule.text,batch));if(getRule(store,c.id)?.version!==rule.version)break;await sendSources(store,c,batch.filter(s=>ids.has(s.id)&&!blocked.has('origin:'+sourceKey(s))));batch.forEach(s=>seen.add(s.id));}
- const config=configs(store);if(config[c.id]?.version===rule.version){config[c.id]={...rule,seen:[...seen],lastRun:new Date().toISOString()};save(store,config);}
+ const config=configs(store);if(config[c.id]?.version===rule.version){config[c.id]={...rule,seen:[...seen],error:undefined,lastRun:new Date().toISOString()};save(store,config);}
  }catch(e){const config=configs(store);if(config[c.id]?.version===rule.version){config[c.id]!.error=e instanceof Error?e.message:String(e);save(store,config);}}
  }}finally{locks.delete(store);}
 }

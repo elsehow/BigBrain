@@ -37,12 +37,19 @@ matching without withdrawing previous contributions.
 
 The editor uses the existing entity mention picker. Test rule evaluates all time
 or sources added since a date and lets the member import selected matches.
-Save and enable applies to future arrivals. Put `TYPESAFE_API_KEY` in the private
-pilot home's `.env` (mode 0600). Jev receives candidate source text, the rule, and
-entity labels/aliases. There is no fallback provider. The pinned model is
+Save and enable applies to future arrivals. Model settings has an optional Jev API
+key flow: Add API key, Save key (validates using sample text), Replace, and Remove.
+The key is stored locally in `jev-settings.json` beside connection credentials,
+with mode 0600, outside all vaults. The UI never receives saved secrets. Legacy
+`TYPESAFE_API_KEY` environment/`.env` configuration is still recognized; explicitly
+removing a key in settings overrides it. Without a Jev key, evaluation uses the
+configured Quick model and its existing model/subscription connection. A configured
+Jev failure is surfaced rather than silently switching providers. Either evaluator
+receives the complete candidate source, rule, and entity labels/aliases. The pinned model is
 `jev-1.13.0`; a score of at least 0.8 selects a source. This threshold is provisional,
-not a measured accuracy guarantee. Long sources are chunked; a matching chunk
-selects the whole source. This is relevance selection, not sensitive-data filtering.
+not a measured accuracy guarantee. Each complete source is evaluated with “Does this meet the inclusion rule?”
+Sources are never chunked or truncated for inclusion. Provider size errors stop
+the evaluation without selecting the source. This is relevance selection, not sensitive-data filtering.
 
 Each upload creates an independent immutable shared source, with an opaque stable
 origin key. Private local receipts connect its shared ID to the original source

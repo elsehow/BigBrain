@@ -1,4 +1,5 @@
 import { unionGraph, unionRecent, unionSearch, unionNote } from '../lib/sharedReadUnion';
+import { jevSettingsApi } from '../lib/jevSettingsApi';
 import { sharedSettingsApi } from '../lib/sharedSettingsApi';
 import { tickRules } from '../lib/sharedRules';
 import { connectionStorePath } from '../lib/sharedConnections';
@@ -789,6 +790,7 @@ export function start(): void {
   const server = createServer(async (req, res) => {
     armor(res);
     if (!allowLoopbackRequest(req, res)) return;
+    if (await jevSettingsApi(req,res,ROOT)) return;
     if (await sharedSettingsApi(req,res,ROOT)) return;
     if (await sharedWorkspace(req, res)) return;
     if (!allowVaultRequest(req, res, vaultIdentity(ROOT))) return;

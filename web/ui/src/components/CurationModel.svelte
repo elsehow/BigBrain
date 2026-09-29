@@ -2,6 +2,7 @@
   import { vaultFetch as fetch } from "../lib/vaultScope";
 
   import { onMount } from "svelte";
+  import JevSettings from "./JevSettings.svelte";
   import ModelControls from "./ModelControls.svelte";
   import { api } from "../lib/api";
   import { choiceKey, type ModelAgent, type ModelChoice } from "../lib/modelSettings";
@@ -86,6 +87,7 @@
     </div></div>
   {/each}
   {/if}
+  <JevSettings />
   {#if loading}<p role="status">Loading models…</p>{/if}
   {#each agents.filter(a => a.problem) as agent}<p role="alert">{agent.label}: {agent.problem}</p>{/each}
   {#if problem}<p role="alert">{problem} <button class="recommended" onclick={load}>Retry</button></p>{/if}

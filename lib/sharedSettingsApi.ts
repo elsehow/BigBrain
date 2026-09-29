@@ -1,4 +1,5 @@
 import {readSourceInsertionLog,insertionEventRel} from './insertionLog';
+import {jevSettingsStatus} from './jevSettings';
 import {sourceKey} from './sharedRules';
 import type {IncomingMessage,ServerResponse} from 'node:http';
 import {json,readBody} from './httpx';
@@ -22,7 +23,7 @@ export async function sharedSettingsApi(req:IncomingMessage,res:ServerResponse,r
   if(req.method==='GET'&&action==='vault'){
    const local=new Map(readSourceInsertionLog(root,{strict:true}).map(s=>['origin:'+sourceKey(s),insertionEventRel(s)]));
    const items=(await contributions(c)).map(item=>({...item,path:local.get(item.source_id)??`shared/${c.id}/${item.insertion_id}.md`}));
-   json(res,200,{...publicConnection(c),identity:await sharedRequest(c,'/v1/whoami'),rule:getRule(store,c.id),items});
+   json(res,200,{...publicConnection(c),identity:await sharedRequest(c,'/v1/whoami'),rule:getRule(store,c.id),evaluator:jevSettingsStatus(store).evaluator,items});
   }
   else if(req.method==='GET'&&action==='test'){const result=testView(url.searchParams.get('id')??'',c.id);json(res,result?200:404,result??{error:'Test expired'});}
   else if(req.method==='POST') {
