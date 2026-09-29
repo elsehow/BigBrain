@@ -3,18 +3,35 @@ export interface ViewUpdate { snapshot: boolean; entities: ApplicationEntityChan
 /** Per-connection cursor. Snapshots on every connection repair missed final events. */
 export class ApplicationCursor {
   epoch = "";
+  /** The epoch adopted at the first connection; a later one is a restart. */
+  first = "";
   revision = -1;
   connected = false;
   receive(event: ApplicationChange): ViewUpdate | undefined {
     if (!event || typeof event.epoch !== "string" || !Number.isSafeInteger(event.revision) || !Array.isArray(event.entities)) throw new Error("Invalid application update");
     const snapshot = !!event.snapshot || this.epoch !== event.epoch || event.revision > this.revision + 1;
     if (!snapshot && event.revision <= this.revision) return;
+    this.first ||= event.epoch;
     this.epoch = event.epoch; this.revision = event.revision; this.connected = true;
     return { snapshot, entities: event.entities };
   }
 }
 export const applicationCursor = new ApplicationCursor();
-export const applicationResponseCurrent = (epoch: string, cursor = applicationCursor) => epoch === cursor.epoch;
+/** A request begun before the first connection carries no epoch. The first
+ * snapshot adopts one; that is not a restart, so its answer stays current. */
+export const applicationResponseCurrent = (epoch: string, cursor = applicationCursor) =>
+  epoch === cursor.epoch || (!epoch && cursor.epoch === cursor.first);
+/** Serve one request in the application epoch. A read that began before the
+ * first connection predates the snapshot's subscription and is read again;
+ * an answer from before a restart is refused. */
+export async function epochRequest<T>(run: () => Promise<T>, read: boolean, cursor = applicationCursor): Promise<T> {
+  const epoch = cursor.epoch;
+  const result = await run();
+  if (epoch === cursor.epoch) return result;
+  if (!epoch && read) return epochRequest(run, read, cursor);
+  if (applicationResponseCurrent(epoch, cursor)) return result;
+  throw new Error("The engine restarted. Refreshing application views.");
+}
 const listeners = new Set<(update: ViewUpdate) => void>();
 export function receiveApplicationChange(event: ApplicationChange): void {
   const update = applicationCursor.receive(event);

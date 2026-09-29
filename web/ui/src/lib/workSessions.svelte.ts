@@ -1,5 +1,5 @@
 import { vaultFetch as fetch } from "./vaultScope";
-import { applicationCursor, applicationResponseCurrent, applicationDisconnected } from "./applicationUpdates";
+import { applicationDisconnected, epochRequest } from "./applicationUpdates";
 import { singleFlight } from "./singleFlight";
 import type { WorkContextView, WorkSummary } from "../../../../lib/workViews";
 import { sessionPath } from "../../../../lib/workSessionView";
@@ -9,13 +9,13 @@ import { app, gotoNote } from "./store.svelte";
 let savedCwd = "";
 try { savedCwd = localStorage.getItem("bigbrain.work.cwd") ?? ""; } catch { /* storage unavailable */ }
 export const work = $state({ loaded: false, selectedTitle: "", sessions: [] as WorkSummary[], graph: null as GraphData | null, error: "", context: {} as WorkContextView, cwd: savedCwd });
-export async function workRequest<T>(path = "", body?: Record<string, unknown>): Promise<T> {
-  const epoch = applicationCursor.epoch;
-  const response = await fetch(`/api/pilot/work${path}`, body ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : undefined);
-  const result = await response.json();
-  if (!response.ok) throw new Error(result.error ?? "Session request failed");
-  if (!applicationResponseCurrent(epoch)) throw new Error("The engine restarted. Refreshing application views.");
-  return result;
+export function workRequest<T>(path = "", body?: Record<string, unknown>): Promise<T> {
+  return epochRequest(async () => {
+    const response = await fetch(`/api/pilot/work${path}`, body ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : undefined);
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error ?? "Session request failed");
+    return result;
+  }, !body);
 }
 async function fetchWork(ids?: string[]): Promise<void> {
   try {

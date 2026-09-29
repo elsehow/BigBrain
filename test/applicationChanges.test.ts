@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { ApplicationChanges } from "../lib/applicationChanges";
-import { ApplicationCursor, updatePump } from "../web/ui/src/lib/applicationUpdates";
+import { ApplicationCursor, applicationResponseCurrent, epochRequest, updatePump } from "../web/ui/src/lib/applicationUpdates";
 import { createLive } from "../lib/liveEvents";
 import { newPilotChatSession } from "../lib/pilotChatTypes";
 import { pilotChatDetail } from "../lib/pilotChatSummary";
@@ -37,6 +37,30 @@ test("cursor repairs gaps, restarts and reconnects, ignoring duplicate and out o
   expect(c.receive(event("first", 3))?.snapshot).toBe(true);
   expect(c.receive(event("second", 0, true))?.snapshot).toBe(true);
   expect(c.receive(event("second", 0, true))?.snapshot).toBe(true);
+});
+
+test("the first connect snapshot adopts an epoch; a later epoch is a restart (#6)", async () => {
+  const snapshot = (c: ApplicationCursor, ...epochs: string[]) => { for (const epoch of epochs) c.receive({ epoch, revision: 0, snapshot: true, entities: [] }); };
+  // A read begun before the first connection, answered after its snapshot,
+  // predates the subscription: it is read again, not reported as a restart.
+  const reading = new ApplicationCursor();
+  let reads = 0;
+  expect(await epochRequest(async () => { if (++reads === 1) snapshot(reading, "first"); return reads; }, true, reading)).toBe(2);
+  expect(await epochRequest(async () => ++reads, true, reading)).toBe(3);
+
+  // A write is never repeated; before any connection it has no epoch to be stale against.
+  const writing = new ApplicationCursor();
+  let writes = 0;
+  expect(await epochRequest(async () => { snapshot(writing, "first"); return ++writes; }, false, writing)).toBe(1);
+  expect(applicationResponseCurrent("", writing)).toBe(true);
+  snapshot(writing, "second");
+  expect(applicationResponseCurrent("", writing)).toBe(false);
+  expect(applicationResponseCurrent("first", writing)).toBe(false);
+
+  const restarted = new ApplicationCursor(); snapshot(restarted, "first");
+  await expect(epochRequest(async () => snapshot(restarted, "second"), true, restarted)).rejects.toThrow("The engine restarted");
+  const preConnect = new ApplicationCursor();
+  await expect(epochRequest(async () => snapshot(preConnect, "first", "second"), false, preConnect)).rejects.toThrow("The engine restarted");
 });
 
 test("an invalidation arriving during a snapshot is drained afterward", async () => {
