@@ -14,6 +14,8 @@ Each writable shared vault can have one inclusion rule and has a separate Added 
 With no rule, Add rule opens a draft editor. Drafts can be tested before saving;
 Cancel discards edits. Save and enable creates an active rule: there is no
 separate disabled state. A saved rule shows its text, Edit rule and Remove rule.
+Test rule, its date range and matching results appear only while adding or
+editing a rule. The saved view shows the rule and its Edit/Remove actions.
 Removing it stops future inclusion without removing past contributions. Editing
 preserves the saved rule until Save changes is pressed. Test rule displays historical matches directly below
 it without contributing anything. All time is selected by default and disables

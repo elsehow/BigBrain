@@ -77,6 +77,7 @@
               </div>
               <p class="rule-text">{v.rule.text}</p>
             {/if}
+            {#if editing}
             <div class="test-range">
               <label class="all-time"><input type="checkbox" bind:checked={allTime} onchange={invalidatePreview}/>All time</label>
               <label class="date-range" class:inactive={allTime}>Added since<input type="date" bind:value={since} disabled={allTime} onchange={invalidatePreview}/></label>
@@ -93,6 +94,7 @@
                 {:else}<p class="quiet">No new matches to import.</p>{/each}
                 {#if matchesInRange(v).some(s=>!s.added)}<div class="import-row"><button class="settings-add" disabled={!checked.length} onclick={()=>importSelected(v)}>Import {checked.length} {checked.length===1?'source':'sources'} to {v.name}</button><span class="quiet">Personal originals stay in your vault.</span></div>{/if}
               </div>
+            {/if}
             {/if}
           </section>
           {/if}
