@@ -48,7 +48,7 @@
  * sequence numbers. The event files themselves are create-only either way.
  */
 
-import { appendFileSync, closeSync, existsSync, fstatSync, openSync, readFileSync, readSync } from "node:fs";
+import { appendFileSync, closeSync, existsSync, fstatSync, openSync, readFileSync, readSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import {
   appendAssertionEvent,
@@ -61,7 +61,7 @@ import {
   type AssertionEvent,
 } from "./assertionLog";
 import { parseEventFile, type EventFile } from "./eventLog";
-import { ensureDir } from "./fsx";
+import { ensureDir, writeAtomic } from "./fsx";
 import { sha256hex } from "./hash";
 import { AST_ID, ENTITY_LINK, ENT_ID, norm } from "./ids";
 import {
@@ -394,6 +394,8 @@ class EventIndex<T extends { id: string }> {
 
 // ── the vault ───────────────────────────────────────────────────────────────
 
+type PendingWrite = { event: SourceInsertion | AssertionEvent | RevocationEvent; feed: FeedInput };
+
 export interface SharedVaultOpts {
   now?: () => Date;
 }
@@ -414,6 +416,53 @@ export class SharedVault {
     this.insertions = new EventIndex<SourceInsertion>(root, listSourceInsertionEventFiles, validateSourceInsertion);
     this.assertions = new EventIndex<AssertionEvent>(root, listAssertionEventFiles, validateAssertionEvent);
     this.revocations = new EventIndex<RevocationEvent>(root, listRevocationEventFiles, validateRevocationEvent);
+  }
+
+  /** Called by the single writer while holding the server lock. A prepared
+   * write has already passed authorization; recovery finishes that same write. */
+  recoverPending(): void {
+    const path = join(this.root, ".spool/shared-write.json");
+    if (!existsSync(path)) return;
+    const pending = JSON.parse(readFileSync(path, "utf8")) as PendingWrite[];
+    this.applyPending(pending);
+    unlinkSync(path);
+  }
+
+  private applyPending(pending: PendingWrite[]): void {
+    for (const { event, feed } of pending) {
+      if (feed.id !== event.id) throw new Error("Corrupt shared write journal");
+      if (feed.kind === "evidence") {
+        const e = event as SourceInsertion;
+        validateSourceInsertion(e);
+        const result = appendSourceInsertionEvent(this.root, e, { wake: false });
+        this.insertions.note(e, result.path);
+      } else if (feed.kind === "assertion") {
+        const e = event as AssertionEvent;
+        validateAssertionEvent(e);
+        if (!this.assertions.has(e.id)) {
+          const result = appendAssertionEvent(this.root, e);
+          this.assertions.note(e, result.path);
+        }
+      } else {
+        const e = event as RevocationEvent;
+        validateRevocationEvent(e);
+        if (!this.revocations.has(e.id)) {
+          const result = appendRevocationEvent(this.root, e);
+          this.revocations.note(e, result.path);
+        }
+      }
+      this.feedLog.ensure(feed);
+    }
+  }
+
+  private commit(pending: PendingWrite[]): { deduped: boolean; seq: number } {
+    this.recoverPending();
+    const deduped = pending.every(p => this.feedLog.seqOf(p.event.id) !== undefined);
+    // Retains original actor and receive time across a process crash. A
+    // correction prepares both its assertion and revocation together.
+    writeAtomic(join(this.root, ".spool/shared-write.json"), JSON.stringify(pending), 0o600);
+    this.recoverPending();
+    return { deduped, seq: this.feedLog.seqOf(pending.at(-1)!.event.id)! };
   }
 
   head(): number {
@@ -527,20 +576,11 @@ export class SharedVault {
       ...(origin.date ? { occurred_at: origin.date } : {}),
       content_sha256: contentSha256,
     };
-    const result = appendSourceInsertionEvent(this.root, event, { wake: false });
-    this.insertions.note(event, result.path);
-    // A dedupe still ENSURES the feed line: the one crash window in this
-    // method is between the event append and the feed append, and a retry
-    // is how the record heals — with the original seq when there is one.
-    const feed = this.feedLog.ensure({
-      at: this.now().toISOString(),
-      kind: "evidence",
-      id: event.id,
-      source_id: sourceId,
-      path: result.path,
-      actor: feedActor(actor),
-    });
-    return { insertion: event, deduped: result.deduped && !feed.appended, seq: feed.seq };
+    const result = this.commit([{ event, feed: {
+      at: this.now().toISOString(), kind: "evidence", id: event.id,
+      source_id: sourceId, path: insertionEventRel(event), actor: feedActor(actor),
+    } }]);
+    return { insertion: event, ...result };
   }
 
   evidence(id: string): SourceInsertion | undefined {
@@ -642,47 +682,24 @@ export class SharedVault {
   /** Append an assertion, recognising a retry by id (the id excludes
    * `created_at`), and feed it only when new. */
   private landAssertion(actor: SharedActor, event: AssertionEvent): { deduped: boolean; seq: number } {
-    const rel = assertionEventRel(event);
-    let deduped = true;
-    if (!this.assertions.has(event.id)) {
-      const result = appendAssertionEvent(this.root, event);
-      this.assertions.note(event, result.path);
-      deduped = result.deduped;
-    }
-    const feed = this.feedLog.ensure({
-      at: this.now().toISOString(),
-      kind: "assertion",
-      id: event.id,
-      ...(event.supersedes ? { supersedes: event.supersedes } : {}),
-      path: rel,
-      actor: feedActor(actor),
-    });
-    return { deduped: deduped && !feed.appended, seq: feed.seq };
+    return this.commit([{ event, feed: this.assertionFeed(actor, event) }]);
   }
 
-  private landRevocation(
-    actor: SharedActor,
-    event: RevocationEvent,
-    mode: "correction" | "retraction" | "moderation"
-  ): { deduped: boolean; seq: number } {
-    const rel = revocationEventRel(event);
-    let deduped = true;
-    if (!this.revocations.has(event.id)) {
-      const result = appendRevocationEvent(this.root, event);
-      this.revocations.note(event, result.path);
-      deduped = result.deduped;
-    }
-    const feed = this.feedLog.ensure({
-      at: this.now().toISOString(),
-      kind: "revocation",
-      id: event.id,
+  private assertionFeed(actor: SharedActor, event: AssertionEvent): FeedInput {
+    return { at: this.now().toISOString(), kind: "assertion", id: event.id,
+      ...(event.supersedes ? { supersedes: event.supersedes } : {}),
+      path: assertionEventRel(event), actor: feedActor(actor) };
+  }
+
+  private revocationFeed(actor: SharedActor, event: RevocationEvent, mode: "correction" | "retraction" | "moderation"): FeedInput {
+    return { at: this.now().toISOString(), kind: "revocation", id: event.id,
       assertion_id: event.assertion_id,
       ...(event.superseded_by ? { superseded_by: event.superseded_by } : {}),
-      mode,
-      path: rel,
-      actor: feedActor(actor),
-    });
-    return { deduped: deduped && !feed.appended, seq: feed.seq };
+      mode, path: revocationEventRel(event), actor: feedActor(actor) };
+  }
+
+  private landRevocation(actor: SharedActor, event: RevocationEvent, mode: "correction" | "retraction" | "moderation"): { deduped: boolean; seq: number } {
+    return this.commit([{ event, feed: this.revocationFeed(actor, event, mode) }]);
   }
 
   assert(actor: SharedActor, raw: unknown): { assertion: AssertionEvent; deduped: boolean; seq: number } {
@@ -753,9 +770,14 @@ export class SharedVault {
   ): { assertion: AssertionEvent; revocation: RevocationEvent; deduped: boolean; seq: number } {
     if (!AST_ID.test(id)) throw new SharedVaultError(400, "not an assertion id (ast_ + 24 hex)");
     const draft = this.draftAssertion(raw, true);
-    this.ownedLive(actor, id, "correct");
     const event = this.buildAssertion(actor, draft, id);
-    const landed = this.landAssertion(actor, event);
+    const previous = this.assertion(id);
+    if (previous?.assertion.author.id === actor.handle && previous.revocation?.superseded_by === event.id && previous.revocation.author.kind === actorAuthor(actor).kind && previous.revocation.reason === (draft.reason ?? "corrected by its author")) {
+      return { assertion: this.assertions.get(event.id)!, revocation: previous.revocation,
+        ...this.commit([{ event: this.assertions.get(event.id)!, feed: this.assertionFeed(actor, event) },
+          { event: previous.revocation, feed: this.revocationFeed(actor, previous.revocation, "correction") }]) };
+    }
+    this.ownedLive(actor, id, "correct");
     const revocation = createRevocationEvent({
       assertion_id: id,
       superseded_by: event.id,
@@ -764,8 +786,9 @@ export class SharedVault {
       created_at: this.now().toISOString(),
       produced_by: { procedure: "shared-vault/correction", version: "1" },
     });
-    const rev = this.landRevocation(actor, revocation, "correction");
-    return { assertion: event, revocation, deduped: landed.deduped && rev.deduped, seq: rev.seq };
+    const result = this.commit([{ event, feed: this.assertionFeed(actor, event) },
+      { event: revocation, feed: this.revocationFeed(actor, revocation, "correction") }]);
+    return { assertion: event, revocation, ...result };
   }
 
   /** A retraction: the author's revocation with no successor. */
@@ -774,6 +797,10 @@ export class SharedVault {
     if (!isPlainObject(raw)) throw new SharedVaultError(400, "a retraction is a JSON object {reason}");
     refuseForgedKeys(raw);
     const reason = oneLine("reason", raw["reason"], 1, 2000);
+    const previous = this.assertion(id);
+    if (previous?.assertion.author.id === actor.handle && previous.revocation?.reason === reason && previous.revocation.author.kind === actorAuthor(actor).kind && previous.revocation.produced_by.procedure === "shared-vault/retraction") {
+      return { revocation: previous.revocation, ...this.landRevocation(actor, previous.revocation, "retraction") };
+    }
     this.ownedLive(actor, id, "retract");
     const revocation = createRevocationEvent({
       assertion_id: id,

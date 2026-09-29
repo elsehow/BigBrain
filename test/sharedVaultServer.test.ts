@@ -108,7 +108,7 @@ describe("bin/shared.ts — the CLI", () => {
     expect(sharedCli(["inspect", "--vault", p.root, "--members", p.store]).json).toMatchObject({ feed_head: ids.head, assertions: 3, live_assertions: 1, revoked_assertions: 2, feed_missing: [] });
     // the handler wrote only logs; the store stayed outside the vault, and
     // the door never wrote the store — every byte of it is the CLI's
-    expect(readdirSync(p.root).sort()).toEqual(["log", "vault.yaml"]);
+    expect(readdirSync(p.root).sort()).toEqual([".spool", "log", "vault.yaml"]);
     expect(readdirSync(join(p.root, "log")).sort()).toEqual(["assertions", "insertions", "revocations", "shared-feed"]);
     const storeAfter = readFileSync(p.store, "utf8");
     expect(storeAfter).not.toBe(storeBefore); // the CLI revoked and minted during the run…

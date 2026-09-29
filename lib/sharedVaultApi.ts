@@ -387,6 +387,7 @@ export function makeSharedApiHandler(deps: SharedApiDeps): (req: Request) => Pro
           return respond(unauthorized());
         }
       }
+      vault.recoverPending();
       return respond(await route.handler({ url, vault, actor, params, json, body }));
     } catch (error) {
       if (error instanceof SharedVaultError) return respond(json(error.status, { error: error.message }));

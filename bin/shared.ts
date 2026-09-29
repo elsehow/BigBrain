@@ -240,6 +240,7 @@ function run(): void {
       const lock = join(root, ".state", "shared-server.lock");
       if (!acquire(lock, "shared")) fail(`serve: another server holds ${lock}`);
       const vault = new SharedVault(root);
+      vault.recoverPending();
       const handler = makeSharedApiHandler({ root, storePath: store, vault });
       let server: ReturnType<typeof Bun.serve>;
       try {

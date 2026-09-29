@@ -476,8 +476,8 @@ describe("shared vault — idempotency, concurrency, persistence, pagination", (
     // a retried correction converges too
     const c1 = await asJson(await call(w.handler, "POST", `/v1/assertions/${x.id}/correct`, w.alice, { text: "[[Ada]] agrees with the same body, mostly.", sources: [a.id] }));
     const c2 = await call(w.handler, "POST", `/v1/assertions/${x.id}/correct`, w.alice, { text: "[[Ada]] agrees with the same body, mostly.", sources: [a.id] });
-    expect(c2.status).toBe(409); // already corrected: the record says so rather than pretending
-    expect((await asJson(c2)).error).toContain(c1.id);
+    expect(c2.status).toBe(200); // identical retry returns the original correction
+    expect(await asJson(c2)).toMatchObject({ id: c1.id, seq: c1.seq, deduped: true });
     const feed = await asJson(await call(w.handler, "GET", "/v1/feed", w.alice));
     expect(feed.entries.map((e: any) => e.seq)).toEqual([1, 2, 3, 4, 5, 6]);
     expect(readdirSync(join(w.root, "log", "assertions")).length).toBe(1); // one month dir
@@ -602,13 +602,13 @@ describe("shared vault — idempotency, concurrency, persistence, pagination", (
     expect(ev.next_cursor).toBeString();
   });
 
-  test("the SharedVault reads only its logs: nothing else under the root is reachable, and the handler never writes outside log/", async () => {
+  test("the SharedVault reads only its logs: nothing else under the root is reachable, and only the private recovery spool is added alongside log/", async () => {
     const w = world();
     writeFileSync(join(w.root, "secret.md"), "the operator's private note");
     await dropEvidence(w, w.alice, "seed", "seed body for citations");
     const hits = (await asJson(await call(w.handler, "GET", "/v1/search?q=private%20note", w.alice))).hits;
     expect(hits).toEqual([]);
-    expect(readdirSync(w.root).sort()).toEqual(["log", "secret.md"]);
+    expect(readdirSync(w.root).sort()).toEqual([".spool", "log", "secret.md"]);
     expect(readdirSync(join(w.root, "log")).sort()).toEqual(["insertions", "shared-feed"]);
     const v = new SharedVault(w.root);
     expect(v.head()).toBe(1);

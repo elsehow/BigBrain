@@ -1,73 +1,86 @@
-# Local shared-vault v0 assessment
+# Local shared-vault owner v0
 
-The recovered prototype (through 2be1653) applies cleanly to public main
-9686f88. It is a backend and CLI, not a desktop workspace switcher.
+Standalone owner UI, based on public main 9686f88 plus the recovered
+shared-vault prototype through 2be1653. It is not the installed desktop shell.
+
+## Launch
+
+From this checkout:
+
+```sh
+bun bin/shared-owner.ts --home "$HOME/BigBrain-shared-local" --open
+```
+
+Choose a new directory. In the browser, enter a vault name and your owner
+handle, then Create vault. Add evidence; open it and Make assertion; choose
+supporting evidence, then save. Assertions support correction and retraction.
+Search covers evidence and live assertions; the Assertions tab also shows
+retired claims and links to replacements.
+
+Stop with Ctrl-C. Run the identical command to reopen your saved vault.
+The launcher binds only to 127.0.0.1:4750 (`--port` changes it). `--open` opens
+the browser with a one-use launch secret; only the public base URL is printed.
+If the browser does not open, the private `launch-url` file inside the home
+directory contains the link. Relaunch to get a fresh one-use link.
+
+There is no BigBrain account or model connection required. Nothing is imported
+from a personal vault. This UI writes evidence and assertions explicitly; it
+does not run a gardener or create claims from pasted evidence automatically.
+
+## Storage and authentication
+
+The home directory contains `vault/`, `members.json`, `owner.json`,
+`browser-session`, and `launch-url`. Owner/session secrets use mode 0600 and
+remain outside the vault. Back up the entire home directory privately, including
+`vault/.spool/` if a write was interrupted. Never publish those files.
+
+The browser receives an HttpOnly, SameSite=Strict session cookie after redeeming
+a launch secret. No member token is stored in browser storage. Mutations require
+same-origin JSON; foreign Host/Origin requests are refused. Every vault request
+still goes through shared-vault credential verification, so revocation takes
+effect on an open UI. Local programs running as the same OS user remain trusted.
+
+One owner interface runs per home; it shares the vault writer lock with
+`bin/shared.ts serve`. Do not run both on the same vault simultaneously.
+Existing owner-UI homes reopen automatically. Importing an independently
+provisioned CLI vault/credential is not implemented.
+
+## Recovery
+
+Before writing events and feed entries, the writer atomically saves its prepared
+write in `vault/.spool/shared-write.json`. A correction prepares its new assertion
+and revocation together. After a process crash, the next server startup completes
+that accepted write with its original actor and receive time. Identical correction
+and retraction retries return the original result without adding feed entries.
+This covers process-crash recovery, not a power-loss/filesystem durability promise.
+Older prototype writes without a journal may still need their original retry to
+repair a missing feed entry; `shared inspect` reports these gaps.
 
 ## Verified
 
-On macOS with Bun 1.3.9, all 31 targeted tests passed with 508 assertions,
-including real HTTP using fetch and curl, graceful restart, forced crash,
-feed resume, concurrent writes, attribution, authorization, and revocation.
-No tests were skipped. This is targeted verification, not a complete security audit.
-
-The old handoff runner incorrectly requires an explicit `0 skip` summary.
-Bun omits that line when no tests skip. It also pipes commands through tee
-without preserving their exit status. Use the test command directly:
-
-```
-bun test test/sharedVaultServer.test.ts test/sharedVaultApi.test.ts test/sharedMembers.test.ts
-```
-
-## Owner-only local launch, available now
-
-From this checkout, choose a NEW directory separate from your personal vault.
-The credential file below is secret; it is outside the vault and readable only
-by your account. Initialization is a one-time command, not a launch step.
+33 targeted tests pass, covering real HTTP, two clients, restart/crash recovery,
+feed resume, concurrent writes, attribution, authorization, revoked credentials,
+owner-session setup, same-origin boundaries, and prepared correction recovery.
+Real Chromium click-through verifies creation, evidence, cited assertions,
+correction, search, retraction, server restart, safe text rendering and mobile width.
 
 ```sh
-umask 077
-SHARED_HOME="$HOME/BigBrain-shared-playground"
-mkdir -p "$SHARED_HOME"
-bun bin/shared.ts init --vault "$SHARED_HOME/vault" --members "$SHARED_HOME/members.json" --owner owner --json > "$SHARED_HOME/owner-connection.json"
-bun bin/shared.ts serve --vault "$SHARED_HOME/vault" --members "$SHARED_HOME/members.json"
+bun test test/sharedOwner.test.ts test/sharedRecovery.test.ts test/sharedVaultServer.test.ts test/sharedVaultApi.test.ts test/sharedMembers.test.ts
+node test/support/sharedOwner.browser.cjs
+bun run typecheck
+bun run lint
 ```
 
-The service binds to 127.0.0.1:4749. Stop with Ctrl-C; restart using just the
-serve command with the same paths. No model connection, personal-vault access,
-cloud account, or desktop installation change is needed. The existing desktop
-app does not yet connect to this endpoint. Do not expose its unauthenticated
-viewer as a shared-vault client.
+The browser check creates only disposable synthetic vaults. The old handoff
+runner incorrectly required Bun to print `0 skip`; Bun omits the line when none
+skip. These commands use actual exit status rather than that text requirement.
 
-## Smallest usable next slice
+## Next boundary
 
-Keep the existing authenticated API and add a local owner client:
-
-- Save the endpoint and owner credential securely once.
-- Show connection status, current member, and owner role.
-- List/search evidence and assertions with their authors and citations.
-- Contribute evidence, assert a claim citing it, correct/retract own claims.
-- Report authorization, validation, and server errors beside the action.
-- Reconnect after restart without reinitializing or losing saved content.
-
-Prefer a thin authenticated client over attaching the personal desktop UI to
-the shared directory. This can begin as a CLI client and become a UI once the
-workflow is useful. Membership administration remains on the server CLI in v0;
-there are no invitation or remote-admin routes in this prototype.
-
-## Boundaries and follow-up
-
-The prototype has a separate sharedMembers credential implementation (`sv_`),
-not the main auth.ts credential store (`bb_`). Unifying the service authorization
-layer is separate architectural work; it has not already happened.
-
-Writes preserve evidence/assertion/revocation logs plus a durable change feed.
-A crash between an event write and feed append currently requires a client retry
-to repair the feed; automatic reconciliation and reliable client retries need
-attention before unattended use. Backups must include both vault logs and the
-separate member store. Correction/retraction retry semantics also need review;
-these operations reject an already revoked assertion.
-
-Before inviting another person remotely: independent security review, TLS or a
-secure tunnel, service supervision, and a tested backup/restore procedure.
-Desktop integration, automatic import/export rules, model execution, portable
-signatures, and centralized accounts are not prerequisites for the local owner v0.
+This is local-only owner operation, not a remote collaboration release. Member
+management remains on the host CLI; invitation links, remote administration,
+desktop workspace switching and inclusion rules remain separate work. Shared
+credentials (`sv_`) have not been unified with the main client store (`bb_`).
+Before remote use: independent security review, TLS/tunnel, supervision, and
+backup/restore verification. Do not expose this owner UI or the unauthenticated
+personal desktop viewer to the network.

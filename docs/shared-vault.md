@@ -1,6 +1,6 @@
 # The shared vault — one record, several authenticated members
 
-*MVP, backend/CLI slice. `bin/shared.ts`, `lib/sharedMembers.ts`,
+*MVP, backend/CLI slice. A separate [local owner UI](shared-vault-v0.md) is also available. `bin/shared.ts`, `lib/sharedMembers.ts`,
 `lib/sharedVault.ts`, `lib/sharedVaultApi.ts`. No UI, no deployment
 target, nothing installed. Governing principles:
 [design-principles.md](design-principles.md) §1 and §2.*
@@ -106,11 +106,12 @@ Refusals a client will meet, by design:
 
 Events are deterministic: evidence carries no receive timestamp and is
 byte-identical on retry; assertion and revocation ids exclude
-`created_at`. A retried submission answers `deduped: true` with the
-**original** entry's `seq`, and writes nothing. The one crash window — an
-event appended but its feed line not — heals on retry: the feed line is
-appended then, and `bigbrain shared inspect` reports `feed_missing` until
-it is. A torn last line (a crash mid-append) is not part of the feed, and
+`created_at`. An identical retried submission, correction, or retraction answers `deduped: true` with the
+**original** entry's `seq`, and writes nothing. New writes first prepare a durable journal in `.spool/shared-write.json`;
+server startup completes any interrupted write, retaining actor and receive time.
+Corrections prepare their assertion and revocation together. Older prototype
+writes without a journal still heal missing feed entries on retry, and
+`bigbrain shared inspect` reports `feed_missing` until repaired. A torn last line (a crash mid-append) is not part of the feed, and
 the next append starts a fresh line after it.
 
 The feed is a log, not a cache: it carries what the events do not
