@@ -169,3 +169,12 @@ test("Pi Claude rejects API authentication before starting a session", async () 
   await expect(f.client.prepare()).rejects.toThrow("Claude subscription");
   expect(f.contexts).toHaveLength(0);
 });
+
+test("Pi never warms a prompt cache: no request leaves outside the session's accounting and bounds", async () => {
+  const f = await piFixture("anthropic");
+  const cached = f.runtime.getAvailableSnapshot().find(m => m.provider === "anthropic" && m.promptCache?.short)!;
+  f.s.config.model = cached.id;
+  let status: unknown;
+  await f.client.turn(turn({ tool: async () => { status = (f.client as unknown as { session: pi.AgentSession }).session.cacheWarmingStatus; return { ok: true }; } }));
+  expect(status).toEqual({ state: "inactive", reason: "cache warming disabled" });
+});
