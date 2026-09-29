@@ -1,3 +1,4 @@
+import {withMemberLock} from './sharedMemberLock';
 /**
  * sharedMembers.ts — who may reach a SHARED vault, and with what.
  *
@@ -31,13 +32,8 @@
  * a revoked member all verify nobody. Every function takes the store path
  * explicitly so tests and the smoke scenario run against scratch files.
  *
- * ONE WRITER for the store: the operator's CLI on the host. The SERVER
- * never writes it — `touchCredential` records `last_used` in a sidecar
- * (`<store>.usage.json`) instead. Two processes doing read-modify-write on
- * one file lose updates: a server stamping `last_used` in the same
- * millisecond the operator revoked a member would have written the
- * un-revoked member back. With the sidecar there is nothing the door can
- * write that membership is read from.
+ * Membership mutations take a cross-process lock shared by CLI and server.
+ * Usage timestamps stay in a separate sidecar, outside access decisions.
  *
  * Portable signatures (a member signing their own events) are deferred:
  * this is authenticated attribution — the server vouches that the holder
@@ -79,9 +75,10 @@ export interface SharedCredential {
   /** Human label chosen at mint time ("laptop", "assistant"). */
   name: string;
   kind: SharedCredentialKind;
-  /** ⊆ the member's permissions at mint time; the effective set is the
-   * intersection at request time. */
+  /** Fixed credential scopes, unless followsMember explicitly tracks access. */
   scopes: SharedPermission[];
+  /** Interactive member credential follows owner-managed access changes. */
+  followsMember?: boolean;
   /** hex sha256 of the full `sv_<id>_<secret>` string. */
   sha256: string;
   created: string;
@@ -181,7 +178,7 @@ function memberByHandle(store: MemberStore, handle: string): SharedMember {
 /** Create the store with its ONE owner. Refuses to overwrite: an existing
  * store is somebody's membership, and clobbering it is never a setup step.
  * Returns the owner's first credential — printed once, never stored. */
-export function initMemberStore(
+function initMemberStoreLocked(
   storePath: string,
   vaultRoot: string,
   owner: { handle: string; display?: string; credentialName?: string },
@@ -208,7 +205,7 @@ export function initMemberStore(
 /** Add a member. Handles are unique across LIVE AND REVOKED members: a
  * handle is an author id in an append-only record, so a new person can
  * never inherit an old one's assertions by reusing the name. */
-export function addMember(
+function addMemberLocked(
   storePath: string,
   input: { handle: string; display?: string; permissions?: readonly string[] },
   now: Date = new Date()
@@ -233,7 +230,7 @@ export function addMember(
 
 /** Change a member's permissions. Takes effect on their next request, on
  * every credential they hold. The owner's are fixed. */
-export function setMemberPermissions(
+function setMemberPermissionsLocked(
   storePath: string,
   handle: string,
   permissions: readonly string[]
@@ -250,10 +247,10 @@ export function setMemberPermissions(
 /** Mint a credential for a member. The ONLY function that ever sees the
  * plaintext secret. Scopes must be a subset of the member's permissions —
  * a credential is never a way to escalate — and default to all of them. */
-export function mintCredential(
+function mintCredentialLocked(
   storePath: string,
   handle: string,
-  input: { name: string; kind?: SharedCredentialKind; scopes?: readonly string[] },
+  input: { name: string; kind?: SharedCredentialKind; scopes?: readonly string[]; followsMember?: boolean },
   now: Date = new Date()
 ): { credential: SharedCredential; token: string } {
   const store = requireStore(storePath);
@@ -262,6 +259,7 @@ export function mintCredential(
   const kind = input.kind ?? "person";
   if (kind !== "person" && kind !== "agent")
     throw new SharedMemberError(`shared-members: credential kind must be person or agent`);
+  if(input.followsMember && (input.scopes || kind!=='person'))throw new SharedMemberError('Member-following credentials must be unscoped person credentials');
   const scopes = input.scopes ? normalizePermissions(input.scopes) : [...member.permissions];
   for (const scope of scopes)
     if (!member.permissions.includes(scope))
@@ -276,6 +274,7 @@ export function mintCredential(
     name: checkOneLine("credential name", input.name, 120),
     kind,
     scopes,
+    ...(input.followsMember ? {followsMember:true} : {}),
     sha256: sha256hex(token),
     created: now.toISOString(),
     last_used: null,
@@ -319,7 +318,7 @@ export function verifyCredential(storePath: string, presented: string): VerifyMe
       kind: credential.kind,
       credential_id: credential.id,
       credential_name: credential.name,
-      permissions: SHARED_PERMISSIONS.filter((p) => credential.scopes.includes(p) && member.permissions.includes(p)),
+      permissions: SHARED_PERMISSIONS.filter((p) => (credential.followsMember || credential.scopes.includes(p)) && member.permissions.includes(p)),
     },
   };
 }
@@ -331,7 +330,7 @@ export function hasPermission(actor: SharedActor, permission: SharedPermission):
 /** Revoke a member and every credential they hold. The owner cannot be
  * revoked — there is one authoritative vault and it has one operator;
  * handing it over is a store edit an operator makes deliberately. */
-export function revokeMember(storePath: string, handle: string, now: Date = new Date()): SharedMember {
+function revokeMemberLocked(storePath: string, handle: string, now: Date = new Date()): SharedMember {
   const store = requireStore(storePath);
   const member = memberByHandle(store, handle);
   if (member.role === "owner") throw new SharedMemberError("shared-members: the owner cannot be revoked");
@@ -343,7 +342,7 @@ export function revokeMember(storePath: string, handle: string, now: Date = new 
 }
 
 /** Revoke one credential; the member and their other credentials stand. */
-export function revokeCredential(storePath: string, id: string, now: Date = new Date()): boolean {
+function revokeCredentialLocked(storePath: string, id: string, now: Date = new Date()): boolean {
   const store = readStore(storePath);
   const credential = store?.credentials.find((c) => c.id === id);
   if (!store || !credential) return false;
@@ -368,7 +367,7 @@ function readUsage(storePath: string): Record<string, string> {
 }
 
 /** Record a use in the SIDECAR — the store itself is never written by the
- * door (see the header). Throttled to one write a minute per credential. */
+ * usage recorder. Throttled to one write a minute per credential. */
 export function touchCredential(storePath: string, id: string, now: Date = new Date()): void {
   const usage = readUsage(storePath);
   const last = usage[id];
@@ -395,3 +394,15 @@ export function listCredentials(storePath: string, handle?: string): SharedCrede
 export function ownerOf(storePath: string): SharedMember | undefined {
   return readStore(storePath)?.members.find((m) => m.role === "owner");
 }
+
+export const initMemberStore = (...args: Parameters<typeof initMemberStoreLocked>): ReturnType<typeof initMemberStoreLocked> => withMemberLock(args[0],()=>initMemberStoreLocked(...args));
+
+export const addMember = (...args: Parameters<typeof addMemberLocked>): ReturnType<typeof addMemberLocked> => withMemberLock(args[0],()=>addMemberLocked(...args));
+
+export const setMemberPermissions = (...args: Parameters<typeof setMemberPermissionsLocked>): ReturnType<typeof setMemberPermissionsLocked> => withMemberLock(args[0],()=>setMemberPermissionsLocked(...args));
+
+export const mintCredential = (...args: Parameters<typeof mintCredentialLocked>): ReturnType<typeof mintCredentialLocked> => withMemberLock(args[0],()=>mintCredentialLocked(...args));
+
+export const revokeMember = (...args: Parameters<typeof revokeMemberLocked>): ReturnType<typeof revokeMemberLocked> => withMemberLock(args[0],()=>revokeMemberLocked(...args));
+
+export const revokeCredential = (...args: Parameters<typeof revokeCredentialLocked>): ReturnType<typeof revokeCredentialLocked> => withMemberLock(args[0],()=>revokeCredentialLocked(...args));

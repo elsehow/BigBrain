@@ -15,7 +15,10 @@ both the local UI and inclusion worker. The remote service persists independentl
 
 ## Connection and identity
 
-An operator provisions a member and issues an invitation with
+The owner opens Settings → the shared vault → Members to create an invitation.
+The name is an owner-assigned display label, not a verified email identity.
+Invitations grant read-only or contributor access and create a distinct member
+on redemption. The operator CLI can still bootstrap an existing member with
 `bin/shared-invite.ts`. Connect vault accepts only that invite link; the server
 supplies the name. Invitations are single use, expire, and carry the secret in the
 URL fragment. If redemption succeeds but its response is lost, issue a new invite.
@@ -23,8 +26,12 @@ The local backend stores the resulting credential in `connections.json` with mod
 0600. Neither credentials nor the Jev API key are sent to browser storage.
 
 All remote data endpoints require authentication. Membership and scopes are
-checked on every request, including after reading write bodies. Invites currently
-connect an existing member; membership administration remains an operator CLI.
+checked on every request, including after reading write bodies. Owner administration endpoints require a person credential with write access.
+Members cannot create invites, list private invitations, change access, or remove
+others. The owner cannot be removed or downgraded. Removing a member revokes all
+their credentials but leaves attributed contributions intact. Already downloaded
+content cannot be recalled. Invite secrets are retained in a private mode-0600
+sidecar until use or cancellation so the owner can copy pending links.
 See `deploy/shared-vault/bigbrain-shared.service` for a persistent Linux service.
 
 ## Rules and contributions
@@ -138,3 +145,22 @@ personal vault do not run automatically; saving a rule binds it to the current
 vault. Calibration snapshots are separately scoped by personal root, so they
 must be deliberately moved or re-reviewed rather than silently reused across
 unrelated vaults.
+
+## Membership operations and recovery
+
+The desktop proxies membership actions through its existing local trust boundary;
+device credentials never reach browser storage. Member-following credentials
+issued by the invite flow reflect both access upgrades and downgrades on the next
+request. Explicitly scoped legacy/device credentials retain their scope ceiling.
+
+All membership and invitation mutations use `<members-file>.lock`, an exclusive
+directory shared by the CLI and server. Never run an older CLI against the live
+store. On an unclean exit during a mutation the lock fails closed: stop the
+service and all membership CLI processes, remove the empty lock directory, then
+restart. Do not remove it while a writer is running. An invite is consumed before
+its identity/credential is minted; an interrupted redemption may burn the link.
+Issue a new invite if the response is lost or the server crashes during redemption.
+There is no automatic retry that creates additional member identities.
+
+Validation: `bun test test/sharedMembershipAdmin.test.ts` and
+`node test/support/sharedMembership.browser.cjs` exercise fabricated vaults only.

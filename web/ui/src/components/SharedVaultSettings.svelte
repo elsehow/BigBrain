@@ -1,4 +1,5 @@
 <script lang="ts">
+ import SharedVaultMembers from './SharedVaultMembers.svelte';
  import InclusionRuleEditor from './InclusionRuleEditor.svelte';
  import {parseMentions} from '../../../../lib/pilotMentions';
  import {onMount} from 'svelte';
@@ -7,9 +8,9 @@
  import {sharedSettings,reloadSharedConnections} from '../lib/sharedSettings.svelte';
  import {vaultFetch} from '../lib/vaultScope';
  import type {Contribution} from '../../../../lib/sharedRules';
- let data=$state<{evaluator?:string;name:string;identity:{display:string;permissions:string[];vault?:{recommended_rules?:{id:string;text:string;mentions:string[]}[]}};rule:{text:string;error?:string;lastRun?:string}|null;items:Contribution[]}|null>(null);
+ let data=$state<{evaluator?:string;name:string;endpoint:string;identity:{role:string;display:string;permissions:string[];vault?:{recommended_rules?:{id:string;text:string;mentions:string[]}[]}};rule:{text:string;error?:string;lastRun?:string}|null;items:Contribution[]}|null>(null);
  const activeItems=$derived(data?.items.filter(item=>item.status==='active')??[]);
- let editing=$state(false),draft=$state(''),busy=$state(false),notice=$state<{ok:boolean;text:string}|null>(null),tab=$state<'rule'|'added'>('rule'),invite=$state('');
+ let editing=$state(false),draft=$state(''),busy=$state(false),notice=$state<{ok:boolean;text:string}|null>(null),tab=$state<'rule'|'added'|'members'>('rule'),invite=$state('');
  async function request(action:string,body?:unknown){const r=await vaultFetch('/api/shared-settings'+(action?'/'+action:'')+(action?'?connection='+encodeURIComponent(sharedSettings.selected):''),{method:body===undefined?'GET':'POST',headers:{'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});const result=await r.json();if(!r.ok)throw Error(result.error??'Request failed');return result;}
  async function load(){if(!sharedSettings.selected){data=null;return;}const id=sharedSettings.selected;const result=await request('vault');if(id===sharedSettings.selected)data=result;}
  async function act(fn:()=>Promise<void>){if(busy)return;busy=true;notice=null;try{await fn()}catch(e){notice={ok:false,text:(e as Error).message}}finally{busy=false}}
@@ -18,7 +19,7 @@
  async function transition(item:Contribution){await request('withdraw',{id:item.id,version:item.version,request_id:crypto.randomUUID()});await load();notice={ok:true,text:item.other_contributors.length?'Your contribution was withdrawn. Others still share this source.':'Contribution withdrawn. Your personal original is retained.'};}
  function openDialog(d:HTMLDialogElement){d.showModal();}
  onMount(()=>{void reloadSharedConnections();});
- $effect(()=>{const id=sharedSettings.selected;if(id){editing=false;invalidate();data=null;void load().catch(e=>notice={ok:false,text:e.message});}});
+ $effect(()=>{const id=sharedSettings.selected;if(id){tab='rule';editing=false;invalidate();data=null;void load().catch(e=>notice={ok:false,text:e.message});}});
 </script>
 {#snippet row(item:Contribution)}
  <div class="contribution"><div class="contribution-main"><button class="source-title" onclick={()=>{if(item.path)gotoNote(item.path)}}>{item.title}</button><small>You · {new Date(item.added_at).toLocaleDateString()}</small>{#if item.other_contributors.length}<small>Also shared by {item.other_contributors.join(', ')}</small>{/if}</div><div class="actions"><button class="settings-add" disabled={busy||!data?.identity.permissions.includes('write')} onclick={()=>act(()=>transition(item))}>Withdraw</button></div></div>
@@ -27,8 +28,9 @@
  {#if data}
  <section class="settings-card"><div class="settings-card-main"><h2 class="settings-card-name">{data.name}</h2><small>{data.identity.display} · {data.identity.permissions.includes('write')?'Read and write':'Read only'}</small></div>
  <div class="settings-card-body">
- <div class="section-tabs"><button class:on={tab==='rule'} onclick={()=>tab='rule'}>Inclusion rule</button><button class:on={tab==='added'} onclick={()=>tab='added'}>Added by you <small>{activeItems.length}</small></button></div>
- {#if tab==='added'}{#each activeItems as item (item.id)}{@render row(item)}{:else}<small>No shared sources.</small>{/each}
+ <div class="section-tabs"><button class:on={tab==='rule'} onclick={()=>tab='rule'}>Inclusion rule</button><button class:on={tab==='added'} onclick={()=>tab='added'}>Added by you <small>{activeItems.length}</small></button>{#if data.identity.role==='owner'}<button class:on={tab==='members'} onclick={()=>tab='members'}>Members</button>{/if}</div>
+ {#if tab==='members'&&data.identity.role==='owner'}{#key sharedSettings.selected}<SharedVaultMembers vaultName={data.name} endpoint={data.endpoint} {request}/>{/key}
+ {:else if tab==='added'}{#each activeItems as item (item.id)}{@render row(item)}{:else}<small>No shared sources.</small>{/each}
  {:else if !data.identity.permissions.includes('write')}<small>This membership is read-only.</small>
  {:else if editing}
  <InclusionRuleEditor target={{kind:'shared',id:sharedSettings.selected}} value={draft} onsave={()=>{editing=false;void load();notice={ok:true,text:'Inclusion rule saved.'}}} oncancel={()=>editing=false}/>

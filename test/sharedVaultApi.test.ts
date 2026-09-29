@@ -1,3 +1,4 @@
+import {createMemberInvite} from '../lib/sharedInvites';
 /**
  * The shared-vault door, handler-level: `makeSharedApiHandler` called with
  * `new Request(...)` — no socket. The same handler bin/shared.ts serves;
@@ -411,13 +412,15 @@ describe("shared vault — citations, ids and paths", () => {
     const w = world();
     const e = await dropEvidence(w, w.owner, "seed", "seed body for the table walk");
     const a = await assertClaim(w, w.owner, "[[Ada]] seeds the table walk.", [e.id]);
+    const invitation=createMemberInvite(w.store,'Example invitee','read');
+    const member=(await asJson(await call(w.handler,'GET','/v1/whoami',w.bob))).member_id;
     for (const route of SHARED_ROUTES) {
-      const path = route.path.replace(":id", route.path.includes("evidence") ? e.id : a.id);
+      const path = route.path.replace(":id", route.path.includes('invites')?invitation.id:route.path.includes('members')?member:route.path.includes("evidence") ? e.id : a.id);
       const res = await call(w.handler, route.method, path, w.owner, route.method === "POST" ? {} : undefined);
       expect([route.method, path, res.status]).not.toEqual([route.method, path, 404]);
       expect((await call(w.handler, route.method, path)).status).toBe(401);
     }
-    for (const [method, path] of [["DELETE", "/v1/evidence"], ["PUT", "/v1/assertions"], ["GET", "/v1/members"], ["POST", "/v1/members"], ["GET", "/api/vault"], ["GET", "/v1/memory"], ["GET", "/v1/note?path=vault.yaml"]]) {
+    for (const [method, path] of [["DELETE", "/v1/evidence"], ["PUT", "/v1/assertions"], ["GET", "/v1/unknown-admin"], ["POST", "/v1/members"], ["GET", "/api/vault"], ["GET", "/v1/memory"], ["GET", "/v1/note?path=vault.yaml"]]) {
       expect((await call(w.handler, method!, path!, w.owner)).status).toBe(404);
     }
   });

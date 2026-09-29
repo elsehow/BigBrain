@@ -483,8 +483,8 @@ export async function runAdversarial(session: Session, p: Provisioned, ids: Scen
   report.push("9 traversal / absolute / NUL ids across evidence, assertions, correct, moderation and citations → 400 before any path is formed");
 
   // the surface is the table
-  check((await api("GET", "/v1/members", undefined)).status === 401, "unknown route without a credential → 401");
-  check((await api("GET", "/v1/members", p.alice)).status === 404, "unknown route with a credential → 404");
+  check((await api("GET", "/v1/unknown-admin", undefined)).status === 401, "unknown route without a credential → 401");
+  check((await api("GET", "/v1/unknown-admin", p.alice)).status === 404, "unknown route with a credential → 404");
   check((await api("GET", "/members.json", p.alice)).status === 404, "the store is not a route");
   check((await api("GET", "/", undefined)).status === 401, "the root is not a route");
   check((await api("DELETE", `/v1/assertions/${ids.corr}`, p.owner)).status === 404, "DELETE is not a method here");

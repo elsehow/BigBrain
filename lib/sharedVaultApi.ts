@@ -1,3 +1,4 @@
+import {SharedMemberBusyError} from './sharedMemberLock';
 /**
  * sharedVaultApi.ts — the shared vault's HTTP door. bin/shared.ts serves
  * it; tests call it with `new Request(...)` — a pure (Request) => Response
@@ -30,8 +31,9 @@
  * never became a path.
  */
 
-import { sharedVaultIdentity, redeemSharedInvite } from './sharedInvites';
+import { sharedVaultIdentity, redeemSharedInvite, createMemberInvite, pendingMemberInvites, cancelMemberInvite } from './sharedInvites';
 import {
+  listMembers, setMemberPermissions, revokeMember, SharedMemberError,
   hasPermission,
   touchCredential,
   verifyCredential,
@@ -82,6 +84,8 @@ const json: Json = (status, body, headers = {}) =>
 const unauthorized = (): Response => json(401, { error: "unauthorized" }, { "WWW-Authenticate": "Bearer" });
 
 interface RouteCtx {
+  storePath: string;
+  now: Date;
   url: URL;
   vault: SharedVault;
   actor: SharedActor;
@@ -99,6 +103,7 @@ interface Route {
   /** The permission the route needs; absent = any live member (whoami). */
   permission?: SharedPermission;
   rateLimited?: boolean;
+  ownerOnly?: boolean;
   handler: (ctx: RouteCtx) => Response | Promise<Response>;
 }
 
@@ -149,7 +154,7 @@ async function jsonBody(req: Request, json: Json, setBytes: (n: number) => void)
  * body was read (so a stranger's upload is never read at all) and the one
  * after (so a revocation that lands DURING a slow upload refuses it). */
 function sameActor(a: SharedActor, b: SharedActor): boolean {
-  return a.credential_id === b.credential_id && a.member_id === b.member_id && a.permissions.join() === b.permissions.join();
+  return a.credential_id === b.credential_id && a.member_id === b.member_id && a.role === b.role && a.kind === b.kind && a.permissions.join() === b.permissions.join();
 }
 
 const decodedSegment = (raw: string, json: Json): string | Response => {
@@ -275,6 +280,23 @@ function feed({ url, vault, json }: RouteCtx): Response {
 // ── the route table ──────────────────────────────────────────────────────
 
 const ROUTE_TABLE: Route[] = [
+  {method:'GET',path:'/v1/members',ownerOnly:true,permission:'write',handler:({storePath,now,json})=>json(200,{members:listMembers(storePath).filter(m=>!m.revoked),invites:pendingMemberInvites(storePath,now)})},
+  {method:'POST',path:'/v1/invites',ownerOnly:true,permission:'write',rateLimited:true,handler:({storePath,now,body,json})=>{
+    const input=body as {name?:unknown;permission?:unknown}|null;
+    if(!input||typeof input.name!=='string'||!input.name.trim()||input.name.trim().length>120||/[\p{Cc}]/u.test(input.name)||(input.permission!=='read'&&input.permission!=='write'))return json(400,{error:'Enter a name and valid access level.'});
+    return json(201,createMemberInvite(storePath,input.name.trim(),input.permission as 'read'|'write',now));
+  }},
+  {method:'POST',path:'/v1/invites/:id/cancel',ownerOnly:true,permission:'write',rateLimited:true,handler:({storePath,params,json})=>cancelMemberInvite(storePath,params.id!)?json(200,{ok:true}):json(404,{error:'Invitation not found or already accepted.'})},
+  {method:'POST',path:'/v1/members/:id/access',ownerOnly:true,permission:'write',rateLimited:true,handler:({storePath,params,body,json})=>{
+    const member=listMembers(storePath).find(m=>m.id===params.id&&!m.revoked),input=body as {permission?:unknown}|null;
+    if(!member)return json(404,{error:'Member not found.'});
+    if(!input||(input.permission!=='read'&&input.permission!=='write'))return json(400,{error:'Invalid access level.'});
+    return json(200,setMemberPermissions(storePath,member.handle,input.permission==='write'?['read','write']:['read']));
+  }},
+  {method:'POST',path:'/v1/members/:id/remove',ownerOnly:true,permission:'write',rateLimited:true,handler:({storePath,params,now,json})=>{
+    const member=listMembers(storePath).find(m=>m.id===params.id);
+    return member?json(200,revokeMember(storePath,member.handle,now)):json(404,{error:'Member not found.'});
+  }},
   {method:'POST',path:'/v1/evidence/batch',permission:'write',rateLimited:true,handler:({body,vault,actor,json})=>{
     const items=(body as {items?:unknown[]})?.items;
     if(!Array.isArray(items)||items.length<1||items.length>20)return json(400,{error:'Batch requires 1–20 items'});
@@ -352,7 +374,8 @@ export function makeSharedApiHandler(deps: SharedApiDeps): (req: Request) => Pro
       // Invite travels in Authorization, never URL or logs. No request body.
       const rate=takeToken('invite-redemptions');
       if(!rate.ok)return respond(json(429,{error:'Try again shortly'}));
-      const result=redeemSharedInvite(deps.storePath,presented,now());
+      let result;
+      try { result=redeemSharedInvite(deps.storePath,presented,now()); } catch { return respond(json(503,{error:'Invitation could not be redeemed. Please retry or request a new link.'})); }
       if(!result)return respond(unauthorized());
       return respond(json(200,{token:result.token,vault:sharedVaultIdentity(deps.root)}));
     }
@@ -378,6 +401,7 @@ export function makeSharedApiHandler(deps: SharedApiDeps): (req: Request) => Pro
     }
     if (!route) return respond(json(404, { error: "not found" }));
 
+    if(route.ownerOnly && (actor.role!=='owner'||actor.kind!=='person'))return respond(json(403,{error:'Only the vault owner can manage members.'}));
     if (route.permission && !hasPermission(actor, route.permission))
       return respond(json(403, { error: `missing permission ${route.permission}`, permissions: actor.permissions }));
 
@@ -406,8 +430,10 @@ export function makeSharedApiHandler(deps: SharedApiDeps): (req: Request) => Pro
         }
       }
       vault.recoverPending();
-      return respond(await route.handler({ url, vault, actor, params, json, body }));
+      return respond(await route.handler({ url, vault, actor, params, json, body, storePath:deps.storePath, now:now() }));
     } catch (error) {
+      if (error instanceof SharedMemberBusyError) return respond(json(503,{error:error.message}));
+      if (error instanceof SharedMemberError) return respond(json(400,{error:error.message}));
       if (error instanceof SharedVaultError) return respond(json(error.status, { error: error.message }));
       // Anything else is the server's fault: answer in shape, log the
       // cause, never let a throw reach the serve loop.
