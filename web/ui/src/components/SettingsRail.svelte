@@ -20,7 +20,7 @@
   import { SETTINGS_TABS, type SettingsTab } from "../lib/settingsViews";
   import { goto } from "../lib/store.svelte";
 
-  const { active }: { active: SettingsTab } = $props();
+  const { active, extraTab }: { active: SettingsTab; extraTab?: { label: string; active: boolean; onselect: () => void } } = $props();
 </script>
 
 <div class="rail">
@@ -28,7 +28,8 @@
   <span class="rail-eyebrow">GENERAL</span>
   {#each SETTINGS_TABS as s (s.view)}
     {#if s.view === "connectedClients"}<span class="rail-eyebrow">AGENTS</span>{:else if s.view === "diagnostics"}<span class="rail-eyebrow">SYSTEM</span>{/if}
-    <button class="rail-row" class:on={active === s.view} onclick={() => goto(s.view)}>{s.label}</button>
+    <button class="rail-row" class:on={!extraTab?.active && active === s.view} onclick={() => goto(s.view)}>{s.label}</button>
+    {#if s.view === "vaultSettings" && extraTab}<button class="rail-row" class:on={extraTab.active} onclick={extraTab.onselect}>{extraTab.label}</button>{/if}
   {/each}
 </div>
 
