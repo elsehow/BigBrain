@@ -1,5 +1,6 @@
 <script lang="ts">
   import SettingsPage from '../components/SettingsPage.svelte';
+  import VaultMembersStudy from './VaultMembersStudy.svelte';
   type Rule = { text: string };
   type Source = { id: number; title: string; from: string; addedToPersonal: string; matches: boolean; added?: string; addedAt?: string; manual?: boolean; contributedBy?: string; withdrawn?: boolean; otherContributors?: string[] };
   type Vault = { id: number; name: string; endpoint: string; writable: boolean; rule: Rule | null; sources: Source[] };
@@ -15,7 +16,7 @@
         {id:6,title:'A small experiment in discovery',from:'Article · Sep 18',addedToPersonal:'2026-09-18',matches:false,added:'Sep 21',addedAt:'2026-09-21',contributedBy:'member-you',manual:true}]},
     { id:2,name:'Field notes',endpoint:'notes.example.org',writable:false,rule:null,sources:[] }
   ]);
-  let selected = $state<number|null>(1), tab = $state<'rule'|'added'>('rule'), preview = $state(false);
+  let selected = $state<number|null>(1), tab = $state<'rule'|'added'|'members'>(new URLSearchParams(location.search).get('tab')==='members'?'members':'rule'), preview = $state(false);
   let checked = $state<number[]>([]), inspect = $state<Source|null>(null);
   let adding = $state(false), inviteLink = $state(''), notice = $state(''), theme = $state('default');
   let allTime = $state(true), since = $state('2026-09-01');
@@ -84,8 +85,11 @@
         <div class="section-tabs" role="tablist" aria-label={`${v.name} contributions`}>
           <button role="tab" aria-selected={tab==='rule'} onclick={()=>{tab='rule';notice='';}}>Inclusion rule</button>
           <button role="tab" aria-selected={tab==='added'} onclick={()=>{tab='added';notice='';}}>Added by you <span>{v.sources.filter(s=>s.added&&s.contributedBy===viewerId&&!s.withdrawn).length}</span></button>
+          <button role="tab" aria-selected={tab==='members'} onclick={()=>{tab='members';notice='';}}>Members</button>
         </div>
-        {#if tab==='rule'}
+        {#if tab==='members'}
+          <VaultMembersStudy />
+        {:else if tab==='rule'}
           {#if !v.rule && !editing}
             <p class="quiet">No inclusion rule.</p>
             <div><button class="settings-add" onclick={()=>editRule(v)}>Add rule</button></div>
@@ -140,7 +144,7 @@
   </section>
 </SettingsPage>
 </main>
-<footer>Component workbench · Sample data, matches and imports · SettingsPage + SettingsRail · Based on ce998be / main 9686f88</footer>
+<footer>Component workbench · Fabricated data; no live access changes · SettingsPage + SettingsRail · Based on 44ff544 / main 698661a + membership study</footer>
 {#if adding}
   <dialog class="invite-dialog" use:openInvite onclose={()=>adding=false} onclick={e=>{if(e.target===e.currentTarget){const r=e.currentTarget.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)e.currentTarget.close();}}}>
     <form class="connect" onsubmit={addVault}>
