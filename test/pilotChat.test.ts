@@ -69,7 +69,7 @@ test("image-only Pilot turns survive retries and reload and reach Pi as images",
   const sessions = new PilotChats(root, { graph: () => [], fetch: (async (_url, init) => {
     requests.push(JSON.parse(String(init?.body))); return stream([done([text("An image.")])]);
   }) as typeof fetch });
-  const image = sessions.uploadImage("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jBfcAAAAASUVORK5CYII=", "Screenshot.png"), s = sessions.create([]);
+  const image = sessions.uploadImage("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNo+A8AAgIBgG5WixMAAAAASUVORK5CYII=", "Screenshot.png"), s = sessions.create([]);
   sessions.draft(s.id, "", [image]);
   expect(() => sessions.discard(s.id)).toThrow("empty draft");
   const input = { id: "image-input-001", mode: "text" as const, images: [image] };

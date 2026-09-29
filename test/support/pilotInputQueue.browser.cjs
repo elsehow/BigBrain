@@ -13,7 +13,7 @@ const { tmpdir } = require('node:os');
 const { join, resolve } = require('node:path');
 const base = process.env.SIDEBAR_PREVIEW_URL || 'http://127.0.0.1:5200';
 const root = resolve(__dirname, '../..');
-const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jBfcAAAAASUVORK5CYII=';
+const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNo+A8AAgIBgG5WixMAAAAASUVORK5CYII=';
 const EPOCH = 'pilot-network'; // PILOT_NETWORK_EPOCH in src/dev/pilotNetworkFixture.ts
 
 // The engine's own rules, bundled for node: the fake cannot drift from them.
