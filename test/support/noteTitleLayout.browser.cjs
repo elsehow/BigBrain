@@ -31,7 +31,7 @@ const assert = require('node:assert/strict');
       });
       assert.ok(Object.values(geometry).every(Boolean), JSON.stringify({ width, geometry }));
     }
-    assert.equal(await header.getByRole('button', { name: 'Open source ⌘O', exact: true }).count(), 1);
+    assert.equal(await header.getByRole('button', { name: 'Open original ⌘O', exact: true }).count(), 1);
     assert.equal(await header.locator('.discuss-shortcut').getAttribute('aria-keyshortcuts'), 'Shift+Enter');
     assert.match(await header.locator('.discuss-shortcut kbd').textContent(), /⇧.*↵/);
     assert.equal(await page.locator('.summary-column .pchip').count(), 0, 'Open lives with header actions');
