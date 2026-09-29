@@ -134,15 +134,20 @@ export function insertionEventOnDisk(
 
 /** Idempotently append one immutable insertion event. A deterministic event
  * id makes a retry converge on the same file rather than duplicating it. */
-export function appendSourceInsertionEvent(root: string, event: SourceInsertion): NativeInsertionResult {
+export function appendSourceInsertionEvent(
+  root: string,
+  event: SourceInsertion,
+  opts: { wake?: boolean } = {}
+): NativeInsertionResult {
   const result = log.append(root, event);
   // Every front door — the API, the drop zone, voice, the extension, an
   // integration's poll — lands here, so this is the one place that can tell
   // the supervisor's clock that intake may now be due. A dedup does NOT
   // wake: a retry of an arrival already on disk created no new work.
   // Best-effort by construction (lib/supervisorClock.ts): a missed nudge
-  // costs the 300s tick that used to be the only path.
-  if (!result.deduped) requestWake(root, "tend");
+  // costs the 300s tick that used to be the only path. A SHARED vault
+  // (lib/sharedVault.ts) has no gardener to wake and says `wake: false`.
+  if (!result.deduped && opts.wake !== false) requestWake(root, "tend");
   return result;
 }
 

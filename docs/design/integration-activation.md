@@ -59,3 +59,25 @@ leaves a cramped content column and can overflow (also measured in unmodified
 General settings); this PR does not carry the older study's custom rail layout.
 Desktop/tablet layout and both theme palettes are covered. Production and preview
 builds retain Vite's large-chunk advisory.
+
+### Granola source contract
+
+Granola remembering imports provider attendee metadata (`known_participants`) and
+verbatim transcript text, with the meeting title, date and link. Vendor summaries
+and enhanced notes are discarded before staging. Transcript access is required;
+a missing or empty transcript leaves the meeting retryable, never a summary-only
+substitute. No model corrects ASR or infers speakers during ingestion.
+
+The default inclusion rule is `Include everything.` This explicit unconditional
+rule bypasses model evaluation and example ratings for any integration. An exact
+copy of the former Granola transformation default is read as this new default;
+custom rules are preserved. Existing sources are never rewritten. Older pending
+Granola payloads remain retained until refreshed as transcript-only payloads and
+cannot block newer arrivals or be automatically admitted under this default.
+
+Integration settings expose an optional inclusion-rule toggle beneath automatic
+remembering. Off uses unconditional inclusion and hides the editor/rating flow;
+turning it off retains the custom text as `remembering.inactiveRule`. Restoring
+that rule keeps its existing learned policy. Account Save persists the toggle,
+consistent with the other account settings. A newly blank rule starts off;
+existing custom rules remain on.

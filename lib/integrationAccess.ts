@@ -1,3 +1,4 @@
+import {INCLUDE_EVERYTHING} from './inclusionMode';
 /** Account access owned by BigBrain, independent of native agent permissions. */
 import { granolaConnection } from "./granolaMcp";
 import { readFileSync, rmSync } from "node:fs";
@@ -100,7 +101,7 @@ export type LiveAccess = "off" | "read" | "read-write";
 export interface AccountPolicy {
   version:2; connected:boolean; fingerprint:string; checkedAt:string|null; liveAccess?:boolean;
   email?: { startAt: string; attachments: boolean; backfill?: { since: string; request: string } };
-  remembering:{enabled:boolean;rule:string}; grants:{caller:string;access:LiveAccess}[];
+  remembering:{enabled:boolean;rule:string;inactiveRule?:string}; grants:{caller:string;access:LiveAccess}[];
 }
 function accountPolicyFile(root:string,name:string,account:string):string {
   file(root,name); // Validate the adapter namespace.
@@ -113,7 +114,8 @@ export function accountFingerprint(root:string,name:string,account:string):strin
   const inbox=emailConfig(loadManifest(root).integrations.email).inboxes.find(i=>i.address===account);
   return createHash("sha256").update(JSON.stringify([inbox,readEnvValues(root)[passwordEnvKey(account)] ?? ""])).digest("hex");
 }
-export const GRANOLA_REMEMBERING_RULE = "Record raw transcripts, correcting garbled ASR with vault context. Ignore Granola's automated summary.";
+const LEGACY_GRANOLA_RULE = "Record raw transcripts, correcting garbled ASR with vault context. Ignore Granola's automated summary.";
+export const GRANOLA_REMEMBERING_RULE = INCLUDE_EVERYTHING;
 export function accountPolicy(root:string,name:string,account:string):AccountPolicy {
   const empty:AccountPolicy={version:2,connected:false,fingerprint:"",checkedAt:null,remembering:{enabled:false,rule:name==="granola"?GRANOLA_REMEMBERING_RULE:""},grants:[]};
   if(!integrationAccounts(root,name).includes(account))return empty;
@@ -132,7 +134,7 @@ export function accountPolicy(root:string,name:string,account:string):AccountPol
     const p=JSON.parse(raw);
     if(p.version!==2||typeof p.connected!=="boolean"||typeof p.fingerprint!=="string"||!p.remembering||typeof p.remembering.enabled!=="boolean"||typeof p.remembering.rule!=="string"||!Array.isArray(p.grants)||p.grants.some((g:any)=>typeof g.caller!=="string"||!["off","read","read-write"].includes(g.access)))return empty;
     if(p.liveAccess!==undefined&&typeof p.liveAccess!=="boolean")return empty;
-    return {...p,remembering:{...p.remembering,rule:p.remembering.rule.trim()?p.remembering.rule:empty.remembering.rule},connected:p.connected&&(name!=="granola"||!!granolaConnection(root,account))&&p.fingerprint===accountFingerprint(root,name,account)};
+    return {...p,remembering:{...p.remembering,rule:name==="granola"&&p.remembering.rule===LEGACY_GRANOLA_RULE?GRANOLA_REMEMBERING_RULE:p.remembering.rule.trim()?p.remembering.rule:empty.remembering.rule},connected:p.connected&&(name!=="granola"||!!granolaConnection(root,account))&&p.fingerprint===accountFingerprint(root,name,account)};
   }catch{return empty;}
 }
 export function writeAccountPolicy(root:string,name:string,account:string,policy:AccountPolicy):void {

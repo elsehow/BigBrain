@@ -15,7 +15,9 @@ export function overviewNodes(scores: Float32Array, count: number, ids: readonly
     || (ids[a] ?? String(a)).localeCompare(ids[b] ?? String(b)));
   const visible = new Uint8Array(scores.length);
   const limit = Math.max(1, Math.round(count));
-  if (!adjacency || !preferConnected) {
+  // A new/shared vault may have sources before any assertions connect them.
+  // Its overview must show those sources rather than select one isolated dot.
+  if (!adjacency || !preferConnected || adjacency.every(neighbors => neighbors.length === 0)) {
     for (const i of order.slice(0, limit)) visible[i] = 1;
     return visible;
   }

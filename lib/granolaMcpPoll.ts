@@ -30,16 +30,15 @@ export function granolaMeetingList(result:CallToolResult):McpMeeting[]{
 export function granolaMcpContent(account:string,identity:unknown,meeting:McpMeeting,notes:CallToolResult,transcript?:CallToolResult):string {
  const noteText=text(notes);
  if(!noteText.includes(`<meeting id="${meeting.id}"`))throw Error('Granola returned notes for a different meeting.');
- let transcriptText='';
- if(transcript){
-  let data:any;try{data=JSON.parse(text(transcript));}catch{throw Error('Granola transcript format changed; no cursor was advanced.');}
-  if(data.id!==meeting.id||typeof data.transcript!=='string')throw Error('Granola returned an invalid transcript.');
-  // Preserve recording context and speaker labels verbatim; never infer identity from audio channel.
-  transcriptText=JSON.stringify(data,null,2);
- }
+ if(!transcript)throw Error('Granola transcript access is required. No summary was imported.');
+ let data:any;try{data=JSON.parse(text(transcript));}catch{throw Error('Granola transcript format changed; no cursor was advanced.');}
+ if(data.id!==meeting.id||typeof data.transcript!=='string'||!data.transcript.trim())throw Error('Granola transcript is unavailable; this meeting will be retried.');
+ // Metadata is copied from the provider, never inferred from dialogue or summaries.
+ const attendees=noteText.match(/<known_participants\b[^>]*>([\s\S]*?)<\/known_participants>/i)?.[1] ?? noteText.match(/<attendees\b[^>]*>([\s\S]*?)<\/attendees>/i)?.[1];
+ const attendeeText=attendees?decode(attendees.replace(/<[^>]*>/g,' ').replace(/\s+/g,' ').trim()):'(not provided)';
  const stream='granola:'+sha256hex(JSON.stringify([account,identity])).slice(0,20);
- const body=`# ${meeting.title}\n\n## Granola notes\n\n${noteText}\n\n${transcriptText?'## Verbatim transcript and recording context\n\n'+transcriptText:'Transcript unavailable for this connection.'}\n`;
- return frontmatter([['id',stream+':'+meeting.id+':'+sha256hex(body).slice(0,20)],['source','granola'],['from','granola'],['from_kind','service'],['kind','meeting'],['type','reference'],['title',meeting.title],['date',meeting.date],['url',meeting.url],['stream',stream],['key',meeting.id]])+'\n'+body;
+ const body=`# ${meeting.title}\n\nAttendees: ${attendeeText}\n\n## Verbatim transcript\n\n${data.transcript}\n`;
+ return frontmatter([['format','granola-transcript-v1'],['id',stream+':'+meeting.id+':'+sha256hex(body).slice(0,20)],['source','granola'],['from','granola'],['from_kind','service'],['kind','meeting'],['type','reference'],['title',meeting.title],['date',meeting.date],['url',meeting.url],['stream',stream],['key',meeting.id]])+'\n'+body;
 }
 interface Cursor {version:1;generation:string;startedAt:string;lastPolledAt:string;seen:Record<string,string>}
 export async function pollGranolaMcp(root:string,account:string,options:{now?:Date;since?:string;run?:<T>(fn:(client:Client,tools:Tool[])=>Promise<T>)=>Promise<T>}={}):Promise<{arrivals:number}> {
@@ -55,7 +54,7 @@ export async function pollGranolaMcp(root:string,account:string,options:{now?:Da
  const floor=Math.max(Date.parse(cursor.startedAt),Date.parse(cursor.lastPolledAt)-48*3600_000);
  const run=options.run??(<T>(fn:(client:Client,tools:Tool[])=>Promise<T>)=>withGranola(root,account,fn));
  return run(async(client,tools)=>{
-  for(const name of ['list_meetings','get_meetings'])if(!tools.some(t=>t.name===name))throw Error('Granola does not offer the tools needed for automatic remembering.');
+  for(const name of ['list_meetings','get_meetings','get_meeting_transcript'])if(!tools.some(t=>t.name===name))throw Error('Granola does not offer the tools needed for automatic remembering.');
   const call=async(name:string,args:Record<string,unknown>)=>{check();const r=await client.callTool({name,arguments:args}) as CallToolResult;check();return r;};
   const listed=granolaMeetingList(await call('list_meetings',{time_range:'custom',custom_start:new Date(floor-24*3600_000).toISOString().slice(0,10),custom_end:new Date(now.getTime()+24*3600_000).toISOString().slice(0,10)}));
   const meetings=listed.filter(m=>Date.parse(m.date)>=Date.parse(cursor.startedAt)).sort((a,b)=>a.date.localeCompare(b.date));
@@ -63,7 +62,7 @@ export async function pollGranolaMcp(root:string,account:string,options:{now?:Da
   if(meetings.length>100)throw Error('Granola returned too many meetings for one poll. Narrow the remembering start date.');
   for(const meeting of meetings){
    const notes=await call('get_meetings',{meeting_ids:[meeting.id]});
-   const transcript=tools.some(t=>t.name==='get_meeting_transcript')?await call('get_meeting_transcript',{meeting_id:meeting.id}):undefined;
+   const transcript=await call('get_meeting_transcript',{meeting_id:meeting.id});
    const content=granolaMcpContent(account,connection.identity,meeting,notes,transcript),hash=sha256hex(content);
    if(cursor.seen[meeting.id]!==hash){check();if(stageGranolaContent(root,account,content))arrivals++;cursor.seen[meeting.id]=hash;}
    check();writeAtomic(file,JSON.stringify(cursor)+'\n');

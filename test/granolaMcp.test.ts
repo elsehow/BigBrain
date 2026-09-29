@@ -100,7 +100,7 @@ test('Granola remembering stages independently of live access, deduplicates, cap
   if(disable)await service.update({name:'granola',account:'granola',action:'save',liveAccess:false,remembering:{enabled:false,rule:'Remember decisions.'}});
   if(name==='list_meetings')return result(broken?'<meetings_data count="1">':`<meetings_data count="1"><meeting id="${meetingId}" title="Decision &amp; review" date="2026-09-24T12:00:00Z" url="https://notes.granola.ai/d/${meetingId}"></meeting></meetings_data>`);
   if(name==='get_meetings')return result(`<meetings_data count="1"><meeting id="${meetingId}"><summary>Decision ${revision}</summary></meeting></meetings_data>`);
-  return result(JSON.stringify({id:meetingId,transcript:'Microphone: Keep this speaker label.',recording_context:{microphone_sharing:'unknown'}}));
+  return result(JSON.stringify({id:meetingId,transcript:`Microphone: Keep this speaker label. Revision ${revision}`,recording_context:{microphone_sharing:'unknown'}}));
  });
  service=new IntegrationAccounts(root,{granolaSignIn:(r,a,cb)=>startGranolaSignIn(r,a,cb,{endpoint:f.endpoint})});
  const run=<T>(fn:Parameters<typeof withGranola<T>>[2])=>withGranola(root,'granola',fn,{endpoint:f.endpoint});

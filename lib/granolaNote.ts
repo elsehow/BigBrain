@@ -125,18 +125,13 @@ export function granolaItem(
     role: "attendee",
   }));
   const attendees = participants.map((a) => a.raw).join(", ");
-  const vendorSummary = (note.summary_markdown ?? note.summary_text ?? "").trim();
   const ownerName = note.owner?.name;
 
-  // Body layout is deliberate: title, attendees, vendor summary FIRST so
-  // intake's excerpt window covers the informative part; transcript below.
+  // Import source evidence only; summaries and ASR rewriting are not intake tasks.
   const body = [
     `# ${title}`,
     ``,
     `Attendees: ${attendees || "(none listed)"}`,
-    ``,
-    `> Granola auto-summary (vendor hint — context-free, non-authoritative):`,
-    ...(vendorSummary ? vendorSummary.split("\n").map((l) => `> ${l}`) : ["> (none)"]),
     ``,
     granolaTranscriptHeader(ownerName),
     ``,

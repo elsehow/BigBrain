@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Shared vault — BigBrain</title><link rel="stylesheet" href="/owner.css"><script src="/owner.js" type="module"></script></head>
+<body><header><a href="/" class="brand">◇ BigBrain <span>Shared vault</span></a><span id="identity"></span></header>
+<main>
+<p id="error" role="alert" hidden></p>
+<section id="setup" hidden><p class="eyebrow">LOCAL WORKSPACE</p><h1>Create a shared vault.</h1><form id="setup-form"><label>Vault name<input name="name" required maxlength="100" placeholder="BigBrain"></label><label>Your owner handle<input name="handle" required pattern="[a-z0-9][a-z0-9._-]{0,63}" placeholder="your-name" autocomplete="username"></label><p class="muted" id="setup-path"></p><button class="primary">Create vault</button><p class="form-error" role="alert"></p></form></section>
+<section id="workspace" hidden><div class="heading"><div><p class="eyebrow">SHARED VAULT</p><h1 id="vault-name"></h1></div><button id="add" class="primary">+ Add evidence</button></div>
+<div class="toolbar"><nav aria-label="Record type"><button data-tab="evidence" aria-pressed="true">Evidence</button><button data-tab="assertions" aria-pressed="false">Assertions</button></nav><form id="search-form"><input id="search" type="search" aria-label="Search vault" placeholder="Search this vault"><button>Search</button></form></div>
+<div class="columns"><section aria-label="Records"><div id="records"></div><button id="more" hidden>Load more</button></section><aside id="detail" aria-label="Selected record"><p class="muted">Select a record to read it.</p></aside></div><footer><span id="location"></span><span>Local · owner interface</span></footer>
+</section>
+</main>
+<dialog id="editor"><form id="edit-form"><div class="dialog-top"><h2 id="edit-title"></h2><button type="button" id="cancel" aria-label="Close">×</button></div><div id="edit-fields"></div><p class="form-error" role="alert"></p><button class="primary" id="save">Save</button></form></dialog>
+</body></html>

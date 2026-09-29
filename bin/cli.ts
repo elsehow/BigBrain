@@ -40,6 +40,7 @@ const SETUP: Record<string, [script: string, blurb: string]> = {
   mcp: ["bin/mcp.ts", "local memory access for agents (mcp config: print configuration; mcp register: install it)"],
   entity: ["bin/entity.ts", "entity identity: alias <label> --into <id|label>, resolve, aliases, supersede, folds"],
   whoami: ["bin/whoami.ts", "who this vault is about; --declare \"<name>\" to say, --adopt-dossier to fold a hosted-era dossier in"],
+  shared: ["bin/shared.ts", "a SHARED vault, named by --vault: init, members, credentials, serve (docs/shared-vault.md)"],
 };
 
 /** Plumbing — the supervisor, doors, and passes invoke these; people don't.
@@ -91,7 +92,11 @@ if (!cmd || !resolved) {
 const env: Record<string, string | undefined> = { ...process.env };
 let cwd = process.cwd();
 
-if (cmd === "init") {
+if (cmd === "shared") {
+  // The shared vault is named by its own --vault flag (bin/shared.ts) and
+  // is never discovered: this machine's personal vault must not end up
+  // served to other people because someone ran the command from inside it.
+} else if (cmd === "init") {
   // init may target a directory that is not a vault yet: --vault > env > cwd.
   const i = rest.indexOf("--vault");
   if (i !== -1 && rest[i + 1]) env["BIGBRAIN_VAULT"] = resolve(rest[i + 1]!);

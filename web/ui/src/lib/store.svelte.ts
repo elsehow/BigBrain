@@ -1,3 +1,4 @@
+import { workspaceURL, sharedUnavailable } from "./vaultScope";
 import { observeVault } from "./vaultScope";
 import { receiveApplicationChange, applicationDisconnected } from "./applicationUpdates";
 import { pushRoute, replaceRoute, initRouteHistory } from "./routeHistory.svelte";
@@ -21,6 +22,7 @@ export type View =
   | "pilotSettings"
   | "integrations"
   | "agents"
+  | "sharedVaultSettings"
   | "vaultSettings"
   | "themes"
   | "diagnostics"
@@ -103,6 +105,7 @@ function parseHash(): { view: View; note: string | null; q: string; pilot?: stri
   // settings → vault: the folder in use. NOT #/vault — that head is the note
   // route above, so this one carries its own name (goto writes it) and
   // answers #/settings/vault as the readable spelling.
+  if(head === "sharedVaultSettings")return {view:"sharedVaultSettings",note:null,q:""};
   if (head === "general" || (head === "settings" && rest === "general") || head === "vaultSettings" || (head === "settings" && rest === "vault"))
     return { view: "vaultSettings", note: null, q: "" };
   // settings → themes: the palette this machine wears (lib/theme.ts). Same
@@ -219,7 +222,8 @@ let retryTimer: ReturnType<typeof setTimeout> | undefined;
 
 function connect(): void {
   es?.close();
-  es = new EventSource("/api/events");
+  es = new EventSource(workspaceURL("/api/events"));
+  es.addEventListener("unavailable", sharedUnavailable);
   es.addEventListener("vault", e => { observeVault(JSON.parse(e.data)); });
   es.addEventListener("usage", () => { app.usageRev++; });
   es.addEventListener("application", e => {

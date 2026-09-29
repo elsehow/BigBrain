@@ -1,4 +1,6 @@
 <script lang="ts">
+  import SharedContribution from "./SharedContribution.svelte";
+  import { selectedWorkspace } from "../lib/vaultScope";
   import { getContext, untrack } from "svelte";
   import { nativeWindowMaximized, toggleNativeWindow } from "../lib/native";
   import { singleFlight } from "../lib/singleFlight";
@@ -212,6 +214,7 @@
 
 <div id="topbar" class:down={!barUp()}>
  <div class="bar">
+  {#if selectedWorkspace&&!inSettings}<div class="vault-controls"><SharedContribution /></div>{/if}
   {#if !inSettings}
     <div class="search-box" bind:this={searchBox}>
     {#snippet searchField()}
@@ -245,14 +248,14 @@
     {#if windowError}<span role="alert" class="window-error">{windowError}</span>{/if}
     {#if !inSettings || sidebar}
       <AttentionControls />
-      <button class="gear" onclick={() => { if (sidebar) { sidebar.tab = "settings"; sidebar.agents = false; searchOverlay.open = false; } goto("agents"); }} use:tooltip={"Settings"} aria-label="Settings">
+      {#if !selectedWorkspace}<button class="gear" onclick={() => { if (sidebar) { sidebar.tab = "settings"; sidebar.agents = false; searchOverlay.open = false; } goto("agents"); }} use:tooltip={"Settings"} aria-label="Settings">
         <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="var(--icon)"
           stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <circle cx="12" cy="12" r="3" />
           <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
         </svg>
         {#if sidebar}<kbd class="keyboard-hint toolbar-key">⌘,</kbd>{/if}
-      </button>
+      </button>{/if}
     {/if}
     {#if sidebar && app.noteTab}
       <div class="document-tab" class:active={documentActive} title={app.noteTab.title}>
@@ -303,6 +306,7 @@
 {/if}
 
 <style>
+  .vault-controls { display: flex; align-items: center; gap: 16px; pointer-events: auto; width: fit-content; padding: 0 6px; }
   .document-tab { order:4; display:flex; align-items:center; gap:10px; min-width:0; width:240px; max-width:calc(100vw - 272px); height:65px; box-sizing:border-box; padding:0 12px; background:transparent; border:1px solid transparent; color:var(--text-muted); font:var(--type-body); }
   .document-tab.active { background:var(--bg); border-color:var(--rule); border-bottom-color:var(--bg); color:var(--text-strong); }
   .document-tab button.document-tab-title { display:block; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; color:inherit; font:inherit; text-align:left; }

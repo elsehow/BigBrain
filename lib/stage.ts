@@ -1,3 +1,8 @@
+import {includesEverything} from './inclusionMode';
+import {readInclusionPolicy,integrationRuleScope} from './inclusionPolicy';
+import {connectionStorePath} from './sharedConnections';
+import {inclusionPermit} from './inclusionStagePermit';
+import {rememberingRule} from './integrationAccess';
 import { stageDir, bodyPath, headFiles, readHead, find, removeStaged, type StagedHead } from "./stageStorage";
 import { withProjectionWrite } from "./projectionWriteLock";
 import { isGranolaMcpContent, granolaRevision, receiveStagedGranola } from "./granolaRevision";
@@ -29,7 +34,7 @@ export const STAGE_INLINE_CHARS = 20_000;
 export function stagedHeads(root: string, limit = STAGE_BATCH_LIMIT): StagedHead[] {
   return headFiles(root).flatMap((f) => {
     const row = readHead(f.path);
-    return row && (!MANAGED_INTEGRATIONS.has(row.source) || stagedRememberingEnabled(root,row)) ? [row] : [];
+    return row && (!MANAGED_INTEGRATIONS.has(row.source) || stagedRememberingEnabled(root,row)) && !reviewOwnsStage(root,row) ? [row] : [];
   }).sort((a, b) => a.at.localeCompare(b.at) || a.id.localeCompare(b.id)).slice(0, limit);
 }
 
@@ -89,6 +94,7 @@ function admitLocked(root: string, ids: readonly string[]): AdmitResult[] {
     if (!hit) return { id, ok: false, error: "not staged — it may have been admitted or passed already" };
     try {
       if (MANAGED_INTEGRATIONS.has(hit.item.source) && !stagedRememberingEnabled(root,hit.item)) throw new Error("Integration is inactive; pending data is retained.");
+      enforceReview(root,hit.item,true);
       const receipt = hit.item.source === "that-tracks" ? receiveStagedTracks(root, hit.item.content) : hit.item.source === "granola" && isGranolaMcpContent(hit.item.content) ? receiveStagedGranola(root, hit.item.content) : receive({
         root, content: hit.item.content,
         ...(hit.item.attachments?.length ? { attachments: hit.item.attachments } : {}),
@@ -146,6 +152,7 @@ function passLocked(root: string, ids: readonly string[], reason: string, rule: 
     }
     const { item } = hit;
     if (MANAGED_INTEGRATIONS.has(item.source) && !stagedRememberingEnabled(root,item)) { results.push({id,ok:false,error:"Integration is inactive; pending data is retained."}); continue; }
+    try{enforceReview(root,item,false);}catch(e){results.push({id,ok:false,error:(e as Error).message});continue;}
     let ruleFor: SkipRule | undefined;
     if (scope) {
       const [key, value] = scope;
@@ -207,3 +214,6 @@ function stagedRememberingEnabled(root:string,item:StagedHead):boolean {
 
 // Preserve maintenance entry points while low-level consumers import storage directly.
 export { stage, stageDir, preserveStaged, stagedCount, stagedItems, type StagedHead, type StagedItem } from "./stageStorage";
+
+function reviewOwnsStage(root:string,item:StagedHead){const account=stagedAccount(root,item);return !!account&&(includesEverything(rememberingRule(root,item.source,account))||!!readInclusionPolicy(root,connectionStorePath(),integrationRuleScope(item.source,account)));}
+function enforceReview(root:string,item:import('./stageStorage').StagedItem,include:boolean){const account=stagedAccount(root,item);if(account&&!inclusionPermit(root,connectionStorePath(),integrationRuleScope(item.source,account),rememberingRule(root,item.source,account),item,include))throw Error('This item is awaiting its reviewed inclusion rule.');}

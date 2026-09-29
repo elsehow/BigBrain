@@ -28,11 +28,12 @@ test("Granola's actual runner reports quiet checks, arrivals, errors, recovery a
       let result={};
       const text=t=>({content:[{type:'text',text:t}]});
       if(m.method==='initialize')result={protocolVersion:'2025-03-26',capabilities:{tools:{}},serverInfo:{name:'fixture',version:'1'}};
-      if(m.method==='tools/list')result={tools:['get_account_info','list_meetings','get_meetings'].map(name=>({name,inputSchema:{type:'object'}}))};
+      if(m.method==='tools/list')result={tools:['get_account_info','list_meetings','get_meetings','get_meeting_transcript'].map(name=>({name,inputSchema:{type:'object'}}))};
       if(m.method==='tools/call'){
         const id='11111111-1111-4111-8111-111111111111';
         if(m.params.name==='get_account_info')result=text(JSON.stringify({workspace:'fixture'}));
         if(m.params.name==='list_meetings')result=text(mode==='invalid'?'invalid':mode==='arrival'?'<meetings_data count="1"><meeting id="'+id+'" title="Fixture meeting" date="2026-09-12T12:00:00Z"></meeting></meetings_data>':'<meetings_data count="0"></meetings_data>');
+        if(m.params.name==='get_meeting_transcript')result=text(JSON.stringify({id,transcript:'A verbatim meeting turn.'}));
         if(m.params.name==='get_meetings')result=text('<meetings_data count="1"><meeting id="'+id+'"><summary>Decision</summary></meeting></meetings_data>');
       }
       return Response.json({jsonrpc:'2.0',id:m.id,result});
