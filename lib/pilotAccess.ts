@@ -11,7 +11,7 @@ export const PILOT_LOCAL_TOOLS = [
   tool('list_directories','List the vault, your private scratch, and additional readable folders configured in Vault → Pilot settings.',{}),
   tool('list_files','List up to 200 entries in a readable directory. Relative paths refer to your scratch. Additional folders must be configured in Vault → Pilot settings; otherwise delegate to a agent session.',{path:string},['path']),
   tool('read_file','Read a bounded UTF-8 text file from your scratch or an approved folder. Use vault search/read tools for vault notes. Relative paths refer to scratch.',{path:string,offset:{type:'integer',minimum:0},limit:{type:'integer',minimum:1,maximum:64000}},['path']),
-  tool('write_scratch','Write a UTF-8 text file inside your private scratch, creating parent folders as needed. Never writes vault notes or project files. Use drop/directive for vault contributions and launch_agent for implementation.',{path:string,text:string},['path','text']),
+  tool('write_scratch','Write a UTF-8 text file inside your private scratch, creating parent folders as needed. Never writes vault notes or project files. Use drop/directive for vault contributions and your own external agent application for implementation.',{path:string,text:string},['path','text']),
 ];
 export class PilotAccess {
   constructor(private root:string) {}

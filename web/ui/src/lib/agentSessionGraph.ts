@@ -4,11 +4,9 @@ import { agentVisualState } from "./agentAppearance";
 import { inSessionOrder } from "./sessionOrder";
 import type { GraphData } from "./types";
 
-export function withAgentOrchestrator(graph: GraphData | null, sessions: WorkSummary[]): GraphData | null {
+export function withAgentHistory(graph: GraphData | null, sessions: WorkSummary[]): GraphData | null {
   if (!graph) return graph;
-  // The live list is sorted by recency, so a worker reporting progress overtakes
-  // its siblings. Draw them in creation order instead: a report is not new
-  // geometry, and reordering these nodes would rebuild the renderer.
+  // Retained conversations have stable placement beside their original Pilot.
   const agents = inSessionOrder(sessions.filter(s => s.worker || s.external));
   if (!agents.length) return graph;
   const nodes = [...graph.nodes], edges = [...graph.edges];

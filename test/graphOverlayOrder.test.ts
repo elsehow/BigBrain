@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { newPilotChatSession } from "../lib/pilotChatTypes";
 import type { WorkSummary } from "../lib/workViews";
 import { withPilotChats } from "../web/ui/src/lib/pilotChatGraph";
-import { withAgentOrchestrator } from "../web/ui/src/lib/agentSessionGraph";
+import { withAgentHistory } from "../web/ui/src/lib/agentSessionGraph";
 import { graphGeometryKey } from "../web/ui/src/lib/graph/status";
 import type { GraphData } from "../web/ui/src/lib/types";
 
@@ -59,7 +59,7 @@ const worker = (id: string, created: string, over: Partial<WorkSummary> = {}) =>
   worker: { projectId: "p", operations: [], isolation: "worktree" }, pending: false,
   ...over } as unknown as WorkSummary);
 
-const withWorkers = (sessions: WorkSummary[]) => withAgentOrchestrator(overlay([older, newer]), sessions)!;
+const withWorkers = (sessions: WorkSummary[]) => withAgentHistory(overlay([older, newer]), sessions)!;
 
 test("worker overlay emits in creation order, so progress reports are not new geometry", () => {
   const first = worker("wk_1", "2026-05-01T00:00:00.000Z"), second = worker("wk_2", "2026-05-02T00:00:00.000Z");

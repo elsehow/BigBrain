@@ -17,14 +17,8 @@ const base = process.env.SIDEBAR_PREVIEW_URL || 'http://127.0.0.1:5231';
     };
     await page.getByRole('button',{name:'Configure',exact:true}).first().click();
     const client=await measure('.settings-card');
-    const add=await page.locator('.settings-add').evaluate(el=>({height:el.getBoundingClientRect().height,padding:getComputedStyle(el).padding}));
-    for(const tab of ['connected agents']){
-      await page.locator('.rail').getByRole('button',{name:tab,exact:true}).click();
-      await page.getByText('Project environments',{exact:true}).waitFor();
-      const project=await measure('.projects .settings-card'); assert.equal(project.name,client.name); assert.equal(project.about,client.about);
-      assert.deepEqual(await page.locator('.settings-add').evaluate(el=>({height:el.getBoundingClientRect().height,padding:getComputedStyle(el).padding})),add,tab+' uses the same add button');
-      await page.screenshot({path:'/tmp/bb-uniform-'+tab.replaceAll(' ','-')+'.png'});
-    }
+    assert(client.width > 0);
+    assert.equal(await page.locator('.rail').getByRole('button',{name:'connected agents',exact:true}).count(),0);
     await page.setViewportSize({width:600,height:900});
     assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
     assert.deepEqual(errors,[]);

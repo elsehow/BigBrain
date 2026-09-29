@@ -9,7 +9,6 @@
   const sidebar = getContext<SidebarLayout | undefined>(SIDEBAR_LAYOUT);
   import { startTelemetryPresence, telemetryState, type TelemetrySnapshot } from "./lib/telemetry";
   $effect(() => startTelemetryPresence());
-  import AgentOrchestrationView from "./components/AgentOrchestrationView.svelte";
   import PilotSettingsView from "./components/PilotSettingsView.svelte";
   import AgentsView from "./components/AgentsView.svelte";
   import DiagnosticsView from "./components/DiagnosticsView.svelte";
@@ -112,7 +111,7 @@
   $effect(() => { startUpdateChecks(); });
 
   $effect(() => {
-    const names = { home: "Home", top: "Top", vault: "Vault", graph: "Graph", agentOrchestration: "Agent Orchestration", connectedClients: "Connected Clients", pilotSettings: "Pilot", integrations: "Integrations", agents: "Models", vaultSettings: "General", themes: "General", diagnostics: "Diagnostics", search: "Search" };
+    const names = { home: "Home", top: "Top", vault: "Vault", graph: "Graph", connectedClients: "Connected Clients", pilotSettings: "Pilot", integrations: "Integrations", agents: "Models", vaultSettings: "General", themes: "General", diagnostics: "Diagnostics", search: "Search" };
     document.title = `${names[app.view]} — BigBrain`;
   });
 
@@ -175,8 +174,6 @@
     <IntegrationsView />
   {:else if app.view === "connectedClients"}
     <ConnectedClientsView />
-  {:else if app.view === "agentOrchestration"}
-    <AgentOrchestrationView />
   {:else if app.view === "pilotSettings"}
     <PilotSettingsView />
   {:else if app.view === "agents"}

@@ -57,7 +57,7 @@ test("legacy Pilot threads upgrade once without losing history, evidence, or act
   upgraded.submit(session.id, "What can you do now?", { id: "new-input", mode: "text" }); await upgraded.settled(session.id);
   expect(setups[0].state.threadId).toBeUndefined();
   expect(setups[0].tools.map((t: any) => t.name)).not.toContain("start_work");
-  expect(setups[0].instructions).toContain("Use launch_agent");
+  expect(setups[0].instructions).toContain("You cannot launch agents");
   expect(setups[0].interactive).toBe(false);
   expect(inputs[0]).toContain("Previously confirmed result"); expect(inputs[0]).toContain("Saved project evidence");
   const saved = readConversation(root, session.id);

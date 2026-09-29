@@ -1,8 +1,7 @@
-# Models, conversations, and workers
+# Models and conversations
 
-BigBrain bundles Pi for all app-owned model work: Pilot, Gardener, memory, Quick,
-and orchestrated workers. Pi owns authentication, the model/tool loop, private
-transcripts, and compaction. BigBrain owns role tools, public conversations,
+BigBrain bundles Pi for all app-owned model work: Pilot, Gardener, memory, and Quick.
+Pi owns authentication, the model/tool loop, private transcripts, and compaction. BigBrain owns role tools, public conversations,
 source access, permission decisions, and operation receipts.
 
 ## Connect and choose models
@@ -22,8 +21,7 @@ in model discovery. Realtime voice remains a separate API for audio.
 Recommended role selections resolve against connected models. Pinned selections
 remain pinned. Dispatch never silently changes the model, account, or billing.
 Claude requires subscription OAuth; changing that connection to an API key stops
-work instead of changing billing. Each worker inherits its requesting Pilot's
-model unless the authorized project has an explicit model choice.
+work instead of changing billing. Pilot retains its selected model for conversation.
 
 Quick validates structured output and enforces a host character limit. Pi cannot
 enforce a hard API dollar ceiling, so API choices requiring that guarantee are
@@ -37,14 +35,11 @@ Model choice never grants capabilities. Quick and memory fold proposals have no
 tools. Memory synthesis can read evidence and edit only memory Markdown.
 Gardener can curate landed arrivals; it has no inherited live-account access.
 Pilot has bounded context reads, private scratch, supported app/source actions,
-and delegation. It has no general shell or project editor.
+and knowledge conversation. It cannot launch agents, run commands, or edit projects.
 
-[Project workers](project-workers.md) use Pi's built-in file and command tools
-through an OS sandbox. Saved project authorization controls project edits,
-reference folders, exact network destinations, and selected read-only source
-accounts. Only the user grants or expands access. Pilot supplies task context.
-Ambient Pi extensions, skills, prompt templates, and project context discovery
-are disabled; they cannot change BigBrain's tool or permission contract.
+Use your own external agent application for task execution. BigBrain does not
+launch workers or broker their permissions. Connected Clients/MCP supplies
+knowledge to those applications under separate grants.
 
 ## History and recovery
 
@@ -55,9 +50,11 @@ subscription when needed; native-client credentials are never copied.
 Public messages, attachments, evidence, and action receipts remain readable.
 Obsolete private native/Responses continuations are discarded. A provider or
 permission-contract change starts a fresh Pi transcript using bounded application
-context; old tool effects are never replayed. Native worker histories are archives,
-not resumable runtimes. Live workers have a separate small record and lifecycle.
-After restart an interrupted operation is uncertain until inspected.
+context; old tool effects are never replayed. Native and Pi worker histories are
+read-only archives. Old access requests and
+queued follow-ups cannot resume execution. Interrupted operations are shown as
+uncertain; their original records remain on disk. Pending worker reports never
+start automatic Pilot turns.
 
 Memory budget and citation checks remain enforced. Recovery follows memory writes
 observed by host tools and restores pre-run bytes only while the file still matches
@@ -84,9 +81,9 @@ ordinary BigBrain startup, polling, monitoring, and execution do not.
 
 ## Verification
 
-The suite exercises actual Pi sessions with scripted provider responses, bounded
-role tools, real macOS/Linux worker containment, scope expansion/revocation,
-questions, cancellation, restart, and non-replay. A scratch-home smoke test places
-failing `claude` and `codex` executables on PATH and runs setup, discovery,
-diagnostics, all roles, a file-editing worker, and restart with zero invocations.
-Browser tests mount the production AppShell for onboarding and project authorization.
+The suite exercises actual Pi conversations with scripted provider responses,
+knowledge tools, cancellation, and restart. Retirement checks verify that old
+execution tools and mutation routes are unavailable, retained worker history is
+read-only, and pending reports cannot dispatch a model. Browser tests mount the
+production AppShell for settings, archived history, and continued conversation.
+A scratch-home smoke test runs app-owned model roles without native CLIs.

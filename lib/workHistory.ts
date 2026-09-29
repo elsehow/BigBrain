@@ -32,7 +32,7 @@ export interface WorkSession {
   revision?: number;
   /** Archive intent retained after retiring the worker runtime. */
   archivedAt?: string;
-  worker?: import("./worker/types").WorkerRecord["worker"];
+  worker?: import("./workerHistoryTypes").HistoricalWorker;
   /** External execution is owned by a native runtime, never BB folder grants. */
   external?: { archivedAt?: string; launch?: AgentLaunchSettings; permissions?: NativePermissionSummary; adapter: WorkProvider; connected: boolean; nativeAttention?: string;
     question?: { id: string; text: string }; capabilities: { open: "attach" | "resume"; interrupt: boolean; followUp: boolean; steer?: boolean } };
@@ -76,7 +76,7 @@ export const savedWork = z.object({
     question: z.object({ id: z.string(), text: z.string() }).optional(), nativeAttention: z.string().optional(),
   }).optional(),
   id: z.string(), title: z.string(), created: z.string(), updated: z.string(),
-  cwd: z.string(), provider: z.enum(["codex", "claude-code"]), receipts: z.array(z.string()),
+  cwd: z.string(), provider: z.enum(["codex", "claude-code", "pi"]), receipts: z.array(z.string()),
   status: z.enum(["starting", "working", "needs-input", "idle", "interrupted", "failed", "terminal"]),
   context: z.object({ node: z.string().optional(), nodes: z.array(z.string()).optional() }).passthrough(),
   messages: z.array(z.object({ id: z.string(), role: z.enum(["user", "agent", "activity"]), text: z.string(), at: z.string() }).passthrough()),
@@ -88,10 +88,10 @@ export const savedWork = z.object({
 export class WorkHistory {
   readonly loadIssues: SessionLoadIssue[] = [];
   private jobs = new Map<string, WorkSession>();
-  private archives = new Map<string, { file: string; kind: "work-sessions" | "external-agents" | "handoffs"; summary: WorkSummary }>();
+  private archives = new Map<string, { file: string; kind: "work-sessions" | "external-agents" | "handoffs" | "workers"; summary: WorkSummary }>();
   get rootPath(): string { return this.root; }
   constructor(private root: string, private options: { observeRead?: (bytes: number) => void } = {}) {
-    for (const kind of ["work-sessions", "external-agents", "handoffs"] as const) {
+    for (const kind of ["work-sessions", "external-agents", "handoffs", "workers"] as const) {
       const directory = join(spoolDir(root), kind);
       try {
         const index = readHistoryIndex(root, kind + "-v1", directory, kind === "handoffs" ? /^handoff-[a-f0-9]{32}\.json$/ : /^work-[a-f0-9]{32}\.json$/, file => {
@@ -104,7 +104,7 @@ export class WorkHistory {
       } catch { this.loadIssues.push({ file: directory, message: "Conversation folder could not be read. Its files have been preserved." }); }
     }
   }
-  private readArchive(file: string, kind: "work-sessions" | "external-agents" | "handoffs"): WorkSession {
+  private readArchive(file: string, kind: "work-sessions" | "external-agents" | "handoffs" | "workers"): WorkSession {
     const raw = readFileSync(file, "utf8"); this.options.observeRead?.(Buffer.byteLength(raw));
     let value = JSON.parse(raw);
     let id = basename(file, ".json");
@@ -126,10 +126,19 @@ export class WorkHistory {
       job.external.archivedAt ??= job.updated; job.external.connected = false;
       delete job.external.question; delete job.external.nativeAttention;
     }
-    workSummary({ ...job, outputs: readWorkOutputs(this.root, job.id) });
     if (typeof job.worker?.archivedAt === "string") job.archivedAt ??= job.worker.archivedAt;
-    delete job.worker; // archive bytes cannot create a live worker
+    if (kind !== "workers") delete job.worker;
+    if (job.worker) {
+      job.worker.archivedAt ??= job.updated;
+      job.archivedAt ??= job.worker.archivedAt;
+      delete job.worker.request;
+      for (const operation of job.worker.operations ?? []) if (operation.status === "started") operation.status = "uncertain";
+      for (const instruction of job.worker.steering ?? []) if (instruction.status === "queued") {
+        instruction.status = "withdrawn"; instruction.reason = "Agent execution has been retired.";
+      }
+    }
     if (["starting", "working", "needs-input"].includes(job.status)) job.status = "interrupted";
+    workSummary({ ...job, outputs: readWorkOutputs(this.root, job.id) });
     return job;
   }
   get(id: string): WorkSession {

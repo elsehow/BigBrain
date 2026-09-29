@@ -29,7 +29,8 @@ report suspected vulnerabilities even if an update is not possible.
   Sanitized rendering and host-enforced tool permissions provide separate
   protections. Prompt wording alone is not a security boundary.
 - Pilot can read the vault and configured folders, with restricted credential
-  paths, and write to its own scratch area. Connected external agents run under
+  paths, and write to its own scratch area. It cannot launch agents or execute
+  project commands. External agent applications connected through MCP run under
   their own harness permissions; BigBrain does not sandbox their independent
   filesystem, terminal or network access.
 - Provider requests send selected content to your configured model provider.

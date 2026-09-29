@@ -149,28 +149,6 @@ test("invalid JSON, oversized bodies, HTTP failures and stalled transport never 
     expect(runtime.getModels("openai-codex").map(m => m.id)).toEqual(before);
   }
 });
-test("launch_agent preflight discovers a new exact model instead of rejecting or substituting it", async () => {
-  const { AgentOrchestrator } = await import("../lib/agentOrchestrator");
-  const { PilotChats } = await import("../lib/pilotChat");
-  const f = await fixture(); let calls = 0;
-  await initializeCatalog(f.runtime, new CatalogRefresh((async () => { calls++; return Response.json([f.model]); }) as typeof fetch), false);
-  const load = async () => ({ ...pi, ModelRuntime: { create: async () => f.runtime } }) as unknown as PiSDK;
-  const agents = new AgentOrchestrator(f.root), chats = new PilotChats(f.root, { external: agents, graph: () => [] });
-  try {
-    chats.models = requested => piModels(f.root, requested, load);
-    const pilot = chats.create([]), signal = new AbortController().signal;
-    const invoke = (name: string, args: unknown) => (chats as any).executeTool(chats.get(pilot.id), name, args, signal);
-    expect((await invoke("list_agent_models", {})).agents.find((p: any) => p.id === "pi/openai-codex").models.some((m: any) => m.id === f.model.id)).toBe(false);
-    delete process.env.PI_OFFLINE;
-    const model = { adapter: "pi", provider: "openai-codex", model: f.model.id };
-    const project = mkdtempSync(join(tmpdir(), "catalog-project-")); roots.push(project);
-    const args = { title: "Fixture review", task: "Inspect fixture", context: "Synthetic context", cwd: project, model };
-    expect(await invoke("launch_agent", args)).toMatchObject({ status: "needs-input", model });
-    expect(calls).toBe(1);
-    expect(await invoke("launch_agent", { ...args, model: { ...model, model: "not-present" } })).toMatchObject({ error: expect.stringContaining("not connected or available") });
-    expect(agents.list()).toHaveLength(1);
-  } finally { chats.close(); agents.close(); }
-});
 test("different runtime accounts share public metadata, never configured auth or entitlement", async () => {
   const f = await fixture(); let calls = 0;
   const owner = new CatalogRefresh((async () => { calls++; await Bun.sleep(10); return Response.json([f.model]); }) as typeof fetch);

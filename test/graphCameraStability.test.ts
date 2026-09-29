@@ -3,7 +3,7 @@ import { headlessCanvas, installHeadlessGraphDom } from "./support/headlessGraph
 installHeadlessGraphDom();
 import { GraphRenderer } from "../web/ui/src/lib/graph/renderer";
 import { withPilotChats } from "../web/ui/src/lib/pilotChatGraph";
-import { withAgentOrchestrator } from "../web/ui/src/lib/agentSessionGraph";
+import { withAgentHistory } from "../web/ui/src/lib/agentSessionGraph";
 import { newPilotChatSession } from "../lib/pilotChatTypes";
 import type { WorkSummary } from "../lib/workViews";
 import type { GraphData } from "../web/ui/src/lib/types";
@@ -35,7 +35,7 @@ const worker = (id: string, created: string, over: Record<string, unknown> = {})
   worker: { projectId: "p", operations: [], isolation: "worktree" }, pending: false,
   ...over } as unknown as WorkSummary);
 const compose = (workers: WorkSummary[], session = conversation) =>
-  withAgentOrchestrator(withPilotChats(vault(), [session], null), workers)!;
+  withAgentHistory(withPilotChats(vault(), [session], null), workers)!;
 
 const round = (camera: { x: number; y: number; zoom: number }) =>
   ({ x: +camera.x.toFixed(4), y: +camera.y.toFixed(4), zoom: +camera.zoom.toFixed(6) });

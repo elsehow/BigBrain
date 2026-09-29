@@ -37,7 +37,6 @@
     "typescript": "^5"
   },
   "dependencies": {
-    "@anthropic-ai/sandbox-runtime": "0.0.77",
     "@earendil-works/pi-ai": "0.87.1",
     "@earendil-works/pi-coding-agent": "0.87.1",
     "@modelcontextprotocol/sdk": "^1.30.0",
