@@ -1,5 +1,6 @@
 import type { PilotViewData } from "./pilotChatSync";
 import { pilotRoster } from "./pilotAttention";
+import { isActivePilot } from "./pilotActivity";
 import { inSessionOrder } from "./sessionOrder";
 import { pilotVisualPhase } from "./pilotAppearance";
 import { belongsToSession, sessionPath } from "../../../../lib/workSessionIdentity";
@@ -74,6 +75,9 @@ export function preparePilotChats(graph: GraphData | null, sessions: PilotViewDa
   // Resolve links after every virtual Pilot node exists, including @ mentions
   // of a conversation that occurs later in the session list.
   for (const s of ordered) {
+    // Saved context is working state, not a remembered-content relationship.
+    // Archived sessions retain only the inherited graph edges below.
+    if (!isActivePilot(s)) continue;
     const styled = attention.has(s.id);
     for (const id of s.context) {
       const n = resolve(id);
@@ -94,7 +98,8 @@ export function preparePilotChats(graph: GraphData | null, sessions: PilotViewDa
   const bySession = new Map(sessions.map(s => [s.id, s]));
   const base = { ...graph, layoutBase: graph?.layoutBase ?? graph ?? undefined };
   return activeId => {
-    const active = activeId ? bySession.get(activeId) : undefined;
+    const selected = activeId ? bySession.get(activeId) : undefined;
+    const active = selected && isActivePilot(selected) ? selected : undefined;
     const activeContext = active ? new Set(active.context) : undefined;
     const alone = active && !active.context.length;
     const visible = alone ? nodes.filter(n => n.id === active.id) : nodes;
@@ -102,7 +107,7 @@ export function preparePilotChats(graph: GraphData | null, sessions: PilotViewDa
       ...(active && n.id === active.id ? { group: "pilot", pilotPhase: attention.get(active.id)?.phase ?? pilotVisualPhase(active) } : {}),
     })), edges: alone ? [] : [
       ...edges.map(e => e.target === activeId ? { ...e, pilotContext: true } : e),
-      ...inheritedEdges.filter(e => e.source !== activeId && e.target !== activeId),
+      ...inheritedEdges.filter(e => e.source !== active?.id && e.target !== active?.id),
     ], hash: `${hash}${activeId ?? ""}:${revision}` };
   };
 }

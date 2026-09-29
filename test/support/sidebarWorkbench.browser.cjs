@@ -184,12 +184,18 @@ const base = process.env.SIDEBAR_PREVIEW_URL || 'http://127.0.0.1:5200';
 
     assert.equal(new URL(page.url()).hash, '#/home', 'Escape returns home');
     await page.keyboard.press('a');
+    const archivedPilotId = await page.locator('.pilot-row').first().getAttribute('data-pilot');
     await page.locator('.pilot-row').first().click();
     await page.locator('.pilot-panel .editor').waitFor();
     assert.equal(await page.locator('.pilot-panel .editor').textContent(), 'Keep this draft');
+    assert((await presentation()).edges.some(e => e.source === archivedPilotId || e.target === archivedPilotId), 'active pilot has context edges');
     await page.keyboard.press('Shift+Escape');
     await page.waitForFunction(() => document.documentElement.dataset.sidebarWorkbench === 'closed');
     assert.equal(await page.locator('.pilot-panel').count(), 0, 'Shift-Esc stops the sample session and returns home');
+    await page.waitForFunction(id => {
+      const graph = document.querySelector('.graph-renderer canvas').profilePresentation();
+      return graph.nodes.some(n => n.id === id && n.phase === 'idle') && !graph.edges.some(e => e.source === id || e.target === id);
+    }, archivedPilotId);
     console.log('PASS: recents/search, agent navigation, chat shortcuts, and draft retention');
     // Inspect the production GPU presentation, and exercise real pointer/navigation paths.
     await page.goto(`${base}/sidebar-workbench.html`);
