@@ -189,7 +189,7 @@ function listEvidence({ url, vault, json }: RouteCtx): Response {
   if (limit instanceof Response) return limit;
   const page = vault.listEvidence({ limit, cursor: url.searchParams.get("cursor") });
   return json(200, {
-    items: page.items.map((e) => ({ id: e.id, source_id: e.source_id, title: e.title, author: e.author, envelope: e.envelope })),
+    items: page.items.map((e) => ({ id: e.id, source_id: e.source_id, title: e.title, author: e.author, envelope: e.envelope, occurred_at: e.occurred_at, received_at: e.received_at, submitted_at: vault.submittedAt(e.id) })),
     next_cursor: page.next_cursor,
   });
 }

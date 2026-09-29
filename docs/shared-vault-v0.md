@@ -1,86 +1,100 @@
-# Local shared-vault owner v0
+# Shared vault in the BigBrain shell
 
-Standalone owner UI, based on public main 9686f88 plus the recovered
-shared-vault prototype through 2be1653. It is not the installed desktop shell.
+This experiment uses the production `AppShell.svelte`: the existing graph,
+recents, search, note reader, typography, and keyboard navigation. It is based
+on public main `9686f88`, plus the recovered shared-vault server and owner work.
+It does not replace or modify an installed desktop app. The checked-out public
+main reference is seven commits newer (`96c3da5`); those unrelated fixes are not
+included in this continuing experiment.
 
-## Launch
+## Try it locally
 
-From this checkout:
+Build the viewer once (`bun run web:build`), then double-click
+`Open Shared Vault.command`, or run:
 
 ```sh
-bun bin/shared-owner.ts --home "$HOME/BigBrain-shared-local" --open
+bun bin/shared-shell.ts --home "$HOME/Projects/bigbrain-shared-local" --open
 ```
 
-Choose a new directory. In the browser, enter a vault name and your owner
-handle, then Create vault. Add evidence; open it and Make assertion; choose
-supporting evidence, then save. Assertions support correction and retraction.
-Search covers evidence and live assertions; the Assertions tab also shows
-retired claims and links to replacements.
+The launcher reuses an existing owner-preview directory. For a new directory,
+it creates a shared vault with your OS username as owner; `--owner` and `--name`
+can override those defaults. It refuses to overwrite an existing vault that
+has no saved owner credential. Stop the earlier standalone owner interface
+before opening the same directory here: both use the same writer lock.
 
-Stop with Ctrl-C. Run the identical command to reopen your saved vault.
-The launcher binds only to 127.0.0.1:4750 (`--port` changes it). `--open` opens
-the browser with a one-use launch secret; only the public base URL is printed.
-If the browser does not open, the private `launch-url` file inside the home
-directory contains the link. Relaunch to get a fresh one-use link.
+The viewer runs at localhost:4768, the authenticated shared server at
+localhost:4769. `--port` and `--shared-port` change these. The printed URL and
+`shell-launch-url` open the shared workspace. Ctrl-C stops both services;
+rerunning reopens the same records.
 
-There is no BigBrain account or model connection required. Nothing is imported
-from a personal vault. This UI writes evidence and assertions explicitly; it
-does not run a gardener or create claims from pasted evidence automatically.
+The Personal vault entry in this preview points at `preview-personal/`, an
+isolated empty directory. It does **not** point at your real personal vault.
+No supervisor, gardener, or model session is launched.
 
-## Storage and authentication
+## Use it
 
-The home directory contains `vault/`, `members.json`, `owner.json`,
-`browser-session`, and `launch-url`. Owner/session secrets use mode 0600 and
-remain outside the vault. Back up the entire home directory privately, including
-`vault/.spool/` if a write was interrupted. Never publish those files.
+- The vault-name menu switches between personal and saved shared connections.
+  Connect shared vault accepts a name, server origin, and member credential.
+- Search and Recents (`/` and `r`) work as usual. Open a record to read its text
+  and follow its connections.
+- Add evidence contributes title/text explicitly. Text/Markdown file drops also
+  work; binary attachments are rejected with an explanation.
+- Open evidence to assert a claim, correct your own assertion, or retract it.
+  `[[Entity name]]` links form the familiar graph. Correction retains citations.
+- The menu shows the authenticated member, owner/member role, and read/write
+  permission. Read-only members can browse; write controls are hidden and the
+  server separately rejects writes. Revoked/offline connections hide the vault
+  and show a reconnect screen.
 
-The browser receives an HttpOnly, SameSite=Strict session cookie after redeeming
-a launch secret. No member token is stored in browser storage. Mutations require
-same-origin JSON; foreign Host/Origin requests are refused. Every vault request
-still goes through shared-vault credential verification, so revocation takes
-effect on an open UI. Local programs running as the same OS user remain trusted.
+Pilot, model-generated briefings, personal settings, provider read/unread state,
+and automatic sharing are unavailable in shared mode. Membership and owner
+moderation remain in `bin/shared.ts`; the separate owner dashboard remains a
+backend harness, not the product interface.
 
-One owner interface runs per home; it shares the vault writer lock with
-`bin/shared.ts serve`. Do not run both on the same vault simultaneously.
-Existing owner-UI homes reopen automatically. Importing an independently
-provisioned CLI vault/credential is not implemented.
+## Authentication and isolation
 
-## Recovery
+The local viewer retains its existing loopback/same-origin trust boundary. It
+holds member credentials in a mode-0600 file **outside** the vault and forwards
+requests to the authenticated shared API. Credentials are never returned to the
+browser or put in browser storage. HTTPS is required for remote origins; HTTP
+is allowed only on loopback, and authenticated requests never follow redirects.
 
-Before writing events and feed entries, the writer atomically saves its prepared
-write in `vault/.spool/shared-write.json`. A correction prepares its new assertion
-and revocation together. After a process crash, the next server startup completes
-that accepted write with its original actor and receive time. Identical correction
-and retraction retries return the original result without adding feed entries.
-This covers process-crash recovery, not a power-loss/filesystem durability promise.
-Older prototype writes without a journal may still need their original retry to
-repair a missing feed entry; `shared inspect` reports these gaps.
+Normal operation uses `~/.config/bigbrain/shared-connections.json`;
+`BIGBRAIN_SHARED_CONNECTIONS` overrides it. The preview keeps a separate
+`shell-connections.json` beside `owner.json` and `members.json`. These are private
+local files, not vault content or an OS-keychain integration.
 
-## Verified
+One document belongs to one workspace. Switching replaces the document, resets
+selection/drafts/Pilot state, and isolates caches. Shared response payloads are
+not persisted to browser storage. Every shared request is routed before the
+personal handlers; an unknown shared action fails closed. Connecting does not
+import or publish personal content. Local programs running as your OS user are
+trusted, as in the existing viewer.
 
-33 targeted tests pass, covering real HTTP, two clients, restart/crash recovery,
-feed resume, concurrent writes, attribution, authorization, revoked credentials,
-owner-session setup, same-origin boundaries, and prepared correction recovery.
-Real Chromium click-through verifies creation, evidence, cited assertions,
-correction, search, retraction, server restart, safe text rendering and mobile width.
+## Recovery and tests
+
+The shared server journals prepared writes in `vault/.spool/shared-write.json`.
+Startup completes interrupted accepted writes with the original actor and
+receive time. Identical retries deduplicate. This covers process crashes, not
+power-loss durability. Back up the entire owner directory privately, including
+`.spool/` and credentials.
 
 ```sh
-bun test test/sharedOwner.test.ts test/sharedRecovery.test.ts test/sharedVaultServer.test.ts test/sharedVaultApi.test.ts test/sharedMembers.test.ts
-node test/support/sharedOwner.browser.cjs
-bun run typecheck
+bun test test/sharedWorkspace.test.ts test/sharedMembers.test.ts test/sharedVaultApi.test.ts test/sharedRecovery.test.ts test/sharedVaultServer.test.ts test/sharedOwner.test.ts test/vaultBoundary.test.ts test/httpx.test.ts test/env.test.ts
+node test/support/sharedWorkspace.browser.cjs
 bun run lint
+bun run typecheck
+bun run --cwd web/ui check
+bun run web:build
 ```
 
-The browser check creates only disposable synthetic vaults. The old handoff
-runner incorrectly required Bun to print `0 skip`; Bun omits the line when none
-skip. These commands use actual exit status rather than that text requirement.
+The browser regression uses the production shell and disposable synthetic
+personal/shared vaults. It covers connecting, identity, evidence, assertions,
+correction, recents, switching, read-only access, revocation, and credential
+storage. The adapter reads paginated metadata into memory; search uses the
+shared server's current 50-hit cap. It is a small-vault v0, not a large-vault
+incremental sync implementation.
 
-## Next boundary
-
-This is local-only owner operation, not a remote collaboration release. Member
-management remains on the host CLI; invitation links, remote administration,
-desktop workspace switching and inclusion rules remain separate work. Shared
-credentials (`sv_`) have not been unified with the main client store (`bb_`).
-Before remote use: independent security review, TLS/tunnel, supervision, and
-backup/restore verification. Do not expose this owner UI or the unauthenticated
-personal desktop viewer to the network.
+Remote hosting, invitation links, membership administration in the UI, a unified
+`bb_`/`sv_` credential scheme, and inclusion rules remain separate work. The
+local viewer itself must remain loopback-only.

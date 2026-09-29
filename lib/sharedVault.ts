@@ -227,17 +227,20 @@ class Feed {
    * and an event that landed without its feed line (a crash between the
    * two appends) gets one on the retry rather than never. */
   private seqs = new Map<string, number>();
+  private times = new Map<string, string>();
 
   constructor(private readonly root: string) {
     this.abs = join(root, SHARED_FEED_DIR, FEED_FILE);
     const all = this.readAll();
     this.headSeq = all.at(-1)?.seq ?? 0;
-    for (const row of all) this.seqs.set(row.id, row.seq);
+    for (const row of all) { this.seqs.set(row.id, row.seq); this.times.set(row.id, row.at); }
   }
 
   head(): number {
     return this.headSeq;
   }
+
+  at(eventId: string): string | undefined { return this.times.get(eventId); }
 
   seqOf(eventId: string): number | undefined {
     return this.seqs.get(eventId);
@@ -312,6 +315,7 @@ class Feed {
     appendFileSync(this.abs, `${tail.terminated ? "" : "\n"}${JSON.stringify(full)}\n`);
     this.headSeq = full.seq;
     this.seqs.set(full.id, full.seq);
+    this.times.set(full.id, full.at);
     return full;
   }
 
@@ -320,7 +324,7 @@ class Feed {
     const head = all.at(-1)?.seq ?? 0;
     if (head > this.headSeq) {
       this.headSeq = head;
-      for (const row of all) this.seqs.set(row.id, row.seq);
+      for (const row of all) { this.seqs.set(row.id, row.seq); this.times.set(row.id, row.at); }
     }
     // By seq, not by line index — the two agree on a healthy feed and
     // only the seq is a promise to the client.
@@ -464,6 +468,8 @@ export class SharedVault {
     this.recoverPending();
     return { deduped, seq: this.feedLog.seqOf(pending.at(-1)!.event.id)! };
   }
+
+  submittedAt(id: string): string | undefined { return this.feedLog.at(id); }
 
   head(): number {
     return this.feedLog.head();

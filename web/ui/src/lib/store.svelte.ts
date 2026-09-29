@@ -1,3 +1,4 @@
+import { workspaceURL, sharedUnavailable } from "./vaultScope";
 import { observeVault } from "./vaultScope";
 import { receiveApplicationChange, applicationDisconnected } from "./applicationUpdates";
 import { pushRoute, replaceRoute, initRouteHistory } from "./routeHistory.svelte";
@@ -220,7 +221,8 @@ let retryTimer: ReturnType<typeof setTimeout> | undefined;
 
 function connect(): void {
   es?.close();
-  es = new EventSource("/api/events");
+  es = new EventSource(workspaceURL("/api/events"));
+  es.addEventListener("unavailable", sharedUnavailable);
   es.addEventListener("vault", e => { observeVault(JSON.parse(e.data)); });
   es.addEventListener("usage", () => { app.usageRev++; });
   es.addEventListener("application", e => {

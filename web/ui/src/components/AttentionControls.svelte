@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { selectedWorkspace } from "../lib/vaultScope";
   import { applicationCursor, subscribeApplication, updatePump } from "../lib/applicationUpdates";
   import { refreshNotifications } from "../lib/notifications.svelte";
   import { getContext, onMount } from "svelte";
@@ -72,6 +73,7 @@
   $effect(() => { stage.pilotsOpen = paneOpen; if (paneOpen) searchOverlay.open = false; return () => { stage.pilotsOpen = false; }; });
   // One refresh owner for the page, including live Agent session summaries.
   onMount(() => {
+    if (selectedWorkspace) return;
     let stopped = false, timer: ReturnType<typeof setTimeout>, readAt = 0, lastReconcile = 0;
     const pump = updatePump(async update => {
       if (update.snapshot) await Promise.all([refreshChats(), refreshWork()]);
@@ -114,11 +116,11 @@
   </button>
 </span>
 {/if}
-<PilotsPane items={sidebar ? sidebarRoster : roster}
+{#if !selectedWorkspace}<PilotsPane items={sidebar ? sidebarRoster : roster}
   bind:open={() => paneOpen, value => {
     if (sidebar) { sidebar.agents = value; if (value) { sidebar.tab = 'agents'; goto('home'); } if (value) { sidebar.searchVisible = false; sidebar.open = true; sidebar.expanded = false; } }
     else open = value;
-  }} onopen={show} />
+  }} onopen={show} />{/if}
 {#if error}<div class="error" role="alert">{error}<button onclick={() => { error = ""; void refresh(true); }}>Retry</button></div>{/if}
 
 <style>

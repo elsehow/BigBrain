@@ -1,4 +1,17 @@
 <script lang="ts">
+  import { selectedWorkspace, switchWorkspace } from '../lib/vaultScope';
+  import { sharedWorkspace, checkSharedWorkspace } from '../lib/sharedWorkspace.svelte';
+  import VaultSwitcher from './VaultSwitcher.svelte';
+  onMount(() => {
+    const unavailable = () => {
+      sharedWorkspace.ready = false;
+      sharedWorkspace.error = 'The shared vault is unavailable. Reconnecting…';
+    };
+    window.addEventListener('shared-unavailable', unavailable);
+    void checkSharedWorkspace();
+    const timer = selectedWorkspace ? setInterval(() => void checkSharedWorkspace(), 3000) : undefined;
+    return () => { clearInterval(timer); window.removeEventListener('shared-unavailable', unavailable); };
+  });
   import { onMount, setContext, tick, untrack } from 'svelte';
   import App from '../App.svelte';
   import ActionHistory from './ActionHistory.svelte';
@@ -27,7 +40,7 @@
   const baseline = untrack(() => options.baseline ?? false);
   const debug = untrack(() => options.debug ?? false);
   let feedbackOpen = $state(false);
-  let feedback: { key: (event: KeyboardEvent) => void };
+  let feedback = $state<{ key: (event: KeyboardEvent) => void }>();
   searchPresentation.includeAgents = baseline;
   const sidebar = $state<SidebarLayout>({ open: false, agents: false, searchVisible: false, expanded: false, hoverId: null });
   if (!baseline) setContext(SIDEBAR_LAYOUT, sidebar);
@@ -105,13 +118,14 @@
     await home();
   }
   function key(e: KeyboardEvent) {
+    if ((e.target as Element | null)?.closest?.(".shared-compose, .vault-menu")) return;
     if (actionHistory.open) {
       // The modal owns keys; underlying conversation/list handlers must not act.
       e.stopImmediatePropagation();
       if (e.key === 'Escape') { e.preventDefault(); actionHistory.open = false; }
       return;
     }
-    if (feedbackOpen) { feedback.key(e); return; }
+    if (feedbackOpen) { feedback?.key(e); return; }
     if (notificationKeyboard.handle(e)) return;
     wakeToolbar();
     if (sidebar.homeMenuKey?.(e)) return;
@@ -231,6 +245,7 @@
   });
 </script>
 
+{#if sharedWorkspace.ready}
 <App />
 {#if actionHistory.open}<ActionHistory />{/if}
 <Feedback bind:this={feedback} bind:open={feedbackOpen} visible={baseline || (!uiHidden && (sidebar.open || toolbarAwake))}
@@ -248,4 +263,12 @@
     </button>
   {/if}
 
+{/if}
+
+{:else}
+  <div style="padding: 32px; color: var(--text); font: var(--type-meta)">
+    <VaultSwitcher />
+    <p role="status">{sharedWorkspace.error || 'Connecting to shared vault…'}</p>
+    {#if sharedWorkspace.error}<button onclick={() => void checkSharedWorkspace()}>Retry</button> <button onclick={() => switchWorkspace(null)}>Personal vault</button>{/if}
+  </div>
 {/if}

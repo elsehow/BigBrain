@@ -1,0 +1,31 @@
+/** Synthetic full-shell fixture. Secrets stay in its temporary directory. */
+import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createServer } from 'node:net';
+import { initMemberStore, addMember, mintCredential, revokeCredential } from '../../lib/sharedMembers';
+import { makeSharedApiHandler } from '../../lib/sharedVaultApi';
+import { SharedVault } from '../../lib/sharedVault';
+import { saveConnection } from '../../lib/sharedConnections';
+import { appendSourceInsertionEvent, sourceInsertion } from '../../lib/insertionLog';
+const home = mkdtempSync(join(tmpdir(), 'bb-shell-browser-')), personal = join(home,'personal'), shared = join(home,'shared'), members = join(home,'members.json'), connections = join(home,'connections.json');
+for (const root of [personal,shared]) { mkdirSync(root); writeFileSync(join(root,'vault.yaml'),root===shared?'shared: true\n':'integrations: {}\n'); }
+appendSourceInsertionEvent(personal, sourceInsertion({id:'example-private',title:'Personal sentinel',from:'Example owner',from_kind:'person',date:'2026-09-29',source:'web'}, 'Private fixture text only.'));
+const owner = initMemberStore(members,shared,{handle:'owner',display:'Example Owner'});
+addMember(members,{handle:'reader',permissions:['read']});
+const reader = mintCredential(members,'reader',{name:'reader',kind:'person',scopes:['read']});
+const vault = new SharedVault(shared);
+const handler = makeSharedApiHandler({root:shared,storePath:members,vault,log:()=>{}});
+const remote = Bun.serve({hostname:'127.0.0.1',port:0,fetch:handler});
+const endpoint = `http://127.0.0.1:${remote.port}`;
+const post = (path:string,body:unknown) => handler(new Request(endpoint+path,{method:'POST',headers:{authorization:`Bearer ${owner.token}`,'content-type':'application/json'},body:JSON.stringify(body)}));
+const source = await (await post('/v1/evidence',{title:'Shared launch decision',body:'The Example project will launch next week.'})).json() as {id:string};
+await post('/v1/assertions',{text:'[[Example project]] will launch next week.',sources:[source.id]});
+const readonly = await saveConnection(connections,{name:'Example read only',endpoint,token:reader.token});
+const probe=createServer(); await new Promise<void>(r=>probe.listen(0,'127.0.0.1',r));const port=(probe.address() as {port:number}).port;await new Promise<void>(r=>probe.close(()=>r()));
+const child = Bun.spawn(['bun','web/server.ts'],{env:{...process.env,BIGBRAIN_VAULT:personal,BIGBRAIN_WEB_PORT:String(port),BIGBRAIN_SHARED_CONNECTIONS:connections,PI_OFFLINE:'1'},stdout:'ignore',stderr:'ignore'});
+const metadata = {base:`http://127.0.0.1:${port}`,endpoint,token:owner.token,readonly:readonly.id,source:source.id,home};
+writeFileSync(join(home,'browser.json'),JSON.stringify(metadata),{mode:0o600});
+console.log(join(home,'browser.json'));
+process.stdin.on('data',data=>{ if(data.toString().trim()==='revoke') revokeCredential(members,owner.credential.id); });
+const close=()=>{child.kill();remote.stop(true);process.exit()};process.on('SIGTERM',close);process.on('SIGINT',close);

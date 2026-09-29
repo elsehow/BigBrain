@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { selectedWorkspace } from "../lib/vaultScope";
   import PilotQuickLook from "./PilotQuickLook.svelte";
   import WorkspaceMenu from "./WorkspaceMenu.svelte";
   import { getContext, onMount, untrack, tick } from "svelte";
@@ -232,7 +233,7 @@
 <svelte:window bind:innerWidth={viewportWidth} bind:innerHeight={viewportHeight} onpointermove={edges} onpointerdown={ground} />
 
 {#if sidebar && !sidebar.open && !chat.open}
-  <WorkspaceMenu {memories} {sidebar} />
+  {#if !selectedWorkspace}<WorkspaceMenu {memories} {sidebar} />{/if}
 {/if}
 
 <section class="view">

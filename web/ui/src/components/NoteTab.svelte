@@ -1,4 +1,6 @@
 <script lang="ts">
+  import SharedAssertions from "./SharedAssertions.svelte";
+  import { selectedWorkspace } from "../lib/vaultScope";
   import { inspectActions } from "../lib/actionHistory.svelte";
   import KeyboardModifier from "./KeyboardModifier.svelte";
   import { SIDEBAR_LAYOUT, type SidebarLayout } from "../lib/sidebarLayout";
@@ -101,6 +103,7 @@
   let briefingAttempt = $state(0);
   let briefingFor = "";
   $effect(() => {
+    if (selectedWorkspace) return;
     const path = notePath;
     const request = briefingRequest;
     void app.rev; void briefingAttempt;
@@ -231,7 +234,7 @@
   });
 
   // Keep original Markdown available below the generated reading aid.
-  const body = $derived(loaded && !projectedEntity && !sourceRecord ? unwrap(parsed.body.trim()) : "");
+  const body = $derived(loaded && (selectedWorkspace || (!projectedEntity && !sourceRecord)) ? unwrap(parsed.body.trim()) : "");
   /** memory is hard-wrapped at eighty columns (written for a terminal); a
    * paragraph's line breaks are not breaks here — a newline into anything
    * but a blank line or a block's first character joins with a space */
@@ -415,7 +418,7 @@
       {/if}
     </div>
     <div class="note-shortcuts" aria-label="Note actions">
-      {#if !multiple}<button class="discuss-shortcut" class:copied onclick={discuss} onkeydown={controlKey} aria-keyshortcuts="Shift+Enter"><span aria-live="polite">{copied ? "COPIED" : sidebar ? "Discuss in Pilot" : "PILOT"}</span></button>{/if}
+      {#if !multiple && !selectedWorkspace}<button class="discuss-shortcut" class:copied onclick={discuss} onkeydown={controlKey} aria-keyshortcuts="Shift+Enter"><span aria-live="polite">{copied ? "COPIED" : sidebar ? "Discuss in Pilot" : "PILOT"}</span></button>{/if}
     </div>
   </header>
   <div class="note-scroll">
@@ -455,13 +458,14 @@
             </div>
           {/if}
           {#if body && !multiple}
-            <details class="original-note">
+            <details class="original-note" open={!!selectedWorkspace}>
               <summary>Read note</summary>
               <div class="note-body body"><div class="body-cell">
                 <div class="body-text md-body prose" use:wikilinks>{@html renderBody(body)}</div>
               </div></div>
             </details>
           {/if}
+          {#if selectedWorkspace}<SharedAssertions path={notePath} />{/if}
         </div>
         <div class="source-links" aria-label="Connected records">
           {#each connectionLinks as link, i (link.id)}

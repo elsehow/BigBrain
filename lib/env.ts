@@ -118,3 +118,6 @@ export const posthogRegion = (): string | undefined => str("BIGBRAIN_POSTHOG_REG
 
 /** Optional authenticated identity for live integration reads over local MCP. */
 export const mcpIntegrationToken = (): string | undefined => str("BIGBRAIN_MCP_TOKEN");
+
+/** Local remote-vault credentials. This store must live outside vault content. */
+export const sharedConnectionsStore = (): string | undefined => str("BIGBRAIN_SHARED_CONNECTIONS");

@@ -1,3 +1,4 @@
+import { sharedWorkspace } from "../lib/sharedWorkspace";
 import { allowVaultRequest, vaultIdentity } from "../lib/vaultBoundary";
 import { ApplicationChanges } from "../lib/applicationChanges";
 import { ApplicationActions } from "../lib/applicationActions";
@@ -779,9 +780,10 @@ export function start(): void {
   // server's death.
   const metrics = isDesktop() ? telemetry(ROOT) : undefined;
   metrics?.start();
-  const server = createServer((req, res) => {
+  const server = createServer(async (req, res) => {
     armor(res);
     if (!allowLoopbackRequest(req, res)) return;
+    if (await sharedWorkspace(req, res)) return;
     if (!allowVaultRequest(req, res, vaultIdentity(ROOT))) return;
     const path = (req.url ?? "").split("?")[0] ?? "";
     const reads: Partial<Record<string, Operation>> = { "/api/search": "search", "/api/graph": "graph", "/api/note": "note" };
