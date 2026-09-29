@@ -27,8 +27,8 @@ The local backend stores the resulting credential in `connections.json` with mod
 
 All remote data endpoints require authentication. Membership and scopes are
 checked on every request, including after reading write bodies. Owner administration endpoints require a person credential with write access.
-Members cannot create invites, list private invitations, change access, or remove
-others. The owner cannot be removed or downgraded. Removing a member revokes all
+All members can view the active member roster and access levels. Members cannot
+create invites, list private invitations, change access, or remove others. The owner cannot be removed or downgraded. Removing a member revokes all
 their credentials but leaves attributed contributions intact. Already downloaded
 content cannot be recalled. Invite secrets are retained in a private mode-0600
 sidecar until use or cancellation so the owner can copy pending links.

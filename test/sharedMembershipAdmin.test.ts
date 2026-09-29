@@ -22,7 +22,7 @@ test('owner invitations, member attribution, access changes and all-device revoc
  const who=await (await call('/v1/whoami',token)).json();expect(who.role).toBe('member');expect(who.member_id).not.toBe(owner.member.id);
  const second=mintCredential(store,who.handle,{name:'Second device'});
  for(const t of [token,second.token]){
-  expect((await call('/v1/members',t)).status).toBe(403);
+  const roster=await call('/v1/members',t);expect(roster.status).toBe(200);const view=await roster.json();expect(view.can_manage).toBe(false);expect(view.invites).toEqual([]);expect(view.members).toHaveLength(2);
   expect((await call('/v1/invites',t,{name:'Other',permission:'write'})).status).toBe(403);
   expect((await call(`/v1/members/${owner.member.id}/remove`,t,{})).status).toBe(403);
   expect((await call(`/v1/members/${who.member_id}/access`,t,{permission:'write'})).status).toBe(403);
@@ -40,12 +40,12 @@ test('owner invitations, member attribution, access changes and all-device revoc
  expect((await call('/v1/evidence/'+evidence.id)).status).toBe(200);
  for(const action of ['remove','access'])expect((await call(`/v1/members/${owner.member.id}/${action}`,owner.token,{permission:'read'})).status).toBe(400);
  const cancelled=await create('Jules');expect((await call(`/v1/invites/${cancelled.id}/cancel`,owner.token,{})).status).toBe(200);expect((await redeem(cancelled.secret)).status).toBe(401);
- const expired=await create('Ren');now=new Date(now.getTime()+86400001);expect((await redeem(expired.secret)).status).toBe(401);
+ const expired=await create('Ren');const limited=mintCredential(store,'owner',{name:'Scoped reader',scopes:['read']});const hidden=await (await call('/v1/members',limited.token)).json();expect(hidden.invites).toEqual([]);expect(hidden.can_manage).toBe(false);now=new Date(now.getTime()+86400001);expect((await redeem(expired.secret)).status).toBe(401);
  const read=await create('Lee','read'),r=await (await redeem(read.secret)).json(),rw=await (await call('/v1/whoami',r.token)).json();expect(rw.permissions).toEqual(['read']);
  await call(`/v1/members/${rw.member_id}/access`,owner.token,{permission:'write'});expect((await call('/v1/evidence',r.token,{title:'Upgraded',body:'Can now contribute.'})).status).toBe(201);
  expect((await call('/v1/members','invalid')).status).toBe(401);
- const delegate=mintCredential(store,'owner',{name:'Agent',kind:'agent'});expect((await call('/v1/members',delegate.token)).status).toBe(403);
- const restricted=mintCredential(store,'owner',{name:'Read device',scopes:['read']});expect((await call('/v1/members',restricted.token)).status).toBe(403);
+ const delegate=mintCredential(store,'owner',{name:'Agent',kind:'agent'});expect((await (await call('/v1/members',delegate.token)).json()).can_manage).toBe(false);
+ const restricted=mintCredential(store,'owner',{name:'Read device',scopes:['read']});expect((await (await call('/v1/members',restricted.token)).json()).can_manage).toBe(false);
  for(const body of [{name:'',permission:'write'},{name:'Name',permission:'owner'},{name:'x\ny',permission:'read'},null])expect((await call('/v1/invites',owner.token,body)).status).toBe(400);
  }finally{rmSync(dir,{recursive:true,force:true});}
 });

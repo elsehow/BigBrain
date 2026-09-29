@@ -280,7 +280,7 @@ function feed({ url, vault, json }: RouteCtx): Response {
 // ── the route table ──────────────────────────────────────────────────────
 
 const ROUTE_TABLE: Route[] = [
-  {method:'GET',path:'/v1/members',ownerOnly:true,permission:'write',handler:({storePath,now,json})=>json(200,{members:listMembers(storePath).filter(m=>!m.revoked),invites:pendingMemberInvites(storePath,now)})},
+  {method:'GET',path:'/v1/members',permission:'read',handler:({storePath,now,actor,json})=>{const can_manage=actor.role==='owner'&&actor.kind==='person'&&actor.permissions.includes('write');return json(200,{members:listMembers(storePath).filter(m=>!m.revoked),can_manage,invites:can_manage?pendingMemberInvites(storePath,now):[]});}},
   {method:'POST',path:'/v1/invites',ownerOnly:true,permission:'write',rateLimited:true,handler:({storePath,now,body,json})=>{
     const input=body as {name?:unknown;permission?:unknown}|null;
     if(!input||typeof input.name!=='string'||!input.name.trim()||input.name.trim().length>120||/[\p{Cc}]/u.test(input.name)||(input.permission!=='read'&&input.permission!=='write'))return json(400,{error:'Enter a name and valid access level.'});

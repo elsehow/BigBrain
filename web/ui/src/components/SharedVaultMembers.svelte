@@ -4,12 +4,13 @@
   type Member = {id:string;name:string;access:Access;owner?:boolean};
   type Invite = Member & {link:string;expires:string};
   let {vaultName,endpoint,request}:{vaultName:string;endpoint:string;request:(action:string,body?:unknown)=>Promise<any>}=$props();
+  let canManage=$state(false);
   let members=$state<Member[]>([]),invites=$state<Invite[]>([]),busy=$state(false),error=$state(''),loading=$state(true);
   let inviting=$state(false),name=$state(''),access=$state<Access>('Can contribute');
   let created=$state<Invite|null>(null),removing=$state<Member|null>(null),copied=$state('');
   function open(dialog:HTMLDialogElement){dialog.showModal();}
   function invitation(i:{id:string;display:string;permission:string;secret:string;expires:string}):Invite{return {id:i.id,name:i.display,access:i.permission==='write'?'Can contribute':'Read only',link:endpoint+'/invite#'+i.secret,expires:i.expires};}
-  async function load(){const data=await request('members');members=data.members.map((m:{id:string;display:string;role:string;permissions:string[]})=>({id:m.id,name:m.display,owner:m.role==='owner',access:m.permissions.includes('write')?'Can contribute':'Read only'}));invites=data.invites.map(invitation);loading=false;}
+  async function load(){const data=await request('members');canManage=data.can_manage;members=data.members.map((m:{id:string;display:string;role:string;permissions:string[]})=>({id:m.id,name:m.display,owner:m.role==='owner',access:m.permissions.includes('write')?'Can contribute':'Read only'}));invites=data.invites.map(invitation);loading=false;}
   async function act(fn:()=>Promise<void>){if(busy)return;busy=true;error='';try{await fn();}catch(e){error=(e as Error).message;}finally{busy=false;loading=false;}}
   async function create(event:SubmitEvent){event.preventDefault();await act(async()=>{created=invitation(await request('member-invite',{name:name.trim(),permission:access==='Can contribute'?'write':'read'}));await load();});}
   async function copy(link:string){try{await navigator.clipboard.writeText(link);copied=link;}catch{error='Could not copy. Select and copy the invite link.';}}
@@ -19,15 +20,15 @@
 
 <section aria-label="Members">
   {#if error&&!inviting&&!removing}<p role="alert">{error} <button onclick={()=>act(load)}>Retry</button></p>{/if}
-  <div class="heading"><h3>Members</h3><button class="primary" disabled={busy||loading} onclick={start}>Invite someone</button></div>
+  <div class="heading"><h3>Members</h3>{#if canManage}<button class="primary" disabled={busy||loading} onclick={start}>Invite someone</button>{/if}</div>
   {#if loading}<p class="muted">Loading members…</p>{/if}
   {#each members as member (member.id)}
-    <div class="row"><div>{member.name}{#if member.owner}<small>Owner</small>{/if}</div>{#if member.owner}<span class="muted">Full access</span>{:else}<div class="actions">
+    <div class="row"><div>{member.name}{#if member.owner}<small>Owner</small>{/if}</div>{#if member.owner}<span class="muted">Full access</span>{:else if !canManage}<span class="muted">{member.access}</span>{:else}<div class="actions">
       <select aria-label={`Access for ${member.name}`} value={member.access} disabled={busy} onchange={e=>{const permission=e.currentTarget.value==='Can contribute'?'write':'read';e.currentTarget.value=member.access;void act(async()=>{await request('member-access',{id:member.id,permission});await load();});}}><option>Can contribute</option><option>Read only</option></select>
       <button disabled={busy} onclick={()=>{error="";removing=member;}}>Remove</button>
     </div>{/if}</div>
   {/each}
-  {#if invites.length}
+  {#if canManage&&invites.length}
     <h3 class="pending-heading">Pending invitations</h3>
     {#each invites as invite (invite.id)}
       <div class="row"><div>{invite.name}<small>{invite.access} · Expires {new Date(invite.expires).toLocaleString()}</small></div><div class="actions">
@@ -38,7 +39,7 @@
   {/if}
 </section>
 
-{#if inviting}
+{#if canManage&&inviting}
   <dialog use:open onclose={()=>inviting=false} aria-labelledby="invite-title">
     {#if created}
       <h2 id="invite-title">Invite {created.name}</h2>
@@ -58,7 +59,7 @@
     {#if error}<p role="alert">{error}</p>{/if}
   </dialog>
 {/if}
-{#if removing}
+{#if canManage&&removing}
   <dialog use:open onclose={()=>removing=null} aria-labelledby="remove-title">
     <h2 id="remove-title">Remove {removing.name}?</h2>
     <p>They’ll lose access to this vault on all their devices. Their past contributions and attribution will stay.</p>

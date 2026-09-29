@@ -28,8 +28,8 @@
  {#if data}
  <section class="settings-card"><div class="settings-card-main"><h2 class="settings-card-name">{data.name}</h2><small>{data.identity.display} · {data.identity.permissions.includes('write')?'Read and write':'Read only'}</small></div>
  <div class="settings-card-body">
- <div class="section-tabs"><button class:on={tab==='rule'} onclick={()=>tab='rule'}>Inclusion rule</button><button class:on={tab==='added'} onclick={()=>tab='added'}>Added by you <small>{activeItems.length}</small></button>{#if data.identity.role==='owner'}<button class:on={tab==='members'} onclick={()=>tab='members'}>Members</button>{/if}</div>
- {#if tab==='members'&&data.identity.role==='owner'}{#key sharedSettings.selected}<SharedVaultMembers vaultName={data.name} endpoint={data.endpoint} {request}/>{/key}
+ <div class="section-tabs"><button class:on={tab==='rule'} onclick={()=>tab='rule'}>Inclusion rule</button><button class:on={tab==='added'} onclick={()=>tab='added'}>Added by you <small>{activeItems.length}</small></button><button class:on={tab==='members'} onclick={()=>tab='members'}>Members</button></div>
+ {#if tab==='members'}{#key sharedSettings.selected}<SharedVaultMembers vaultName={data.name} endpoint={data.endpoint} {request}/>{/key}
  {:else if tab==='added'}{#each activeItems as item (item.id)}{@render row(item)}{:else}<small>No shared sources.</small>{/each}
  {:else if !data.identity.permissions.includes('write')}<small>This membership is read-only.</small>
  {:else if editing}
