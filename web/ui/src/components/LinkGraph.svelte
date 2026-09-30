@@ -99,6 +99,7 @@
       }
       gesture.last = p; kick(); return;
     }
+    if (renderer?.selectionSubgraph) return;
     const id = hit(event);
     if (id === hoverId) return;
     hoverId = id; hoverTitle = data?.nodes.find(n => n.id === id)?.title ?? null;

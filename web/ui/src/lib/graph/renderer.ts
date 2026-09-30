@@ -416,6 +416,7 @@ export class GraphRenderer {
     this.retarget(now, reduced);
   }
   highlight(ids: readonly (string | null)[], now = performance.now()) {
+    if (this.selectionSubgraph) return;
     const next = new Set(ids.flatMap(id => id && this.ids.has(id) ? [this.ids.get(id)!] : []).filter(i => !this.excluded.has(i)));
     if (next.size === this.highlighted.size && [...next].every(i => this.highlighted.has(i))) return;
     this.highlighted = next;
@@ -423,6 +424,7 @@ export class GraphRenderer {
     this.previous = this.selected; this.retarget(now, this.reducedMotion);
   }
   hover(id: string | null, now = performance.now()) {
+    if (this.selectionSubgraph) return;
     const candidate = id ? this.ids.get(id) ?? -1 : -1;
     const hovered = this.excluded.has(candidate) ? -1 : candidate;
     if (hovered === this.hovered) return;

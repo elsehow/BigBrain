@@ -54,6 +54,9 @@ const graph = {
     const second = (await scene()).nodes[2];
     await page.mouse.move(second.x, second.y); await page.waitForTimeout(500);
     await expectMembers([0,1,2]);
+    assert.equal((await scene()).hovered, null, 'pointer motion does not activate hover');
+    assert.equal(await page.getByRole('region', { name: 'Quick look' }).count(), 0, 'no hover preview');
+    assert.deepEqual((await scene()).highlighted, [], 'no hover highlight');
     await click(2, true); await expectMembers([0,1,2,3,4]);
     assert.equal(await page.evaluate(() => location.hash), route);
     assert.deepEqual((await scene()).view.selected.sort(), [ids[0],ids[2]].sort());
