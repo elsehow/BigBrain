@@ -107,8 +107,10 @@ const graph = {
     await page.mouse.click(point.x, point.y); await page.mouse.move(1439, 999);
     await page.waitForTimeout(150);
     const mid = await scene();
+    assert(mid.choreography.labels === 0 && mid.choreography.edges < 1, 'landmarks and edges wait while the cloud begins moving');
     await page.waitForTimeout(450);
     const end = await scene();
+    assert.equal(end.choreography.labels, 1, 'landmarks finish revealing after motion settles');
     assert(mid.nodes.some(n => { const target = end.nodes.find(p => p.id === n.id); return target && Math.hypot(n.worldX - target.worldX, n.worldY - target.worldY) > 1; }), 'selection animates world positions rather than only the camera');
     assert(end.nodes.find(n => n.id === ids[0]).height > end.nodes.find(n => n.id === ids[3]).height, 'relevance places seed ahead of memory landmarks');
     assert(end.nodes.length <= (style === 'cloud' ? 120 : 60));

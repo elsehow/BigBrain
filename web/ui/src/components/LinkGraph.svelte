@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, untrack } from 'svelte';
   import type { GraphData } from '../lib/types';
+  import { graphChoreography } from '../lib/graph/choreography';
   import { GraphRenderer } from '../lib/graph/renderer';
   import { effectPreset, type EffectPreset } from '../lib/graph/effects';
   import { canonicalGraphView, changeGraphView, graphViewAction, type GraphViewState } from '../../../../lib/graphView';
@@ -21,6 +22,29 @@
   const selectionStyle = new URLSearchParams(location.search).get('selectionStyle') === 'radial' ? 'radial' : 'cloud';
   const displayData = $derived(data && subgraphExperiment ? selectionSubgraph(data, committedView ?? viewState, committedView ? committedView.selected[0] ?? null : selected, selectionStyle) : data);
   const sidebarInspection = $derived(probe ?? (highlight !== selected ? highlight : null));
+  const staged = subgraphExperiment && new URLSearchParams(location.search).get('choreography') !== 'plain';
+  let departure: HTMLCanvasElement | null = null, departureFrame = 0;
+  function clearDeparture() { cancelAnimationFrame(departureFrame); departure?.remove(); departure = null; }
+  function fadeDepartures(nodes: ReturnType<GraphRenderer['getDepartingNodes']>) {
+    clearDeparture();
+    if (reduced || !nodes.length) return;
+    const layer = document.createElement('canvas'); departure = layer;
+    layer.setAttribute('aria-hidden', 'true');
+    layer.setAttribute('data-graph-departures', '');
+    Object.assign(layer.style, { position:'absolute', inset:'0', width:'100%', height:'100%', pointerEvents:'none', background:'transparent' });
+    const dpr = devicePixelRatio || 1; layer.width = canvas.clientWidth * dpr; layer.height = canvas.clientHeight * dpr;
+    const ctx = layer.getContext('2d')!; ctx.scale(dpr, dpr); ctx.fillStyle = ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--text-strong').trim();
+    for (const n of nodes) {
+      ctx.globalAlpha = n.alpha; ctx.beginPath();
+      if (n.group === 'memory') { ctx.moveTo(n.x, n.y-n.radius); ctx.lineTo(n.x+n.radius,n.y); ctx.lineTo(n.x,n.y+n.radius); ctx.lineTo(n.x-n.radius,n.y); ctx.closePath(); ctx.stroke(); }
+      else if (n.group === 'agent' || n.group === 'pilot') { ctx.moveTo(n.x-n.radius,n.y-n.radius*.6); ctx.lineTo(n.x+n.radius,n.y-n.radius*.6); ctx.lineTo(n.x,n.y+n.radius); ctx.closePath(); ctx.fill(); }
+      else { ctx.arc(n.x,n.y,n.radius,0,Math.PI*2); ctx.fill(); }
+    }
+    canvas.parentElement!.append(layer);
+    const start = performance.now();
+    const fade = (now: number) => { const alpha = graphChoreography(now-start).departing; layer.style.opacity = String(alpha); if (alpha > 0) departureFrame = requestAnimationFrame(fade); else clearDeparture(); };
+    departureFrame = requestAnimationFrame(fade);
+  }
   let canvas = $state<HTMLCanvasElement>(null!);
   let renderer = $state.raw<GraphRenderer | null>(null);
   let hoverId = $state<string | null>(null);
@@ -44,6 +68,7 @@
       if (renderer?.update(graph, draft)) { kick(); return; }
       // New topology rebuilds the GPU graph; it must not also reframe the
       // picture. The successor adopts the camera after its own setView.
+      const departing = staged ? renderer?.getDepartingNodes(new Set(graph.nodes.map(n => n.id))) : undefined;
       const carried = renderer?.getCameraState();
       const continuous = renderer?.selectionSubgraph && !!graph.selectionRelative && selectionStyle === 'cloud' && new URLSearchParams(location.search).get('motion') !== 'independent';
       const layout = subgraphExperiment ? renderer?.getLayoutPositions() : undefined;
@@ -51,11 +76,13 @@
       try {
         const next = new GraphRenderer(canvas, graph, inset, coveredLeft, preset); renderer = next;
         next.selectionSubgraph = subgraphExperiment && !!graph.selectionRelative;
+        next.stagedSelection = staged && next.selectionSubgraph;
         next.composedSelection = next.selectionSubgraph && selectionStyle === 'cloud' && new URLSearchParams(location.search).get('composition') !== 'plain';
         next.update(graph, draft); next.setView(viewState, selected, performance.now(), reduced, centerFocus);
         if (carried?.ready) next.adoptCamera(carried.camera, subgraphExperiment ? false : carried.manual);
         if (layout) next.animateLayoutFrom(layout, reduced, performance.now(), !!continuous);
         next.highlight([highlight, probe]);
+        if (departing) fadeDepartures(departing);
         Object.assign(canvas, { profileStats: next.stats, profilePresentation: () => next.getPresentation() }); error = ''; kick();
       } catch (e) { error = String(e); }
     });
@@ -94,7 +121,7 @@
     const lost = (event: Event) => { event.preventDefault(); cancelGesture(); clearTimeout(wake); wake = undefined; cancelAnimationFrame(frame); frame = 0; error = 'Graphics context lost; waiting for restoration.'; };
     const restored = () => { renderer?.dispose(); renderer = null; contextRevision++; };
     canvas.addEventListener('webglcontextlost', lost); canvas.addEventListener('webglcontextrestored', restored);
-    return () => { cancelGesture(); window.removeEventListener('keydown', escape); window.removeEventListener('blur', cancelGesture); resize.disconnect(); canvas.removeEventListener('wheel', wheel); palette.disconnect(); media.removeEventListener('change', preference); canvas.removeEventListener('webglcontextlost', lost); canvas.removeEventListener('webglcontextrestored', restored); clearTimeout(wake); cancelAnimationFrame(frame); renderer?.dispose(); };
+    return () => { clearDeparture(); cancelGesture(); window.removeEventListener('keydown', escape); window.removeEventListener('blur', cancelGesture); resize.disconnect(); canvas.removeEventListener('wheel', wheel); palette.disconnect(); media.removeEventListener('change', preference); canvas.removeEventListener('webglcontextlost', lost); canvas.removeEventListener('webglcontextrestored', restored); clearTimeout(wake); cancelAnimationFrame(frame); renderer?.dispose(); };
   });
   function local(event: MouseEvent) {
     const box = canvas.getBoundingClientRect(); return { x: event.clientX - box.left, y: event.clientY - box.top };

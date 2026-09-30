@@ -1,5 +1,6 @@
 import type { GraphViewState } from '../../../../../lib/graphView';
 import { graphIdentityIndex } from '../../../../../lib/graphIdentity';
+import { graphChoreography, CHOREOGRAPHY_MS } from './choreography';
 import { continueNeighborhood } from './continuity';
 import { composeNeighborhood, neighborhoodLandmarks } from './composition';
 import { selectionEdges } from './selectionEdges';
@@ -76,6 +77,8 @@ export class GraphRenderer {
   private selectedNodes = new Set<number>();
   selectionSubgraph = false;
   composedSelection = false;
+  stagedSelection = false;
+  private stagedAt = -Infinity;
   private landmarks = new Set<number>();
   private keyboardFocus = -1;
   private keyboardZoom = 1;
@@ -328,7 +331,8 @@ export class GraphRenderer {
       const { i, draft, key, width } = label, n = nodes[i]!, state = this.sample(i, now);
       const memory = n.group === 'memory', hovered = i === this.hovered || this.highlighted.has(i), selected = this.selectedNodes.has(i);
       const wanted = (selection: number) => this.landmarks.has(i) || selection === i || !this.composedSelection && memory && (selection < 0 || this.selectionSubgraph) ? 1 : 0;
-      const opacity = (draft || hovered || selected ? 1 : wanted(this.previous) * (1 - t) + wanted(this.selected) * t) * state.alpha * (this.landmarks.has(i) && !hovered && !selected ? .78 : 1);
+      const labelReveal = this.stagedSelection && !hovered && !selected ? graphChoreography(now - this.stagedAt, this.reducedMotion).labels : 1;
+      const opacity = labelReveal * (draft || hovered || selected ? 1 : wanted(this.previous) * (1 - t) + wanted(this.selected) * t) * state.alpha * (this.landmarks.has(i) && !hovered && !selected ? .78 : 1);
       const point = projectPoint(this.positions[i]!, state.x, this.camera, this.size);
       const radius = Math.max(n.pilotPhase ? 6 : 3, this.radius(n) * Math.min(1, Math.sqrt(this.camera.zoom)) * 600 / (600 - state.x));
       return { key, index: i, ...point, width, opacity, above: hovered && !selected && !memory,
@@ -625,8 +629,20 @@ export class GraphRenderer {
   }
   private continuityCamera: { x: number; y: number; zoom: number } | null = null;
   private layoutMotion: { from: Point[]; to: Point[]; started: number } | null = null;
+  getDepartingNodes(keep: ReadonlySet<string>, now = performance.now()) {
+    return this.graph.nodes.flatMap((n, i) => {
+      if (keep.has(n.id)) return [];
+      const state = this.sample(i, now);
+      if (state.alpha < .02) return [];
+      const t = this.progress(now), ink = this.nodeData[i * 12 + 9]! * (1-t) + this.nodeData[i * 12 + 11]! * t;
+      const emphasis = this.nodeData[i * 12]! * (1-t) + this.nodeData[i * 12 + 7]! * t;
+      const base = ink * this.nodeData[i * 12 + 8]! * Math.exp(Math.min(0, state.x - this.homeDepth[i]!) / 95);
+      return [{ ...projectPoint(this.positions[i]!, state.x, this.camera, this.size), group: n.group, radius: Math.max(1, this.radius(n) * Math.min(1, Math.sqrt(this.camera.zoom)) * 600 / (600 - state.x)), alpha: i === this.hovered ? 1 : state.alpha * (base * (1-emphasis) + emphasis) }];
+    });
+  }
   getLayoutPositions() { return new Map(this.graph.nodes.map((n, i) => [n.id, { ...this.positions[i]! }])); }
   animateLayoutFrom(previous: ReadonlyMap<string, Point>, reduced: boolean, now = performance.now(), continuous = false) {
+    this.stagedAt = reduced || !this.stagedSelection ? -Infinity : now;
     let to = this.positions.map(p => ({ ...p }));
     let from = this.graph.nodes.map((n, i) => previous.get(n.id) ?? to[i]!);
     if (continuous) {
@@ -691,7 +707,7 @@ export class GraphRenderer {
       gl.uniform1f(u.motionScale!, Math.min(8, 100 / (now - old.time)));
     }
     gl.uniform1f(u.nodeScale!, Math.min(1, Math.sqrt(this.camera.zoom)));
-    gl.uniform3fv(u.edgeInk!, this.edgeInk); gl.uniform1f(u.edgeOpacity!, this.edgeOpacity);
+    gl.uniform3fv(u.edgeInk!, this.edgeInk); gl.uniform1f(u.edgeOpacity!, this.edgeOpacity * (this.stagedSelection ? graphChoreography(now - this.stagedAt, this.reducedMotion).edges : 1));
     gl.uniform3fv(u.ink!, this.ink); gl.uniform3fv(u.accent!, this.accent);
     gl.uniform3fv(u.bg!, this.bg); gl.uniform1f(u.time!, now / 1000); gl.uniform1f(u.reduced!, Number(this.reducedMotion));
     const draw = (i: number, buffer = i) => { const p = this.passes[buffer]!; gl.uniform1i(u.pass!, i); gl.bindVertexArray(p.vao); gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, p.count); };
@@ -709,7 +725,7 @@ export class GraphRenderer {
     if (this.passes[3]!.count && (this.hasActivity || now - this.started < this.duration)) { draw(4, 3); this.stats.drawCalls++; this.stats.activityDrawCalls++; }
     draw(1); draw(2);
     this.stats.frames++; this.stats.drawCalls += 4;
-    return !!this.layoutMotion || trails || now - this.depthStarted < this.depthDuration || now - this.started < this.duration || this.navigation.animating(now) || this.animatingStatus && !this.reducedMotion;
+    return this.stagedSelection && now - this.stagedAt < CHOREOGRAPHY_MS || !!this.layoutMotion || trails || now - this.depthStarted < this.depthDuration || now - this.started < this.duration || this.navigation.animating(now) || this.animatingStatus && !this.reducedMotion;
   }
   private cachedBounds?: number[];
   private get bounds() { return this.cachedBounds ??= this.positions.reduce((b, p, i) => !this.homeVisible.has(i) ? b : [Math.min(b[0]!, p.x), Math.min(b[1]!, p.y), Math.max(b[2]!, p.x), Math.max(b[3]!, p.y)], [Infinity, Infinity, -Infinity, -Infinity]); }
@@ -731,7 +747,7 @@ export class GraphRenderer {
   }
   getPresentation(now = performance.now()) {
     const w = this.canvas.clientWidth, h = this.canvas.clientHeight;
-    return { keyboardFocus: this.graph.nodes[this.keyboardFocus]?.id ?? null, view: { selected: [...this.view.selected], excluded: [...this.view.excluded] }, highlighted: [...this.highlighted].map(i => this.graph.nodes[i]!.id), effects: this.effects, labels: this.labelBoxes.map(b => ({ ...b, id: this.graph.nodes[b.index]!.id })), camera: { ...this.getCamera(), manual: this.navigation.manual }, hovered: this.hovered >= 0 ? this.graph.nodes[this.hovered]!.id : null,
+    return { choreography: this.stagedSelection ? graphChoreography(now - this.stagedAt, this.reducedMotion) : graphChoreography(0, true), keyboardFocus: this.graph.nodes[this.keyboardFocus]?.id ?? null, view: { selected: [...this.view.selected], excluded: [...this.view.excluded] }, highlighted: [...this.highlighted].map(i => this.graph.nodes[i]!.id), effects: this.effects, labels: this.labelBoxes.map(b => ({ ...b, id: this.graph.nodes[b.index]!.id })), camera: { ...this.getCamera(), manual: this.navigation.manual }, hovered: this.hovered >= 0 ? this.graph.nodes[this.hovered]!.id : null,
       edges: this.edges.map(([a, b], i) => ({ source: this.graph.nodes[a!]!.id, target: this.graph.nodes[b!]!.id,
         ink: Math.max(0, Math.min(1, this.sample(this.graph.nodes.length + i, now).x)),
         activity: this.activityEdges.includes(i) ? this.sample(this.graph.nodes.length + i, now).alpha : 0,

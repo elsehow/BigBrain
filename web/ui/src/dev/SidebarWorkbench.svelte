@@ -42,6 +42,8 @@
     return () => { delete document.documentElement.dataset.sidebarTone; };
   });
   function compareSidebar() { const url = new URL(location.href); url.searchParams.set('sidebarTone', calmSidebar ? 'original' : 'calm'); location.href = url.href; }
+  const staged = new URLSearchParams(location.search).get('choreography') !== 'plain';
+  function compareChoreography() { const url = new URL(location.href); url.searchParams.set('choreography', staged ? 'plain' : 'staged'); location.href = url.href; }
   const continuous = new URLSearchParams(location.search).get('motion') !== 'independent';
   function compareMotion() { const url = new URL(location.href); url.searchParams.set('motion', continuous ? 'independent' : 'continuous'); location.href = url.href; }
   const composed = new URLSearchParams(location.search).get('composition') !== 'plain';
@@ -65,7 +67,7 @@
   {#if onboarding}<span>Onboarding preview · Analytics and connections simulated</span><button onclick={restartOnboarding}>Restart preview</button>
   {:else}
   {#if !live}<button onclick={notifyCapture}>Capture notifications</button><button onclick={notifyAgent}>Agent notification</button>{/if}
-  {#if new URLSearchParams(location.search).get('selectionSubgraph') === '1'}<span>{cloud ? 'Cloud · Up to 120 items' : 'Radial · Up to 60 items'} · Hover labels · Shift-click to add · Escape to reset</span><button onclick={compareSelection}>Compare: {cloud ? 'radial' : 'cloud'}</button>{#if cloud}<button onclick={compareComposition}>{composed ? 'Compare: plain cloud' : 'Try: composed cloud'}</button><button onclick={compareMotion}>{continuous ? 'Compare: fresh layout' : 'Try: continuous layout'}</button>{/if}<button onclick={compareSidebar}>{calmSidebar ? 'Compare: bold sidebar' : 'Try: quiet sidebar'}</button>{/if}
+  {#if new URLSearchParams(location.search).get('selectionSubgraph') === '1'}<span>{cloud ? 'Cloud · Up to 120 items' : 'Radial · Up to 60 items'} · Hover labels · Shift-click to add · Escape to reset</span><button onclick={compareSelection}>Compare: {cloud ? 'radial' : 'cloud'}</button>{#if cloud}<button onclick={compareComposition}>{composed ? 'Compare: plain cloud' : 'Try: composed cloud'}</button><button onclick={compareMotion}>{continuous ? 'Compare: fresh layout' : 'Try: continuous layout'}</button><button onclick={compareChoreography}>{staged ? 'Compare: simultaneous reveal' : 'Try: staged reveal'}</button>{/if}<button onclick={compareSidebar}>{calmSidebar ? 'Compare: bold sidebar' : 'Try: quiet sidebar'}</button>{/if}
   <span>{live ? 'Local vault' : 'Sample vault'}</span>
   <a href={`?vault=${live ? 'sample' : 'live'}${baseline ? '&layout=original' : ''}`}>{live ? 'Sample' : 'Local vault'}</a>
   <a href={`?vault=${live ? 'live' : 'sample'}${baseline ? '' : '&layout=original'}`}>{baseline ? 'Sidebar study' : 'Original layout'}</a>
