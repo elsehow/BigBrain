@@ -18,7 +18,7 @@ const graph = {
     await page.route('**/api/**', r => r.abort());
     await page.route(url => url.pathname === '/__subgraph.json', r => r.fulfill({ json: graph }));
     await page.goto(`${base}/sidebar-workbench.html?selectionStyle=${style}&graphSnapshot=/__subgraph.json`);
-    const canvas = page.locator('.graph-renderer canvas'); await canvas.waitFor();
+    const canvas = page.getByLabel('Knowledge graph', { exact: true }); await canvas.waitFor();
     const scene = () => canvas.evaluate(c => c.profilePresentation());
     await page.waitForFunction(() => document.querySelector('canvas')?.profilePresentation?.().nodes.length >= 6);
     const click = async (i, shift = false) => {

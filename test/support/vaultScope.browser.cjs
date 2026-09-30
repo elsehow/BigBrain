@@ -24,7 +24,11 @@ const base = process.env.SIDEBAR_PREVIEW_URL || 'http://127.0.0.1:5200';
   await page.evaluate(() => localStorage.setItem('fixture-vault', 'B'));
   const switchPage = async p => {
    const loaded = p.waitForEvent('load');
-   await p.evaluate(async () => { const { api } = await import('/src/lib/api.ts'); void api.vault().catch(() => {}); });
+   await p.evaluate(async () => {
+    const { api } = await import('/src/lib/api.ts');
+    // Let evaluate return before the deliberate vault reload destroys its context.
+    setTimeout(() => void api.vault().catch(() => {}), 0);
+   });
    await loaded; await ready(p);
   };
   await Promise.all([switchPage(page), switchPage(other)]);
