@@ -50,6 +50,7 @@
       try {
         const next = new GraphRenderer(canvas, graph, inset, coveredLeft, preset); renderer = next;
         next.selectionSubgraph = subgraphExperiment && !!graph.selectionRelative;
+        next.composedSelection = next.selectionSubgraph && selectionStyle === 'cloud' && new URLSearchParams(location.search).get('composition') !== 'plain';
         next.update(graph, draft); next.setView(viewState, selected, performance.now(), reduced, centerFocus);
         if (carried?.ready) next.adoptCamera(carried.camera, subgraphExperiment ? false : carried.manual);
         if (layout) next.animateLayoutFrom(layout, reduced);

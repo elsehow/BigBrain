@@ -55,6 +55,7 @@ const graph = {
     await page.evaluate(async id => (await import('/src/lib/store.svelte.ts')).gotoNote(id), ids[0]);
     await page.waitForTimeout(500); await expectMembers([0,1,2,3,4]);
     const focused = await scene();
+    if (style === 'cloud') assert(focused.labels.some(l => l.opacity > .05 && !focused.view.selected.includes(l.id)), 'composed cloud keeps a neighborhood landmark label visible');
     assert(focused.nodes.length < original.nodes.length, 'disconnected nodes leave renderer topology');
     assert(focused.nodes.some(n => { const before = original.nodes.find(p => p.id === n.id); return Math.hypot(n.worldX - before.worldX, n.worldY - before.worldY) > 5; }), 'subset gets new world positions');
     const route = await page.evaluate(() => location.hash);

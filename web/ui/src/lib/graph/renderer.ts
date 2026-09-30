@@ -1,5 +1,6 @@
 import type { GraphViewState } from '../../../../../lib/graphView';
 import { graphIdentityIndex } from '../../../../../lib/graphIdentity';
+import { composeNeighborhood, neighborhoodLandmarks } from './composition';
 import { selectionEdges } from './selectionEdges';
 import { graphView } from './view';
 import { VERTEX, FRAGMENT } from './shaders';
@@ -73,6 +74,8 @@ export class GraphRenderer {
   private view: GraphViewState = { selected: [], excluded: [] };
   private selectedNodes = new Set<number>();
   selectionSubgraph = false;
+  composedSelection = false;
+  private landmarks = new Set<number>();
   private keyboardFocus = -1;
   private keyboardZoom = 1;
   private excluded = new Set<number>();
@@ -289,7 +292,8 @@ export class GraphRenderer {
   }
   private updateLabels() {
     const nodes = this.graph.nodes;
-    const named = new Set(nodes.map((n, i) => ({ n, i })).filter(({ n }) => n.group === 'memory')
+    this.landmarks = this.composedSelection && this.graph.selectionRelative ? neighborhoodLandmarks(nodes, this.selectedNodes) : new Set();
+    const named = this.composedSelection && this.graph.selectionRelative ? new Set(this.landmarks) : new Set(nodes.map((n, i) => ({ n, i })).filter(({ n }) => n.group === 'memory')
       .sort((a, b) => b.n.degree - a.n.degree).slice(0, 64).map(({ i }) => i));
     for (const i of [this.selected, this.previous, this.hovered, ...this.selectedNodes, ...this.highlighted]) if (i >= 0) named.add(i);
     const labels = [...named].map(i => ({ i, text: nodes[i]!.title, draft: false }));
@@ -322,8 +326,8 @@ export class GraphRenderer {
     const candidates: LabelCandidate[] = this.labels.map(label => {
       const { i, draft, key, width } = label, n = nodes[i]!, state = this.sample(i, now);
       const memory = n.group === 'memory', hovered = i === this.hovered || this.highlighted.has(i), selected = this.selectedNodes.has(i);
-      const wanted = (selection: number) => selection === i || memory && (selection < 0 || this.selectionSubgraph) ? 1 : 0;
-      const opacity = (draft || hovered || selected ? 1 : wanted(this.previous) * (1 - t) + wanted(this.selected) * t) * state.alpha;
+      const wanted = (selection: number) => this.landmarks.has(i) || selection === i || !this.composedSelection && memory && (selection < 0 || this.selectionSubgraph) ? 1 : 0;
+      const opacity = (draft || hovered || selected ? 1 : wanted(this.previous) * (1 - t) + wanted(this.selected) * t) * state.alpha * (this.landmarks.has(i) && !hovered && !selected ? .78 : 1);
       const point = projectPoint(this.positions[i]!, state.x, this.camera, this.size);
       const radius = Math.max(n.pilotPhase ? 6 : 3, this.radius(n) * Math.min(1, Math.sqrt(this.camera.zoom)) * 600 / (600 - state.x));
       return { key, index: i, ...point, width, opacity, above: hovered && !selected && !memory,
@@ -586,7 +590,8 @@ export class GraphRenderer {
         const cx = (left + w) / 2, cy = this.inset.top + (h - this.inset.top - this.inset.bottom) / 2;
         this.navigation.follow({ x: p.x - (cx - w / 2) / (this.keyboardZoom * m), y: p.y - (cy - h / 2 + z * .6) / (this.keyboardZoom * m), zoom: this.keyboardZoom }, now, this.reducedMotion, SELECTION_MOTION);
       } else {
-        const fit = fitCamera({ minX: xs[0]!, minY: xs[1]!, maxX: xs[2]!, maxY: xs[3]! }, { w: w - left, h, ...this.inset });
+        const box = { minX: xs[0]!, minY: xs[1]!, maxX: xs[2]!, maxY: xs[3]! }, room = { w: w - left, h, ...this.inset };
+        const fit = this.composedSelection ? composeNeighborhood(box, room, this.graph.nodes) : fitCamera(box, room);
         this.navigation.follow({ x: (w / 2 - fit.tx - left) / fit.scale, y: (h / 2 - fit.ty) / fit.scale, zoom: fit.scale }, now, this.reducedMotion, SELECTION_MOTION);
       }
       this.cameraReady = true;
