@@ -1,4 +1,5 @@
 <script lang="ts">
+  import BlockScrollbar from "./BlockScrollbar.svelte";
   import SharedAssertions from "./SharedAssertions.svelte";
   import { selectedWorkspace } from "../lib/vaultScope";
   import { inspectActions } from "../lib/actionHistory.svelte";
@@ -46,6 +47,9 @@
      * beside the open note (LinkGraph's `probe`) */
     probe?: string | null;
   } = $props();
+
+  import { quietSidebar as edgeRows } from '../lib/graphPresentation';
+  let noteViewport = $state<HTMLDivElement>();
 
   // Graph hover and workspace previews carry node IDs, while the note API
   // reads paths. Entities and source insertions have different IDs and paths.
@@ -418,7 +422,7 @@
       {#if !multiple && !selectedWorkspace}<button class="pchip discuss-shortcut" onclick={discuss} onkeydown={controlKey} aria-keyshortcuts="Shift+Enter"><span>Discuss with Pilot</span><kbd aria-hidden="true"><KeyboardModifier name="shift" />↵</kbd></button>{/if}
     </div>
   </header>
-  <div class="note-scroll">
+  <div class="note-scroll" bind:this={noteViewport} id={previewPath ? undefined : "note-relationship-scroll"}>
     {#if sourceAttention.error && readFeedback}<p class="read-feedback" role="alert">{sourceAttention.error} <button onclick={() => inspectActions()}>Inspect actions</button></p>{/if}
     {#if sourceAttention.receipt && readFeedback}<p class="read-feedback" role="status">{sourceAttention.receipt}</p>{/if}
     <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
@@ -475,6 +479,7 @@
       </div>
     </section>
   </div>
+  {#if edgeRows && sidebar && !previewPath}<BlockScrollbar viewport={noteViewport} label="Scroll relationships" controls="note-relationship-scroll" />{/if}
 {/if}
 
 <style>

@@ -9,7 +9,18 @@ export default defineConfig({
   // app is hash-routed, so the document URL never leaves its mount point and
   // relative asset URLs resolve correctly at either depth.
   base: "./",
-  plugins: [svelte(), devProvenance(), devGraphSnapshot()],
+  plugins: [svelte(), devProvenance(), devGraphSnapshot(), {
+    name: "read-only-live-preview", apply: "serve",
+    configureServer(server) {
+      if (process.env["BIGBRAIN_PREVIEW_READ_ONLY"] !== "1") return;
+      server.middlewares.use((req, res, next) => {
+        if (!req.url?.startsWith("/api/") || ["GET", "HEAD"].includes(req.method ?? "")) return next();
+        res.statusCode = 403;
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({ error: "This workbench is a read-only live preview." }));
+      });
+    },
+  }],
   server: {
     // dev flow: `bun run web` (backend on 4747) + `bun run web:dev` (this, with HMR).
     // BIGBRAIN_WEB_PORT moves the backend — desktop/dev.sh runs it beside a live

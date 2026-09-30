@@ -33,3 +33,6 @@ export interface GraphMotion {
 }
 export const FOCUS_MOTION: GraphMotion = { duration: GRAPH_FOCUS_MS, sample: graphFocus };
 export const EXPLORE_MOTION: GraphMotion = { duration: GRAPH_SINE_MS, sample: graphSine };
+
+/** Quick unfurl with zero velocity and acceleration at both ends. */
+export const SELECTION_MOTION: GraphMotion = { duration: 480, sample: elapsed => graphSine(elapsed, 480) };
