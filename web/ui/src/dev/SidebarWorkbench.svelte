@@ -74,6 +74,13 @@
 </nav>
 
 <style>
+:global(html[data-sidebar-tone="calm"] .drawer:not(.sidebar-quick) .sheet) { position:relative; }
+:global(html[data-sidebar-tone="calm"] .drawer:not(.sidebar-quick) .sheet:has(.block-scrollbar) .note-scroll) { margin-right:16px; }
+:global(html[data-sidebar-tone="calm"] .drawer:not(.sidebar-quick) .briefing) { padding-inline:0; }
+:global(html[data-sidebar-tone="calm"] .drawer:not(.sidebar-quick) .summary-column) { padding-inline:var(--sidebar-title-inset); }
+:global(html[data-sidebar-tone="calm"] .drawer:not(.sidebar-quick) .source-links) { margin-inline:0; padding-inline:0; }
+:global(html[data-sidebar-tone="calm"] .drawer:not(.sidebar-quick) .source-link) { padding-inline:var(--sidebar-title-inset); }
+
 :global(html[data-sidebar-tone="calm"] .drawer:not(.sidebar-quick) .note-header) { padding-bottom:28px; border-bottom-color:color-mix(in srgb, var(--rule) 65%, transparent); }
 :global(html[data-sidebar-tone="calm"] .drawer:not(.sidebar-quick) .briefing) { padding-top:34px; gap:38px; }
 :global(html[data-sidebar-tone="calm"] .source-link) { position:relative; font-size:15px; line-height:1.5; min-height:44px; padding:11px 14px; border-radius:5px; gap:12px; }

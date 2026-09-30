@@ -172,6 +172,15 @@ const graph = {
     await page.keyboard.press('Escape'); await page.waitForTimeout(1000);
     assert.deepEqual((await scene()).view.selected, [], 'Escape explicitly clears the held keyboard view');
     assert.equal(await page.locator('.graph-renderer canvas').count(), 1);
+    await page.evaluate(async id => (await import('/src/lib/store.svelte.ts')).gotoNote(id), ids[0]);
+    await page.setViewportSize({ width: 1440, height: 420 }); await page.waitForTimeout(650);
+    const scrollbar = page.getByRole('scrollbar', { name: 'Scroll relationships' });
+    await scrollbar.waitFor();
+    const rowBounds = await page.locator('.source-link').first().boundingBox();
+    const scrollBounds = await page.locator('#note-relationship-scroll').boundingBox();
+    assert(Math.abs(rowBounds.x - scrollBounds.x) < 1 && Math.abs(rowBounds.width - scrollBounds.width) < 1, 'relationship selection fills the scrollable pane width');
+    await scrollbar.focus(); await page.keyboard.press('End');
+    assert(await page.locator('#note-relationship-scroll').evaluate(el => el.scrollTop > 0), 'shared scrollbar scrolls relationships');
     assert.deepEqual(errors, []);
     console.log(`PASS ${engine.name()} ${style}: real shell, relative importance, bounded topology, relayout, animated transition, stationary hover labels, Shift union, source root, isolated root, Escape`);
   } finally { await browser.close(); }
