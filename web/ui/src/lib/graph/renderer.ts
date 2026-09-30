@@ -66,6 +66,7 @@ export class GraphRenderer {
   private selected = -1;
   private view: GraphViewState = { selected: [], excluded: [] };
   private selectedNodes = new Set<number>();
+  selectionSubgraph = false;
   private excluded = new Set<number>();
   private highlighted = new Set<number>();
   private previous = -1;
@@ -459,6 +460,11 @@ export class GraphRenderer {
     const domain = root >= 0 ? memoryDomain(this.adjacency, root, this.excluded) : null;
     const domains = [...this.selectedNodes].filter(i => i !== root).map(i => memoryDomain(this.adjacency, i, this.excluded));
     const held = new Set([...this.selectedNodes, ...domains.flatMap(d => [...d.direct])]);
+    const subgraph = this.selectionSubgraph && this.selectedNodes.size
+      ? new Set([...this.selectedNodes].flatMap(i => {
+        const d = memoryDomain(this.adjacency, i, this.excluded);
+        return [i, ...d.direct, ...d.second.keys()];
+      })) : null;
     const emphasized = new Set([...hoverNeighborhood, ...this.highlighted]);
     for (const i of this.highlighted) for (const neighbor of this.adjacency[i]!) emphasized.add(neighbor);
     const memory = root >= 0 && this.graph.nodes[root]!.group === 'memory';
@@ -489,7 +495,9 @@ export class GraphRenderer {
       }
       const member = emphasized.has(i) || held.has(i) || domains.some(d => this.graph.nodes[d.root]!.group === 'memory' && d.second.has(i)) || hoverNeighborhood.has(i) || this.homeVisible.has(i) || !!this.hoverTargets && this.hoverVisitHeights.has(i) || !!domain && (i === root || domain.direct.has(i) || memory && domain.second.has(i));
       const opacityOffset = active || emphasized.has(i) || held.has(i) ? 0 : this.hoverTargets ? this.hoverVisitHeights.has(i) ? 0 : selected < 0 ? -80 : offset * (100 / 240) : offset * (100 / 240);
-      this.states[k + 3] = Number(member && !this.excluded.has(i)) * (1 - .92 * Math.max(0, Math.min(1, (-opacityOffset - 24) / 216)));
+      this.states[k + 3] = subgraph ? Number(subgraph.has(i) && !this.excluded.has(i))
+        : Number(member && !this.excluded.has(i)) * (1 - .92 * Math.max(0, Math.min(1, (-opacityOffset - 24) / 216)));
+      if (subgraph?.has(i)) this.nodeData[inkIndex + 11] = 1;
     });
     const density = 1 / Math.sqrt(Math.max(1, domain ? this.adjacency[root]!.length / 30 : 0, hovered >= 0 ? this.adjacency[hovered]!.length / 30 : 0));
     this.updateActivity();
@@ -498,7 +506,8 @@ export class GraphRenderer {
     this.edges.forEach(([a, b], index) => {
       const k = (this.graph.nodes.length + index) * 4;
       this.retain(this.graph.nodes.length + index, now);
-      this.states[k + 3] = Number(this.activityVisible[index]);
+      const member = !subgraph || subgraph.has(a!) && subgraph.has(b!);
+      this.states[k + 3] = Number(member && this.activityVisible[index]);
       this.states[k + 1] = a === hovered || b === hovered || this.highlighted.has(a!) || this.highlighted.has(b!) ? 1
         : domains.some(d => (a === d.root || d.direct.has(a!)) && (b === d.root || d.direct.has(b!)))
           ? this.selectedNodes.has(a!) || this.selectedNodes.has(b!) ? 1 : this.edgeHome[index]! : !domain ? this.edgeHome[index]!
@@ -506,6 +515,7 @@ export class GraphRenderer {
         : Number((a === root || domain.direct.has(a!)) && (b === root || domain.direct.has(b!))
           || (a === hovered || b === hovered) && (domain.direct.has(a!) || domain.direct.has(b!)))
           * (a === root || b === root || a === hovered || b === hovered ? 1 : this.edgeHome[index]!);
+      if (subgraph) this.states[k + 1] = member ? (this.selectedNodes.has(a!) || this.selectedNodes.has(b!) ? 1 : .45) : 0;
     });
     this.depthDuration = reduced ? 0 : depthDuration ?? (this.hoverTargets ? GRAPH_SINE_MS : this.hoverReturning ? Math.max(0, this.depthStarted + this.depthDuration - now) : 0);
     this.depthStarted = now;

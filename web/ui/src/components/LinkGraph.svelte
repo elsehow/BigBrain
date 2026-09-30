@@ -42,6 +42,7 @@
       cancelGesture(); cancelAnimationFrame(frame); frame = 0; renderer?.dispose(); renderer = null;
       try {
         const next = new GraphRenderer(canvas, graph, inset, coveredLeft, preset); renderer = next;
+        next.selectionSubgraph = import.meta.env.DEV && new URLSearchParams(location.search).get('selectionSubgraph') === '1';
         next.update(graph, draft); next.setView(viewState, selected, performance.now(), reduced, centerFocus);
         if (carried?.ready) next.adoptCamera(carried.camera, carried.manual);
         next.highlight([highlight, probe]);

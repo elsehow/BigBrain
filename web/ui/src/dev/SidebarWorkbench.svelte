@@ -52,6 +52,7 @@
   {#if onboarding}<span>Onboarding preview · Analytics and connections simulated</span><button onclick={restartOnboarding}>Restart preview</button>
   {:else}
   {#if !live}<button onclick={notifyCapture}>Capture notifications</button><button onclick={notifyAgent}>Agent notification</button>{/if}
+  {#if new URLSearchParams(location.search).get('selectionSubgraph') === '1'}<span>Two-hop subgraph · Shift-click to add · Escape to reset</span>{/if}
   <span>{live ? 'Local vault' : 'Sample vault'}</span>
   <a href={`?vault=${live ? 'sample' : 'live'}${baseline ? '&layout=original' : ''}`}>{live ? 'Sample' : 'Local vault'}</a>
   <a href={`?vault=${live ? 'live' : 'sample'}${baseline ? '' : '&layout=original'}`}>{baseline ? 'Sidebar study' : 'Original layout'}</a>
