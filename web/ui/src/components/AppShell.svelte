@@ -151,6 +151,12 @@
     }
     if (e.key === 'Escape') {
       e.preventDefault(); e.stopImmediatePropagation();
+      if (!sidebar.open && !chat.open && !app.activeNote && !app.graphView.selected.length) {
+        sidebar.homePreview = null; sidebar.homeMenuResume = undefined;
+        app.graphView = { selected: [], excluded: [] };
+        void tick().then(() => sidebar.resetGraph?.());
+        return;
+      }
       const hideAfterDismiss = !!returningHome || !sidebar.open || chat.open;
       void dismissPanel().then(() => { if (hideAfterDismiss) { clearTimeout(toolbarTimer); toolbarAwake = false; uiHidden = true; } });
       return;

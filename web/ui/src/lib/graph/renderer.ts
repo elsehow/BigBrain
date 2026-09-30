@@ -67,6 +67,7 @@ export class GraphRenderer {
   private view: GraphViewState = { selected: [], excluded: [] };
   private selectedNodes = new Set<number>();
   selectionSubgraph = false;
+  private keyboardFocus = -1;
   private excluded = new Set<number>();
   private highlighted = new Set<number>();
   private previous = -1;
@@ -307,7 +308,7 @@ export class GraphRenderer {
     const candidates: LabelCandidate[] = this.labels.map(label => {
       const { i, draft, key, width } = label, n = nodes[i]!, state = this.sample(i, now);
       const memory = n.group === 'memory', hovered = i === this.hovered || this.highlighted.has(i), selected = this.selectedNodes.has(i);
-      const wanted = (selection: number) => selection === i || memory && selection < 0 ? 1 : 0;
+      const wanted = (selection: number) => selection === i || memory && (selection < 0 || this.selectionSubgraph) ? 1 : 0;
       const opacity = (draft || hovered || selected ? 1 : wanted(this.previous) * (1 - t) + wanted(this.selected) * t) * state.alpha;
       const point = projectPoint(this.positions[i]!, state.x, this.camera, this.size);
       const radius = Math.max(n.pilotPhase ? 6 : 3, (memory ? 8 : nodeRadius(n.degree)) * Math.min(1, Math.sqrt(this.camera.zoom)) * 600 / (600 - state.x));
@@ -359,7 +360,7 @@ export class GraphRenderer {
     this.navigation.zoomAt(pointer, factor, depth, this.size, now);
   }
   refit(now = performance.now()) {
-    this.clearDepthHistory(); this.focusCamera = null;
+    this.clearDepthHistory(); this.focusCamera = null; this.keyboardFocus = -1; this.highlighted.clear();
     this.navigation.resume(now);
     this.previous = this.selected; this.selected = this.hovered = -1;
     this.view = { selected: [], excluded: [] }; this.selectedNodes.clear(); this.excluded.clear();
@@ -367,6 +368,7 @@ export class GraphRenderer {
   }
   beginNodeDrag(id: string, pointer: Point, now = performance.now()) {
     const i = this.ids.get(id); if (i === undefined) return;
+    this.layoutMotion = null; this.cachedBounds = undefined;
     this.navigation.grab(now);
     const depth = this.sample(i, now).x;
     const point = projectPoint(this.positions[i]!, depth, this.camera, this.size);
@@ -407,6 +409,7 @@ export class GraphRenderer {
       && reduced === this.reducedMotion && centerFocus === this.centerFocus
       && (intent === 'background' || !this.navigation.manual) && !this.hoverTargets && !this.hoverReturning && this.hovered < 0) return;
     this.clearDepthHistory();
+    this.keyboardFocus = -1;
     this.view = next.view; this.selectedNodes = next.selected; this.excluded = next.excluded;
     this.reducedMotion = reduced; this.hovered = -1;
     this.centerFocus = centerFocus;
@@ -414,6 +417,14 @@ export class GraphRenderer {
     this.focusCamera = next.anchor >= 0 && this.cameraReady ? { ...this.camera } : null;
     this.previous = this.selected; this.selected = next.anchor;
     this.retarget(now, reduced);
+  }
+  inspectKeyboard(id: string | null, now = performance.now()) {
+    const i = id ? this.ids.get(id) ?? -1 : -1;
+    if (i === this.keyboardFocus) return;
+    this.keyboardFocus = i;
+    this.highlighted = new Set(i >= 0 ? [i] : []);
+    this.navigation.resume(now);
+    this.retarget(now, this.reducedMotion);
   }
   highlight(ids: readonly (string | null)[], now = performance.now()) {
     if (this.selectionSubgraph) return;
@@ -424,7 +435,12 @@ export class GraphRenderer {
     this.previous = this.selected; this.retarget(now, this.reducedMotion);
   }
   hover(id: string | null, now = performance.now()) {
-    if (this.selectionSubgraph) return;
+    if (this.selectionSubgraph) {
+      const i = id ? this.ids.get(id) ?? -1 : -1;
+      this.hovered = i >= 0 && !this.excluded.has(i) && this.states[i * 4 + 3]! > 0 ? i : -1;
+      this.updateLabels();
+      return;
+    }
     const candidate = id ? this.ids.get(id) ?? -1 : -1;
     const hovered = this.excluded.has(candidate) ? -1 : candidate;
     if (hovered === this.hovered) return;
@@ -462,11 +478,6 @@ export class GraphRenderer {
     const domain = root >= 0 ? memoryDomain(this.adjacency, root, this.excluded) : null;
     const domains = [...this.selectedNodes].filter(i => i !== root).map(i => memoryDomain(this.adjacency, i, this.excluded));
     const held = new Set([...this.selectedNodes, ...domains.flatMap(d => [...d.direct])]);
-    const subgraph = this.selectionSubgraph && this.selectedNodes.size
-      ? new Set([...this.selectedNodes].flatMap(i => {
-        const d = memoryDomain(this.adjacency, i, this.excluded);
-        return [i, ...d.direct, ...d.second.keys()];
-      })) : null;
     const emphasized = new Set([...hoverNeighborhood, ...this.highlighted]);
     for (const i of this.highlighted) for (const neighbor of this.adjacency[i]!) emphasized.add(neighbor);
     const memory = root >= 0 && this.graph.nodes[root]!.group === 'memory';
@@ -497,19 +508,21 @@ export class GraphRenderer {
       }
       const member = emphasized.has(i) || held.has(i) || domains.some(d => this.graph.nodes[d.root]!.group === 'memory' && d.second.has(i)) || hoverNeighborhood.has(i) || this.homeVisible.has(i) || !!this.hoverTargets && this.hoverVisitHeights.has(i) || !!domain && (i === root || domain.direct.has(i) || memory && domain.second.has(i));
       const opacityOffset = active || emphasized.has(i) || held.has(i) ? 0 : this.hoverTargets ? this.hoverVisitHeights.has(i) ? 0 : selected < 0 ? -80 : offset * (100 / 240) : offset * (100 / 240);
-      this.states[k + 3] = subgraph ? Number(subgraph.has(i) && !this.excluded.has(i))
-        : Number(member && !this.excluded.has(i)) * (1 - .92 * Math.max(0, Math.min(1, (-opacityOffset - 24) / 216)));
-      if (subgraph?.has(i)) this.nodeData[inkIndex + 11] = 1;
+      this.states[k + 3] = Number(member && !this.excluded.has(i)) * (1 - .92 * Math.max(0, Math.min(1, (-opacityOffset - 24) / 216)));
+      if (this.selectionSubgraph) {
+        this.states[k + 1] = reduced ? 0 : this.homeDepth[i]!;
+        this.states[k + 3] = Number((this.homeVisible.has(i) || this.selectedNodes.has(i) || emphasized.has(i)) && !this.excluded.has(i));
+        this.nodeData[inkIndex + 11] = this.selectedNodes.has(i) || emphasized.has(i) || active ? 1 : baseline;
+      }
     });
-    const density = 1 / Math.sqrt(Math.max(1, domain ? this.adjacency[root]!.length / 30 : 0, hovered >= 0 ? this.adjacency[hovered]!.length / 30 : 0));
+    const density = this.selectionSubgraph ? 1 : 1 / Math.sqrt(Math.max(1, domain ? this.adjacency[root]!.length / 30 : 0, hovered >= 0 ? this.adjacency[hovered]!.length / 30 : 0));
     this.updateActivity();
     this.retain(this.recordCount - 1, now);
     this.states[(this.recordCount - 1) * 4 + 1] = density;
     this.edges.forEach(([a, b], index) => {
       const k = (this.graph.nodes.length + index) * 4;
       this.retain(this.graph.nodes.length + index, now);
-      const member = !subgraph || subgraph.has(a!) && subgraph.has(b!);
-      this.states[k + 3] = Number(member && this.activityVisible[index]);
+      this.states[k + 3] = Number(this.activityVisible[index]);
       this.states[k + 1] = a === hovered || b === hovered || this.highlighted.has(a!) || this.highlighted.has(b!) ? 1
         : domains.some(d => (a === d.root || d.direct.has(a!)) && (b === d.root || d.direct.has(b!)))
           ? this.selectedNodes.has(a!) || this.selectedNodes.has(b!) ? 1 : this.edgeHome[index]! : !domain ? this.edgeHome[index]!
@@ -517,7 +530,7 @@ export class GraphRenderer {
         : Number((a === root || domain.direct.has(a!)) && (b === root || domain.direct.has(b!))
           || (a === hovered || b === hovered) && (domain.direct.has(a!) || domain.direct.has(b!)))
           * (a === root || b === root || a === hovered || b === hovered ? 1 : this.edgeHome[index]!);
-      if (subgraph) this.states[k + 1] = member ? (this.selectedNodes.has(a!) || this.selectedNodes.has(b!) ? 1 : .45) : 0;
+      if (this.selectionSubgraph) this.states[k + 1] = this.edgeHome[index]!;
     });
     this.depthDuration = reduced ? 0 : depthDuration ?? (this.hoverTargets ? GRAPH_SINE_MS : this.hoverReturning ? Math.max(0, this.depthStarted + this.depthDuration - now) : 0);
     this.depthStarted = now;
@@ -535,6 +548,19 @@ export class GraphRenderer {
     if (this.navigation.manual) { this.navigation.advance(now, this.size); return; }
     const { width: w, height: h } = this.size;
     const xs = this.bounds;
+    if (this.selectionSubgraph && xs.every(Number.isFinite)) {
+      const left = Math.min(this.coveredLeft, w - 80);
+      const neighborhood = this.keyboardFocus >= 0 ? [this.keyboardFocus, ...this.adjacency[this.keyboardFocus]!] : null;
+      const box = neighborhood ? neighborhood.reduce((b, i) => {
+        const p = this.positions[i]!, z = this.homeDepth[i]!, m = 600 / (600 - z);
+        const x = p.x * m, y = p.y * m - z * .6 / Math.max(.01, this.camera.zoom);
+        return [Math.min(b[0]!, x), Math.min(b[1]!, y), Math.max(b[2]!, x), Math.max(b[3]!, y)];
+      }, [Infinity, Infinity, -Infinity, -Infinity]) : xs;
+      const fit = fitCamera({ minX: box[0]!, minY: box[1]!, maxX: box[2]!, maxY: box[3]! }, { w: w - left, h, ...this.inset });
+      this.navigation.follow({ x: (w / 2 - fit.tx - left) / fit.scale, y: (h / 2 - fit.ty) / fit.scale, zoom: fit.scale }, now, this.reducedMotion, FOCUS_MOTION);
+      this.cameraReady = true;
+      return;
+    }
     let fit = fitCamera({ minX: xs[0]!, minY: xs[1]!, maxX: xs[2]!, maxY: xs[3]! }, { w, h, ...this.inset });
     if (this.selected >= 0) {
       if (this.focusCamera) fit = { scale: this.focusCamera.zoom, tx: w / 2 - this.focusCamera.x * this.focusCamera.zoom, ty: h / 2 - this.focusCamera.y * this.focusCamera.zoom };
@@ -552,7 +578,28 @@ export class GraphRenderer {
     this.navigation.follow(target, now, this.reducedMotion, this.selected >= 0 ? FOCUS_MOTION : EXPLORE_MOTION);
     this.cameraReady = true;
   }
+  private layoutMotion: { from: Point[]; to: Point[]; started: number } | null = null;
+  getLayoutPositions() { return new Map(this.graph.nodes.map((n, i) => [n.id, { ...this.positions[i]! }])); }
+  animateLayoutFrom(previous: ReadonlyMap<string, Point>, reduced: boolean, now = performance.now()) {
+    const to = this.positions.map(p => ({ ...p }));
+    // Cache the destination bounds so fitting does not chase the animation.
+    void this.bounds;
+    this.layoutMotion = { from: this.graph.nodes.map((n, i) => previous.get(n.id) ?? to[i]!), to, started: reduced ? now - 850 : now };
+    this.advanceLayout(now);
+  }
+  private advanceLayout(now: number) {
+    if (!this.layoutMotion) return;
+    const { from, to, started } = this.layoutMotion;
+    const t = Math.min(1, Math.max(0, (now - started) / 850)), eased = t * t * (3 - 2 * t);
+    this.positions = to.map((p, i) => ({ x: from[i]!.x + (p.x - from[i]!.x) * eased, y: from[i]!.y + (p.y - from[i]!.y) * eased }));
+    this.positions.forEach((p, i) => { const k = (this.recordCount + i) * 4; this.states[k + 2] = p.x; this.states[k + 3] = p.y; });
+    const gl = this.gl; gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.stateTexture);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, this.width, this.states.length / 4 / this.width, gl.RGBA, gl.FLOAT, this.states);
+    this.stats.positionUploads++;
+    if (t === 1) this.layoutMotion = null;
+  }
   draw(now: number) {
+    this.advanceLayout(now);
     if (this.hoverReturning && now >= this.depthStarted + this.depthDuration) this.clearDepthHistory();
     if (this.hoverReturnAt !== null && now >= this.hoverReturnAt) {
       this.hoverReturnAt = null; this.hoverTargets = null; this.hoverReturning = true;
@@ -609,7 +656,7 @@ export class GraphRenderer {
     if (this.passes[3]!.count && (this.hasActivity || now - this.started < this.duration)) { draw(4, 3); this.stats.drawCalls++; this.stats.activityDrawCalls++; }
     draw(1); draw(2);
     this.stats.frames++; this.stats.drawCalls += 4;
-    return trails || now - this.depthStarted < this.depthDuration || now - this.started < this.duration || this.navigation.animating(now) || this.animatingStatus && !this.reducedMotion;
+    return !!this.layoutMotion || trails || now - this.depthStarted < this.depthDuration || now - this.started < this.duration || this.navigation.animating(now) || this.animatingStatus && !this.reducedMotion;
   }
   private cachedBounds?: number[];
   private get bounds() { return this.cachedBounds ??= this.positions.reduce((b, p, i) => !this.homeVisible.has(i) ? b : [Math.min(b[0]!, p.x), Math.min(b[1]!, p.y), Math.max(b[2]!, p.x), Math.max(b[3]!, p.y)], [Infinity, Infinity, -Infinity, -Infinity]); }
@@ -631,7 +678,7 @@ export class GraphRenderer {
   }
   getPresentation(now = performance.now()) {
     const w = this.canvas.clientWidth, h = this.canvas.clientHeight;
-    return { view: { selected: [...this.view.selected], excluded: [...this.view.excluded] }, highlighted: [...this.highlighted].map(i => this.graph.nodes[i]!.id), effects: this.effects, labels: this.labelBoxes.map(b => ({ ...b, id: this.graph.nodes[b.index]!.id })), camera: { ...this.getCamera(), manual: this.navigation.manual }, hovered: this.hovered >= 0 ? this.graph.nodes[this.hovered]!.id : null,
+    return { keyboardFocus: this.graph.nodes[this.keyboardFocus]?.id ?? null, view: { selected: [...this.view.selected], excluded: [...this.view.excluded] }, highlighted: [...this.highlighted].map(i => this.graph.nodes[i]!.id), effects: this.effects, labels: this.labelBoxes.map(b => ({ ...b, id: this.graph.nodes[b.index]!.id })), camera: { ...this.getCamera(), manual: this.navigation.manual }, hovered: this.hovered >= 0 ? this.graph.nodes[this.hovered]!.id : null,
       edges: this.edges.map(([a, b], i) => ({ source: this.graph.nodes[a!]!.id, target: this.graph.nodes[b!]!.id,
         ink: Math.max(0, Math.min(1, this.sample(this.graph.nodes.length + i, now).x)),
         activity: this.activityEdges.includes(i) ? this.sample(this.graph.nodes.length + i, now).alpha : 0,
@@ -643,7 +690,7 @@ export class GraphRenderer {
       const hoverEmphasis = this.nodeData[i * 12]! * (1 - this.progress(now)) + this.nodeData[i * 12 + 7]! * this.progress(now);
       const baseInk = ink * this.nodeData[i * 12 + 8]! * Math.exp(Math.min(0, height - this.homeDepth[i]!) / 95);
       const inkOpacity = i === this.hovered ? 1 : opacity * (baseInk * (1 - hoverEmphasis) + hoverEmphasis);
-      return { id: n.id, group: n.group, selected: this.selectedNodes.has(i), excluded: this.excluded.has(i), visible: opacity > 0, opacity, inkOpacity, height,
+      return { id: n.id, worldX: p.x, worldY: p.y, degree: n.degree, group: n.group, selected: this.selectedNodes.has(i), excluded: this.excluded.has(i), visible: opacity > 0, opacity, inkOpacity, height,
         phase: n.pilotPhase ?? null, attention: needsAttention(n),
         draft: n.pilotPhase === 'draft' ? (this.draft?.id === n.id ? this.draft.text : n.pilotDraft) ?? '' : '',
         radius: Math.max(n.pilotPhase ? 6 : 1, (n.group === 'memory' ? 8 : nodeRadius(n.degree)) * Math.min(1, Math.sqrt(this.camera.zoom)) * m),

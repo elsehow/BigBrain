@@ -4,6 +4,8 @@
   import { GraphRenderer } from '../lib/graph/renderer';
   import { effectPreset, type EffectPreset } from '../lib/graph/effects';
   import { canonicalGraphView, changeGraphView, graphViewAction, type GraphViewState } from '../../../../lib/graphView';
+  import { cursor } from '../lib/cursor.svelte';
+  import { selectionSubgraph } from '../lib/selectionSubgraph';
   import { gotoNote } from '../lib/store.svelte';
   let { data, pilotDraft = null, selected = null, highlight = null, probe = null,
     viewState = $bindable<GraphViewState>({ selected: [], excluded: [] }), committedView,
@@ -16,6 +18,8 @@
     coveredLeft?: number; centerFocus?: boolean; inset?: { top: number; bottom: number };
     onhover?: (id: string | null) => void; onblank?: () => void; onselect?: (id: string | null) => void;
   } = $props();
+  const subgraphExperiment = import.meta.env.DEV && new URLSearchParams(location.search).get('selectionSubgraph') === '1';
+  const displayData = $derived(data && subgraphExperiment ? selectionSubgraph(data, viewState, selected) : data);
   let canvas = $state<HTMLCanvasElement>(null!);
   let renderer = $state.raw<GraphRenderer | null>(null);
   let hoverId = $state<string | null>(null);
@@ -31,7 +35,7 @@
       else if (renderer?.nextWake != null) wake = setTimeout(kick, Math.max(0, renderer.nextWake - performance.now())); });
   }
   $effect(() => {
-    const graph = data, draft = pilotDraft, preset = effects; void contextRevision;
+    const graph = displayData, draft = pilotDraft, preset = effects; void contextRevision;
     if (!canvas || !graph) return;
     untrack(() => {
       renderer?.setEffects(preset);
@@ -39,12 +43,14 @@
       // New topology rebuilds the GPU graph; it must not also reframe the
       // picture. The successor adopts the camera after its own setView.
       const carried = renderer?.getCameraState();
+      const layout = subgraphExperiment ? renderer?.getLayoutPositions() : undefined;
       cancelGesture(); cancelAnimationFrame(frame); frame = 0; renderer?.dispose(); renderer = null;
       try {
         const next = new GraphRenderer(canvas, graph, inset, coveredLeft, preset); renderer = next;
-        next.selectionSubgraph = import.meta.env.DEV && new URLSearchParams(location.search).get('selectionSubgraph') === '1';
+        next.selectionSubgraph = subgraphExperiment;
         next.update(graph, draft); next.setView(viewState, selected, performance.now(), reduced, centerFocus);
-        if (carried?.ready) next.adoptCamera(carried.camera, carried.manual);
+        if (carried?.ready) next.adoptCamera(carried.camera, subgraphExperiment ? false : carried.manual);
+        if (layout) next.animateLayoutFrom(layout, reduced);
         next.highlight([highlight, probe]);
         Object.assign(canvas, { profileStats: next.stats, profilePresentation: () => next.getPresentation() }); error = ''; kick();
       } catch (e) { error = String(e); }
@@ -56,7 +62,11 @@
     untrack(() => { cancelGesture(); hoverId = null; onhover?.(null); });
     graph?.setView(view, id, performance.now(), reduced, centerFocus); kick();
   });
-  $effect(() => { renderer?.highlight([highlight, probe]); kick(); });
+  $effect(() => {
+    renderer?.highlight([highlight, probe]);
+    if (subgraphExperiment && cursor.input === 'kbd') renderer?.inspectKeyboard(probe ?? highlight);
+    kick();
+  });
   onMount(() => {
     const media = matchMedia('(prefers-reduced-motion: reduce)'); reduced = media.matches;
     const preference = () => { reduced = media.matches; renderer?.setView(viewState, selected, performance.now(), reduced, centerFocus); kick(); };
@@ -99,11 +109,10 @@
       }
       gesture.last = p; kick(); return;
     }
-    if (renderer?.selectionSubgraph) return;
     const id = hit(event);
     if (id === hoverId) return;
     hoverId = id; hoverTitle = data?.nodes.find(n => n.id === id)?.title ?? null;
-    renderer?.hover(id); onhover?.(id); kick();
+    renderer?.hover(id); if (!subgraphExperiment) onhover?.(id); kick();
   }
   function down(event: PointerEvent) {
     if (event.button !== 0 || event.ctrlKey || gesture) return;
