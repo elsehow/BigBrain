@@ -1,5 +1,6 @@
 import type { GraphViewState } from '../../../../../lib/graphView';
 import { graphIdentityIndex } from '../../../../../lib/graphIdentity';
+import { continueNeighborhood } from './continuity';
 import { composeNeighborhood, neighborhoodLandmarks } from './composition';
 import { selectionEdges } from './selectionEdges';
 import { graphView } from './view';
@@ -592,7 +593,15 @@ export class GraphRenderer {
       } else {
         const box = { minX: xs[0]!, minY: xs[1]!, maxX: xs[2]!, maxY: xs[3]! }, room = { w: w - left, h, ...this.inset };
         const fit = this.composedSelection ? composeNeighborhood(box, room, this.graph.nodes) : fitCamera(box, room);
-        this.navigation.follow({ x: (w / 2 - fit.tx - left) / fit.scale, y: (h / 2 - fit.ty) / fit.scale, zoom: fit.scale }, now, this.reducedMotion, SELECTION_MOTION);
+        if (this.continuityCamera) {
+          const zoom = Math.max(.01, Math.min(this.continuityCamera.zoom, fit.scale, (w - left - 64) / Math.max(1, xs[2]! - xs[0]!), (h - this.inset.top - this.inset.bottom - 64) / Math.max(1, xs[3]! - xs[1]!)));
+          const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+          const x = clamp(this.continuityCamera.x, xs[2]! - (w / 2 - 32) / zoom, xs[0]! - (left + 32 - w / 2) / zoom);
+          const y = clamp(this.continuityCamera.y, xs[3]! - (h / 2 - this.inset.bottom - 32) / zoom, xs[1]! - (this.inset.top + 32 - h / 2) / zoom);
+          this.navigation.follow({ x, y, zoom }, now, this.reducedMotion, SELECTION_MOTION);
+        } else {
+          this.navigation.follow({ x: (w / 2 - fit.tx - left) / fit.scale, y: (h / 2 - fit.ty) / fit.scale, zoom: fit.scale }, now, this.reducedMotion, SELECTION_MOTION);
+        }
       }
       this.cameraReady = true;
       return;
@@ -614,13 +623,21 @@ export class GraphRenderer {
     this.navigation.follow(target, now, this.reducedMotion, this.selected >= 0 ? FOCUS_MOTION : EXPLORE_MOTION);
     this.cameraReady = true;
   }
+  private continuityCamera: { x: number; y: number; zoom: number } | null = null;
   private layoutMotion: { from: Point[]; to: Point[]; started: number } | null = null;
   getLayoutPositions() { return new Map(this.graph.nodes.map((n, i) => [n.id, { ...this.positions[i]! }])); }
-  animateLayoutFrom(previous: ReadonlyMap<string, Point>, reduced: boolean, now = performance.now()) {
-    const to = this.positions.map(p => ({ ...p }));
+  animateLayoutFrom(previous: ReadonlyMap<string, Point>, reduced: boolean, now = performance.now(), continuous = false) {
+    let to = this.positions.map(p => ({ ...p }));
+    let from = this.graph.nodes.map((n, i) => previous.get(n.id) ?? to[i]!);
+    if (continuous) {
+      ({ from, to } = continueNeighborhood(this.graph, previous, new Set(this.view.selected)));
+      this.positions = to;
+      this.cachedBounds = undefined;
+      this.continuityCamera = { ...this.camera };
+    }
     // Cache the destination bounds so fitting does not chase the animation.
     void this.bounds;
-    this.layoutMotion = { from: this.graph.nodes.map((n, i) => previous.get(n.id) ?? to[i]!), to, started: reduced ? now - SELECTION_MOTION.duration : now };
+    this.layoutMotion = { from, to, started: reduced ? now - SELECTION_MOTION.duration : now };
     this.advanceLayout(now);
   }
   private advanceLayout(now: number) {

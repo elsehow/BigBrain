@@ -85,7 +85,12 @@ const graph = {
     await click(2, true); await expectMembers([0,1,2,3,4]);
     assert.equal(await page.evaluate(() => location.hash), route);
     assert.deepEqual((await scene()).view.selected.sort(), [ids[0],ids[2]].sort());
+    const sharedBefore = (await scene()).nodes.find(n => n.id === ids[2]);
     await click(2); await expectMembers([0,1,2,3,4]);
+    if (style === 'cloud') {
+      const sharedAfter = (await scene()).nodes.find(n => n.id === ids[2]);
+      assert.deepEqual([sharedAfter.worldX, sharedAfter.worldY], [sharedBefore.worldX, sharedBefore.worldY], 'selected shared node keeps its world position between neighborhoods');
+    }
     assert.deepEqual((await scene()).view.selected, [ids[2]], 'source selection ranks the whole connected graph');
     await page.keyboard.press('Escape'); await page.waitForTimeout(500);
     assert.deepEqual((await scene()).view.selected, []);

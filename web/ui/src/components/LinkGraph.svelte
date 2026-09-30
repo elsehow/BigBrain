@@ -45,6 +45,7 @@
       // New topology rebuilds the GPU graph; it must not also reframe the
       // picture. The successor adopts the camera after its own setView.
       const carried = renderer?.getCameraState();
+      const continuous = renderer?.selectionSubgraph && !!graph.selectionRelative && selectionStyle === 'cloud' && new URLSearchParams(location.search).get('motion') !== 'independent';
       const layout = subgraphExperiment ? renderer?.getLayoutPositions() : undefined;
       cancelGesture(); cancelAnimationFrame(frame); frame = 0; renderer?.dispose(); renderer = null;
       try {
@@ -53,7 +54,7 @@
         next.composedSelection = next.selectionSubgraph && selectionStyle === 'cloud' && new URLSearchParams(location.search).get('composition') !== 'plain';
         next.update(graph, draft); next.setView(viewState, selected, performance.now(), reduced, centerFocus);
         if (carried?.ready) next.adoptCamera(carried.camera, subgraphExperiment ? false : carried.manual);
-        if (layout) next.animateLayoutFrom(layout, reduced);
+        if (layout) next.animateLayoutFrom(layout, reduced, performance.now(), !!continuous);
         next.highlight([highlight, probe]);
         Object.assign(canvas, { profileStats: next.stats, profilePresentation: () => next.getPresentation() }); error = ''; kick();
       } catch (e) { error = String(e); }
