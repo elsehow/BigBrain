@@ -11,7 +11,7 @@ const graph = {
 };
 (async () => {
  for (const engine of [chromium, webkit]) {
-  const browser = await engine.launch({ headless: true, ...(engine === chromium ? { channel: 'chrome' } : {}) });
+  const browser = await engine.launch({ headless: true, ...(engine === chromium ? { channel: process.env.PLAYWRIGHT_CHANNEL || 'chrome' } : {}) });
   try {
     const page = await browser.newPage({ viewport: { width: 1440, height: 1000 }, reducedMotion: 'reduce' });
     const errors = []; page.on('pageerror', e => errors.push(e.message));
