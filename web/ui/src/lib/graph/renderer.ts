@@ -80,6 +80,7 @@ export class GraphRenderer {
   private previous = -1;
   private hovered = -1;
   private stationaryHover = false;
+  private stationaryHoverDepth = 0;
   private edges: number[][];
   private edgeHome: number[] = [];
   private motion = EXPLORE_MOTION;
@@ -453,6 +454,7 @@ export class GraphRenderer {
       const i = id ? this.ids.get(id) ?? -1 : -1;
       const hovered = i >= 0 && !this.excluded.has(i) && this.states[i * 4 + 3]! > 0 ? i : -1;
       if (hovered === this.hovered) return;
+      this.stationaryHoverDepth = hovered >= 0 ? this.sample(hovered, now).x : 0;
       this.hovered = hovered;
       this.retarget(now, this.reducedMotion);
       return;
@@ -530,6 +532,12 @@ export class GraphRenderer {
           : i === this.keyboardFocus ? 90 : this.adjacency[this.keyboardFocus]!.includes(i) ? 45 : this.homeDepth[i]! - 45;
         this.states[k + 3] = Number((this.homeVisible.has(i) || this.selectedNodes.has(i) || emphasized.has(i)) && !this.excluded.has(i));
         this.nodeData[inkIndex + 11] = this.selectedNodes.has(i) || emphasized.has(i) || active ? 1 : baseline;
+      }
+      if (this.stationaryHover && i === hovered) {
+        // Hold the node under the pointer, including its velocity. Changing
+        // depth also changes its projected position and can break the hit target.
+        this.states[k] = this.states[k + 1] = this.stationaryHoverDepth;
+        this.states[(this.recordCount + i) * 4] = 0;
       }
     });
     const density = this.selectionSubgraph ? 1 : 1 / Math.sqrt(Math.max(1, domain ? this.adjacency[root]!.length / 30 : 0, hovered >= 0 ? this.adjacency[hovered]!.length / 30 : 0));

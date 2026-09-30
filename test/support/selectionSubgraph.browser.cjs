@@ -152,6 +152,17 @@ const graph = {
     assert.deepEqual(mouseOverOther.camera, held.camera, 'hovering another row preserves camera');
     assert.deepEqual(mouseOverOther.nodes.map(n => n.height), held.nodes.map(n => n.height), 'hovering another row preserves depths');
     assert(mouseOverOther.highlighted.includes(ids[0]), 'hovered row still highlights');
+    // Exercise a recessed memory on the held keyboard view: its domain hover
+    // treatment used to lift the node and move it away from the pointer.
+    await page.mouse.move(1439, 999); await page.waitForTimeout(700);
+    const beforePointer = await scene();
+    const target = beforePointer.nodes.find(n => n.visible && n.id !== beforePointer.view.selected[0] && n.x > 580 && n.x < 1400 && n.y > 100 && n.y < 700);
+    assert(target, 'fixture has an unobstructed node to inspect');
+    await page.mouse.move(target.x, target.y); await page.waitForTimeout(800);
+    const afterPointer = await scene(), pinned = afterPointer.nodes.find(n => n.id === target.id);
+    assert.equal(afterPointer.hovered, target.id, 'pointer retains its graph target');
+    assert.equal(pinned.height, target.height, 'hover pins the target at its existing depth');
+    assert(Math.hypot(pinned.x - target.x, pinned.y - target.y) < .5, 'hover target stays under the pointer');
     await page.keyboard.press('Escape'); await page.waitForTimeout(1000);
     assert.deepEqual((await scene()).view.selected, [], 'Escape explicitly clears the held keyboard view');
     assert.equal(await page.locator('.graph-renderer canvas').count(), 1);
