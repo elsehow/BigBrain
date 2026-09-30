@@ -123,12 +123,13 @@ const graph = {
     assert.deepEqual(rowHover.camera, end.camera);
     await page.keyboard.press('Escape'); await page.waitForTimeout(1600);
     const overview = await scene();
-    await page.keyboard.press('j'); await page.waitForTimeout(650);
+    await page.keyboard.press('j'); await page.waitForTimeout(1200);
+    const keyboardHome = await scene();
     const homeRow = page.locator('.workspace-menu .memory-row[data-workspace-id="memory/root.md"]');
     await homeRow.hover(); await page.waitForTimeout(1200);
     const homeMouse = await scene();
     assert(homeMouse.highlighted.includes(ids[0]), 'home mouse highlights its graph node');
-    assert.deepEqual(homeMouse.nodes.map(n => n.height), overview.nodes.map(n => n.height), 'home mouse leaves all depths unchanged');
+    assert.deepEqual(homeMouse.nodes.map(n => n.height), keyboardHome.nodes.map(n => n.height), 'home mouse preserves keyboard depths');
     assert.equal(await page.getByRole('region', { name: 'Quick look' }).count(), 1, 'home mouse shows the preview tab');
     await page.keyboard.press('j'); await page.waitForTimeout(600);
     for (let i = 0; i < 6 && !(await scene()).view.selected.some(id => ids.includes(id)); i++) { await page.keyboard.press('j'); await page.waitForTimeout(600); }
@@ -138,6 +139,21 @@ const graph = {
     assert(overviewFocus.view.selected.length, 'home keyboard cursor previews a graph node');
     assert.notDeepEqual(overviewFocus.camera, overview.camera, 'home keyboard preview retains the original pan');
     assert(overviewFocus.nodes.some(n => n.height !== overview.nodes.find(p => p.id === n.id).height), 'home keyboard inspection changes depth');
+    await page.waitForTimeout(800);
+    const held = await scene();
+    await page.mouse.move(1439, 999); await page.waitForTimeout(700);
+    const moved = await scene();
+    assert.deepEqual(moved.view, held.view, 'incidental mouse movement preserves the keyboard view');
+    assert.deepEqual(moved.camera, held.camera, 'incidental mouse movement preserves keyboard camera');
+    assert.deepEqual(moved.nodes.map(n => n.height), held.nodes.map(n => n.height), 'incidental mouse movement preserves keyboard depth');
+    await homeRow.hover(); await page.waitForTimeout(800);
+    const mouseOverOther = await scene();
+    assert.deepEqual(mouseOverOther.view, held.view, 'hovering another row does not replace the keyboard view');
+    assert.deepEqual(mouseOverOther.camera, held.camera, 'hovering another row preserves camera');
+    assert.deepEqual(mouseOverOther.nodes.map(n => n.height), held.nodes.map(n => n.height), 'hovering another row preserves depths');
+    assert(mouseOverOther.highlighted.includes(ids[0]), 'hovered row still highlights');
+    await page.keyboard.press('Escape'); await page.waitForTimeout(1000);
+    assert.deepEqual((await scene()).view.selected, [], 'Escape explicitly clears the held keyboard view');
     assert.equal(await page.locator('.graph-renderer canvas').count(), 1);
     assert.deepEqual(errors, []);
     console.log(`PASS ${engine.name()} ${style}: real shell, relative importance, bounded topology, relayout, animated transition, stationary hover labels, Shift union, source root, isolated root, Escape`);

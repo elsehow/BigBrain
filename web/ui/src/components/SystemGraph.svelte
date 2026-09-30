@@ -33,14 +33,23 @@
   const subgraphExperiment = import.meta.env.DEV && new URLSearchParams(location.search).get('selectionSubgraph') === '1';
   let viewportWidth = $state(window.innerWidth);
   let renderer = $state<LinkGraph>();
-  $effect(() => { if (sidebar) { sidebar.resetGraph = () => renderer?.resetOverview(); sidebar.camera = () => renderer?.getCamera() ?? null; sidebar.presentation = () => renderer?.getPresentation(); } });
+  $effect(() => { if (sidebar) { sidebar.resetGraph = () => { keyboardPreview = null; renderer?.resetOverview(); }; sidebar.camera = () => renderer?.getCamera() ?? null; sidebar.presentation = () => renderer?.getPresentation(); } });
 
   const pilotView = $derived(pilotViewId ? { selected: [pilotViewId], excluded: [] } : null);
   const agentOverview = $derived(!!sidebar?.open && !!sidebar?.agents);
   const effectivePreview = $derived((!sidebar?.open ? sidebar?.homePreview : null) ?? (agentOverview ? stage.pilotPreviewId : preview));
-  const previewMovesGraph = $derived(!subgraphExperiment || cursor.input === 'kbd' && !app.graphView.selected.length);
-  const previewView = $derived(effectivePreview && data ? canonicalGraphView(data.nodes,
-    { selected: findNode(data.nodes, effectivePreview) >= 0 ? [effectivePreview] : [], excluded: [] }) : null);
+  // Keyboard navigation owns the framing until another keyboard choice or an
+  // explicit reset. Pointer ownership only changes the inspection highlight.
+  let keyboardPreview = $state<{ id: string; inset: { top: number; bottom: number }; centered: boolean } | null>(null);
+  $effect(() => {
+    if (!subgraphExperiment) return;
+    if (app.graphView.selected.length || sidebar?.open) keyboardPreview = null;
+    else if (cursor.input === 'kbd') keyboardPreview = effectivePreview ? { id: effectivePreview, inset: { ...inset }, centered: !!sidebar?.homePreview } : null;
+  });
+  const graphPreview = $derived(subgraphExperiment ? keyboardPreview?.id ?? null : effectivePreview);
+  const graphInset = $derived(subgraphExperiment && keyboardPreview ? keyboardPreview.inset : inset);
+  const previewView = $derived(graphPreview && data ? canonicalGraphView(data.nodes,
+    { selected: findNode(data.nodes, graphPreview) >= 0 ? [graphPreview] : [], excluded: [] }) : null);
 </script>
 
 <svelte:window bind:innerWidth={viewportWidth} />
@@ -48,12 +57,12 @@
 {#if data?.nodes.length && !uiDiagnostics?.graphOff}
   <div class="g-block">
     <div class="g-canvas">
-      <LinkGraph bind:this={renderer} {data} {inset} {pilotDraft} committedView={app.graphView}
+      <LinkGraph bind:this={renderer} {data} inset={graphInset} {pilotDraft} committedView={app.graphView}
         coveredLeft={sidebar?.open && !sidebar.fullscreenChat ? Math.min(560, viewportWidth) : sidebar?.homeMenuRight ?? 0}
-        centerFocus={previewMovesGraph && !!sidebar?.homePreview}
-        selected={(previewMovesGraph ? effectivePreview : null) ?? pilotViewId ?? (agentOverview ? null : selected)}
+        centerFocus={subgraphExperiment ? keyboardPreview?.centered ?? false : !!sidebar?.homePreview}
+        selected={graphPreview ?? pilotViewId ?? (agentOverview ? null : selected)}
         highlight={sidebar?.homePreview ?? (agentOverview ? stage.pilotPreviewId : highlight)} probe={subgraphExperiment && effectivePreview ? effectivePreview : agentOverview ? null : probe}
-        bind:viewState={() => (previewMovesGraph ? previewView : null) ?? (agentOverview ? { selected: [], excluded: app.graphView.excluded } : pilotView ?? app.graphView), value => { if (!effectivePreview) app.graphView = value; }}
+        bind:viewState={() => previewView ?? (agentOverview ? { selected: [], excluded: app.graphView.excluded } : pilotView ?? app.graphView), value => { if (!effectivePreview) app.graphView = value; }}
         onhover={id => { if (sidebar) sidebar.hoverId = id; }}
         onblank={() => { app.graphView = changeGraphView(app.graphView, { type: 'clear' }); sidebar?.goHome?.(); }}
         {onselect} />
