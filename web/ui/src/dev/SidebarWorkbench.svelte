@@ -35,6 +35,13 @@
   import { onboardingPreviewKey } from './onboardingFixture';
   const onboarding = new URLSearchParams(location.search).has('onboarding');
   function restartOnboarding() { localStorage.removeItem(onboardingPreviewKey); location.hash = ''; location.reload(); }
+  const calmSidebar = new URLSearchParams(location.search).get('sidebarTone') !== 'original';
+  onMount(() => {
+    if (new URLSearchParams(location.search).get('selectionSubgraph') !== '1') return;
+    document.documentElement.dataset.sidebarTone = calmSidebar ? 'calm' : 'original';
+    return () => { delete document.documentElement.dataset.sidebarTone; };
+  });
+  function compareSidebar() { const url = new URL(location.href); url.searchParams.set('sidebarTone', calmSidebar ? 'original' : 'calm'); location.href = url.href; }
   const composed = new URLSearchParams(location.search).get('composition') !== 'plain';
   function compareComposition() { const url = new URL(location.href); url.searchParams.set('composition', composed ? 'plain' : 'composed'); location.href = url.href; }
   const cloud = new URLSearchParams(location.search).get('selectionStyle') !== 'radial';
@@ -56,7 +63,7 @@
   {#if onboarding}<span>Onboarding preview · Analytics and connections simulated</span><button onclick={restartOnboarding}>Restart preview</button>
   {:else}
   {#if !live}<button onclick={notifyCapture}>Capture notifications</button><button onclick={notifyAgent}>Agent notification</button>{/if}
-  {#if new URLSearchParams(location.search).get('selectionSubgraph') === '1'}<span>{cloud ? 'Cloud · Up to 120 items' : 'Radial · Up to 60 items'} · Hover labels · Shift-click to add · Escape to reset</span><button onclick={compareSelection}>Compare: {cloud ? 'radial' : 'cloud'}</button>{#if cloud}<button onclick={compareComposition}>{composed ? 'Compare: plain cloud' : 'Try: composed cloud'}</button>{/if}{/if}
+  {#if new URLSearchParams(location.search).get('selectionSubgraph') === '1'}<span>{cloud ? 'Cloud · Up to 120 items' : 'Radial · Up to 60 items'} · Hover labels · Shift-click to add · Escape to reset</span><button onclick={compareSelection}>Compare: {cloud ? 'radial' : 'cloud'}</button>{#if cloud}<button onclick={compareComposition}>{composed ? 'Compare: plain cloud' : 'Try: composed cloud'}</button>{/if}<button onclick={compareSidebar}>{calmSidebar ? 'Compare: bold sidebar' : 'Try: quiet sidebar'}</button>{/if}
   <span>{live ? 'Local vault' : 'Sample vault'}</span>
   <a href={`?vault=${live ? 'sample' : 'live'}${baseline ? '&layout=original' : ''}`}>{live ? 'Sample' : 'Local vault'}</a>
   <a href={`?vault=${live ? 'live' : 'sample'}${baseline ? '' : '&layout=original'}`}>{baseline ? 'Sidebar study' : 'Original layout'}</a>
@@ -65,8 +72,18 @@
 </nav>
 
 <style>
+:global(html[data-sidebar-tone="calm"] .drawer:not(.sidebar-quick) .note-header) { padding-bottom:28px; border-bottom-color:color-mix(in srgb, var(--rule) 65%, transparent); }
+:global(html[data-sidebar-tone="calm"] .drawer:not(.sidebar-quick) .briefing) { padding-top:34px; gap:38px; }
+:global(html[data-sidebar-tone="calm"] .source-link) { position:relative; font-size:15px; line-height:1.5; min-height:44px; padding:11px 14px; border-radius:5px; gap:12px; }
+:global(html[data-sidebar-tone="calm"] .source-link .link-title) { font-weight:500; letter-spacing:-.005em; }
+:global(html[data-sidebar-tone="calm"] .source-link .link-description) { font-size:13px; line-height:1.55; color:var(--text-muted); }
+:global(html[data-sidebar-tone="calm"] .source-link:is(.lk-on,:focus-visible)) { background:color-mix(in srgb, var(--text-strong) 7%, var(--bg)); color:var(--text-strong); --mark:var(--text-strong); --glyph-bg:var(--bg); }
+:global(html[data-sidebar-tone="calm"] .source-link:is(.lk-on,:focus-visible)::before) { content:""; position:absolute; left:0; top:11px; bottom:11px; width:2px; border-radius:2px; background:var(--activity); }
+:global(html[data-sidebar-tone="calm"] .source-link:focus-visible) { outline:1px solid var(--text-muted); outline-offset:2px; }
+
 .gmail-preview{position:fixed;bottom:12px;left:50%;transform:translateX(-50%);z-index:1000;background:var(--bg);color:var(--text-muted);border:1px solid var(--rule);padding:8px 14px;border-radius:6px;font:var(--type-meta);max-width:90vw}
-.sidebar-study-switch { top:16px; bottom:auto; }
+.sidebar-study-switch { top:16px; bottom:auto; max-width:calc(100vw - 32px); flex-wrap:wrap; justify-content:flex-end; }
+@media(min-width:800px) { .sidebar-study-switch { max-width:calc(100vw - 580px); } }
 .sidebar-study-switch.onboarding { top:auto; bottom:36px; right:140px; max-width:calc(100% - 156px); flex-wrap:wrap; background:var(--bg); border:1px solid var(--rule); padding:8px; }
 .sidebar-study-switch button { background:var(--bg); color:inherit; border:1px solid var(--rule); padding:4px 8px; font:inherit; cursor:pointer; }
 </style>
