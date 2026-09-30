@@ -45,7 +45,7 @@ const graph = {
       assert.deepEqual(s.nodes.filter(n => n.visible).map(n => n.id).sort(), [...expected].sort());
       for (const edge of s.edges) {
         const inside = expected.has(edge.source) && expected.has(edge.target);
-        assert.equal(edge.ink > 0, inside, 'only induced subgraph edges have ink');
+        assert(inside, 'only induced subgraph edges exist');
         if (!inside) assert.equal(edge.activity, 0);
       }
     };
@@ -98,11 +98,21 @@ const graph = {
     await page.mouse.click(point.x, point.y); await page.mouse.move(1439, 999);
     await page.waitForTimeout(150);
     const mid = await scene();
-    await page.waitForTimeout(1800);
+    await page.waitForTimeout(450);
     const end = await scene();
     assert(mid.nodes.some(n => { const target = end.nodes.find(p => p.id === n.id); return target && Math.hypot(n.worldX - target.worldX, n.worldY - target.worldY) > 1; }), 'selection animates world positions rather than only the camera');
     assert(end.nodes.find(n => n.id === ids[0]).height > end.nodes.find(n => n.id === ids[3]).height, 'relevance places seed ahead of memory landmarks');
     assert(end.nodes.length <= 60);
+    const restingEdges = end.edges.filter(e => e.ink > 0);
+    assert(restingEdges.length <= Math.max(1, Math.round(end.nodes.length / 5)), 'resting view has a sparse edge budget');
+    const settled = end.nodes.map(n => [n.worldX, n.worldY]);
+    await page.waitForTimeout(150);
+    assert.deepEqual((await scene()).nodes.map(n => [n.worldX, n.worldY]), settled);
+    await page.keyboard.press('j'); await page.waitForTimeout(600);
+    const inspected = await scene();
+    assert.equal(inspected.camera.zoom, end.camera.zoom, 'keyboard inspection pans at the existing zoom');
+    assert.equal(inspected.nodes.find(n => n.id === inspected.keyboardFocus).height, 90, 'keyboard focus rises in depth');
+    assert(inspected.nodes.some(n => n.height < end.nodes.find(p => p.id === n.id).height), 'unrelated context recedes');
     assert.equal(await page.locator('.graph-renderer canvas').count(), 1);
     assert.deepEqual(errors, []);
     console.log(`PASS ${engine.name()}: real shell, relative importance, bounded topology, relayout, animated transition, stationary hover labels, Shift union, source root, isolated root, Escape`);
