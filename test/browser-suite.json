@@ -38,5 +38,6 @@
   "graphCameraStability",
   "actionHistory",
   "sharedWorkspace",
-  "sharedMembership"
+  "sharedMembership",
+  "selectionSubgraph"
 ]

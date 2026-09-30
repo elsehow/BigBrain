@@ -18,11 +18,10 @@
     coveredLeft?: number; centerFocus?: boolean; inset?: { top: number; bottom: number };
     onhover?: (id: string | null) => void; onblank?: () => void; onselect?: (id: string | null) => void;
   } = $props();
-  const subgraphExperiment = import.meta.env.DEV && new URLSearchParams(location.search).get('selectionSubgraph') === '1';
-  const selectionStyle = new URLSearchParams(location.search).get('selectionStyle') === 'radial' ? 'radial' : 'cloud';
-  const displayData = $derived(data && subgraphExperiment ? selectionSubgraph(data, committedView ?? viewState, committedView ? committedView.selected[0] ?? null : selected, selectionStyle) : data);
+  import { neighborhoodEnabled, selectionStyle, composeSelection, continueSelection, stageSelection } from '../lib/graphPresentation';
+  const displayData = $derived(data && neighborhoodEnabled ? selectionSubgraph(data, committedView ?? viewState, committedView ? committedView.selected[0] ?? null : selected, selectionStyle) : data);
   const sidebarInspection = $derived(probe ?? (highlight !== selected ? highlight : null));
-  const staged = subgraphExperiment && new URLSearchParams(location.search).get('choreography') !== 'plain';
+  const staged = neighborhoodEnabled && stageSelection;
   let departure: HTMLCanvasElement | null = null, departureFrame = 0;
   function clearDeparture() { cancelAnimationFrame(departureFrame); departure?.remove(); departure = null; }
   function fadeDepartures(nodes: ReturnType<GraphRenderer['getDepartingNodes']>) {
@@ -47,6 +46,7 @@
   }
   let canvas = $state<HTMLCanvasElement>(null!);
   let renderer = $state.raw<GraphRenderer | null>(null);
+  let renderedSelection = '';
   let hoverId = $state<string | null>(null);
   const hoverPath = $derived(displayData?.nodes.find(n => n.id === hoverId)?.selectionPath?.map(id => displayData?.nodes.find(n => n.id === id)?.title ?? id).join(' → '));
   let error = $state(''), contextRevision = $state(0), reduced = false, frame = 0;
@@ -70,16 +70,17 @@
       // picture. The successor adopts the camera after its own setView.
       const departing = staged ? renderer?.getDepartingNodes(new Set(graph.nodes.map(n => n.id))) : undefined;
       const carried = renderer?.getCameraState();
-      const continuous = renderer?.selectionSubgraph && !!graph.selectionRelative && selectionStyle === 'cloud' && new URLSearchParams(location.search).get('motion') !== 'independent';
-      const layout = subgraphExperiment ? renderer?.getLayoutPositions() : undefined;
+      const selectionChanged = renderedSelection !== JSON.stringify([viewState, selected]);
+      const continuous = renderer?.selectionSubgraph && !!graph.selectionRelative && selectionStyle === 'cloud' && continueSelection;
+      const layout = neighborhoodEnabled ? renderer?.getLayoutPositions() : undefined;
       cancelGesture(); cancelAnimationFrame(frame); frame = 0; renderer?.dispose(); renderer = null;
       try {
         const next = new GraphRenderer(canvas, graph, inset, coveredLeft, preset); renderer = next;
-        next.selectionSubgraph = subgraphExperiment && !!graph.selectionRelative;
+        next.selectionSubgraph = neighborhoodEnabled && !!graph.selectionRelative;
         next.stagedSelection = staged && next.selectionSubgraph;
-        next.composedSelection = next.selectionSubgraph && selectionStyle === 'cloud' && new URLSearchParams(location.search).get('composition') !== 'plain';
+        next.composedSelection = next.selectionSubgraph && selectionStyle === 'cloud' && composeSelection;
         next.update(graph, draft); next.setView(viewState, selected, performance.now(), reduced, centerFocus);
-        if (carried?.ready) next.adoptCamera(carried.camera, subgraphExperiment ? false : carried.manual);
+        if (carried?.ready) next.adoptCamera(carried.camera, neighborhoodEnabled && selectionChanged ? false : carried.manual);
         if (layout) next.animateLayoutFrom(layout, reduced, performance.now(), !!continuous);
         next.highlight([highlight, probe]);
         if (departing) fadeDepartures(departing);
@@ -91,11 +92,12 @@
   $effect(() => {
     const id = selected, graph = renderer, view = viewState;
     untrack(() => { cancelGesture(); hoverId = null; onhover?.(null); });
-    graph?.setView(view, id, performance.now(), reduced, centerFocus); kick();
+    graph?.setView(view, id, performance.now(), reduced, centerFocus);
+    renderedSelection = JSON.stringify([view, id]); kick();
   });
   $effect(() => {
     renderer?.highlight([highlight, probe]);
-    if (subgraphExperiment) {
+    if (neighborhoodEnabled) {
       const inspected = sidebarInspection;
       // In a subset, both input devices inspect in place. Home previews
       // retain the original setView pan and depth treatment.
@@ -130,7 +132,7 @@
     const { x, y } = local(event);
     return renderer?.pick(x, y) ?? null;
   }
-  function clearHover() { hoverTitle = null; hoverId = null; renderer?.hover(subgraphExperiment && displayData?.selectionRelative ? sidebarInspection : null); onhover?.(null); kick(); }
+  function clearHover() { hoverTitle = null; hoverId = null; renderer?.hover(neighborhoodEnabled && displayData?.selectionRelative ? sidebarInspection : null); onhover?.(null); kick(); }
   function move(event: PointerEvent) {
     if (gesture) {
       if (event.pointerId !== gesture.pointerId) return;
@@ -148,7 +150,7 @@
     const id = hit(event);
     if (id === hoverId) return;
     hoverId = id; hoverTitle = data?.nodes.find(n => n.id === id)?.title ?? null;
-    renderer?.hover(id, performance.now(), subgraphExperiment); if (!subgraphExperiment || !displayData?.selectionRelative) onhover?.(id); kick();
+    renderer?.hover(id, performance.now(), neighborhoodEnabled); if (!neighborhoodEnabled || !displayData?.selectionRelative) onhover?.(id); kick();
   }
   function down(event: PointerEvent) {
     if (event.button !== 0 || event.ctrlKey || gesture) return;
@@ -215,7 +217,7 @@
 <div class="lg-wrap graph-renderer" data-renderer="webgl" data-selected={selected ?? ''} data-hovered={hoverId ?? ''}>
   <canvas bind:this={canvas} onmousedown={exclude} oncontextmenu={e => { if (e.ctrlKey) e.preventDefault(); }} onpointerdown={down} onpointerup={up} onpointermove={move} onpointercancel={cancelGesture} onlostpointercapture={cancelGesture} ondblclick={refit} onpointerleave={() => { if (!gesture) clearHover(); }} style:cursor={dragging ? 'grabbing' : hoverId ? 'pointer' : 'grab'} aria-label="Knowledge graph"></canvas>
   {#if controls}<div class="graph-controls"><button onclick={clear}>Reset view</button><span>Shift-click to add · Ctrl-click to exclude</span></div>{/if}
-  {#if subgraphExperiment && hoverPath}<aside class="selection-path" role="status">{hoverPath}</aside>{/if}
+  {#if neighborhoodEnabled && hoverPath}<aside class="selection-path" role="status">{hoverPath}</aside>{/if}
   {#if error}<p role="alert">{error}</p>{/if}
 </div>
 <style>

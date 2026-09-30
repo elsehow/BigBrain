@@ -2,7 +2,7 @@
 const { chromium, webkit } = require('playwright-core');
 const assert = require('node:assert/strict');
 const style = process.env.SELECTION_STYLE || 'cloud';
-const base = process.env.PROFILE_URL || 'http://127.0.0.1:5243';
+const base = process.env.SIDEBAR_PREVIEW_URL || process.env.PROFILE_URL || 'http://127.0.0.1:5243';
 const ids = ['memory/root.md', 'sources/first.md', 'sources/second.md', 'memory/third.md', 'sources/fourth.md', 'memory/island.md'];
 const links = [[0,1],[1,2],[2,3],[3,4]];
 const graph = {
@@ -17,7 +17,7 @@ const graph = {
     const errors = []; page.on('pageerror', e => errors.push(e.message));
     await page.route('**/api/**', r => r.abort());
     await page.route(url => url.pathname === '/__subgraph.json', r => r.fulfill({ json: graph }));
-    await page.goto(`${base}/sidebar-workbench.html?selectionSubgraph=1&selectionStyle=${style}&graphSnapshot=/__subgraph.json`);
+    await page.goto(`${base}/sidebar-workbench.html?selectionStyle=${style}&graphSnapshot=/__subgraph.json`);
     const canvas = page.locator('.graph-renderer canvas'); await canvas.waitFor();
     const scene = () => canvas.evaluate(c => c.profilePresentation());
     await page.waitForFunction(() => document.querySelector('canvas')?.profilePresentation?.().nodes.length >= 6);

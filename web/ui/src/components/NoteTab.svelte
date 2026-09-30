@@ -48,7 +48,7 @@
     probe?: string | null;
   } = $props();
 
-  const edgeRows = import.meta.env.DEV && new URLSearchParams(location.search).get('selectionSubgraph') === '1' && new URLSearchParams(location.search).get('sidebarTone') !== 'original';
+  import { quietSidebar as edgeRows } from '../lib/graphPresentation';
   let noteViewport = $state<HTMLDivElement>();
 
   // Graph hover and workspace previews carry node IDs, while the note API
