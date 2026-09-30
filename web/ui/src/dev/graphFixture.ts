@@ -66,6 +66,12 @@ export async function installGraphFixture() {
     if (titleView === 'loading') scene.briefing = 'loading';
     location.hash = `/vault/${path}`;
   }
+  if (new URLSearchParams(location.search).has('annotations')) {
+    const clip = { id: 'sample-clip', path: 'sources/sample-clip.md', title: 'Workshop report', modified: Date.now() - 2000, band: 'person' as const, author: 'Sample', action: 'added', type: 'source' };
+    const note = { ...clip, id: 'sample-note', path: 'sources/sample-note.md', title: 'Recommended by a colleague', modified: Date.now(), about: clip.id };
+    scene.recent = [note, clip, ...scene.recent!];
+    for (const row of [clip, note]) scene.notes![row.path] = { path: row.path, content: `# ${row.title}\n\nSample annotation preview.` };
+  }
   setVaultState(scene);
   const integrationScene = new URLSearchParams(location.search).get("integration-activation");
   installIntegrationAccessScene(integrationScene === "fail");

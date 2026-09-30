@@ -6,6 +6,8 @@ import { createSearchRunner, type SearchFailure } from "./omnibox";
 import type { NoteMeta, RecentEntry } from "./types";
 
 export interface SearchHit {
+  recentEntry?: RecentEntry;
+  annotationParent?: string;
   searchImportance?: number;
   evidence?: "memory" | "agent-conversation" | "agent-answer";
   sessionId?: string;

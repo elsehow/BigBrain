@@ -103,13 +103,13 @@
       {@const unread = readStates.get(hit.note.path)?.unread === true}
       <!-- Keep the keyboard in the combobox when selecting with the pointer. -->
       <button id={`search-hit-${i}`} class="search-hit" class:current={results.sel === i}
-        class:unread class:checked={selection.includes(hit.note.path)} aria-label={unread ? `${name(hit)}, unread` : name(hit)}
+        class:annotation={!!hit.annotationParent} class:unread class:checked={selection.includes(hit.note.path)} aria-label={unread ? `${name(hit)}, unread` : name(hit)}
         class:active-pilot={hit.dir === "pilot" && !!hit.pilotPhase && hit.pilotPhase !== "idle"}
         role="option" aria-selected={results.sel === i} aria-checked={sidebar ? selection.includes(hit.note.path) : undefined} tabindex="-1"
         onpointerdown={(e) => e.preventDefault()} onpointermove={() => floatingSearch.select(i)}
         onclick={() => onopen(i)}>
-        <span class="hit-title">{#if sidebar && selection.includes(hit.note.path)}<span class="selection-check" aria-hidden="true">✓</span>{:else if hit.agentState}<AgentIndicator state={hit.agentState} size={28} />{:else}<NodeIndicator pilot={hit.dir === "pilot"} memory={hit.dir === "memory"} state={hit.pilotPhase ?? "idle"} size={28} />{/if}<span>{name(hit)}</span></span>
-        <span class="hit-kind">{unread ? "Unread" : kind(hit)}</span>
+        <span class="hit-title">{#if sidebar && selection.includes(hit.note.path)}<span class="selection-check" aria-hidden="true">✓</span>{:else if hit.annotationParent}<span class="annotation-mark" aria-hidden="true">↳</span>{:else if hit.agentState}<AgentIndicator state={hit.agentState} size={28} />{:else}<NodeIndicator pilot={hit.dir === "pilot"} memory={hit.dir === "memory"} state={hit.pilotPhase ?? "idle"} size={28} />{/if}<span>{name(hit)}</span></span>
+        <span class="hit-kind">{hit.annotationParent ? "Note" : unread ? "Unread" : kind(hit)}</span>
         <time class="hit-date" datetime={hit.note.modified ? new Date(hit.note.modified).toISOString() : undefined}>{hit.agentState === "running" ? "Running" : hit.agentState === "waiting" ? "Needs you" : hit.agentStatus === "failed" ? "Failed" : hit.agentState === "stopped" ? "Stopped" : timestamp(hit.note.modified)}</time>
       </button>
     {/each}
@@ -164,6 +164,8 @@
     --glyph-bg: var(--activity); --pilot: var(--bg);
   }
   .hit-kind, .hit-date { font: 500 11px/1.5 var(--font-mono); letter-spacing: .08em; color: var(--text-muted); white-space: nowrap; }
+  .search-hit.annotation .hit-title { padding-left: 28px; font-weight: 400; }
+  .annotation-mark { width: 28px; flex: none; text-align: center; }
   .hit-kind { text-transform: uppercase; }
   .unread .hit-kind { color: inherit; font-weight: 700; }
   .hit-date { text-align: right; font-variant-numeric: tabular-nums; }
