@@ -7,6 +7,7 @@
   import type { GraphData } from "../lib/types";
   import { canonicalGraphView, changeGraphView } from "../../../../lib/graphView";
   import { findNode } from "../../../../lib/graphIdentity";
+  import { cursor } from "../lib/cursor.svelte";
   import { stage } from "../lib/stage.svelte";
   import { app } from "../lib/store.svelte";
   import { uiDiagnostics } from "../lib/uiDiagnostics";
@@ -29,6 +30,7 @@
     inset?: { top: number; bottom: number };
   } = $props();
 
+  const subgraphExperiment = import.meta.env.DEV && new URLSearchParams(location.search).get('selectionSubgraph') === '1';
   let viewportWidth = $state(window.innerWidth);
   let renderer = $state<LinkGraph>();
   $effect(() => { if (sidebar) { sidebar.resetGraph = () => renderer?.resetOverview(); sidebar.camera = () => renderer?.getCamera() ?? null; sidebar.presentation = () => renderer?.getPresentation(); } });
@@ -36,6 +38,7 @@
   const pilotView = $derived(pilotViewId ? { selected: [pilotViewId], excluded: [] } : null);
   const agentOverview = $derived(!!sidebar?.open && !!sidebar?.agents);
   const effectivePreview = $derived((!sidebar?.open ? sidebar?.homePreview : null) ?? (agentOverview ? stage.pilotPreviewId : preview));
+  const previewMovesGraph = $derived(!subgraphExperiment || cursor.input === 'kbd' && !app.graphView.selected.length);
   const previewView = $derived(effectivePreview && data ? canonicalGraphView(data.nodes,
     { selected: findNode(data.nodes, effectivePreview) >= 0 ? [effectivePreview] : [], excluded: [] }) : null);
 </script>
@@ -47,10 +50,10 @@
     <div class="g-canvas">
       <LinkGraph bind:this={renderer} {data} {inset} {pilotDraft} committedView={app.graphView}
         coveredLeft={sidebar?.open && !sidebar.fullscreenChat ? Math.min(560, viewportWidth) : sidebar?.homeMenuRight ?? 0}
-        centerFocus={!!sidebar?.homePreview}
-        selected={effectivePreview ?? pilotViewId ?? (agentOverview ? null : selected)}
-        highlight={sidebar?.homePreview ?? (agentOverview ? stage.pilotPreviewId : highlight)} probe={agentOverview ? null : probe}
-        bind:viewState={() => previewView ?? (agentOverview ? { selected: [], excluded: app.graphView.excluded } : pilotView ?? app.graphView), value => { if (!effectivePreview) app.graphView = value; }}
+        centerFocus={previewMovesGraph && !!sidebar?.homePreview}
+        selected={(previewMovesGraph ? effectivePreview : null) ?? pilotViewId ?? (agentOverview ? null : selected)}
+        highlight={sidebar?.homePreview ?? (agentOverview ? stage.pilotPreviewId : highlight)} probe={subgraphExperiment && effectivePreview ? effectivePreview : agentOverview ? null : probe}
+        bind:viewState={() => (previewMovesGraph ? previewView : null) ?? (agentOverview ? { selected: [], excluded: app.graphView.excluded } : pilotView ?? app.graphView), value => { if (!effectivePreview) app.graphView = value; }}
         onhover={id => { if (sidebar) sidebar.hoverId = id; }}
         onblank={() => { app.graphView = changeGraphView(app.graphView, { type: 'clear' }); sidebar?.goHome?.(); }}
         {onselect} />

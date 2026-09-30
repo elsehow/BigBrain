@@ -79,6 +79,7 @@ export class GraphRenderer {
   private highlighted = new Set<number>();
   private previous = -1;
   private hovered = -1;
+  private stationaryHover = false;
   private edges: number[][];
   private edgeHome: number[] = [];
   private motion = EXPLORE_MOTION;
@@ -440,15 +441,15 @@ export class GraphRenderer {
     this.retarget(now, this.reducedMotion);
   }
   highlight(ids: readonly (string | null)[], now = performance.now()) {
-    if (this.selectionSubgraph) return;
     const next = new Set(ids.flatMap(id => id && this.ids.has(id) ? [this.ids.get(id)!] : []).filter(i => !this.excluded.has(i)));
     if (next.size === this.highlighted.size && [...next].every(i => this.highlighted.has(i))) return;
     this.highlighted = next;
     // App-driven inspection is a light only: no hover history or camera flight.
     this.previous = this.selected; this.retarget(now, this.reducedMotion);
   }
-  hover(id: string | null, now = performance.now()) {
-    if (this.selectionSubgraph) {
+  hover(id: string | null, now = performance.now(), stationary = false) {
+    this.stationaryHover = stationary || this.selectionSubgraph;
+    if (this.stationaryHover) {
       const i = id ? this.ids.get(id) ?? -1 : -1;
       const hovered = i >= 0 && !this.excluded.has(i) && this.states[i * 4 + 3]! > 0 ? i : -1;
       if (hovered === this.hovered) return;
@@ -489,7 +490,7 @@ export class GraphRenderer {
     this.lastEffectsFrame = null;
     const selected = this.selected, hovered = this.hovered, inkProgress = this.progress(now);
     const hoverNeighborhood = new Set(hovered >= 0 ? [hovered, ...this.adjacency[hovered]!] : []);
-    const root = selected >= 0 ? selected : hovered;
+    const root = selected >= 0 ? selected : this.stationaryHover ? -1 : hovered;
     const domain = root >= 0 ? memoryDomain(this.adjacency, root, this.excluded) : null;
     const domains = [...this.selectedNodes].filter(i => i !== root).map(i => memoryDomain(this.adjacency, i, this.excluded));
     const held = new Set([...this.selectedNodes, ...domains.flatMap(d => [...d.direct])]);

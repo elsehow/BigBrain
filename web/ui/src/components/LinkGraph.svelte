@@ -4,7 +4,6 @@
   import { GraphRenderer } from '../lib/graph/renderer';
   import { effectPreset, type EffectPreset } from '../lib/graph/effects';
   import { canonicalGraphView, changeGraphView, graphViewAction, type GraphViewState } from '../../../../lib/graphView';
-  import { cursor } from '../lib/cursor.svelte';
   import { selectionSubgraph } from '../lib/selectionSubgraph';
   import { gotoNote } from '../lib/store.svelte';
   let { data, pilotDraft = null, selected = null, highlight = null, probe = null,
@@ -20,7 +19,8 @@
   } = $props();
   const subgraphExperiment = import.meta.env.DEV && new URLSearchParams(location.search).get('selectionSubgraph') === '1';
   const selectionStyle = new URLSearchParams(location.search).get('selectionStyle') === 'radial' ? 'radial' : 'cloud';
-  const displayData = $derived(data && subgraphExperiment ? selectionSubgraph(data, viewState, selected, selectionStyle) : data);
+  const displayData = $derived(data && subgraphExperiment ? selectionSubgraph(data, committedView ?? viewState, committedView ? committedView.selected[0] ?? null : selected, selectionStyle) : data);
+  const sidebarInspection = $derived(probe ?? (highlight !== selected ? highlight : null));
   let canvas = $state<HTMLCanvasElement>(null!);
   let renderer = $state.raw<GraphRenderer | null>(null);
   let hoverId = $state<string | null>(null);
@@ -49,7 +49,7 @@
       cancelGesture(); cancelAnimationFrame(frame); frame = 0; renderer?.dispose(); renderer = null;
       try {
         const next = new GraphRenderer(canvas, graph, inset, coveredLeft, preset); renderer = next;
-        next.selectionSubgraph = subgraphExperiment;
+        next.selectionSubgraph = subgraphExperiment && !!graph.selectionRelative;
         next.update(graph, draft); next.setView(viewState, selected, performance.now(), reduced, centerFocus);
         if (carried?.ready) next.adoptCamera(carried.camera, subgraphExperiment ? false : carried.manual);
         if (layout) next.animateLayoutFrom(layout, reduced);
@@ -66,7 +66,12 @@
   });
   $effect(() => {
     renderer?.highlight([highlight, probe]);
-    if (subgraphExperiment && cursor.input === 'kbd') renderer?.inspectKeyboard(probe ?? highlight);
+    if (subgraphExperiment) {
+      const inspected = sidebarInspection;
+      // In a subset, both input devices inspect in place. Home previews
+      // retain the original setView pan and depth treatment.
+      if (displayData?.selectionRelative) renderer?.hover(inspected);
+    }
     kick();
   });
   onMount(() => {
@@ -96,7 +101,7 @@
     const { x, y } = local(event);
     return renderer?.pick(x, y) ?? null;
   }
-  function clearHover() { hoverTitle = null; hoverId = null; renderer?.hover(null); onhover?.(null); kick(); }
+  function clearHover() { hoverTitle = null; hoverId = null; renderer?.hover(subgraphExperiment && displayData?.selectionRelative ? sidebarInspection : null); onhover?.(null); kick(); }
   function move(event: PointerEvent) {
     if (gesture) {
       if (event.pointerId !== gesture.pointerId) return;
@@ -114,7 +119,7 @@
     const id = hit(event);
     if (id === hoverId) return;
     hoverId = id; hoverTitle = data?.nodes.find(n => n.id === id)?.title ?? null;
-    renderer?.hover(id); if (!subgraphExperiment) onhover?.(id); kick();
+    renderer?.hover(id, performance.now(), subgraphExperiment); if (!subgraphExperiment || !displayData?.selectionRelative) onhover?.(id); kick();
   }
   function down(event: PointerEvent) {
     if (event.button !== 0 || event.ctrlKey || gesture) return;
