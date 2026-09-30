@@ -35,6 +35,8 @@
   import { onboardingPreviewKey } from './onboardingFixture';
   const onboarding = new URLSearchParams(location.search).has('onboarding');
   function restartOnboarding() { localStorage.removeItem(onboardingPreviewKey); location.hash = ''; location.reload(); }
+  const cloud = new URLSearchParams(location.search).get('selectionStyle') !== 'radial';
+  function compareSelection() { const url = new URL(location.href); url.searchParams.set('selectionStyle', cloud ? 'radial' : 'cloud'); location.href = url.href; }
   const live = new URLSearchParams(location.search).get('vault') === 'live';
   const baseline = new URLSearchParams(location.search).get('layout') === 'original';
   const feedbackPreview = (onboarding || !live) && new URLSearchParams(location.search).has('feedback');
@@ -52,7 +54,7 @@
   {#if onboarding}<span>Onboarding preview · Analytics and connections simulated</span><button onclick={restartOnboarding}>Restart preview</button>
   {:else}
   {#if !live}<button onclick={notifyCapture}>Capture notifications</button><button onclick={notifyAgent}>Agent notification</button>{/if}
-  {#if new URLSearchParams(location.search).get('selectionSubgraph') === '1'}<span>Relative importance · Up to 60 items · Hover labels · Shift-click to add · Escape to reset</span>{/if}
+  {#if new URLSearchParams(location.search).get('selectionSubgraph') === '1'}<span>{cloud ? 'Cloud · Up to 120 items' : 'Radial · Up to 60 items'} · Hover labels · Shift-click to add · Escape to reset</span><button onclick={compareSelection}>Compare: {cloud ? 'radial' : 'cloud'}</button>{/if}
   <span>{live ? 'Local vault' : 'Sample vault'}</span>
   <a href={`?vault=${live ? 'sample' : 'live'}${baseline ? '&layout=original' : ''}`}>{live ? 'Sample' : 'Local vault'}</a>
   <a href={`?vault=${live ? 'live' : 'sample'}${baseline ? '' : '&layout=original'}`}>{baseline ? 'Sidebar study' : 'Original layout'}</a>

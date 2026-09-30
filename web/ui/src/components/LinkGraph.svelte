@@ -19,7 +19,8 @@
     onhover?: (id: string | null) => void; onblank?: () => void; onselect?: (id: string | null) => void;
   } = $props();
   const subgraphExperiment = import.meta.env.DEV && new URLSearchParams(location.search).get('selectionSubgraph') === '1';
-  const displayData = $derived(data && subgraphExperiment ? selectionSubgraph(data, viewState, selected) : data);
+  const selectionStyle = new URLSearchParams(location.search).get('selectionStyle') === 'radial' ? 'radial' : 'cloud';
+  const displayData = $derived(data && subgraphExperiment ? selectionSubgraph(data, viewState, selected, selectionStyle) : data);
   let canvas = $state<HTMLCanvasElement>(null!);
   let renderer = $state.raw<GraphRenderer | null>(null);
   let hoverId = $state<string | null>(null);

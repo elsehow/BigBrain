@@ -178,6 +178,7 @@ export interface GraphEdge {
 export interface GraphData {
   /** Precomputed, bounded selection-relative layout. */
   selectionRelative?: boolean;
+  selectionStyle?: 'radial' | 'cloud';
   /** Browser-only base graph: session overlays do not invalidate its layout. */
   layoutBase?: GraphData;
   nodes: GraphNode[];

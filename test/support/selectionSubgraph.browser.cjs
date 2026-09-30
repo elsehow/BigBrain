@@ -1,6 +1,7 @@
 // Synthetic graph in AppShell; no live vault requests or private artifacts.
 const { chromium, webkit } = require('playwright-core');
 const assert = require('node:assert/strict');
+const style = process.env.SELECTION_STYLE || 'cloud';
 const base = process.env.PROFILE_URL || 'http://127.0.0.1:5243';
 const ids = ['memory/root.md', 'sources/first.md', 'sources/second.md', 'memory/third.md', 'sources/fourth.md', 'memory/island.md'];
 const links = [[0,1],[1,2],[2,3],[3,4]];
@@ -16,7 +17,7 @@ const graph = {
     const errors = []; page.on('pageerror', e => errors.push(e.message));
     await page.route('**/api/**', r => r.abort());
     await page.route(url => url.pathname === '/__subgraph.json', r => r.fulfill({ json: graph }));
-    await page.goto(`${base}/sidebar-workbench.html?selectionSubgraph=1&graphSnapshot=/__subgraph.json`);
+    await page.goto(`${base}/sidebar-workbench.html?selectionSubgraph=1&selectionStyle=${style}&graphSnapshot=/__subgraph.json`);
     const canvas = page.locator('.graph-renderer canvas'); await canvas.waitFor();
     const scene = () => canvas.evaluate(c => c.profilePresentation());
     await page.waitForFunction(() => document.querySelector('canvas')?.profilePresentation?.().nodes.length >= 6);
@@ -102,9 +103,9 @@ const graph = {
     const end = await scene();
     assert(mid.nodes.some(n => { const target = end.nodes.find(p => p.id === n.id); return target && Math.hypot(n.worldX - target.worldX, n.worldY - target.worldY) > 1; }), 'selection animates world positions rather than only the camera');
     assert(end.nodes.find(n => n.id === ids[0]).height > end.nodes.find(n => n.id === ids[3]).height, 'relevance places seed ahead of memory landmarks');
-    assert(end.nodes.length <= 60);
+    assert(end.nodes.length <= (style === 'cloud' ? 120 : 60));
     const restingEdges = end.edges.filter(e => e.ink > 0);
-    assert(restingEdges.length <= Math.max(1, Math.round(end.nodes.length / 5)), 'resting view has a sparse edge budget');
+    assert(restingEdges.length <= Math.max(1, Math.round(end.nodes.length * (style === 'cloud' ? .45 : .2))), 'resting view has a sparse edge budget');
     const settled = end.nodes.map(n => [n.worldX, n.worldY]);
     await page.waitForTimeout(150);
     assert.deepEqual((await scene()).nodes.map(n => [n.worldX, n.worldY]), settled);
@@ -115,7 +116,7 @@ const graph = {
     assert(inspected.nodes.some(n => n.height < end.nodes.find(p => p.id === n.id).height), 'unrelated context recedes');
     assert.equal(await page.locator('.graph-renderer canvas').count(), 1);
     assert.deepEqual(errors, []);
-    console.log(`PASS ${engine.name()}: real shell, relative importance, bounded topology, relayout, animated transition, stationary hover labels, Shift union, source root, isolated root, Escape`);
+    console.log(`PASS ${engine.name()} ${style}: real shell, relative importance, bounded topology, relayout, animated transition, stationary hover labels, Shift union, source root, isolated root, Escape`);
   } finally { await browser.close(); }
  }
 })().catch(e => { console.error(e); process.exitCode = 1; });

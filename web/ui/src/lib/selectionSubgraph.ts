@@ -1,4 +1,4 @@
-import { forceCollide, forceLink, forceManyBody, forceRadial, forceSimulation } from 'd3-force';
+import { forceCollide, forceLink, forceManyBody, forceRadial, forceSimulation, forceX, forceY } from 'd3-force';
 import { graphIdentityIndex } from '../../../../lib/graphIdentity';
 import { personalizedPageRank, BRIEFING_DEGREE_DISCOUNT } from '../../../../lib/graphImportance';
 import type { GraphViewState } from '../../../../lib/graphView';
@@ -9,10 +9,10 @@ const cache = new WeakMap<GraphData, Map<string, GraphData>>();
 
 /** Score the complete graph; budget the view, not the random walk. Connecting
  * paths count toward the budget so relevance never produces floating islands. */
-export function selectionSubgraph(graph: GraphData, view: GraphViewState, focus: string | null): GraphData {
+export function selectionSubgraph(graph: GraphData, view: GraphViewState, focus: string | null, style: 'radial' | 'cloud' = 'radial'): GraphData {
   const roots = view.selected.length ? view.selected : focus ? [focus] : [];
   if (!roots.length && !view.excluded.length) return graph;
-  const key = JSON.stringify([[...new Set(roots)].sort(), [...new Set(view.excluded)].sort()]);
+  const key = JSON.stringify([style, [...new Set(roots)].sort(), [...new Set(view.excluded)].sort()]);
   let entries = cache.get(graph);
   if (!entries) { entries = new Map(); cache.set(graph, entries); }
   const cached = entries.get(key);
@@ -44,7 +44,7 @@ export function selectionSubgraph(graph: GraphData, view: GraphViewState, focus:
       parent[j] = i; queue.push(j);
     }
   }
-  const keep = new Set(seeds), limit = Math.max(SELECTION_DETAIL, seeds.length);
+  const keep = new Set(seeds), limit = Math.max(style === 'cloud' ? 120 : SELECTION_DETAIL, seeds.length);
   for (const i of order) {
     const path: number[] = [];
     for (let j = i; !keep.has(j) && j >= 0; j = parent[j]!) path.push(j);
@@ -67,7 +67,25 @@ export function selectionSubgraph(graph: GraphData, view: GraphViewState, focus:
       for (let j = i; parent[j]! >= 0 && parent[j] !== j; ) { j = parent[j]!; path.push(j); }
       return path.reverse().map(j => graph.nodes[j]!.id);
     })(), memorySupport: undefined, layoutAnchors: undefined }]);
-  if (roots.length && nodes.length) {
+  if (roots.length && nodes.length && style === 'cloud') {
+    // The seed participates in the same forces as its neighbors. Shared
+    // neighborhoods tighten local groups; a weak centering force bounds drift.
+    const neighbors = new Map(nodes.map(n => [n.id, new Set<string>()]));
+    for (const e of subsetEdges) { neighbors.get(e.source)!.add(e.target); neighbors.get(e.target)!.add(e.source); }
+    const links = subsetEdges.map(e => {
+      const a = neighbors.get(e.source)!, b = neighbors.get(e.target)!;
+      const shared = [...a].filter(id => b.has(id)).length;
+      return { source: e.source, target: e.target, cohesion: shared / Math.max(1, Math.min(a.size, b.size)) };
+    });
+    const points = nodes.map((n, i) => ({ id: n.id, x: 14 * Math.sqrt(i + 1) * Math.cos(i * 2.399963), y: 14 * Math.sqrt(i + 1) * Math.sin(i * 2.399963) }));
+    const simulation = forceSimulation(points).stop()
+      .force('links', forceLink<typeof points[number], typeof links[number]>(links).id(n => n.id).distance(e => 28 + 42 * (1 - e.cohesion)).strength(e => .06 + .22 * e.cohesion))
+      .force('charge', forceManyBody().strength(-38))
+      .force('collision', forceCollide(8))
+      .force('x', forceX(0).strength(.015)).force('y', forceY(0).strength(.015));
+    simulation.tick(140);
+    nodes.forEach((n, i) => { n.x = points[i]!.x; n.y = points[i]!.y; });
+  } else if (roots.length && nodes.length) {
     const points = nodes.map((n, i) => {
       const seed = seedSet.has(index.get(n.id)!);
       const rank = seeds.indexOf(index.get(n.id)!);
@@ -85,7 +103,7 @@ export function selectionSubgraph(graph: GraphData, view: GraphViewState, focus:
     simulation.tick(100);
     nodes.forEach((n, i) => { n.x = points[i]!.x; n.y = points[i]!.y; });
   }
-  const result: GraphData = { ...graph, layoutBase: undefined, selectionRelative: !!roots.length,
+  const result: GraphData = { ...graph, layoutBase: undefined, selectionRelative: !!roots.length, selectionStyle: roots.length ? style : undefined,
     hash: JSON.stringify([graph.hash, key]), nodes, edges: subsetEdges };
   if (entries.size >= 12) entries.delete(entries.keys().next().value!);
   entries.set(key, result);

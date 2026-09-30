@@ -51,3 +51,22 @@ test('bounded relevance view pins the seed, preserves paths, caches and does not
   const combined = selectionSubgraph(large, { selected: ['node-1', 'node-299'], excluded: [] }, null);
   expect(combined.nodes.filter(n => n.relevance === 1).map(n => n.id).sort()).toEqual(['node-1', 'node-299']);
 });
+
+test('cloud doubles detail without pinning the seed or overwriting the radial comparison', () => {
+  const graph: GraphData = { hash: 'cloud-synthetic', nodes: Array.from({ length: 180 }, (_, i) => ({ id: String(i), title: `Sample ${i}`, group: 'entity', degree: 0 })), edges: [] };
+  for (let i = 1; i < 180; i++) {
+    graph.edges.push({ source: String(i - 1), target: String(i) });
+    if (i % 10) graph.edges.push({ source: String(Math.floor(i / 10) * 10), target: String(i) });
+  }
+  const view = { selected: ['30'], excluded: [] };
+  const radial = selectionSubgraph(graph, view, null, 'radial');
+  const cloud = selectionSubgraph(graph, view, null, 'cloud');
+  expect(cloud.nodes).toHaveLength(120);
+  expect(radial.nodes).toHaveLength(60);
+  expect(cloud.selectionStyle).toBe('cloud');
+  const seed = cloud.nodes.find(n => n.id === '30')!;
+  expect(Math.hypot(seed.x!, seed.y!)).toBeGreaterThan(1);
+  expect(cloud.nodes.every(n => Number.isFinite(n.x) && Number.isFinite(n.y))).toBe(true);
+  expect(selectionSubgraph(graph, view, null, 'radial')).toBe(radial);
+  expect(selectionSubgraph(graph, view, null, 'cloud')).toBe(cloud);
+});

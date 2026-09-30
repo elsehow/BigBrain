@@ -3,7 +3,7 @@ import { graphIdentityIndex } from '../../../../../lib/graphIdentity';
 import { selectionEdges } from './selectionEdges';
 import { graphView } from './view';
 import { VERTEX, FRAGMENT } from './shaders';
-import type { GraphData } from '../types';
+import type { GraphData, GraphNode } from '../types';
 import { nodeRadius, seedPosition } from '../../../../../lib/graphGeometry';
 import { createDisplayLayout } from '../graphDisplayLayout';
 import { GRAPH_FOCUS, overviewNodes } from '../graphFocus';
@@ -31,6 +31,7 @@ const programs = new WeakMap<WebGL2RenderingContext, WebGLProgram>();
 /** One WebGL context with static geometry. Interaction changes upload targets;
  * shaders animate them without per-frame graph traversal or buffer uploads. */
 export class GraphRenderer {
+  private radius(n: GraphNode) { return this.graph.selectionStyle === 'cloud' ? (n.group === 'memory' ? 5.5 : 3.8 + 1.4 * (n.relevance ?? 0)) : n.group === 'memory' ? 8 : nodeRadius(n.degree); }
   private gl: WebGL2RenderingContext;
   private program: WebGLProgram;
   private uniforms: Record<string, WebGLUniformLocation | null>;
@@ -142,7 +143,7 @@ export class GraphRenderer {
     this.overview = new Set(this.homeVisible);
     applyOverviewAttention(graph.nodes.map(n => ({ ...n, unread: n.readState?.unread === true })), this.homeVisible, new Set(), true);
     graph.nodes.forEach((n, i) => { if (n.group === 'memory') this.homeVisible.add(i); });
-    this.homeDepth = graph.selectionRelative ? Float32Array.from(graph.nodes, n => -100 + 170 * (n.relevance ?? 0)) : memoryHomeDepth(graph.nodes.map(n => n.group), this.adjacency);
+    this.homeDepth = graph.selectionRelative ? Float32Array.from(graph.nodes, n => (graph.selectionStyle === 'cloud' ? -18 + 52 * (n.relevance ?? 0) : -100 + 170 * (n.relevance ?? 0))) : memoryHomeDepth(graph.nodes.map(n => n.group), this.adjacency);
     graph.nodes.forEach((n, i) => { if (!graph.selectionRelative && activeContextPilot(n)) this.homeDepth[i] = 80; });
     const display = graph.selectionRelative ? graph.nodes.map(n => ({ x: n.x ?? 0, y: n.y ?? 0 })) : createDisplayLayout()(graph, GRAPH_FOCUS);
     this.positions = graph.selectionRelative ? display : memoryThemeLayout(graph.nodes.map((n, i) => ({ ...n, ...(display[i] ?? { x: seedPosition(i)[0], y: seedPosition(i)[1] }) })), this.adjacency);
@@ -156,9 +157,9 @@ export class GraphRenderer {
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, this.width, this.states.length / 4 / this.width, 0, gl.RGBA, gl.FLOAT, this.states);
     const row = (i: number) => {
       const n = graph.nodes[i]!;
-      const ink = graph.selectionRelative ? .25 + .75 * (n.relevance ?? 0) : this.homeDepth[i]! < -18 ? .18 : 1;
+      const ink = graph.selectionRelative ? (graph.selectionStyle === 'cloud' ? .7 + .3 * (n.relevance ?? 0) : .25 + .75 * (n.relevance ?? 0)) : this.homeDepth[i]! < -18 ? .18 : 1;
       // a_node.x / a_other.w hold the previous/next hover-neighborhood emphasis.
-      return [0, this.homeDepth[i]!, (n.group === 'memory' ? 8 : nodeRadius(n.degree)), n.pilotPhase ? (n.group === 'agent' ? 3 : 2) : n.group === 'memory' ? 1 : 0, i, 0, 0, 0, n.degree >= 5 || n.group === 'memory' || n.pilotPhase ? 1 : .55, ink, 0, ink];
+      return [0, this.homeDepth[i]!, this.radius(n), n.pilotPhase ? (n.group === 'agent' ? 3 : 2) : n.group === 'memory' ? 1 : 0, i, 0, 0, 0, graph.selectionStyle === 'cloud' || n.degree >= 5 || n.group === 'memory' || n.pilotPhase ? 1 : .55, ink, 0, ink];
     };
     const sparseEdges = graph.selectionRelative ? selectionEdges(graph) : null;
     let edgeIndex = 0;
@@ -215,7 +216,7 @@ export class GraphRenderer {
     const activityChanged = activityKey !== this.activityKey;
     if (activityChanged) {
       this.activityKey = activityKey;
-      const natural = graph.selectionRelative ? Float32Array.from(graph.nodes, n => -100 + 170 * (n.relevance ?? 0)) : memoryHomeDepth(graph.nodes.map(n => n.group), this.adjacency);
+      const natural = graph.selectionRelative ? Float32Array.from(graph.nodes, n => (graph.selectionStyle === 'cloud' ? -18 + 52 * (n.relevance ?? 0) : -100 + 170 * (n.relevance ?? 0))) : memoryHomeDepth(graph.nodes.map(n => n.group), this.adjacency);
       graph.nodes.forEach((n, i) => {
         const depth = !graph.selectionRelative && activeContextPilot(n) ? 80 : natural[i]!;
         const delta = depth - this.homeDepth[i]!;
@@ -270,7 +271,7 @@ export class GraphRenderer {
     this.activityMoving = [...this.activityVisible];
     this.hasActivity = this.activityVisible.some(Boolean);
     const data: number[] = []; this.activityEdges = [];
-    const radius = (i: number) => nodes[i]!.pilotPhase ? -nodeRadius(nodes[i]!.degree) - (nodes[i]!.group === 'agent' ? 200 : 0) - (nodes[i]!.pilotPhase === 'working' ? 100 : 0) : nodes[i]!.group === 'memory' ? 108 : nodeRadius(nodes[i]!.degree);
+    const radius = (i: number) => nodes[i]!.pilotPhase ? -this.radius(nodes[i]!) - (nodes[i]!.group === 'agent' ? 200 : 0) - (nodes[i]!.pilotPhase === 'working' ? 100 : 0) : nodes[i]!.group === 'memory' ? 100 + this.radius(nodes[i]!) : this.radius(nodes[i]!);
     this.edges.forEach(([a, b], index) => {
       const agent = nodes[a!]!.pilotPhase ? a! : nodes[b!]!.pilotPhase ? b! : -1;
       if (agent < 0) return;
@@ -322,7 +323,7 @@ export class GraphRenderer {
       const wanted = (selection: number) => selection === i || memory && (selection < 0 || this.selectionSubgraph) ? 1 : 0;
       const opacity = (draft || hovered || selected ? 1 : wanted(this.previous) * (1 - t) + wanted(this.selected) * t) * state.alpha;
       const point = projectPoint(this.positions[i]!, state.x, this.camera, this.size);
-      const radius = Math.max(n.pilotPhase ? 6 : 3, (memory ? 8 : nodeRadius(n.degree)) * Math.min(1, Math.sqrt(this.camera.zoom)) * 600 / (600 - state.x));
+      const radius = Math.max(n.pilotPhase ? 6 : 3, this.radius(n) * Math.min(1, Math.sqrt(this.camera.zoom)) * 600 / (600 - state.x));
       return { key, index: i, ...point, width, opacity, above: hovered && !selected && !memory,
         gap: draft ? radius * SELECTOR_RATIO + 25 : radius * (selected || hovered || n.pilotPhase ? SELECTOR_RATIO : 1) + 4,
         priority: selected && !draft ? 0 : hovered && !draft ? 1 : draft ? 2 : memory ? 3 : 4 };
@@ -509,7 +510,7 @@ export class GraphRenderer {
       if ((i === hovered && this.hoverTargets) || reduced) {
         this.states[(this.recordCount + i) * 4] = 0;
       }
-      const inkIndex = i * 12, baseline = this.graph.selectionRelative ? .25 + .75 * (n.relevance ?? 0) : this.homeDepth[i]! < -18 ? .18 : 1;
+      const inkIndex = i * 12, baseline = this.graph.selectionRelative ? (this.graph.selectionStyle === 'cloud' ? .7 + .3 * (n.relevance ?? 0) : .25 + .75 * (n.relevance ?? 0)) : this.homeDepth[i]! < -18 ? .18 : 1;
       this.nodeData[inkIndex + 10] = Number(this.selectedNodes.has(i));
       this.nodeData[inkIndex] += (this.nodeData[inkIndex + 7]! - this.nodeData[inkIndex]!) * inkProgress;
       this.nodeData[inkIndex + 7] = Number(emphasized.has(i));
@@ -714,7 +715,7 @@ export class GraphRenderer {
       return { id: n.id, worldX: p.x, worldY: p.y, degree: n.degree, relevance: n.relevance, group: n.group, selected: this.selectedNodes.has(i), excluded: this.excluded.has(i), visible: opacity > 0, opacity, inkOpacity, height,
         phase: n.pilotPhase ?? null, attention: needsAttention(n),
         draft: n.pilotPhase === 'draft' ? (this.draft?.id === n.id ? this.draft.text : n.pilotDraft) ?? '' : '',
-        radius: Math.max(n.pilotPhase ? 6 : 1, (n.group === 'memory' ? 8 : nodeRadius(n.degree)) * Math.min(1, Math.sqrt(this.camera.zoom)) * m),
+        radius: Math.max(n.pilotPhase ? 6 : 1, this.radius(n) * Math.min(1, Math.sqrt(this.camera.zoom)) * m),
         x: w / 2 + (p.x - this.camera.x) * this.camera.zoom * m,
         y: h / 2 + (p.y - this.camera.y) * this.camera.zoom * m - height * .6 };
     }) };
