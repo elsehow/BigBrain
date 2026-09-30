@@ -23,6 +23,10 @@ import { placeGraphLabels, type LabelBox, type LabelCandidate } from './labels';
 import { GraphHoverHistory } from '../graphHoverHistory';
 import { graphEffects, type EffectPreset } from './effects';
 
+// Selection replaces geometry on the same canvas. Shader compilation belongs
+// to the context lifetime, not each neighborhood. Restored contexts fail isProgram.
+const programs = new WeakMap<WebGL2RenderingContext, WebGLProgram>();
+
 /** One WebGL context with static geometry. Interaction changes upload targets;
  * shaders animate them without per-frame graph traversal or buffer uploads. */
 export class GraphRenderer {
@@ -109,16 +113,20 @@ export class GraphRenderer {
     const gl = canvas.getContext('webgl2', { alpha: true, premultipliedAlpha: true, antialias: false, depth: false, stencil: false });
     if (!gl) throw Error('WebGL2 is unavailable');
     this.gl = gl;
-    const program = gl.createProgram()!;
-    try {
-      for (const [type, source] of [[gl.VERTEX_SHADER, VERTEX], [gl.FRAGMENT_SHADER, FRAGMENT]] as const) {
-        const shader = gl.createShader(type)!; gl.shaderSource(shader, source); gl.compileShader(shader);
-        if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) { const message = gl.getShaderInfoLog(shader); gl.deleteShader(shader); throw Error(message ?? 'Shader compilation failed'); }
-        gl.attachShader(program, shader); gl.deleteShader(shader);
-      }
-      gl.linkProgram(program);
-      if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw Error(gl.getProgramInfoLog(program) ?? 'Shader linking failed');
-    } catch (error) { gl.deleteProgram(program); throw error; }
+    let program = programs.get(gl);
+    if (!program || !gl.isProgram(program)) {
+      program = gl.createProgram()!;
+      try {
+        for (const [type, source] of [[gl.VERTEX_SHADER, VERTEX], [gl.FRAGMENT_SHADER, FRAGMENT]] as const) {
+          const shader = gl.createShader(type)!; gl.shaderSource(shader, source); gl.compileShader(shader);
+          if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) { const message = gl.getShaderInfoLog(shader); gl.deleteShader(shader); throw Error(message ?? 'Shader compilation failed'); }
+          gl.attachShader(program, shader); gl.deleteShader(shader);
+        }
+        gl.linkProgram(program);
+        if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw Error(gl.getProgramInfoLog(program) ?? 'Shader linking failed');
+      } catch (error) { gl.deleteProgram(program); throw error; }
+      programs.set(gl, program);
+    }
     this.program = program;
     this.uniforms = Object.fromEntries(['depthSpring', 'nodeCount', 'state', 'stateWidth', 'recordCount', 'spring', 'size', 'camera', 't', 'selected', 'previous', 'hovered', 'pass', 'ink', 'accent', 'bg', 'time', 'reduced', 'labels', 'edges', 'edgeOpacity', 'edgeInk', 'nodeScale', 'oldCamera', 'oldSpring', 'motionScale'].map(n => [n, gl.getUniformLocation(program, `u_${n}`)]));
     this.geometryKey = graphGeometryKey(graph);
@@ -126,16 +134,16 @@ export class GraphRenderer {
     this.adjacency = graph.nodes.map(() => []);
     const edges = this.edges = graph.edges.flatMap(e => { const a = this.ids.get(e.source), b = this.ids.get(e.target); return a === undefined || b === undefined ? [] : [[a, b]]; });
     for (const [a, b] of edges) { this.adjacency[a!]!.push(b!); this.adjacency[b!]!.push(a!); }
-    const importance = importanceScores(this.adjacency, graph.nodes.map(n => n.group === 'memory'), Uint8Array.from(graph.nodes, n => n.live ? 1 : 0), graph.nodes.map(n => n.memorySupport ?? 0));
+    const importance = graph.selectionRelative ? Float32Array.from(graph.nodes, n => n.relevance ?? 0) : importanceScores(this.adjacency, graph.nodes.map(n => n.group === 'memory'), Uint8Array.from(graph.nodes, n => n.live ? 1 : 0), graph.nodes.map(n => n.memorySupport ?? 0));
     const overview = overviewNodes(importance, GRAPH_FOCUS.overviewCount, graph.nodes.map(n => n.id), this.adjacency, GRAPH_FOCUS.preferConnected);
-    this.homeVisible = new Set(graph.nodes.flatMap((_, i) => overview[i] ? [i] : []));
+    this.homeVisible = new Set(graph.nodes.flatMap((_, i) => graph.selectionRelative || overview[i] ? [i] : []));
     this.overview = new Set(this.homeVisible);
     applyOverviewAttention(graph.nodes.map(n => ({ ...n, unread: n.readState?.unread === true })), this.homeVisible, new Set(), true);
     graph.nodes.forEach((n, i) => { if (n.group === 'memory') this.homeVisible.add(i); });
-    this.homeDepth = memoryHomeDepth(graph.nodes.map(n => n.group), this.adjacency);
-    graph.nodes.forEach((n, i) => { if (activeContextPilot(n)) this.homeDepth[i] = 80; });
-    const display = createDisplayLayout()(graph, GRAPH_FOCUS);
-    this.positions = memoryThemeLayout(graph.nodes.map((n, i) => ({ ...n, ...(display[i] ?? { x: seedPosition(i)[0], y: seedPosition(i)[1] }) })), this.adjacency);
+    this.homeDepth = graph.selectionRelative ? Float32Array.from(graph.nodes, n => -100 + 170 * (n.relevance ?? 0)) : memoryHomeDepth(graph.nodes.map(n => n.group), this.adjacency);
+    graph.nodes.forEach((n, i) => { if (!graph.selectionRelative && activeContextPilot(n)) this.homeDepth[i] = 80; });
+    const display = graph.selectionRelative ? graph.nodes.map(n => ({ x: n.x ?? 0, y: n.y ?? 0 })) : createDisplayLayout()(graph, GRAPH_FOCUS);
+    this.positions = graph.selectionRelative ? display : memoryThemeLayout(graph.nodes.map((n, i) => ({ ...n, ...(display[i] ?? { x: seedPosition(i)[0], y: seedPosition(i)[1] }) })), this.adjacency);
     this.recordCount = graph.nodes.length + edges.length + 1;
     this.states = new Float32Array(this.width * Math.max(1, Math.ceil(this.recordCount * 2 / this.width)) * 4);
     graph.nodes.forEach((_, i) => { this.states[i * 4] = this.states[i * 4 + 1] = this.homeDepth[i]!; this.states[i * 4 + 2] = this.states[i * 4 + 3] = Number(this.homeVisible.has(i)); });
@@ -146,7 +154,7 @@ export class GraphRenderer {
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, this.width, this.states.length / 4 / this.width, 0, gl.RGBA, gl.FLOAT, this.states);
     const row = (i: number) => {
       const n = graph.nodes[i]!;
-      const ink = this.homeDepth[i]! < -18 ? .18 : 1;
+      const ink = graph.selectionRelative ? .25 + .75 * (n.relevance ?? 0) : this.homeDepth[i]! < -18 ? .18 : 1;
       // a_node.x / a_other.w hold the previous/next hover-neighborhood emphasis.
       return [0, this.homeDepth[i]!, (n.group === 'memory' ? 8 : nodeRadius(n.degree)), n.pilotPhase ? (n.group === 'agent' ? 3 : 2) : n.group === 'memory' ? 1 : 0, i, 0, 0, 0, n.degree >= 5 || n.group === 'memory' || n.pilotPhase ? 1 : .55, ink, 0, ink];
     };
@@ -160,7 +168,7 @@ export class GraphRenderer {
       const high = presence(Math.max(importance[a]!, importance[b]!));
       const low = presence(Math.min(importance[a]!, importance[b]!));
       const salience = .035 + .965 * high * (.35 + .65 * low);
-      const homeInk = graph.nodes[a]!.group === 'memory' || graph.nodes[b]!.group === 'memory' ? Math.max(.45, salience) : .06 * salience;
+      const homeInk = graph.selectionRelative ? .08 + .65 * Math.sqrt(importance[a]! * importance[b]!) : graph.nodes[a]!.group === 'memory' || graph.nodes[b]!.group === 'memory' ? Math.max(.45, salience) : .06 * salience;
       this.edgeHome.push(homeInk);
       const stateIndex = graph.nodes.length + edgeIndex++;
       this.states[stateIndex * 4] = this.states[stateIndex * 4 + 1] = homeInk;
@@ -204,9 +212,9 @@ export class GraphRenderer {
     const activityChanged = activityKey !== this.activityKey;
     if (activityChanged) {
       this.activityKey = activityKey;
-      const natural = memoryHomeDepth(graph.nodes.map(n => n.group), this.adjacency);
+      const natural = graph.selectionRelative ? Float32Array.from(graph.nodes, n => -100 + 170 * (n.relevance ?? 0)) : memoryHomeDepth(graph.nodes.map(n => n.group), this.adjacency);
       graph.nodes.forEach((n, i) => {
-        const depth = activeContextPilot(n) ? 80 : natural[i]!;
+        const depth = !graph.selectionRelative && activeContextPilot(n) ? 80 : natural[i]!;
         const delta = depth - this.homeDepth[i]!;
         if (!delta) return;
         this.homeDepth[i] = this.nodeData[i * 12 + 1] = depth;
@@ -495,7 +503,7 @@ export class GraphRenderer {
       if ((i === hovered && this.hoverTargets) || reduced) {
         this.states[(this.recordCount + i) * 4] = 0;
       }
-      const inkIndex = i * 12, baseline = this.homeDepth[i]! < -18 ? .18 : 1;
+      const inkIndex = i * 12, baseline = this.graph.selectionRelative ? .25 + .75 * (n.relevance ?? 0) : this.homeDepth[i]! < -18 ? .18 : 1;
       this.nodeData[inkIndex + 10] = Number(this.selectedNodes.has(i));
       this.nodeData[inkIndex] += (this.nodeData[inkIndex + 7]! - this.nodeData[inkIndex]!) * inkProgress;
       this.nodeData[inkIndex + 7] = Number(emphasized.has(i));
@@ -690,7 +698,7 @@ export class GraphRenderer {
       const hoverEmphasis = this.nodeData[i * 12]! * (1 - this.progress(now)) + this.nodeData[i * 12 + 7]! * this.progress(now);
       const baseInk = ink * this.nodeData[i * 12 + 8]! * Math.exp(Math.min(0, height - this.homeDepth[i]!) / 95);
       const inkOpacity = i === this.hovered ? 1 : opacity * (baseInk * (1 - hoverEmphasis) + hoverEmphasis);
-      return { id: n.id, worldX: p.x, worldY: p.y, degree: n.degree, group: n.group, selected: this.selectedNodes.has(i), excluded: this.excluded.has(i), visible: opacity > 0, opacity, inkOpacity, height,
+      return { id: n.id, worldX: p.x, worldY: p.y, degree: n.degree, relevance: n.relevance, group: n.group, selected: this.selectedNodes.has(i), excluded: this.excluded.has(i), visible: opacity > 0, opacity, inkOpacity, height,
         phase: n.pilotPhase ?? null, attention: needsAttention(n),
         draft: n.pilotPhase === 'draft' ? (this.draft?.id === n.id ? this.draft.text : n.pilotDraft) ?? '' : '',
         radius: Math.max(n.pilotPhase ? 6 : 1, (n.group === 'memory' ? 8 : nodeRadius(n.degree)) * Math.min(1, Math.sqrt(this.camera.zoom)) * m),
@@ -712,5 +720,5 @@ export class GraphRenderer {
     });
     return hit >= 0 ? this.graph.nodes[hit]!.id : null;
   }
-  dispose() { const gl = this.gl; this.passes.forEach(p => { gl.deleteBuffer(p.buffer); gl.deleteVertexArray(p.vao); }); gl.deleteFramebuffer(this.edgeFramebuffer); gl.deleteTexture(this.edgeTexture); gl.deleteTexture(this.stateTexture); gl.deleteTexture(this.labelTexture); gl.deleteProgram(this.program); }
+  dispose() { const gl = this.gl; this.passes.forEach(p => { gl.deleteBuffer(p.buffer); gl.deleteVertexArray(p.vao); }); gl.deleteFramebuffer(this.edgeFramebuffer); gl.deleteTexture(this.edgeTexture); gl.deleteTexture(this.stateTexture); gl.deleteTexture(this.labelTexture); }
 }

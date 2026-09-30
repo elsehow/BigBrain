@@ -23,6 +23,7 @@
   let canvas = $state<HTMLCanvasElement>(null!);
   let renderer = $state.raw<GraphRenderer | null>(null);
   let hoverId = $state<string | null>(null);
+  const hoverPath = $derived(displayData?.nodes.find(n => n.id === hoverId)?.selectionPath?.map(id => displayData?.nodes.find(n => n.id === id)?.title ?? id).join(' → '));
   let error = $state(''), contextRevision = $state(0), reduced = false, frame = 0;
   let dragging = $state(false);
   let gesture: { pointerId: number; id: string | null; start: { x: number; y: number }; last: { x: number; y: number } } | null = null;
@@ -179,9 +180,11 @@
 <div class="lg-wrap graph-renderer" data-renderer="webgl" data-selected={selected ?? ''} data-hovered={hoverId ?? ''}>
   <canvas bind:this={canvas} onmousedown={exclude} oncontextmenu={e => { if (e.ctrlKey) e.preventDefault(); }} onpointerdown={down} onpointerup={up} onpointermove={move} onpointercancel={cancelGesture} onlostpointercapture={cancelGesture} ondblclick={refit} onpointerleave={() => { if (!gesture) clearHover(); }} style:cursor={dragging ? 'grabbing' : hoverId ? 'pointer' : 'grab'} aria-label="Knowledge graph"></canvas>
   {#if controls}<div class="graph-controls"><button onclick={clear}>Reset view</button><span>Shift-click to add · Ctrl-click to exclude</span></div>{/if}
+  {#if subgraphExperiment && hoverPath}<aside class="selection-path" role="status">{hoverPath}</aside>{/if}
   {#if error}<p role="alert">{error}</p>{/if}
 </div>
 <style>
+  .selection-path { position:fixed; bottom:32px; right:20px; max-width:min(480px,45vw); padding:8px 12px; background:var(--bg); color:var(--text); border:1px solid var(--rule); font:var(--type-meta); pointer-events:none; }
   .lg-wrap { position:absolute; inset:0; }
   canvas { display:block; width:100%; height:100%; background:var(--bg); touch-action:none; }
   .graph-controls { position:absolute; bottom:12px; left:12px; display:flex; gap:12px; align-items:center; background:var(--bg); }

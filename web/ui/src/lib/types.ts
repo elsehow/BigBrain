@@ -124,6 +124,9 @@ export interface QueueMessageRow {
 // open). `group` is the substrate type; `degree` is the undirected link
 // count (node size).
 export interface GraphNode {
+  /** Experimental selection-relative importance, normalized for display. */
+  relevance?: number;
+  selectionPath?: string[];
   agentState?: import("./agentAppearance").AgentVisualState;
   /** Current provider state, independent of filing and agent activity. */
   readState?: import("../../../../lib/sourceReadStateTypes").SourceReadState;
@@ -173,6 +176,8 @@ export interface GraphEdge {
   weight?: number;
 }
 export interface GraphData {
+  /** Precomputed, bounded selection-relative layout. */
+  selectionRelative?: boolean;
   /** Browser-only base graph: session overlays do not invalidate its layout. */
   layoutBase?: GraphData;
   nodes: GraphNode[];

@@ -34,7 +34,7 @@ const graph = {
       assert.deepEqual(s.nodes.filter(n => n.visible && ids.includes(n.id)).map(n => n.id).sort(), members.map(i => ids[i]).sort());
       const expected = new Set(s.view.selected);
       let frontier = [...expected];
-      for (let hop = 0; hop < 2; hop++) {
+      for (let hop = 0; hop < s.nodes.length; hop++) {
         const next = [];
         for (const id of frontier) for (const e of s.edges) {
           const neighbor = e.source === id ? e.target : e.target === id ? e.source : null;
@@ -49,19 +49,21 @@ const graph = {
         if (!inside) assert.equal(edge.activity, 0);
       }
     };
+    await page.waitForTimeout(500);
     const original = await scene();
-    await click(0); await expectMembers([0,1,2]);
+    await click(0); await expectMembers([0,1,2,3,4]);
     const focused = await scene();
-    assert(focused.nodes.length < original.nodes.length, 'out-of-subset nodes leave renderer topology');
+    assert(focused.nodes.length < original.nodes.length, 'disconnected nodes leave renderer topology');
     assert(focused.nodes.some(n => { const before = original.nodes.find(p => p.id === n.id); return Math.hypot(n.worldX - before.worldX, n.worldY - before.worldY) > 5; }), 'subset gets new world positions');
     const route = await page.evaluate(() => location.hash);
     const beforeHover = await scene();
     const second = beforeHover.nodes.find(n => n.id === ids[2]);
     await page.mouse.move(second.x, second.y); await page.waitForTimeout(500);
-    await expectMembers([0,1,2]);
+    await expectMembers([0,1,2,3,4]);
     const hovered = await scene();
     assert.equal(hovered.hovered, ids[2], 'hover identifies the pointed node');
     assert(hovered.labels.some(l => l.id === ids[2] && l.opacity > 0), 'hover shows its name');
+    assert((await page.locator('.selection-path').innerText()).includes('Subgraph sample 0 → Subgraph sample 1 → Subgraph sample 2'), 'hover explains a real connecting path');
     assert.equal(hovered.nodes.find(n => n.id === ids[2]).inkOpacity, 1, 'hover restores full emphasis');
     assert.deepEqual(hovered.camera, beforeHover.camera, 'hover never zooms or pans');
     assert.deepEqual(hovered.nodes.map(n => [n.worldX, n.worldY, n.height]), beforeHover.nodes.map(n => [n.worldX, n.worldY, n.height]), 'hover never moves nodes');
@@ -80,7 +82,7 @@ const graph = {
     assert.equal(await page.evaluate(() => location.hash), route);
     assert.deepEqual((await scene()).view.selected.sort(), [ids[0],ids[2]].sort());
     await click(2); await expectMembers([0,1,2,3,4]);
-    assert.deepEqual((await scene()).view.selected, [ids[2]], 'source selection also reveals two hops');
+    assert.deepEqual((await scene()).view.selected, [ids[2]], 'source selection ranks the whole connected graph');
     await page.keyboard.press('Escape'); await page.waitForTimeout(500);
     assert.deepEqual((await scene()).view.selected, []);
     assert((await scene()).nodes.find(n => n.id === ids[5]).visible, 'Escape restores disconnected overview memory');
@@ -99,9 +101,11 @@ const graph = {
     await page.waitForTimeout(1800);
     const end = await scene();
     assert(mid.nodes.some(n => { const target = end.nodes.find(p => p.id === n.id); return target && Math.hypot(n.worldX - target.worldX, n.worldY - target.worldY) > 1; }), 'selection animates world positions rather than only the camera');
+    assert(end.nodes.find(n => n.id === ids[0]).height > end.nodes.find(n => n.id === ids[3]).height, 'relevance places seed ahead of memory landmarks');
+    assert(end.nodes.length <= 60);
     assert.equal(await page.locator('.graph-renderer canvas').count(), 1);
     assert.deepEqual(errors, []);
-    console.log(`PASS ${engine.name()}: real shell, two hops, removed third hop, relayout, animated transition, stationary hover labels, Shift union, source root, isolated root, Escape`);
+    console.log(`PASS ${engine.name()}: real shell, relative importance, bounded topology, relayout, animated transition, stationary hover labels, Shift union, source root, isolated root, Escape`);
   } finally { await browser.close(); }
  }
 })().catch(e => { console.error(e); process.exitCode = 1; });
