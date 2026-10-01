@@ -32,3 +32,10 @@ test("Claude recommendations resolve family aliases to the latest available nati
   expect(defaults.quick.model).toBe("claude-haiku-4-5");
   expect(availableDefaults("anthropic", [{ id: "opus" }, { id: "claude-opus-4-10" }]).pilot.model).toBe("opus");
 });
+
+test("the Claude gardener recommendation is the newest Sonnet; the other roles keep their families", () => {
+  const models = ["claude-opus-5", "claude-opus-5-5", "claude-sonnet-5", "claude-sonnet-5-5", "claude-haiku-4-5"];
+  const defaults = availableDefaults("anthropic", models.map(id => ({ id })));
+  expect(defaults.gardener.model).toBe("claude-sonnet-5-5");
+  expect([defaults.memory.model, defaults.pilot.model, defaults.quick.model]).toEqual(["claude-opus-5-5", "claude-opus-5-5", "claude-haiku-4-5"]);
+});
