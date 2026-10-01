@@ -153,3 +153,40 @@ describe("the memory pass's shared tools", () => {
     await expect(Promise.resolve().then(() => read.call({ path: "memory/MEMORY.md" }))).rejects.toThrow("path must be shared/<vault>/ins_<id>.md");
   });
 });
+
+describe("end to end", () => {
+  test("a contributor's published claims make a member with an empty personal vault due a memory sweep", async () => {
+    const { appendAssertionEvent, createAssertionEvent } = await import("../lib/assertionLog");
+    const { appendSourceInsertionEvent, sourceInsertion } = await import("../lib/insertionLog");
+    const { contributions, sendSources } = await import("../lib/sharedRules");
+    const { publishAssertions } = await import("../lib/sharedAssertionPublish");
+    const { readConnections } = await import("../lib/sharedConnections");
+    const dir = mkdtempSync(join(tmpdir(), "bb-shared-e2e-")), shared = join(dir, "shared"), contributor = join(dir, "contributor");
+    mkdirSync(shared); mkdirSync(contributor);
+    const members = join(dir, "members.json"), contributorStore = join(dir, "contributor.json"), memberStore = join(dir, "member.json");
+    initMemberStore(members, shared, { handle: "owner" });
+    addMember(members, { handle: "alice", display: "Alice", permissions: ["read", "write"] });
+    addMember(members, { handle: "bob", display: "Bob", permissions: ["read"] });
+    const alice = mintCredential(members, "alice", { name: "laptop" }), bob = mintCredential(members, "bob", { name: "laptop" });
+    const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: makeSharedApiHandler({ root: shared, storePath: members, vault: new SharedVault(shared), log: () => {} }) });
+    const endpoint = `http://127.0.0.1:${server.port}`;
+    try {
+      // Alice files a source at home, her gardener asserts from it, and she contributes the source.
+      const kickoff = sourceInsertion({ id: "example-kickoff", title: "Kickoff notes", from: "Example", from_kind: "person", source: "web", date: "2026-09-29" }, "The Example project kicked off on Monday.");
+      appendSourceInsertionEvent(contributor, kickoff);
+      appendAssertionEvent(contributor, createAssertionEvent({ text: `[[${project.id}|Example project]] kicked off on Monday.`, entities: [project], sources: [kickoff.id],
+        author: { kind: "model", id: "test", invocation_id: "run-1" }, confidence: "direct", created_at: "2026-09-29T12:00:00.000Z", produced_by: { procedure: "test", version: "v1" } }, new Map([[kickoff.id, kickoff]])));
+      const a = await saveConnection(contributorStore, { name: "Example team", endpoint, token: alice.token });
+      const aliceConnection = readConnections(contributorStore).find(c => c.id === a.id)!;
+      await sendSources(contributorStore, aliceConnection, [kickoff]);
+      expect((await publishAssertions(contributor, contributorStore, aliceConnection, await contributions(aliceConnection))).published).toBe(1);
+
+      // Bob joined read-only and has filed nothing of his own.
+      const member = freshVault();
+      writeMemoryStamp(member, { nextRunAt: "2026-01-01T00:00:00.000Z" });
+      await saveConnection(memberStore, { name: "Example team", endpoint, token: bob.token });
+      await refreshSharedMemory(member, memberStore);
+      expect(memoryDue(member)).toEqual({ due: true, reason: "scheduled sweep — 1 new shared-vault assertion(s)" });
+    } finally { server.stop(true); }
+  });
+});
