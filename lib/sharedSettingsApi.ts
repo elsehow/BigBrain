@@ -8,6 +8,7 @@ import {SharedConnectionError,connectionStorePath,readConnections,publicConnecti
 import {serializeMentions,type MentionPart} from './pilotMentions';
 import {searchRuleEntities} from './sharedRuleMentions';
 import {contributions,getRule,setRule,startTest,testView,importTest} from './sharedRules';
+import {tickPublishing} from './sharedAssertionPublish';
 export async function sharedSettingsApi(req:IncomingMessage,res:ServerResponse,root:string) {
  const url=new URL(req.url??'/','http://localhost');if(!url.pathname.startsWith('/api/shared-settings'))return false;
  if(!allowVaultRequest(req,res,vaultIdentity(root)))return true;
@@ -48,6 +49,7 @@ export async function sharedSettingsApi(req:IncomingMessage,res:ServerResponse,r
    else if(action==='withdraw'||action==='restore') {
     if(typeof body.id!=='string'||!/^sc_[a-f0-9]{24}$/.test(body.id))throw Error('Invalid contribution');
     json(res,200,await sharedRequest(c,`/v1/contributions/${body.id}/${action}`,{request_id:body.request_id,version:body.version}));
+    void tickPublishing(root,store,c.id); // retract claims that cited a withdrawn source now, not on the next tick
    }else json(res,404,{error:'Not found'});
   }else json(res,405,{error:'Method not allowed'});
  }catch(e){json(res,e instanceof SharedConnectionError?e.status:400,{error:e instanceof Error?e.message:'Shared vault request failed'});}

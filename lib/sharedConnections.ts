@@ -5,11 +5,14 @@ import { homedir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { writeAtomic } from './fsx';
 import { sharedConnectionsStore } from './env';
-export interface SharedConnection { id: string; name: string; endpoint: string; token: string; memberId?: string }
+export interface SharedConnection { id: string; name: string; endpoint: string; token: string; memberId?: string;
+  /** The member's agent delegate, minted on first publish (lib/sharedAssertionPublish.ts). */
+  agentToken?: string }
 export interface SharedIdentity { vault?: {id:string;name:string}; handle: string; display: string; role: string; permissions: string[]; member_id: string; credential: { id: string; name: string } }
 export class SharedConnectionError extends Error { constructor(public status: number, message: string) { super(message); } }
 export function connectionStorePath(): string { return sharedConnectionsStore() ?? join(homedir(), '.config/bigbrain/shared-connections.json'); }
 export function readConnections(path: string): SharedConnection[] { return existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) : []; }
+const writeConnections = (path: string, connections: SharedConnection[]) => writeAtomic(path, JSON.stringify(connections, null, 2) + '\n', 0o600);
 export function publicConnection({ id, name, endpoint }: SharedConnection) { return { id, name, endpoint }; }
 export function endpointURL(value: string): string {
   let url: URL;
@@ -54,8 +57,14 @@ export async function saveConnection(path: string, input: { name?: unknown; endp
   if(existing){connection.id=existing.id;connections.splice(connections.indexOf(existing),1);}
   connections.push(connection);
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-  writeAtomic(path, JSON.stringify(connections, null, 2) + '\n', 0o600);
+  writeConnections(path, connections);
   return { ...publicConnection(connection), identity };
+}
+
+export function updateConnection(path:string,id:string,patch:Partial<Omit<SharedConnection,'id'>>) {
+ const connections=readConnections(path),connection=connections.find(c=>c.id===id);
+ if(!connection)return;
+ Object.assign(connection,patch);writeConnections(path,connections);
 }
 
 export async function refreshConnectionNames(path:string) {
@@ -63,6 +72,6 @@ export async function refreshConnectionNames(path:string) {
  await Promise.all(connections.map(async c=>{try{const who=await sharedRequest<SharedIdentity>(c,'/v1/whoami');if(who.vault?.name)names.set(c.id,who.vault.name);}catch{/* Offline connections keep their last verified name. */}}));
  const latest=readConnections(path);let changed=false;
  for(const c of latest){const name=names.get(c.id);if(name&&name!==c.name){c.name=name;changed=true;}}
- if(changed)writeAtomic(path,JSON.stringify(latest,null,2)+'\n',0o600);
+ if(changed)writeConnections(path,latest);
  return latest.map(publicConnection);
 }
