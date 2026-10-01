@@ -1,14 +1,16 @@
 /* Every theme has three base colors: background, foreground, activity.
    All surfaces, muted ink and borders derive from those three. Names are
    shared by built-ins and YAML skins (lib/themes.ts; docs/skins.md). */
-@import url("https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@300;400;500;600;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@300;400;500;600;700&family=Instrument+Serif:ital@0;1&display=swap");
 
 :root {
   --bg: #FFFFFF;
   --fg: #211A18;
   --activity: #CC4A3E;
-  /* typography — one knob: --font-app */
+  /* typography — one knob: --font-app. --font-display is for the rare
+     large invitation (home's empty state), never running text. */
   --font-app: "Hanken Grotesk", system-ui, -apple-system, sans-serif;
+  --font-display: "Instrument Serif", Georgia, serif;
   --font-mono: ui-monospace, Menlo, "SF Mono", monospace;
   --fw-regular: 400;
   --fw-medium: 500;
