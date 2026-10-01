@@ -1,7 +1,7 @@
 <script lang="ts">
   import BlockScrollbar from "./BlockScrollbar.svelte";
   import SharedAssertions from "./SharedAssertions.svelte";
-  import { selectedWorkspace } from "../lib/vaultScope";
+  import { isSharedRecord, selectedWorkspace } from "../lib/vaultScope";
   import { inspectActions } from "../lib/actionHistory.svelte";
   import KeyboardModifier from "./KeyboardModifier.svelte";
   import { SIDEBAR_LAYOUT, type SidebarLayout } from "../lib/sidebarLayout";
@@ -106,9 +106,12 @@
   let briefingLoading = $state(false);
   let briefingAttempt = $state(0);
   let briefingFor = "";
+  // Briefings read this vault's own graph, which a shared vault's records
+  // are not part of: those open on their text instead.
+  const sharedRecord = $derived([notePath ?? "", ...noteSelection.selected].some(isSharedRecord));
   $effect(() => {
     if (selectedWorkspace) return;
-    const path = notePath;
+    const path = sharedRecord ? null : notePath;
     const request = briefingRequest;
     void app.rev; void briefingAttempt;
     const controller = new AbortController();
@@ -458,7 +461,7 @@
             </div>
           {/if}
           {#if body && !multiple}
-            <details class="original-note" open={!!selectedWorkspace}>
+            <details class="original-note" class:shared-record={sharedRecord} open={!!selectedWorkspace || sharedRecord}>
               <summary>Read note</summary>
               <div class="note-body body"><div class="body-cell">
                 <div class="body-text md-body prose" use:wikilinks>{@html renderBody(body)}</div>

@@ -9,6 +9,9 @@ export const personalOnly = selectedVaults.length === 1 && personalIncluded;
 // links enter the isolated remote workspace adapter.
 export const selectedWorkspace = !params.has('vaults') && params.get('workspace') !== 'personal' ? params.get('workspace') : null;
 export const workspaceURL = (path: string) => selectedWorkspace ? `${path}${path.includes("?") ? "&" : "?"}workspace=${encodeURIComponent(selectedWorkspace)}` : path;
+/** A record a connected shared vault serves (lib/sharedReadUnion.ts paths
+ * them shared/<connection>/… and ids them shared:<connection>:…). */
+export const isSharedRecord = (ref: string): boolean => ref.startsWith("shared/") || ref.startsWith("shared:");
 export function switchVaults(ids: string[]): void {
   const url = new URL(location.href);
   url.searchParams.delete("workspace");
