@@ -51,8 +51,9 @@ export type Auth = "max" | "api";
 /** The model a vault gets when its vault.yaml names none anywhere. Reached
  * only by a hand-written file: `bigbrain init` always writes one. The most
  * capable default, never the cheapest — economizing the one pass was the
- * discredited move. */
-const DEFAULT_MODEL = MODEL_DEFAULTS.anthropic.gardener.model;
+ * discredited move. Deliberately not the gardener recommendation: memory falls
+ * back to this too, and an existing file must keep resolving as it always has. */
+const DEFAULT_MODEL = "opus";
 
 export interface Manifest {
   /** Absolute path of the vault root (the directory holding vault.yaml). */
