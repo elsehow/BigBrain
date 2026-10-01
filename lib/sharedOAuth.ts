@@ -341,7 +341,7 @@ function page(status: number, title: string, body: string, headers: Record<strin
   return new Response(html, { status, headers: { ...PAGE_HEADERS, ...headers } });
 }
 
-const START_AGAIN = "Start again from Claude: remove the connector's pending connection and connect once more.";
+const START_AGAIN = "Start again from Claude: open the connector in Claude's settings and choose Connect.";
 
 // ── state held in memory ────────────────────────────────────────────────────
 
@@ -835,9 +835,9 @@ ${google ? `<p><a class="button" href="/oauth/google?pending=${esc(encodeURIComp
   return {
     resourceUrl,
     async handlePublic(req, url) {
-      const route = ROUTES[url.pathname];
+      const route = Object.hasOwn(ROUTES, url.pathname) ? ROUTES[url.pathname] : undefined;
       if (!route) return undefined;
-      const handler = route[req.method as "GET" | "POST"];
+      const handler = Object.hasOwn(route, req.method) ? route[req.method as "GET" | "POST"] : undefined;
       if (!handler) return json(405, { error: "method not allowed" }, { Allow: Object.keys(route).join(", ") });
       try {
         return await handler(req, url);

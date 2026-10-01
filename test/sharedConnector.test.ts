@@ -251,6 +251,9 @@ describe("discovery", () => {
     const spoofed = await w.handler(new Request("https://attacker.example.net/.well-known/oauth-authorization-server", { headers: { Host: "attacker.example.net" } }));
     expect((await spoofed.json()).issuer).toBe(PUBLIC);
     expect((await req(w, "POST", "/.well-known/oauth-authorization-server", { json: {} })).status).toBe(405);
+    // only the exact public paths are public; a near miss is the door's 401
+    for (const path of ["/authorize/", "/token/x", "/.well-known/oauth-protected-resource/other", "/register?x"])
+      expect([path, (await req(w, path.startsWith("/register") ? "POST" : "GET", path.replace("?x", "x"))).status]).toEqual([path, 401]);
   });
 
   test("/mcp without a live credential is 401 pointing at the resource metadata", async () => {
