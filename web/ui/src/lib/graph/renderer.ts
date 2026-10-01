@@ -48,6 +48,15 @@ export class GraphRenderer {
   private homeVisible: Set<number>;
   /** Overview landmarks: memories, or their stand-ins before the first one. */
   private anchors: boolean[];
+  /** Anchors, most important first, and how full the overview may get with
+   * them: memories always stand on it, while stand-ins join only up to its
+   * budget — a large memoryless vault (an evidence-only shared vault) must
+   * not be drawn whole, but a small one keeps every landmark in view. */
+  private anchorOrder: number[] = [];
+  private anchorBudget = Infinity;
+  private revealAnchors() {
+    for (const i of this.anchorOrder) { if (this.homeVisible.size >= this.anchorBudget) break; this.homeVisible.add(i); }
+  }
   private overview: Set<number>;
   private geometryKey: string;
   private statusKey = '';
@@ -151,10 +160,12 @@ export class GraphRenderer {
     this.anchors = overviewAnchors(graph.nodes.map(n => n.group), this.adjacency);
     const importance = graph.selectionRelative ? Float32Array.from(graph.nodes, n => n.relevance ?? 0) : importanceScores(this.adjacency, this.anchors, Uint8Array.from(graph.nodes, n => n.live ? 1 : 0), graph.nodes.map(n => n.memorySupport ?? 0));
     const overview = overviewNodes(importance, GRAPH_FOCUS.overviewCount, graph.nodes.map(n => n.id), this.adjacency, GRAPH_FOCUS.preferConnected);
+    this.anchorOrder = graph.nodes.flatMap((_, i) => this.anchors[i] ? [i] : []).sort((a, b) => importance[b]! - importance[a]! || a - b);
+    if (!graph.nodes.some(n => n.group === 'memory')) this.anchorBudget = GRAPH_FOCUS.overviewCount;
     this.homeVisible = new Set(graph.nodes.flatMap((_, i) => graph.selectionRelative || overview[i] ? [i] : []));
     this.overview = new Set(this.homeVisible);
     applyOverviewAttention(graph.nodes.map(n => ({ ...n, unread: n.readState?.unread === true })), this.homeVisible, new Set(), true);
-    this.anchors.forEach((anchor, i) => { if (anchor) this.homeVisible.add(i); });
+    this.revealAnchors();
     this.homeDepth = graph.selectionRelative ? Float32Array.from(graph.nodes, n => (graph.selectionStyle === 'cloud' ? -18 + 52 * (n.relevance ?? 0) : -100 + 170 * (n.relevance ?? 0))) : anchorHomeDepth(this.anchors, this.adjacency);
     graph.nodes.forEach((n, i) => { if (!graph.selectionRelative && activeContextPilot(n)) this.homeDepth[i] = 80; });
     const display = graph.selectionRelative ? graph.nodes.map(n => ({ x: n.x ?? 0, y: n.y ?? 0 })) : createDisplayLayout()(graph, GRAPH_FOCUS);
@@ -255,7 +266,7 @@ export class GraphRenderer {
         // All actual connections of active agents stay visible, including
         // endpoints outside the compact overview. This does not recurse.
         this.edges.map(([a, b]) => ({ a: a!, b: b!, pilotContext: true })));
-      this.anchors.forEach((anchor, i) => { if (anchor) this.homeVisible.add(i); });
+      this.revealAnchors();
       this.cachedBounds = undefined;
       if (this.cameraReady) {
         this.previous = this.selected; this.retarget(performance.now(), this.reducedMotion);
