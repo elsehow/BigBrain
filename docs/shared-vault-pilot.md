@@ -17,6 +17,10 @@ both the local UI and inclusion worker. The remote service persists independentl
 
 The owner opens Settings → the shared vault → Members to create an invitation.
 The name is an owner-assigned display label, not a verified email identity.
+When the server signs members in with Google (docs/shared-vault-connector.md),
+the dialog asks for an email instead, adds a pending member, and shows the
+vault's constant join link; the member then creates app links from their
+personal page, and the app refuses the join link itself.
 Invitations grant read-only or contributor access and create a distinct member
 on redemption. The operator CLI can still bootstrap an existing member with
 `bin/shared-invite.ts`. Connect vault accepts only that invite link; the server
