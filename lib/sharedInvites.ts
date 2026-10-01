@@ -12,7 +12,10 @@ export function sharedVaultIdentity(root:string) {
   if(!existsSync(path))writeAtomic(path,JSON.stringify({id:randomUUID(),name:'Shared BigBrain'}),0o600);
   return JSON.parse(readFileSync(path,'utf8')) as {id:string;name:string;recommended_rules?:{id:string;text:string;mentions:string[]}[]};
 }
-type Invite={hash:string;token:string;expires:string;used?:boolean;id?:string;secret?:string;display?:string;permission?:'read'|'write';cancelled?:boolean};
+/** Three kinds share one file: legacy handle-bound invites (`token` pre-minted),
+ * owner-created invites (`id`, `display`, `permission`: a new member on use), and
+ * app links (`member`: a handle that EXISTS, from the connector's personal page). */
+type Invite={hash:string;token:string;expires:string;used?:boolean;id?:string;secret?:string;display?:string;permission?:'read'|'write';cancelled?:boolean;member?:string};
 const read=(path:string):Invite[]=>existsSync(path)?JSON.parse(readFileSync(path,'utf8')):[];
 function issueSharedInviteLocked(store:string,handle:string,endpoint:string,hours=24) {
   const url=new URL(endpoint);
@@ -24,7 +27,7 @@ function issueSharedInviteLocked(store:string,handle:string,endpoint:string,hour
   writeAtomic(path,JSON.stringify(items),0o600);
   return `${url.origin}/invite#${secret}`;
 }
-type Consumed={kind:'member';member:SharedMember}|{kind:'legacy';token:string;actor:SharedActor};
+type Consumed={kind:'member';member:SharedMember}|{kind:'existing';member:SharedMember}|{kind:'legacy';token:string;actor:SharedActor};
 /** Consume an invitation and say whom it names, minting nothing: an owner-created
  * invitation becomes its new member here; a legacy handle-bound one hands back the
  * credential minted when it was issued. Shared by redemption and the connector's
@@ -33,6 +36,11 @@ function consumeInviteLocked(store:string,secret:string,now:Date):Consumed|null 
   if(!/^[A-Za-z0-9_-]{43}$/.test(secret))return null;
   const path=store+'.invites.json',items=read(path),invite=items.find(i=>i.hash===sha256hex(secret));
   if(!invite||invite.used||invite.cancelled||Date.parse(invite.expires)<=now.getTime())return null;
+  if(invite.member) {
+    const member=listMembers(store).find(m=>m.handle===invite.member&&!m.revoked);
+    invite.used=true;writeAtomic(path,JSON.stringify(items),0o600);
+    return member?{kind:'existing',member}:null;
+  }
   if(invite.display && invite.permission && invite.id) {
     // Consume before minting: a crash can burn a link, never redeem it twice.
     invite.used=true;delete invite.secret;writeAtomic(path,JSON.stringify(items),0o600);
@@ -47,7 +55,8 @@ function redeemSharedInviteLocked(store:string,secret:string,now=new Date()) {
   const consumed=consumeInviteLocked(store,secret,now);
   if(!consumed)return null;
   if(consumed.kind==='legacy')return {token:consumed.token,identity:consumed.actor};
-  // Full member-following scope allows a later owner upgrade to take effect.
+  // Full member-following scope allows a later owner upgrade to take effect —
+  // for a new member and for an app link alike.
   const {token}=mintCredential(store,consumed.member.handle,{name:'BigBrain',followsMember:true});
   const verified=verifyCredential(store,token);
   return verified.ok?{token,identity:verified.actor}:null;
@@ -57,7 +66,7 @@ function redeemSharedInviteLocked(store:string,secret:string,now=new Date()) {
 function identifyBySharedInviteLocked(store:string,secret:string,now=new Date()):SharedMember|null {
   const consumed=consumeInviteLocked(store,secret,now);
   if(!consumed)return null;
-  if(consumed.kind==='member')return consumed.member;
+  if(consumed.kind!=='legacy')return consumed.member;
   revokeCredential(store,consumed.actor.credential_id,now);
   return listMembers(store).find(m=>m.id===consumed.actor.member_id&&!m.revoked)??null;
 }
@@ -72,6 +81,18 @@ export function createMemberInvite(store:string,display:string,permission:'read'
   const invite:Invite={id,hash:sha256hex(secret),secret,token:'',display,permission,expires:new Date(now.getTime()+86400000).toISOString()};
   items.push(invite);writeAtomic(path,JSON.stringify(items),0o600);
   return {id,secret,display,permission,expires:invite.expires};
+ });
+}
+/** An app link for an EXISTING member (the connector's personal page, lib/sharedOAuth.ts):
+ * single use, one hour, redeemed by the app through `POST /v1/invites/redeem` like any
+ * invite. Nothing is minted until then. Spent and expired app links are pruned here. */
+export function createAppLink(store:string,handle:string,now=new Date()) {
+ return withMemberLock(store,()=>{
+  const secret=randomBytes(32).toString('base64url');
+  const path=store+'.invites.json',items=read(path).filter(i=>!i.member||(!i.used&&Date.parse(i.expires)>now.getTime()));
+  const expires=new Date(now.getTime()+3600000).toISOString();
+  items.push({hash:sha256hex(secret),token:'',member:handle,expires});writeAtomic(path,JSON.stringify(items),0o600);
+  return {secret,expires};
  });
 }
 export function pendingMemberInvites(store:string,now=new Date()) {

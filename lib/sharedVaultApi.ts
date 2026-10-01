@@ -29,7 +29,7 @@ import {SharedMemberBusyError} from './sharedMemberLock';
  *   GET  /v1/search?q&limit                 read         term-AND hits over evidence and live assertions
  *   GET  /v1/feed?after&limit               read         the durable change feed from a cursor
  *   POST /v1/credentials/agent              write+person a new agent credential for the caller → {token, credential}
- *   POST /v1/members                        write+OWNER  {name, email, permission} → a member who signs in by email
+ *   POST /v1/members                        write+OWNER  {email, permission, name?} → a PENDING member who signs in by email
  *   POST /v1/members/:id/email              write+OWNER  {email | null} — set, change or clear; any change unbinds
  *   POST /mcp                               read         the read-only MCP server (connector enabled only)
  *
@@ -110,6 +110,8 @@ interface RouteCtx {
   /** The parsed JSON body on POST routes (read by the dispatcher, after
    * which the credential is verified AGAIN — see makeSharedApiHandler). */
   body: unknown;
+  /** The vault's join link, when the connector signs members in with Google. */
+  joinUrl?: string;
 }
 
 interface Route {
@@ -293,19 +295,33 @@ function feed({ url, vault, json }: RouteCtx): Response {
   return json(200, vault.feed(after, limit));
 }
 
-/** A member as the roster shows them: emails and sign-in binding are the
- * owner's business only. */
+/** A member as any route shows them. The bound identity never leaves the
+ * store; the email, the sign-in time and whether they are still an
+ * invitation are the owner's business only. */
 function memberView(m: SharedMember, owner: boolean): Record<string, unknown> {
-  const { email, identity, ...rest } = m;
-  return owner ? { ...rest, email: email ?? null, signed_in: identity?.bound ?? null } : rest;
+  const { email, identity, pending, display_placeholder: _placeholder, ...rest } = m;
+  return owner ? { ...rest, email: email ?? null, signed_in: identity?.bound ?? null, pending: Boolean(pending) } : rest;
+}
+
+/** The roster. A pending member is an invitation, not yet anyone the other
+ * members should see; the owner also learns how the app should invite. */
+function listMembersRoute({ storePath, now, actor, joinUrl, json }: RouteCtx): Response {
+  const canManage = actor.role === "owner" && actor.kind === "person" && actor.permissions.includes("write");
+  const members = listMembers(storePath).filter((m) => !m.revoked && (canManage || !m.pending));
+  return json(200, {
+    members: members.map((m) => memberView(m, canManage)),
+    can_manage: canManage,
+    invites: canManage ? pendingMemberInvites(storePath, now) : [],
+    ...(canManage && joinUrl ? { email_invites: true, join_url: joinUrl } : {}),
+  });
 }
 
 function addMemberRoute({ storePath, now, body, json }: RouteCtx): Response {
   const input = body as { name?: unknown; email?: unknown; permission?: unknown } | null;
-  if (!input || typeof input.name !== "string" || typeof input.email !== "string" || (input.permission !== "read" && input.permission !== "write"))
-    return json(400, { error: "Enter a name, an email and a valid access level." });
+  if (!input || (input.name !== undefined && typeof input.name !== "string") || typeof input.email !== "string" || (input.permission !== "read" && input.permission !== "write"))
+    return json(400, { error: "Enter an email and a valid access level." });
   const member = addMemberByEmail(storePath, {
-    display: input.name,
+    ...(typeof input.name === "string" ? { display: input.name } : {}),
     email: input.email,
     permissions: input.permission === "write" ? ["read", "write"] : ["read"],
   }, now);
@@ -323,7 +339,7 @@ function setMemberEmailRoute({ storePath, params, body, json }: RouteCtx): Respo
 // ── the route table ──────────────────────────────────────────────────────
 
 const ROUTE_TABLE: Route[] = [
-  {method:'GET',path:'/v1/members',permission:'read',handler:({storePath,now,actor,json})=>{const can_manage=actor.role==='owner'&&actor.kind==='person'&&actor.permissions.includes('write');return json(200,{members:listMembers(storePath).filter(m=>!m.revoked).map(m=>memberView(m,can_manage)),can_manage,invites:can_manage?pendingMemberInvites(storePath,now):[]});}},
+  { method: "GET", path: "/v1/members", permission: "read", handler: listMembersRoute },
   { method: "POST", path: "/v1/members", ownerOnly: true, permission: "write", rateLimited: true, handler: addMemberRoute },
   { method: "POST", path: "/v1/members/:id/email", ownerOnly: true, permission: "write", rateLimited: true, handler: setMemberEmailRoute },
   {method:'POST',path:'/v1/invites',ownerOnly:true,permission:'write',rateLimited:true,handler:({storePath,now,body,json})=>{
@@ -336,11 +352,11 @@ const ROUTE_TABLE: Route[] = [
     const member=listMembers(storePath).find(m=>m.id===params.id&&!m.revoked),input=body as {permission?:unknown}|null;
     if(!member)return json(404,{error:'Member not found.'});
     if(!input||(input.permission!=='read'&&input.permission!=='write'))return json(400,{error:'Invalid access level.'});
-    return json(200,setMemberPermissions(storePath,member.handle,input.permission==='write'?['read','write']:['read']));
+    return json(200,memberView(setMemberPermissions(storePath,member.handle,input.permission==='write'?['read','write']:['read']),true));
   }},
   {method:'POST',path:'/v1/members/:id/remove',ownerOnly:true,permission:'write',rateLimited:true,handler:({storePath,params,now,json})=>{
     const member=listMembers(storePath).find(m=>m.id===params.id);
-    return member?json(200,revokeMember(storePath,member.handle,now)):json(404,{error:'Member not found.'});
+    return member?json(200,memberView(revokeMember(storePath,member.handle,now),true)):json(404,{error:'Member not found.'});
   }},
   {method:'POST',path:'/v1/evidence/batch',permission:'write',rateLimited:true,handler:({body,vault,actor,json})=>{
     const items=(body as {items?:unknown[]})?.items;
@@ -502,7 +518,7 @@ export function makeSharedApiHandler(deps: SharedApiDeps): (req: Request) => Pro
         }
       }
       vault.recoverPending();
-      return respond(await route.handler({ url, vault, actor, params, json, body, storePath:deps.storePath, now:now() }));
+      return respond(await route.handler({ url, vault, actor, params, json, body, storePath:deps.storePath, now:now(), ...(connector?.joinUrl ? { joinUrl: connector.joinUrl } : {}) }));
     } catch (error) {
       if (error instanceof SharedMemberBusyError) return respond(json(503,{error:error.message}));
       if (error instanceof SharedMemberError) return respond(json(400,{error:error.message}));

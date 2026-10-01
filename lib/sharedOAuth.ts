@@ -15,9 +15,15 @@
  *               callbacks exactly, and the loopback `/callback` Claude Code
  *               uses, matched without its port at /authorize.
  *   authorize   the member signs in — with Google when the operator
- *               configured it, or by pasting an invite link — and then
+ *               configured it (then the ONLY login), else by pasting an
+ *               invite link — and then
  *               APPROVES on a consent page that names who they are signed
  *               in as. Consent is never skipped.
+ *   join, me    with Google configured, the vault's constant join link
+ *               (`/join`, the same page for everyone) signs a member in to
+ *               a short browser session on `/me`, their personal page: the
+ *               connector URL for Claude, and single-use app links for the
+ *               BigBrain app (lib/sharedInvites.ts createAppLink).
  *   token       authorization_code + PKCE S256 for a NEW `sv_` agent
  *               credential with exactly `read` (lib/sharedMembers.ts). It is
  *               an ordinary credential: verified on every request, cut by
@@ -36,8 +42,9 @@
  *     (`<store>.oauth-clients.json`), bounded — Claude registers a fresh
  *     client on every new connection, and a client is only needed between
  *     /authorize and /token, so the least recently used is evicted first;
- *   - pending authorizations (≤10 min) and codes (≤60 s, single use):
- *     memory. A restart drops logins in flight, which is acceptable.
+ *   - pending authorizations (≤10 min), Google round trips (≤10 min),
+ *     `/me` sessions (30 min) and codes (≤60 s, single use): memory. A
+ *     restart drops them, which is acceptable.
  *
  * A pending authorization is bound to the browser that started it by an
  * HttpOnly, SameSite=Lax cookie (`__Host-` prefixed and Secure on https),
@@ -46,6 +53,11 @@
  * stranger could start an authorization in their own Claude and hand a
  * member the sign-in link.
  *
+ * Every way a sign-in can fail to reach a member — not a member, bound to a
+ * different account, removed, no read access — shows the visitor the SAME
+ * page; the reason goes to the log. Before sign-in no page names the vault.
+ * The HTML itself lives in lib/sharedPages.ts.
+ *
  * Nothing secret is logged: the door logs pathnames only, and this module
  * logs refusal reasons, never a code, token, invite secret, or email.
  */
@@ -53,9 +65,10 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { writeAtomic } from "./fsx";
-import { sharedVaultIdentity, identifyBySharedInvite } from "./sharedInvites";
+import { createAppLink, sharedVaultIdentity, identifyBySharedInvite } from "./sharedInvites";
 import { SharedMemberBusyError } from "./sharedMemberLock";
 import { bindMemberIdentity, listMembers, mintCredential, revokeCredential, SharedMemberError, type SharedMember } from "./sharedMembers";
+import { authorizePage, consentPage, expiredPage, FONT_PATHS, fontResponse, joinPage, mePage, notMemberPage, refusalPage } from "./sharedPages";
 
 export interface SharedConnectorConfig {
   /** The door's public origin, e.g. `https://vault.example.com`. */
@@ -77,6 +90,8 @@ export interface SharedConnectorDeps {
 export interface SharedConnector {
   /** `<public>/mcp` — the URL a member pastes into Claude. */
   resourceUrl: string;
+  /** `<public>/join` — the vault's one, constant join link; only with Google. */
+  joinUrl?: string;
   /** A public connector route's answer, or undefined when `url` is not one. */
   handlePublic(req: Request, url: URL): Promise<Response | undefined>;
   /** The 401 that starts Claude's sign-in. */
@@ -92,6 +107,8 @@ const CODE_TTL_MS = 60_000;
  * the credential it bought revoked (RFC 6749 §4.1.2). */
 const CODE_MEMORY_MS = 10 * 60_000;
 const MAX_PENDING = 500;
+const SESSION_TTL_MS = 30 * 60_000;
+const MAX_SESSIONS = 1000;
 const MAX_CLIENTS = 1000;
 const CLIENT_IDLE_MS = 30 * 24 * 3600_000;
 /** Every public POST body is a handful of short fields. */
@@ -302,45 +319,6 @@ class ClientRegistry {
   }
 }
 
-// ── pages ───────────────────────────────────────────────────────────────────
-
-const esc = (s: string): string =>
-  s.replace(/[&<>"']/gu, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
-
-// The app's own type and ink (web/ui/src/design/tokens.css), no web font
-// fetched: the CSP allows nothing to load.
-const STYLE = `
-body{margin:0;background:#fff;color:#211A18;font:400 15px/1.5 "Hanken Grotesk",system-ui,-apple-system,sans-serif}
-main{max-width:30rem;margin:12vh auto;padding:0 22px}
-.eyebrow{font-size:11px;font-weight:600;letter-spacing:.24em;text-transform:uppercase;opacity:.6;margin:0 0 8px}
-h1{font-size:24px;font-weight:500;letter-spacing:-.022em;line-height:1.2;margin:0 0 16px}
-p,ul{margin:0 0 16px}
-.meta{font-size:12px;opacity:.65}
-.notice{border-left:3px solid #CC4A3E;padding:6px 13px}
-form{margin:0 0 16px}
-label{display:block;font-weight:500;margin:0 0 6px}
-input[type=password]{box-sizing:border-box;width:100%;font:inherit;padding:8px 13px;border:1px solid #d8d3d1;border-radius:5px;margin:0 0 8px}
-.button,button{display:inline-block;font:500 15px/1 "Hanken Grotesk",system-ui,-apple-system,sans-serif;padding:11px 16px;border-radius:11px;border:1px solid #211A18;background:#211A18;color:#fff;text-decoration:none;cursor:pointer;margin:0 8px 8px 0}
-button.secondary{background:#fff;color:#211A18}
-`;
-const STYLE_HASH = createHash("sha256").update(STYLE).digest("base64");
-
-// No `form-action`: Chrome applies it to the redirect that FOLLOWS a form
-// POST, and the consent POST's redirect goes to the client's redirect URI.
-// Every form here posts to a fixed path of this origin, built from escaped
-// values, so the directive would add breakage and no protection.
-const PAGE_HEADERS = {
-  ...BASE_HEADERS,
-  "Content-Type": "text/html; charset=utf-8",
-  "X-Frame-Options": "DENY",
-  "Content-Security-Policy": `default-src 'none'; style-src 'sha256-${STYLE_HASH}'; base-uri 'none'; frame-ancestors 'none'`,
-};
-
-function page(status: number, title: string, body: string, headers: Record<string, string> = {}): Response {
-  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${esc(title)}</title><style>${STYLE}</style></head><body><main>${body}</main></body></html>`;
-  return new Response(html, { status, headers: { ...PAGE_HEADERS, ...headers } });
-}
-
 const START_AGAIN = "Start again from Claude: open the connector in Claude's settings and choose Connect.";
 
 // ── state held in memory ────────────────────────────────────────────────────
@@ -356,8 +334,26 @@ interface Pending {
   redirectUri: string;
   codeChallenge: string;
   state: string | null;
-  google?: { state: string; nonce: string };
   member?: { id: string; display: string; handle: string; signedInAs: string };
+}
+
+/** One trip to Google, keyed by its `state`: what it is for, and the browser
+ * that must come back with it. */
+interface GoogleLogin {
+  purpose: "authorize" | "session";
+  /** The authorization it signs in for (purpose "authorize"). */
+  pendingId?: string;
+  nonce: string;
+  browser: string;
+  expires: number;
+}
+
+/** A signed-in member's browser session on `/me`. */
+interface Session {
+  memberId: string;
+  email: string;
+  csrf: string;
+  expires: number;
 }
 
 interface CodeRecord {
@@ -382,12 +378,15 @@ export function makeSharedConnector(deps: SharedConnectorDeps): SharedConnector 
   const googleCallback = `${origin}/oauth/google/callback`;
   const secure = origin.startsWith("https:");
   // `__Host-` refuses a cookie set by a sibling subdomain (cookie tossing),
-  // but requires Secure — so plain-http loopback uses an unprefixed name.
-  const cookieName = secure ? "__Host-bb_oauth" : "bb_oauth";
+  // but requires Secure — so plain-http loopback uses unprefixed names.
+  const browserCookie = secure ? "__Host-bb_oauth" : "bb_oauth";
+  const sessionCookie = secure ? "__Host-bb_session" : "bb_session";
   const google = deps.config.google;
   const fetchImpl = deps.fetch ?? ((input: string, init?: RequestInit) => fetch(input, init));
   const clients = new ClientRegistry(clientsPath(deps.storePath), deps.now);
   const pending = new Map<string, Pending>();
+  const logins = new Map<string, GoogleLogin>();
+  const sessions = new Map<string, Session>();
   const codes = new Map<string, CodeRecord>();
   const t0 = deps.now().getTime();
   const buckets = { register: new Bucket(20, t0), token: new Bucket(60, t0), pages: new Bucket(120, t0) };
@@ -397,19 +396,27 @@ export function makeSharedConnector(deps: SharedConnectorDeps): SharedConnector 
   const warn = (event: string, extra: Record<string, unknown> = {}): void =>
     deps.log(JSON.stringify({ ts: deps.now().toISOString(), warn: `connector: ${event}`, ...extra }));
   const limited = (bucket: Bucket): boolean => !bucket.take(now());
+  const tooMany = (): Response => refusalPage(429, "Too many requests", "Please wait a moment and try again.");
 
   function prune(): void {
     const t = now();
     for (const [id, p] of pending) if (p.expires <= t) pending.delete(id);
+    for (const [state, l] of logins) if (l.expires <= t) logins.delete(state);
+    for (const [key, s] of sessions) if (s.expires <= t) sessions.delete(key);
     for (const [hash, c] of codes) if (c.expires + CODE_MEMORY_MS <= t) codes.delete(hash);
   }
 
-  // ── the browser binding ──
+  /** Room for one more in a bounded map: the oldest entry goes first. */
+  function makeRoom<V>(map: Map<string, V>, cap: number): void {
+    while (map.size >= cap) map.delete(map.keys().next().value!);
+  }
 
-  function cookieOf(req: Request): string | null {
+  // ── cookies: the browser binding and the session ──
+
+  function cookieOf(req: Request, name: string): string | null {
     for (const part of (req.headers.get("cookie") ?? "").split(";")) {
-      const [name, ...rest] = part.trim().split("=");
-      if (name === cookieName) {
+      const [key, ...rest] = part.trim().split("=");
+      if (key === name) {
         const value = rest.join("=");
         return /^[A-Za-z0-9_-]{43}$/u.test(value) ? value : null;
       }
@@ -417,83 +424,76 @@ export function makeSharedConnector(deps: SharedConnectorDeps): SharedConnector 
     return null;
   }
 
-  const setCookie = (value: string): string =>
-    `${cookieName}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${PENDING_TTL_MS / 1000}${secure ? "; Secure" : ""}`;
+  const cookieHeader = (name: string, value: string, maxAgeMs: number): string =>
+    `${name}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${Math.floor(maxAgeMs / 1000)}${secure ? "; Secure" : ""}`;
 
   /** The pending authorization `id` names, if THIS browser started it and
    * (for the POSTs) the form carries its CSRF token. */
   function bound(req: Request, id: string | null, csrf?: string | null): Pending | undefined {
     prune();
     const p = id ? pending.get(id) : undefined;
-    const cookie = cookieOf(req);
+    const cookie = cookieOf(req, browserCookie);
     if (!p || !cookie || !sameSecret(sha256(cookie), p.browser)) return undefined;
     if (csrf !== undefined && (!csrf || !sameSecret(csrf, p.csrf))) return undefined;
     return p;
   }
 
-  const expiredPage = (): Response =>
-    page(400, "Sign-in expired", `<h1>This sign-in has expired</h1><p>It may have timed out, or been started in a different browser.</p><p>${esc(START_AGAIN)}</p>`);
-
-  // ── the pages ──
-
-  function hostOf(uri: string): string {
-    const url = new URL(uri);
-    return url.host;
-  }
-
-  function authorizePage(p: Pending, notice?: string, status = 200): Response {
-    const loopback = loopbackHost(p.redirectUri) !== null;
-    const body = `
-<p class="eyebrow">BigBrain shared vault</p>
-<h1>${esc(vaultName())}</h1>
-${notice ? `<p class="notice">${esc(notice)}</p>` : ""}
-<p><strong>${esc(p.clientName)}</strong> is asking for <strong>read-only</strong> access to this vault. Afterwards you will return to <strong>${esc(hostOf(p.redirectUri))}</strong>.</p>
-${loopback ? `<p class="notice">That is an app on your own computer. Continue only if you just started this from Claude Code or another app you trust.</p>` : ""}
-<p>Sign in as a member of this vault.</p>
-${google ? `<p><a class="button" href="/oauth/google?pending=${esc(encodeURIComponent(p.id))}">Sign in with Google</a></p>` : ""}
-<form method="post" action="/authorize/invite">
-<input type="hidden" name="pending" value="${esc(p.id)}"><input type="hidden" name="csrf" value="${esc(p.csrf)}">
-<label for="invite">${google ? "Or paste" : "Paste"} an invite link from the vault's owner</label>
-<input id="invite" name="invite" type="password" autocomplete="off" required>
-<button type="submit" class="${google ? "secondary" : ""}">Continue with invite link</button>
-</form>
-<p class="meta">An invite link works once: using it here means it can no longer connect the BigBrain app. This connection can only read; contributing happens in the BigBrain app.</p>`;
-    return page(status, `Connect ${vaultName()}`, body);
-  }
-
-  function consentPage(p: Pending): Response {
-    const m = p.member!;
-    const body = `
-<p class="eyebrow">BigBrain shared vault</p>
-<h1>Allow ${esc(p.clientName)} to read ${esc(vaultName())}?</h1>
-<p>Signed in as <strong>${esc(m.display)}</strong> (${esc(m.signedInAs)}).</p>
-<ul><li>It can read this vault's evidence, claims and change feed, as you.</li><li>It cannot add, change or withdraw anything.</li><li>You will return to <strong>${esc(hostOf(p.redirectUri))}</strong>.</li></ul>
-<form method="post" action="/authorize/consent">
-<input type="hidden" name="pending" value="${esc(p.id)}"><input type="hidden" name="csrf" value="${esc(p.csrf)}">
-<button type="submit" name="decision" value="approve">Allow read-only access</button>
-<button type="submit" name="decision" value="deny" class="secondary">Deny</button>
-</form>
-<p class="meta">The vault's owner can revoke this access at any time.</p>`;
-    return page(200, `Allow access to ${vaultName()}`, body);
-  }
-
-  const refusalPage = (status: number, title: string, message: string): Response =>
-    page(status, title, `<p class="eyebrow">BigBrain shared vault</p><h1>${esc(title)}</h1><p>${esc(message)}</p>`);
-
-  /** The live member who may grant read, or why not. */
-  function readableMember(id: string): SharedMember | "gone" | "no-read" {
+  /** The live member who may read, or undefined — and why, for the log. */
+  function readableMember(id: string): { member: SharedMember } | { refused: "gone" | "no-read" } {
     const m = listMembers(deps.storePath).find((one) => one.id === id && !one.revoked);
-    if (!m) return "gone";
-    return m.permissions.includes("read") ? m : "no-read";
+    if (!m) return { refused: "gone" };
+    return m.permissions.includes("read") ? { member: m } : { refused: "no-read" };
   }
 
-  /** After either login: record who signed in and show consent. */
-  function signedIn(p: Pending, member: SharedMember, signedInAs: string): Response {
+  /** This browser's `/me` session and its member, still live with read. A
+   * session whose member was removed or narrowed ends here. */
+  function sessionOf(req: Request): { key: string; session: Session; member: SharedMember } | undefined {
+    if (!google) return undefined;
+    prune();
+    const cookie = cookieOf(req, sessionCookie);
+    const key = cookie ? sha256(cookie) : undefined;
+    const session = key ? sessions.get(key) : undefined;
+    if (!key || !session) return undefined;
+    const ok = readableMember(session.memberId);
+    if ("refused" in ok) {
+      sessions.delete(key);
+      warn("session ended", { reason: ok.refused });
+      return undefined;
+    }
+    return { key, session, member: ok.member };
+  }
+
+  // ── pages that need the connector's state ──
+
+  const hostOf = (uri: string): string => new URL(uri).host;
+
+  function authorizeView(p: Pending, notice?: string, status = 200): Response {
+    return authorizePage({
+      clientName: p.clientName,
+      redirectHost: hostOf(p.redirectUri),
+      loopback: loopbackHost(p.redirectUri) !== null,
+      ...(google ? { googleHref: `/oauth/google?pending=${encodeURIComponent(p.id)}` } : { invite: { pending: p.id, csrf: p.csrf } }),
+      ...(notice ? { notice } : {}),
+    }, status);
+  }
+
+  /** After a login: record who signed in and show consent — never skipped. */
+  function signedIn(p: Pending, member: SharedMember, signedInAs: string, via: string): Response {
     const ok = readableMember(member.id);
-    if (ok === "gone") return refusalPage(403, "Not a member", "You're not a member of this vault. Ask its owner to add you.");
-    if (ok === "no-read") return refusalPage(403, "No read access", "Your membership doesn't include read access. Ask the vault's owner.");
+    if ("refused" in ok) {
+      warn(`${via} sign-in refused`, { reason: ok.refused });
+      return notMemberPage();
+    }
     p.member = { id: member.id, display: member.display, handle: member.handle, signedInAs };
-    return consentPage(p);
+    return consentPage({
+      clientName: p.clientName,
+      vaultName: vaultName(),
+      display: member.display,
+      signedInAs,
+      redirectHost: hostOf(p.redirectUri),
+      pending: p.id,
+      csrf: p.csrf,
+    });
   }
 
   // ── discovery ──
@@ -561,7 +561,7 @@ ${google ? `<p><a class="button" href="/oauth/google?pending=${esc(encodeURIComp
   // ── GET /authorize ──
 
   function authorize(req: Request, url: URL): Response {
-    if (limited(buckets.pages)) return refusalPage(429, "Too many requests", "Please wait a moment and try again.");
+    if (limited(buckets.pages)) return tooMany();
     const q = url.searchParams;
     for (const key of new Set(q.keys()))
       if (q.getAll(key).length > 1) return refusalPage(400, "Invalid request", `The parameter ${key} was sent more than once.`);
@@ -569,7 +569,7 @@ ${google ? `<p><a class="button" href="/oauth/google?pending=${esc(encodeURIComp
     // Until the redirect URI is known good, every error is a page: an
     // error REDIRECT to an unvetted URI is an open redirect.
     const client = clients.get(q.get("client_id"));
-    if (!client) return refusalPage(400, "Unknown app", `This app isn't registered with this vault. ${START_AGAIN}`);
+    if (!client) return refusalPage(400, "Unknown app", `This app isn't registered here. ${START_AGAIN}`);
     const redirectUri = q.get("redirect_uri");
     if (!redirectUri || !redirectMatches(client.redirect_uris, redirectUri))
       return refusalPage(400, "Unknown return address", "This app asked to return somewhere it did not register. Nothing was shared.");
@@ -594,10 +594,10 @@ ${google ? `<p><a class="button" href="/oauth/google?pending=${esc(encodeURIComp
     if (state !== null && state.length > 2048) return fail("invalid_request", "state is too long");
 
     prune();
-    while (pending.size >= MAX_PENDING) pending.delete(pending.keys().next().value!);
+    makeRoom(pending, MAX_PENDING);
     // One cookie per browser, reused across tabs so two connections can be
     // in flight; each authorization keeps only the cookie's hash.
-    const cookie = cookieOf(req) ?? random();
+    const cookie = cookieOf(req, browserCookie) ?? random();
     const p: Pending = {
       id: random(18),
       csrf: random(),
@@ -611,32 +611,54 @@ ${google ? `<p><a class="button" href="/oauth/google?pending=${esc(encodeURIComp
     };
     pending.set(p.id, p);
     clients.touch(client.client_id);
-    const res = authorizePage(p);
-    res.headers.set("Set-Cookie", setCookie(cookie));
+    // Already signed in on /me in this browser: straight to consent, which
+    // is still shown and still needs an explicit Allow.
+    const signed = sessionOf(req);
+    const res = signed ? signedIn(p, signed.member, signed.session.email, "session") : authorizeView(p);
+    res.headers.append("Set-Cookie", cookieHeader(browserCookie, cookie, PENDING_TTL_MS));
     return res;
   }
 
-  // ── Google sign-in ──
+  // ── Google sign-in: one OIDC flow, one callback, two purposes ──
 
-  function googleStart(req: Request, url: URL): Response {
-    if (!google) return refusalPage(404, "Not available", "Google sign-in isn't configured for this vault. Use an invite link.");
-    if (limited(buckets.pages)) return refusalPage(429, "Too many requests", "Please wait a moment and try again.");
-    const p = bound(req, url.searchParams.get("pending"));
-    if (!p) return expiredPage();
-    p.google = { state: random(), nonce: random() };
+  /** Off to Google, remembering why and for which browser. */
+  function toGoogle(login: Omit<GoogleLogin, "nonce" | "expires">): string {
+    prune();
+    makeRoom(logins, MAX_PENDING);
+    const state = random();
+    const nonce = random();
+    logins.set(state, { ...login, nonce, expires: now() + PENDING_TTL_MS });
     const to = new URL(GOOGLE_AUTH_URL);
-    to.searchParams.set("client_id", google.clientId);
+    to.searchParams.set("client_id", google!.clientId);
     to.searchParams.set("redirect_uri", googleCallback);
     to.searchParams.set("response_type", "code");
-    to.searchParams.set("scope", "openid email");
-    to.searchParams.set("state", p.google.state);
-    to.searchParams.set("nonce", p.google.nonce);
+    to.searchParams.set("scope", "openid email profile");
+    to.searchParams.set("state", state);
+    to.searchParams.set("nonce", nonce);
     to.searchParams.set("prompt", "select_account");
-    return redirect(to.href);
+    return to.href;
+  }
+
+  /** GET /oauth/google?pending= — sign in for an authorization. */
+  function googleForAuthorization(req: Request, url: URL): Response {
+    if (limited(buckets.pages)) return tooMany();
+    const p = bound(req, url.searchParams.get("pending"));
+    if (!p) return expiredPage();
+    return redirect(toGoogle({ purpose: "authorize", pendingId: p.id, browser: p.browser }));
+  }
+
+  /** GET /join/google — sign in for a `/me` session. The browser cookie is
+   * set here, on the way out, so `/join` itself stays the same for everyone. */
+  function googleForSession(req: Request): Response {
+    if (limited(buckets.pages)) return tooMany();
+    const cookie = cookieOf(req, browserCookie) ?? random();
+    const res = redirect(toGoogle({ purpose: "session", browser: sha256(cookie) }));
+    res.headers.append("Set-Cookie", cookieHeader(browserCookie, cookie, PENDING_TTL_MS));
+    return res;
   }
 
   /** The id_token's claims, checked; or the reason for the server log. */
-  async function googleIdentity(code: string, nonce: string): Promise<{ sub: string; email: string } | { refused: string }> {
+  async function googleIdentity(code: string, nonce: string): Promise<{ sub: string; email: string; name?: string } | { refused: string }> {
     let res: Response;
     try {
       res = await fetchImpl(GOOGLE_TOKEN_URL, {
@@ -673,42 +695,67 @@ ${google ? `<p><a class="button" href="/oauth/google?pending=${esc(encodeURIComp
     if (claims["email_verified"] !== true) return { refused: "email not verified by Google" };
     if (typeof claims["sub"] !== "string" || !claims["sub"] || typeof claims["email"] !== "string" || !claims["email"])
       return { refused: "id_token lacks sub or email" };
-    return { sub: claims["sub"], email: claims["email"] };
+    return { sub: claims["sub"], email: claims["email"], ...(typeof claims["name"] === "string" ? { name: claims["name"] } : {}) };
   }
 
-  async function googleCallbackRoute(req: Request, url: URL): Promise<Response> {
-    if (!google) return refusalPage(404, "Not available", "Google sign-in isn't configured for this vault.");
-    if (limited(buckets.pages)) return refusalPage(429, "Too many requests", "Please wait a moment and try again.");
-    const state = url.searchParams.get("state");
-    prune();
-    const owner = state ? [...pending.values()].find((one) => one.google && sameSecret(one.google.state, state)) : undefined;
-    const p = owner && bound(req, owner.id);
-    if (!p || !p.google) return expiredPage();
-    const { nonce } = p.google;
-    delete p.google; // a Google state answers once
-    if (url.searchParams.get("error")) return authorizePage(p, "Google sign-in was cancelled. You can try again or use an invite link.");
-    const code = url.searchParams.get("code");
-    if (!code) return authorizePage(p, "Google didn't complete the sign-in. Try again.", 400);
-
+  /** Verify with Google and resolve to a member — or the one refusal. */
+  async function googleMember(code: string, nonce: string, via: string): Promise<{ member: SharedMember; email: string } | { refused: "unverified" | "not-member" }> {
     const who = await googleIdentity(code, nonce);
     if ("refused" in who) {
-      warn("google sign-in refused", { reason: who.refused });
-      return authorizePage(p, "Google sign-in couldn't be verified. Try again, or use an invite link.", 400);
+      warn(`${via} google sign-in refused`, { reason: who.refused });
+      return { refused: "unverified" };
     }
-    const bind = bindMemberIdentity(deps.storePath, { iss: GOOGLE_ISSUERS[0]!, sub: who.sub, email: who.email }, deps.now());
+    const bind = bindMemberIdentity(deps.storePath, { iss: GOOGLE_ISSUERS[0]!, sub: who.sub, email: who.email, ...(who.name ? { name: who.name } : {}) }, deps.now());
     if (!bind.ok) {
-      warn("google sign-in matched no member", { reason: bind.reason });
-      return bind.reason === "bound-elsewhere"
-        ? refusalPage(403, "A different account", "This email belongs to a member who signed in with a different Google account. Ask the vault's owner.")
-        : refusalPage(403, "Not a member", "You're not a member of this vault. Ask its owner to add you.");
+      warn(`${via} google sign-in matched no member`, { reason: bind.reason });
+      return { refused: "not-member" };
     }
-    return signedIn(p, bind.member, who.email);
+    return { member: bind.member, email: who.email };
   }
 
-  // ── POST /authorize/invite ──
+  /** GET /oauth/google/callback — both purposes come back here. */
+  async function googleCallbackRoute(req: Request, url: URL): Promise<Response> {
+    if (limited(buckets.pages)) return tooMany();
+    prune();
+    const state = url.searchParams.get("state");
+    const login = state ? logins.get(state) : undefined;
+    if (state) logins.delete(state); // a state answers once
+    const cookie = cookieOf(req, browserCookie);
+    if (!login || !cookie || !sameSecret(sha256(cookie), login.browser)) return expiredPage();
+    const code = url.searchParams.get("code");
+
+    if (login.purpose === "authorize") {
+      const p = bound(req, login.pendingId ?? null);
+      if (!p) return expiredPage();
+      if (url.searchParams.get("error")) return authorizeView(p, "Google sign-in was cancelled. You can try again.");
+      if (!code) return authorizeView(p, "Google didn't complete the sign-in. Try again.", 400);
+      const found = await googleMember(code, login.nonce, "authorize");
+      if ("refused" in found)
+        return found.refused === "unverified" ? authorizeView(p, "Google sign-in couldn't be verified. Try again.", 400) : notMemberPage();
+      return signedIn(p, found.member, found.email, "authorize");
+    }
+
+    if (url.searchParams.get("error") || !code) return redirect(`${origin}/join`, 303);
+    const found = await googleMember(code, login.nonce, "join");
+    if ("refused" in found)
+      return found.refused === "unverified" ? refusalPage(400, "Sign-in didn't complete", "Google sign-in couldn't be verified. Go back to your join link and try again.") : notMemberPage();
+    const ok = readableMember(found.member.id);
+    if ("refused" in ok) {
+      warn("join sign-in refused", { reason: ok.refused });
+      return notMemberPage();
+    }
+    makeRoom(sessions, MAX_SESSIONS);
+    const token = random();
+    sessions.set(sha256(token), { memberId: ok.member.id, email: found.email, csrf: random(), expires: now() + SESSION_TTL_MS });
+    const res = redirect(`${origin}/me`, 303);
+    res.headers.append("Set-Cookie", cookieHeader(sessionCookie, token, SESSION_TTL_MS));
+    return res;
+  }
+
+  // ── POST /authorize/invite (only without Google) ──
 
   async function inviteLogin(req: Request): Promise<Response> {
-    if (limited(buckets.pages)) return refusalPage(429, "Too many requests", "Please wait a moment and try again.");
+    if (limited(buckets.pages)) return tooMany();
     const form = await formBody(req);
     if (typeof form === "string") return refusalPage(400, "Invalid request", form);
     const p = bound(req, form.get("pending"), form.get("csrf"));
@@ -719,15 +766,15 @@ ${google ? `<p><a class="button" href="/oauth/google?pending=${esc(encodeURIComp
     const member = identifyBySharedInvite(deps.storePath, secret, deps.now());
     if (!member) {
       warn("invite sign-in refused");
-      return authorizePage(p, "That invite link isn't valid. It may have been used already, cancelled, or expired.", 400);
+      return authorizeView(p, "That invite link isn't valid. It may have been used already, cancelled, or expired.", 400);
     }
-    return signedIn(p, member, "invite link");
+    return signedIn(p, member, "invite link", "invite");
   }
 
   // ── POST /authorize/consent ──
 
   async function consent(req: Request): Promise<Response> {
-    if (limited(buckets.pages)) return refusalPage(429, "Too many requests", "Please wait a moment and try again.");
+    if (limited(buckets.pages)) return tooMany();
     const form = await formBody(req);
     if (typeof form === "string") return refusalPage(400, "Invalid request", form);
     const p = bound(req, form.get("pending"), form.get("csrf"));
@@ -741,21 +788,68 @@ ${google ? `<p><a class="button" href="/oauth/google?pending=${esc(encodeURIComp
       return redirect(back.href, 303);
     }
     const ok = readableMember(p.member.id);
-    if (ok === "gone") return refusalPage(403, "Not a member", "Your membership has ended. Nothing was shared.");
-    if (ok === "no-read") return refusalPage(403, "No read access", "Your membership doesn't include read access. Nothing was shared.");
+    if ("refused" in ok) {
+      warn("consent refused", { reason: ok.refused });
+      return notMemberPage();
+    }
     const code = random();
     codes.set(sha256(code), {
       clientId: p.clientId,
       clientName: p.clientName,
       redirectUri: p.redirectUri,
       codeChallenge: p.codeChallenge,
-      memberId: ok.id,
-      handle: ok.handle,
+      memberId: ok.member.id,
+      handle: ok.member.handle,
       expires: now() + CODE_TTL_MS,
       used: false,
     });
     back.searchParams.set("code", code);
     return redirect(back.href, 303);
+  }
+
+  // ── the join and personal pages (only with Google) ──
+
+  function me(req: Request, appLink?: string): Response {
+    const signed = sessionOf(req);
+    if (!signed) return redirect(`${origin}/join`, 303);
+    return mePage({
+      vaultName: vaultName(),
+      email: signed.session.email,
+      canWrite: signed.member.permissions.includes("write"),
+      connectorUrl: resourceUrl,
+      csrf: signed.session.csrf,
+      ...(appLink ? { appLink } : {}),
+    });
+  }
+
+  /** A signed-in POST: the session, and its CSRF token in the form. */
+  async function sessionForm(req: Request): Promise<ReturnType<typeof sessionOf> | Response> {
+    const form = await formBody(req);
+    if (typeof form === "string") return refusalPage(400, "Invalid request", form);
+    const signed = sessionOf(req);
+    if (!signed) return redirect(`${origin}/join`, 303);
+    const csrf = form.get("csrf");
+    if (!csrf || !sameSecret(csrf, signed.session.csrf)) return refusalPage(403, "This page has expired", "Reload the page and try again.");
+    return signed;
+  }
+
+  /** POST /me/app-link — a fresh single-use link for one device. */
+  async function appLink(req: Request): Promise<Response> {
+    if (limited(buckets.pages)) return tooMany();
+    const signed = await sessionForm(req);
+    if (signed instanceof Response || !signed) return signed ?? redirect(`${origin}/join`, 303);
+    const { secret } = createAppLink(deps.storePath, signed.member.handle, deps.now());
+    return me(req, `${origin}/invite#${secret}`);
+  }
+
+  /** POST /me/signout */
+  async function signOut(req: Request): Promise<Response> {
+    const signed = await sessionForm(req);
+    if (signed instanceof Response || !signed) return signed ?? redirect(`${origin}/join`, 303);
+    sessions.delete(signed.key);
+    const res = redirect(`${origin}/join`, 303);
+    res.headers.append("Set-Cookie", cookieHeader(sessionCookie, "", 0));
+    return res;
   }
 
   // ── POST /token ──
@@ -825,15 +919,27 @@ ${google ? `<p><a class="button" href="/oauth/google?pending=${esc(encodeURIComp
     "/.well-known/oauth-authorization-server": { GET: authorizationServer },
     "/register": { POST: register },
     "/authorize": { GET: authorize },
-    "/authorize/invite": { POST: inviteLogin },
     "/authorize/consent": { POST: consent },
-    "/oauth/google": { GET: googleStart },
-    "/oauth/google/callback": { GET: googleCallbackRoute },
     "/token": { POST: token },
+    ...Object.fromEntries(FONT_PATHS.map((path) => [path, { GET: async () => (await fontResponse(path))! }])),
+    // With Google, it is the only login: the invite form and its POST do not
+    // exist, and the join and personal pages do.
+    ...(google
+      ? {
+          "/oauth/google": { GET: googleForAuthorization },
+          "/oauth/google/callback": { GET: googleCallbackRoute },
+          "/join": { GET: () => joinPage() },
+          "/join/google": { GET: googleForSession },
+          "/me": { GET: (req: Request) => me(req) },
+          "/me/app-link": { POST: appLink },
+          "/me/signout": { POST: signOut },
+        }
+      : { "/authorize/invite": { POST: inviteLogin } }),
   };
 
   return {
     resourceUrl,
+    ...(google ? { joinUrl: `${origin}/join` } : {}),
     async handlePublic(req, url) {
       const route = Object.hasOwn(ROUTES, url.pathname) ? ROUTES[url.pathname] : undefined;
       if (!route) return undefined;

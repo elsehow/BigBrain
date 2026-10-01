@@ -10,18 +10,22 @@
  */
 import { describe, expect, test } from "bun:test";
 import { createHash, randomBytes } from "node:crypto";
-import { mkdirSync, mkdtempSync, statSync } from "node:fs";
+import { mkdirSync, mkdtempSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createMemberInvite, issueSharedInvite } from "../lib/sharedInvites";
 import { addMember, initMemberStore, listCredentials, listMembers, mintCredential, revokeMember } from "../lib/sharedMembers";
+import { connectInvite } from "../lib/sharedConnections";
 import { clientsPath, HOSTED_CALLBACKS } from "../lib/sharedOAuth";
+import { FONT_PATHS } from "../lib/sharedPages";
 import { makeSharedApiHandler } from "../lib/sharedVaultApi";
 import { provision, sharedCli } from "./support/sharedVaultSmoke";
 
 const PUBLIC = "https://vault.example.com";
 const GOOGLE_ID = "test-client.apps.example.com";
 const CLAUDE = HOSTED_CALLBACKS[0];
+/** The vault's name — which no page may show before sign-in. */
+const VAULT = "Orchard Cooperative";
 
 type Claims = Record<string, unknown>;
 
@@ -45,6 +49,7 @@ function world(opts: { connector?: boolean; google?: boolean } = {}): World {
   const dir = mkdtempSync(join(tmpdir(), "bb-shared-connector-"));
   const root = join(dir, "vault");
   mkdirSync(root);
+  writeFileSync(join(root, ".shared-identity.json"), JSON.stringify({ id: "vault-test-0001", name: VAULT }));
   const store = join(dir, "members.json");
   const owner = initMemberStore(store, root, { handle: "owner", display: "The Owner" });
   addMember(store, { handle: "ada", display: "Ada", permissions: ["read", "write"], email: "ada@example.com" });
@@ -127,7 +132,18 @@ async function authorize(w: World, opts: { clientId?: string; redirectUri?: stri
   const html = await res.text();
   const setCookie = res.headers.get("set-cookie") ?? "";
   const cookie = setCookie.split(";")[0]!;
-  return { clientId, redirectUri, verifier, cookie, pending: field(html, "pending"), csrf: field(html, "csrf"), state };
+  // With Google the pending id rides in its button; without, in the invite form.
+  const pending = field(html, "pending") || decodeURIComponent(/\/oauth\/google\?pending=([^"&]+)/u.exec(html)?.[1] ?? "");
+  return { clientId, redirectUri, verifier, cookie, pending, csrf: field(html, "csrf"), state };
+}
+
+/** A consent page carries the CSRF token the consent POST needs. */
+async function onConsent(s: Session, res: Response): Promise<Response> {
+  if (res.status === 200) {
+    const csrf = field(await res.clone().text(), "csrf");
+    if (csrf) s.csrf = csrf;
+  }
+  return res;
 }
 
 /** Through Google: the redirect out, then the callback with a fake code. */
@@ -136,14 +152,14 @@ async function googleLogin(w: World, s: Session, cookie = s.cookie): Promise<Res
   expect(out.status).toBe(302);
   const to = new URL(out.headers.get("location")!);
   expect(to.origin + to.pathname).toBe("https://accounts.google.com/o/oauth2/v2/auth");
-  expect(to.searchParams.get("scope")).toBe("openid email");
+  expect(to.searchParams.get("scope")).toBe("openid email profile");
   expect(to.searchParams.get("redirect_uri")).toBe(`${PUBLIC}/oauth/google/callback`);
   w.google.nonce = to.searchParams.get("nonce")!;
-  return req(w, "GET", `/oauth/google/callback?state=${encodeURIComponent(to.searchParams.get("state")!)}&code=fake-google-code`, { cookie });
+  return onConsent(s, await req(w, "GET", `/oauth/google/callback?state=${encodeURIComponent(to.searchParams.get("state")!)}&code=fake-google-code`, { cookie }));
 }
 
-const inviteLogin = (w: World, s: Session, invite: string, overrides: { cookie?: string; csrf?: string } = {}): Promise<Response> =>
-  req(w, "POST", "/authorize/invite", { cookie: overrides.cookie ?? s.cookie, form: { pending: s.pending, csrf: overrides.csrf ?? s.csrf, invite } });
+const inviteLogin = async (w: World, s: Session, invite: string, overrides: { cookie?: string; csrf?: string } = {}): Promise<Response> =>
+  onConsent(s, await req(w, "POST", "/authorize/invite", { cookie: overrides.cookie ?? s.cookie, form: { pending: s.pending, csrf: overrides.csrf ?? s.csrf, invite } }));
 
 const decide = (w: World, s: Session, decision: "approve" | "deny", overrides: { cookie?: string; csrf?: string } = {}): Promise<Response> =>
   req(w, "POST", "/authorize/consent", { cookie: overrides.cookie ?? s.cookie, form: { pending: s.pending, csrf: overrides.csrf ?? s.csrf, decision } });
@@ -354,7 +370,7 @@ describe("/authorize", () => {
     expect((await req(w, "GET", `/authorize?${new URLSearchParams(base)}&state=again`)).status).toBe(400);
   });
 
-  test("the sign-in page: escaped client name, redirect host, both logins, hardened headers, bound cookie", async () => {
+  test("the sign-in page: escaped client name, redirect host, Google as the only login, no vault name, hardened headers, bound cookie", async () => {
     const w = world();
     const clientId = await register(w, [CLAUDE], `<script>alert("x")</script> & Co`);
     const s = await authorize(w, { clientId });
@@ -365,7 +381,11 @@ describe("/authorize", () => {
     expect(html).toContain("claude.ai");
     expect(html).toContain("read-only");
     expect(html).toContain("Sign in with Google");
-    expect(html).toContain('action="/authorize/invite"');
+    expect(html).not.toContain("/authorize/invite");
+    expect(html).not.toContain('name="invite"');
+    expect(html).not.toContain(VAULT);
+    // the invite login does not exist in this mode, form or no form
+    expect((await req(w, "POST", "/authorize/invite", { cookie: s.cookie, form: { pending: s.pending, csrf: "x", invite: "y" } })).status).toBe(401);
     expect(res.headers.get("cache-control")).toBe("no-store");
     expect(res.headers.get("x-frame-options")).toBe("DENY");
     expect(res.headers.get("referrer-policy")).toBe("no-referrer");
@@ -374,21 +394,23 @@ describe("/authorize", () => {
     expect(csp).toContain("frame-ancestors 'none'");
     expect(csp).not.toContain("form-action");
     expect(csp).not.toContain("unsafe-inline");
+    expect(csp).toContain("font-src 'self'");
+    expect(csp).toMatch(/script-src 'sha256-[A-Za-z0-9+/=]+'/u);
     const cookie = res.headers.get("set-cookie")!;
     expect(cookie).toMatch(/^__Host-bb_oauth=[A-Za-z0-9_-]{43}; Path=\/; HttpOnly; SameSite=Lax; Max-Age=600; Secure$/u);
     expect(s.pending).not.toBe("");
-    expect(s.csrf).not.toBe("");
   });
 
   test("without Google configured, the page offers only the invite link", async () => {
     const w = world({ google: false });
     const s = await authorize(w);
     const page = await req(w, "GET", `/oauth/google?pending=${s.pending}`, { cookie: s.cookie });
-    expect(page.status).toBe(404);
+    expect(page.status).toBe(401);
     const res = await req(w, "GET", `/authorize?${new URLSearchParams({ client_id: s.clientId, redirect_uri: CLAUDE, response_type: "code", code_challenge: pkce().challenge, code_challenge_method: "S256" })}`);
     const html = await res.text();
     expect(html).not.toContain("Sign in with Google");
     expect(html).toContain("Paste an invite link");
+    expect(html).not.toContain(VAULT);
   });
 });
 
@@ -408,6 +430,7 @@ describe("sign-in with Google", () => {
     expect(consent.status).toBe(200);
     const html = await consent.text();
     expect(html).toContain("Signed in as <strong>Grace</strong> (grace@example.com)");
+    expect(html).toContain(VAULT); // the vault is named once the member is signed in
     expect(html).toContain('value="approve"');
     expect(html).toContain('value="deny"');
     // bound, by the normalized issuer
@@ -447,7 +470,7 @@ describe("sign-in with Google", () => {
       ["iss", (n) => ({ ...base(n), iss: "https://accounts.example.com" }), 400, "couldn't be verified"],
       ["nonce", () => base("not-the-nonce"), 400, "couldn't be verified"],
       ["expired", (n) => ({ ...base(n), exp: w.now().getTime() / 1000 - 1 }), 400, "couldn't be verified"],
-      ["non-member", (n) => ({ ...base(n), sub: "g-9999", email: "stranger@example.net" }), 403, "not a member"],
+      ["non-member", (n) => ({ ...base(n), sub: "g-9999", email: "stranger@example.net" }), 403, "couldn't sign you in"],
     ];
     for (const [name, claims, status, text] of cases) {
       w.google.claims = claims;
@@ -469,7 +492,7 @@ describe("sign-in with Google", () => {
     w.google.claims = (n) => ({ ...base(n), sub: "g-1002" });
     const other = await googleLogin(w, await authorize(w));
     expect(other.status).toBe(403);
-    expect(await other.text()).toContain("different Google account");
+    expect(await pageText(other)).toContain("Couldn't sign you in"); // the same page as a stranger's
     expect(listMembers(w.store).find((m) => m.handle === "ada")!.identity!.sub).toBe("g-1001");
     // no refusal left a credential behind
     expect(listCredentials(w.store, "ada").map((c) => c.name)).toEqual(["laptop"]);
@@ -498,9 +521,9 @@ describe("sign-in with Google", () => {
   });
 });
 
-describe("sign-in with an invite link", () => {
+describe("sign-in with an invite link (Google not configured)", () => {
   test("an owner-created invite becomes a member with exactly one read-only agent credential — no person credential", async () => {
-    const w = world();
+    const w = world({ google: false });
     const inv = await (await req(w, "POST", "/v1/invites", { token: w.owner, json: { name: "Lin", permission: "write" } })).json();
     const s = await authorize(w);
     const consent = await inviteLogin(w, s, `${PUBLIC}/invite#${inv.secret}`);
@@ -521,7 +544,7 @@ describe("sign-in with an invite link", () => {
   });
 
   test("a legacy handle-bound invite identifies its member and leaves no person credential alive", async () => {
-    const w = world();
+    const w = world({ google: false });
     addMember(w.store, { handle: "kai", display: "Kai", permissions: ["read"] });
     const link = issueSharedInvite(w.store, "kai", PUBLIC);
     expect(listCredentials(w.store, "kai").filter((c) => !c.revoked).map((c) => c.kind)).toEqual(["person"]);
@@ -532,7 +555,7 @@ describe("sign-in with an invite link", () => {
   });
 
   test("an expired invite is refused, and the invite POST needs this browser's cookie and CSRF token", async () => {
-    const w = world();
+    const w = world({ google: false });
     const inv = createMemberInvite(w.store, "Mo", "read", w.now());
     const s = await authorize(w);
     expect((await inviteLogin(w, s, inv.secret, { cookie: "" })).status).toBe(400);
@@ -580,7 +603,7 @@ describe("consent", () => {
     w.google.claims = (nonce) => ({ iss: "https://accounts.google.com", aud: GOOGLE_ID, sub: "g-3003", email: "nil@example.com", email_verified: true, exp: w.now().getTime() / 1000 + 300, nonce });
     const res = await googleLogin(w, await authorize(w));
     expect(res.status).toBe(403);
-    expect(await pageText(res)).toContain("doesn't include read access");
+    expect(await pageText(res)).toContain("Couldn't sign you in");
 
     w.google.claims = (nonce) => ({ iss: "https://accounts.google.com", aud: GOOGLE_ID, sub: "g-1001", email: "ada@example.com", email_verified: true, exp: w.now().getTime() / 1000 + 300, nonce });
     const s = await authorize(w);
@@ -706,7 +729,7 @@ describe("/mcp", () => {
     expect((await req(w, "POST", `/v1/assertions/${retracted}/retract`, { token: w.ada, json: { reason: "misread the plan" } })).status).toBeLessThan(300);
 
     const overview = (await tool(w, w.ada, "overview")).text;
-    expect(overview).toContain("# Shared BigBrain");
+    expect(overview).toContain(`# ${VAULT}`);
     expect(overview).toContain("You are connected as Ada (@ada)");
     expect(overview).toContain("The Owner (@owner, owner)");
     expect(overview).toContain("2 evidence item(s) and 2 live claim(s) (1 retracted");
@@ -856,24 +879,308 @@ describe("owner member management by email", () => {
   });
 });
 
+
+// ── round two: the join link, the personal page, app links, pending members ──
+
+const claimsFor = (w: World, sub: string, email: string, extra: Claims = {}) => (nonce: string): Claims =>
+  ({ iss: "https://accounts.google.com", aud: GOOGLE_ID, sub, email, email_verified: true, exp: w.now().getTime() / 1000 + 300, nonce, ...extra });
+
+/** Sign in from `/join`: out to Google and back, with whatever cookies result. */
+async function joinLogin(w: World, claims?: (nonce: string) => Claims): Promise<{ res: Response; session: string }> {
+  if (claims) w.google.claims = claims;
+  const out = await req(w, "GET", "/join/google");
+  expect(out.status).toBe(302);
+  const browser = out.headers.get("set-cookie")!.split(";")[0]!;
+  const to = new URL(out.headers.get("location")!);
+  expect(to.origin + to.pathname).toBe("https://accounts.google.com/o/oauth2/v2/auth");
+  expect(to.searchParams.get("scope")).toBe("openid email profile");
+  expect(to.searchParams.get("redirect_uri")).toBe(`${PUBLIC}/oauth/google/callback`);
+  w.google.nonce = to.searchParams.get("nonce")!;
+  const res = await req(w, "GET", `/oauth/google/callback?state=${encodeURIComponent(to.searchParams.get("state")!)}&code=fake-google-code`, { cookie: browser });
+  return { res, session: (res.headers.get("set-cookie") ?? "").split(";")[0]! };
+}
+
+async function personalPage(w: World, session: string): Promise<{ res: Response; html: string; csrf: string }> {
+  const res = await req(w, "GET", "/me", { cookie: session });
+  const html = res.status === 200 ? await pageText(res) : "";
+  return { res, html, csrf: field(html, "csrf") };
+}
+
+const APP_LINK = /https:\/\/vault\.example\.com\/invite#([A-Za-z0-9_-]{43})/u;
+
+async function newAppLink(w: World, session: string, csrf: string): Promise<string> {
+  const res = await req(w, "POST", "/me/app-link", { cookie: session, form: { csrf } });
+  expect(res.status).toBe(200);
+  return APP_LINK.exec(await res.text())![1]!;
+}
+
+describe("the join link and the personal page", () => {
+  test("/join is the same for every visitor and says nothing about the vault", async () => {
+    const w = world();
+    const res = await req(w, "GET", "/join");
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    for (const secret of [VAULT, "Ada", "The Owner", "owner", "ada@example.com", "@example.com", "members", "evidence"])
+      expect([secret, html.includes(secret)]).toEqual([secret, false]);
+    expect(html).toContain("Sign in to a shared BigBrain");
+    expect(html).toContain('href="/join/google"');
+    expect(res.headers.get("set-cookie")).toBeNull();
+    expect(res.headers.get("content-security-policy")).toContain("font-src 'self'");
+    // a signed-in visitor gets the very same page
+    const { session } = await joinLogin(w);
+    expect(await (await req(w, "GET", "/join", { cookie: session })).text()).toBe(html);
+  });
+
+  test("Google sign-in from /join opens a session on /me with the connector URL and app links", async () => {
+    const w = world();
+    const { res, session } = await joinLogin(w);
+    expect(res.status).toBe(303);
+    expect(res.headers.get("location")).toBe(`${PUBLIC}/me`);
+    expect(res.headers.get("set-cookie")).toMatch(/^__Host-bb_session=[A-Za-z0-9_-]{43}; Path=\/; HttpOnly; SameSite=Lax; Max-Age=1800; Secure$/u);
+    const me = await personalPage(w, session);
+    expect(me.res.status).toBe(200);
+    expect(me.res.headers.get("cache-control")).toBe("no-store");
+    expect(me.html).toContain(VAULT);
+    expect(me.html).toContain("Signed in as ada@example.com");
+    expect(me.html).toContain(`value="${PUBLIC}/mcp"`);
+    expect(me.html).toContain('action="/me/app-link"');
+    expect(me.html).toContain('action="/me/signout"');
+    // Copy buttons are hidden until the pinned script reveals them
+    expect(me.html).toContain('data-copy="connector" hidden');
+    expect(me.html).toContain("<script>");
+    expect(me.csrf).toMatch(/^[A-Za-z0-9_-]{43}$/u);
+    // the session lasts 30 minutes
+    w.tick(30 * 60_000 + 1);
+    expect((await req(w, "GET", "/me", { cookie: session })).status).toBe(303);
+  });
+
+  test("/me needs a session; its forms need the session's CSRF token; sign-out ends it", async () => {
+    const w = world();
+    for (const cookie of [undefined, "__Host-bb_session=" + "x".repeat(43)]) {
+      const res = await req(w, "GET", "/me", cookie ? { cookie } : {});
+      expect([res.status, res.headers.get("location")]).toEqual([303, `${PUBLIC}/join`]);
+      expect((await req(w, "POST", "/me/app-link", { form: { csrf: "x" }, ...(cookie ? { cookie } : {}) })).status).toBe(303);
+    }
+    const { session } = await joinLogin(w);
+    const { csrf } = await personalPage(w, session);
+    for (const form of [{}, { csrf: "" }, { csrf: "y".repeat(43) }]) {
+      expect((await req(w, "POST", "/me/app-link", { cookie: session, form })).status).toBe(403);
+      expect((await req(w, "POST", "/me/signout", { cookie: session, form })).status).toBe(403);
+    }
+    expect((await req(w, "POST", "/me/app-link", { cookie: session, json: { csrf } })).status).toBe(400);
+    const out = await req(w, "POST", "/me/signout", { cookie: session, form: { csrf } });
+    expect([out.status, out.headers.get("location")]).toEqual([303, `${PUBLIC}/join`]);
+    expect(out.headers.get("set-cookie")).toContain("Max-Age=0");
+    expect((await req(w, "GET", "/me", { cookie: session })).status).toBe(303);
+  });
+
+  test("an app link redeems once through /v1/invites/redeem, as the same member with their access, and expires in an hour", async () => {
+    const w = world();
+    const { session } = await joinLogin(w);
+    const { csrf } = await personalPage(w, session);
+    const first = await newAppLink(w, session, csrf);
+    const second = await newAppLink(w, session, csrf);
+    expect(first).not.toBe(second);
+    const redeemed = await req(w, "POST", "/v1/invites/redeem", { token: first, json: {} });
+    expect(redeemed.status).toBe(200);
+    const { token, vault } = await redeemed.json();
+    expect(vault.name).toBe(VAULT);
+    const who = await (await req(w, "GET", "/v1/whoami", { token })).json();
+    expect(who).toMatchObject({ handle: "ada", kind: "person", permissions: ["read", "write"], credential: { name: "BigBrain" } });
+    const cred = listCredentials(w.store, "ada").find((c) => c.id === who.credential.id)!;
+    expect(cred.followsMember).toBe(true);
+    // it follows the member: narrowing ada narrows it
+    const ada = listMembers(w.store).find((m) => m.handle === "ada")!;
+    expect((await req(w, "POST", `/v1/members/${ada.id}/access`, { token: w.owner, json: { permission: "read" } })).status).toBe(200);
+    expect((await (await req(w, "GET", "/v1/whoami", { token })).json()).permissions).toEqual(["read"]);
+    // once only
+    expect((await req(w, "POST", "/v1/invites/redeem", { token: first, json: {} })).status).toBe(401);
+    // an hour, then gone
+    w.tick(3600_000 + 1);
+    expect((await req(w, "POST", "/v1/invites/redeem", { token: second, json: {} })).status).toBe(401);
+    // app links never appear among the owner's pending invitations
+    expect((await (await req(w, "GET", "/v1/members", { token: w.owner })).json()).invites).toEqual([]);
+  });
+
+  test("removing the member ends their /me session, and their unused app link redeems nothing", async () => {
+    const w = world();
+    const { session } = await joinLogin(w);
+    const { csrf } = await personalPage(w, session);
+    const link = await newAppLink(w, session, csrf);
+    revokeMember(w.store, "ada");
+    expect((await req(w, "GET", "/me", { cookie: session })).status).toBe(303);
+    expect((await req(w, "POST", "/v1/invites/redeem", { token: link, json: {} })).status).toBe(401);
+  });
+
+  test("every way a sign-in fails shows one identical page, on /join and on /authorize", async () => {
+    const w = world();
+    addMember(w.store, { handle: "nil", display: "Nil", permissions: [], email: "nil@example.com" });
+    addMember(w.store, { handle: "rex", display: "Rex", permissions: ["read"], email: "rex@example.com" });
+    revokeMember(w.store, "rex");
+    // ada binds first, so a second account with her address is "bound elsewhere"
+    expect((await joinLogin(w, claimsFor(w, "g-1001", "ada@example.com"))).res.status).toBe(303);
+    const cases: [string, (nonce: string) => Claims][] = [
+      ["not a member", claimsFor(w, "g-9", "stranger@example.net")],
+      ["bound elsewhere", claimsFor(w, "g-1002", "ada@example.com")],
+      ["revoked", claimsFor(w, "g-7", "rex@example.com")],
+      ["no read", claimsFor(w, "g-8", "nil@example.com")],
+    ];
+    const pages = new Set<string>();
+    for (const [name, claims] of cases) {
+      const viaJoin = (await joinLogin(w, claims)).res;
+      expect([name, viaJoin.status, viaJoin.headers.get("set-cookie")]).toEqual([name, 403, null]);
+      pages.add(await viaJoin.text());
+      const s = await authorize(w);
+      const viaAuthorize = await googleLogin(w, s);
+      expect([name, viaAuthorize.status]).toEqual([name, 403]);
+      pages.add(await viaAuthorize.text());
+    }
+    expect(pages.size).toBe(1);
+    const [only] = [...pages];
+    expect(only).toContain("Couldn&#39;t sign you in");
+    for (const secret of [VAULT, "Nil", "Rex", "Ada", "@example"]) expect(only).not.toContain(secret);
+    // the real reasons reach the log, the addresses do not
+    const log = w.logs.join("\n");
+    for (const reason of ["not-member", "bound-elsewhere", "no-read"]) expect(log).toContain(reason);
+    expect(log).not.toContain("@example");
+  });
+
+  test("a /me session goes straight to consent on /authorize — consent is still shown", async () => {
+    const w = world();
+    const { session } = await joinLogin(w);
+    const clientId = await register(w);
+    const { challenge } = pkce();
+    const res = await req(w, "GET", `/authorize?${new URLSearchParams({ client_id: clientId, redirect_uri: CLAUDE, response_type: "code", code_challenge: challenge, code_challenge_method: "S256" })}`, { cookie: session });
+    expect(res.status).toBe(200);
+    const html = await pageText(res);
+    expect(html).toContain(`to read ${VAULT}?`);
+    expect(html).toContain("Signed in as <strong>Ada</strong> (ada@example.com)");
+    expect(html).toContain('value="approve"');
+  });
+
+  test("join, me and Google exist only with the connector AND Google; the font only with the connector", async () => {
+    const paths: [string, string][] = [["GET", "/join"], ["GET", "/join/google"], ["GET", "/me"], ["POST", "/me/app-link"], ["POST", "/me/signout"], ["GET", "/oauth/google"], ["GET", "/oauth/google/callback"]];
+    for (const opts of [{ google: false }, { connector: false }]) {
+      const w = world(opts);
+      for (const [method, path] of paths) expect([opts, path, (await req(w, method, path, method === "POST" ? { form: {} } : {})).status]).toEqual([opts, path, 401]);
+      expect((await (await req(w, "GET", "/v1/members", { token: w.owner })).json()).email_invites).toBeUndefined();
+    }
+    const off = world({ connector: false });
+    for (const path of FONT_PATHS) expect((await req(off, "GET", path)).status).toBe(401);
+    for (const w of [world(), world({ google: false })]) {
+      const font = await req(w, "GET", "/assets/hanken-grotesk-latin.woff2");
+      expect(font.status).toBe(200);
+      expect(font.headers.get("content-type")).toBe("font/woff2");
+      expect(font.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
+      expect((await font.arrayBuffer()).byteLength).toBe(statSync(join(import.meta.dir, "../clients/browser-extension/fonts/hanken-grotesk-latin.woff2")).size);
+    }
+  });
+});
+
+describe("members by email: pending until they sign in", () => {
+  test("a pending member is the owner's alone; first sign-in clears it and names them from Google", async () => {
+    const w = world();
+    const added = await req(w, "POST", "/v1/members", { token: w.owner, json: { email: "Grace@Example.com", permission: "read" } });
+    expect(added.status).toBe(201);
+    const grace = await added.json();
+    expect(grace).toMatchObject({ display: "grace@example.com", email: "grace@example.com", pending: true, signed_in: null });
+    const owner = await (await req(w, "GET", "/v1/members", { token: w.owner })).json();
+    expect(owner).toMatchObject({ email_invites: true, join_url: `${PUBLIC}/join`, can_manage: true });
+    expect(owner.members.find((m: { id: string }) => m.id === grace.id).pending).toBe(true);
+    const asAda = await (await req(w, "GET", "/v1/members", { token: w.ada })).json();
+    expect(asAda.members.map((m: { id: string }) => m.id)).not.toContain(grace.id);
+    expect(asAda.email_invites).toBeUndefined();
+    expect(asAda.join_url).toBeUndefined();
+    expect((await tool(w, w.ada, "overview")).text).not.toContain("grace");
+
+    expect((await joinLogin(w, claimsFor(w, "g-2002", "grace@example.com", { name: "Grace  Hopper\n" }))).res.status).toBe(303);
+    const after = listMembers(w.store).find((m) => m.id === grace.id)!;
+    expect([after.pending, after.display]).toEqual([undefined, "Grace Hopper"]);
+    expect((await (await req(w, "GET", "/v1/members", { token: w.ada })).json()).members.map((m: { display: string }) => m.display)).toContain("Grace Hopper");
+    expect((await tool(w, w.ada, "overview")).text).toContain("Grace Hopper");
+  });
+
+  test("an owner-set name is kept; without a Google name the address's local part is used; a pending member can be cancelled", async () => {
+    const w = world();
+    const lin = await (await req(w, "POST", "/v1/members", { token: w.owner, json: { name: "Lin", email: "lin@example.com", permission: "write" } })).json();
+    expect(lin).toMatchObject({ display: "Lin", pending: true });
+    await joinLogin(w, claimsFor(w, "g-3", "lin@example.com", { name: "Linnea Somebody" }));
+    expect(listMembers(w.store).find((m) => m.id === lin.id)!.display).toBe("Lin");
+    const mo = await (await req(w, "POST", "/v1/members", { token: w.owner, json: { email: "mo.k@example.com", permission: "read" } })).json();
+    await joinLogin(w, claimsFor(w, "g-4", "mo.k@example.com"));
+    expect(listMembers(w.store).find((m) => m.id === mo.id)!.display).toBe("mo.k");
+    // cancelling an invitation is removing the pending member
+    const kim = await (await req(w, "POST", "/v1/members", { token: w.owner, json: { email: "kim@example.com", permission: "read" } })).json();
+    expect((await req(w, "POST", `/v1/members/${kim.id}/remove`, { token: w.owner, json: {} })).status).toBe(200);
+    expect((await joinLogin(w, claimsFor(w, "g-5", "kim@example.com"))).res.status).toBe(403);
+  });
+
+  test("no route ever returns the bound identity", async () => {
+    const w = world();
+    await joinLogin(w); // binds ada to g-1001
+    const ada = listMembers(w.store).find((m) => m.handle === "ada")!;
+    const bodies = [
+      await (await req(w, "GET", "/v1/members", { token: w.owner })).text(),
+      await (await req(w, "GET", "/v1/members", { token: w.ada })).text(),
+      await (await req(w, "POST", "/v1/members", { token: w.owner, json: { email: "zed@example.com", permission: "read" } })).text(),
+      await (await req(w, "POST", `/v1/members/${ada.id}/access`, { token: w.owner, json: { permission: "read" } })).text(),
+      await (await req(w, "POST", `/v1/members/${ada.id}/email`, { token: w.owner, json: { email: "ada@example.com" } })).text(),
+      await (await req(w, "GET", "/v1/whoami", { token: w.ada })).text(),
+      await (await req(w, "POST", `/v1/members/${ada.id}/remove`, { token: w.owner, json: {} })).text(),
+    ];
+    for (const body of bodies) {
+      expect(body).not.toContain("identity");
+      expect(body).not.toContain("g-1001");
+      expect(body).not.toContain("display_placeholder");
+    }
+  });
+});
+
+describe("the app refuses a join link", () => {
+  test("connectInvite recognises a join link and refuses it without any network request", async () => {
+    const original = globalThis.fetch;
+    let calls = 0;
+    globalThis.fetch = (async () => { calls++; return new Response("{}", { status: 401 }); }) as unknown as typeof fetch;
+    try {
+      const store = join(mkdtempSync(join(tmpdir(), "bb-connections-")), "connections.json");
+      for (const link of [`${PUBLIC}/join`, `${PUBLIC}/join/`, `${PUBLIC}/me`, `${PUBLIC}/`, `${PUBLIC}`, `${PUBLIC}/invite`, `${PUBLIC}/join?x=1`]) {
+        const error = await connectInvite(store, link).then(() => null, (e: Error) => e);
+        expect([link, error?.message]).toEqual([link, expect.stringContaining("open it in your browser")]);
+      }
+      expect(calls).toBe(0);
+      // an app link does go to the network (and here is refused by the fake)
+      await connectInvite(store, `${PUBLIC}/invite#${"a".repeat(43)}`).catch(() => {});
+      expect(calls).toBe(1);
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+});
+
 describe("no secrets in the log", () => {
-  test("a full Google and invite sign-in logs pathnames only — no codes, tokens, invite secrets, emails or query strings", async () => {
+  test("Google, join, app-link and invite sign-ins log pathnames only — no codes, tokens, secrets, emails or query strings", async () => {
     const w = world();
     const { token, session } = await googleToken(w);
-    const inv = await (await req(w, "POST", "/v1/invites", { token: w.owner, json: { name: "Rae", permission: "read" } })).json();
-    const s = await authorize(w);
-    await inviteLogin(w, s, inv.secret);
-    const res = await exchange(w, s, await approvedCode(w, s));
-    const second = (await res.json()).access_token;
+    const joined = await joinLogin(w);
+    const { csrf } = await personalPage(w, joined.session);
+    const link = await newAppLink(w, joined.session, csrf);
+    const redeemed = (await (await req(w, "POST", "/v1/invites/redeem", { token: link, json: {} })).json()).token;
     await tool(w, token, "overview");
-    const all = w.logs.join("\n");
-    for (const secret of [token, second, inv.secret, session.verifier, session.cookie.split("=")[1]!, "ada@example.com", "fake-google-code", "test-secret"])
+
+    const plain = world({ google: false });
+    const inv = await (await req(plain, "POST", "/v1/invites", { token: plain.owner, json: { name: "Rae", permission: "read" } })).json();
+    const s = await authorize(plain);
+    await inviteLogin(plain, s, inv.secret);
+    const second = (await (await exchange(plain, s, await approvedCode(plain, s))).json()).access_token;
+
+    const logs = [...w.logs, ...plain.logs];
+    const all = logs.join("\n");
+    for (const secret of [token, second, redeemed, link, inv.secret, session.verifier, session.cookie.split("=")[1]!, joined.session.split("=")[1]!, csrf, "ada@example.com", "fake-google-code", "test-secret"])
       expect(all).not.toContain(secret);
-    for (const line of w.logs) {
+    for (const line of logs) {
       const row = JSON.parse(line) as { path?: string };
       if (row.path) expect(row.path).not.toContain("?");
     }
-    expect(all).toContain('"path":"/authorize"');
-    expect(all).toContain('"path":"/token"');
+    for (const path of ["/authorize", "/token", "/join/google", "/me/app-link", "/v1/invites/redeem"]) expect(all).toContain(`"path":"${path}"`);
   });
 });

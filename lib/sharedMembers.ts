@@ -73,6 +73,12 @@ export interface SharedMember {
   /** The verified account bound at first sign-in. Changing or clearing
    * `email` clears it; one identity names at most one live member. */
   identity?: SharedIdentityBinding;
+  /** Added by email and not yet signed in — an invitation, shown only to the
+   * owner. The first sign-in clears it. */
+  pending?: true;
+  /** `display` is a stand-in (the email) the owner did not choose; the first
+   * sign-in replaces it with the name the identity provider reports. */
+  display_placeholder?: true;
 }
 
 export interface SharedIdentityBinding {
@@ -265,15 +271,32 @@ function addMemberLocked(
   return member;
 }
 
-/** The owner's "add by email": a member record NOW, with no credential —
- * they get one by signing in through the connector. The handle is opaque,
- * shaped like the one an owner-created invitation yields (lib/sharedInvites.ts). */
+/** The owner's "add by email": a PENDING member record now, with no
+ * credential — they get one by signing in through the connector. The handle
+ * is opaque, shaped like the one an owner-created invitation yields
+ * (lib/sharedInvites.ts). Without a name, the email stands in until the
+ * first sign-in supplies one. */
 function addMemberByEmailLocked(
   storePath: string,
-  input: { display: string; email: string; permissions: readonly string[] },
+  input: { display?: string; email: string; permissions: readonly string[] },
   now: Date = new Date()
 ): SharedMember {
-  return addMemberLocked(storePath, { handle: `invite-${randomBytes(12).toString("hex")}`, ...input }, now);
+  const named = input.display !== undefined && input.display.trim() !== "";
+  const member = addMemberLocked(storePath, {
+    handle: `invite-${randomBytes(12).toString("hex")}`,
+    email: input.email,
+    permissions: input.permissions,
+    ...(named ? { display: input.display } : {}),
+  }, now);
+  const store = requireStore(storePath);
+  const saved = store.members.find((m) => m.id === member.id)!;
+  saved.pending = true;
+  if (!named) {
+    saved.display = saved.email!;
+    saved.display_placeholder = true;
+  }
+  writeStore(storePath, store);
+  return saved;
 }
 
 /** Set, change or clear (`null`) a member's email. Any change unbinds the
@@ -288,6 +311,7 @@ function setMemberEmailLocked(storePath: string, handle: string, raw: string | n
   if (email) checkEmailFree(store, email, member);
   if (email) member.email = email;
   else delete member.email;
+  if (email && member.display_placeholder) member.display = email;
   delete member.identity;
   writeStore(storePath, store);
   return member;
@@ -300,10 +324,12 @@ export type BindIdentityResult =
 /** Resolve a VERIFIED sign-in to a live member, binding on first use:
  * by bound (iss, sub) first, so a later change of address at the provider
  * still matches; else by email on a live member not yet bound, which binds
- * it; an email whose member is bound to a different account is refused. */
+ * it; an email whose member is bound to a different account is refused.
+ * Binding ends a pending invitation and, if the owner never named the
+ * member, names them from the provider's `name` (else the email's local part). */
 function bindMemberIdentityLocked(
   storePath: string,
-  who: { iss: string; sub: string; email: string },
+  who: { iss: string; sub: string; email: string; name?: string },
   now: Date = new Date()
 ): BindIdentityResult {
   const store = requireStore(storePath);
@@ -315,6 +341,12 @@ function bindMemberIdentityLocked(
   if (!byEmail) return { ok: false, reason: "not-member" };
   if (byEmail.identity) return { ok: false, reason: "bound-elsewhere" };
   byEmail.identity = { iss: who.iss, sub: who.sub, bound: now.toISOString() };
+  delete byEmail.pending;
+  if (byEmail.display_placeholder) {
+    const name = (who.name ?? "").replace(/\p{Cc}/gu, " ").replace(/\s+/gu, " ").trim().slice(0, 120);
+    byEmail.display = name || checkOneLine("display", email.split("@")[0]!, 120);
+    delete byEmail.display_placeholder;
+  }
   writeStore(storePath, store);
   return { ok: true, member: byEmail };
 }

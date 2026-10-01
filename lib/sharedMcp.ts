@@ -193,7 +193,8 @@ function statusOf(view: AssertionView, who: (a: EventAuthor) => string): string 
 
 function overview(ctx: SharedMcpContext): string {
   const who = namer(ctx.storePath);
-  const members = listMembers(ctx.storePath).filter((m) => !m.revoked);
+  // Pending members are invitations, visible to the owner only.
+  const members = listMembers(ctx.storePath).filter((m) => !m.revoked && !m.pending);
   const evidence = allEvidence(ctx.vault);
   const assertions = allAssertions(ctx.vault, true);
   const live = assertions.filter((a) => !a.revocation);
