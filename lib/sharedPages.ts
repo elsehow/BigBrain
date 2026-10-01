@@ -6,8 +6,8 @@
  *
  * They wear bigbrain.cool's look — its tokens, type ramp, buttons and the
  * wire mark — at the size of one short page: no web font from anywhere but
- * this door, no image, no animation, light only (the site has no automatic
- * dark mode either).
+ * this door, no image, no animation, and one palette: the site's default
+ * theme ("web" — blue ground, white ink, yellow activity), with no picker.
  *
  * Nothing loads from elsewhere. The CSP is `default-src 'none'` with the one
  * stylesheet and the one script pinned by hash, and fonts from 'self': the
@@ -62,11 +62,12 @@ export async function fontResponse(pathname: string): Promise<Response | undefin
 // ── style, mark, script ─────────────────────────────────────────────────────
 
 // Tokens and ramp from bigbrain.cool (assets/design.css, src/index.html),
-// value for value where a page here has the same element.
+// value for value where a page here has the same element. The three base
+// colours are its `[data-theme="web"]`, what the site wears by default.
 const STYLE = `
 @font-face{font-family:"Hanken Grotesk";font-style:normal;font-weight:400 600;font-display:swap;src:url("/assets/hanken-grotesk-latin.woff2") format("woff2");unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
 @font-face{font-family:"Hanken Grotesk";font-style:normal;font-weight:400 600;font-display:swap;src:url("/assets/hanken-grotesk-latin-ext.woff2") format("woff2");unicode-range:U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF}
-:root{--bg:#FFFFFF;--fg:#211A18;--activity:#CC4A3E;--font-app:"Hanken Grotesk",system-ui,-apple-system,sans-serif;--font-mono:ui-monospace,Menlo,"SF Mono",monospace;--text-note:color-mix(in srgb,var(--fg) 88%,var(--bg));--text-muted:color-mix(in srgb,var(--fg) 65%,var(--bg));--surface:color-mix(in srgb,var(--fg) 4%,var(--bg));--rule:color-mix(in srgb,var(--fg) 18%,var(--bg));--r-sm:5px;--r-chip:11px;color-scheme:light}
+:root{--bg:#1e2bd6;--fg:#ffffff;--activity:#ffd23f;--font-app:"Hanken Grotesk",system-ui,-apple-system,sans-serif;--font-mono:ui-monospace,Menlo,"SF Mono",monospace;--text-note:color-mix(in srgb,var(--fg) 88%,var(--bg));--text-muted:color-mix(in srgb,var(--fg) 65%,var(--bg));--surface:color-mix(in srgb,var(--fg) 4%,var(--bg));--rule:color-mix(in srgb,var(--fg) 18%,var(--bg));--r-sm:5px;--r-chip:11px;color-scheme:dark}
 *{box-sizing:border-box}
 ::selection{background:color-mix(in srgb,var(--activity) 20%,var(--bg));color:var(--activity)}
 [hidden]{display:none!important}
