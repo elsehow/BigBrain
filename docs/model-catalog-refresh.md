@@ -9,7 +9,7 @@ exact miss before rejection. No choice or saved preference is rewritten.
 
 Pi owns installed provider adapters, runtime model snapshots, authentication and
 its locked `models-store.json` persistence. BigBrain replaces the permissive Pi
-public overlay loader (Pi 0.87.1 today) with a bounded, validating provider wrapper, using
+public overlay loader (Pi 0.99.2 today) with a bounded, validating provider wrapper, using
 Pi's `refreshModels` / generation-checked `publish` interface. There is no second
 curated model list. Only Pi built-in public providers are refreshed; Radius and
 custom provider discovery are not redirected to the public service.
@@ -76,6 +76,12 @@ compat combinations no installed record has yet. On 2026-09-28 a credentialed-pr
 persisted, restored offline, and revalidated with a 304; the catalog request
 carried no credential. Pi only network-refreshes providers with a stored
 credential. Publication latency and any specific future model remain unverified.
+
+Live check, 2026-10-01, same method, Pi 0.99.2: 40 of 41 shards validated and
+every record in them was accepted (1,104). `openrouter` was rejected whole, under
+0.87.1 as well; not yet investigated. Pi 0.99 composes a provider that has a
+`models.json` entry from `getAllModels()` rather than `getModels()`, so the
+wrapper overrides both.
 
 Adapter code changes require a separate tested Pi dependency/application release.
 Automatic executable upgrades, signed release delivery and retirement discovery

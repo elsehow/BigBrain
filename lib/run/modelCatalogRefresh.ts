@@ -139,7 +139,10 @@ export class CatalogRefresh {
   wrap(provider: Provider): Provider {
     const baseline = [...provider.getModels()]; let models = baseline;
     const trusted = { ...provider, getModels: () => baseline };
-    return { ...provider, getModels: () => models, refreshModels: async context => {
+    // Pi 0.99 composes a provider that has a models.json entry from getAllModels(), not
+    // getModels(), so both must carry the overlay. Overlays are chat-only; other types pass through.
+    const others = (provider.getAllModels?.() ?? []).filter(m => (m.type ?? "chat") !== "chat");
+    return { ...provider, getModels: () => models, getAllModels: () => [...models, ...others], refreshModels: async context => {
       let stored: ModelsStoreEntry | undefined;
       try {
         if (context.stored) stored = { ...context.stored, models: validateCatalog(context.stored.models, trusted) };
