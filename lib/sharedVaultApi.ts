@@ -307,7 +307,7 @@ const ROUTE_TABLE: Route[] = [
   // the member's own voice; only a person credential may mint that delegate.
   {method:'POST',path:'/v1/credentials/agent',permission:'write',rateLimited:true,handler:({storePath,actor,json})=>{
     if(actor.kind!=='person')return json(403,{error:'Only a person credential can mint an agent credential.'});
-    const {credential,token}=mintCredential(storePath,actor.handle,{name:'BigBrain agent',kind:'agent'});
+    const {credential,token}=mintCredential(storePath,actor.handle,{name:'BigBrain agent',kind:'agent',mintedBy:actor.credential_id});
     return json(201,{token,credential:{id:credential.id,name:credential.name,kind:credential.kind}});
   }},
   {method:'GET',path:'/v1/contributions',permission:'read',handler:({vault,actor,json})=>json(200,{items:vault.contributions(actor)})},

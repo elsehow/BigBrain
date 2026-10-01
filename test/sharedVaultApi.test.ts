@@ -373,6 +373,11 @@ describe("shared vault — forged authorship and delegation", () => {
     expect((await call(w.handler, "POST", "/v1/credentials/agent", w.aliceAgent, {})).status).toBe(403);
     expect((await call(w.handler, "POST", "/v1/credentials/agent", w.carol, {})).status).toBe(403);
     expect((await call(w.handler, "POST", "/v1/credentials/agent", w.aliceReadOnly, {})).status).toBe(403);
+    // A delegate stands only while the credential that minted it does.
+    const laptop = listCredentials(w.store, "alice").find(c => c.name === "laptop")!;
+    revokeCredential(w.store, laptop.id);
+    expect((await call(w.handler, "GET", "/v1/whoami", minted.token)).status).toBe(401);
+    expect((await call(w.handler, "GET", "/v1/whoami", w.aliceAgent)).status).toBe(200);
   });
 });
 
