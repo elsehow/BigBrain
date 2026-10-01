@@ -54,6 +54,8 @@ export function machineTools(root: string, role: string, noTools = false, client
     call: a => readIntake(root, a.insertion_id, a),
   });
   if (role !== MEMORY_ROLE) return tools;
+  /** Every memory write goes through the run's edit record, so a failed run can roll it back. */
+  const mutate = (path: string, change: () => void) => edits ? edits.capture([path], change) : change();
   return [...tools, ...sharedMemoryTools(root),
     { name: "memory_files", description: "List memory Markdown paths and their word counts. Equivalent to measuring memory/**/*.md.", inputSchema: schema({}), call: () => {
       const out: { path: string; words: number }[] = [];
@@ -76,9 +78,20 @@ export function machineTools(root: string, role: string, noTools = false, client
     { name: "write_memory", description: "Replace one memory Markdown file with its complete content.", inputSchema: schema({ path: str, content: str }, ["path", "content"]), call: a => {
       const path = machinePath(root, a.path, true);
       if (typeof a.content !== "string" || a.content.length > 100_000) throw new Error("content must be text under 100,000 characters");
-      if (edits) edits.capture([a.path], () => writeAtomic(path, a.content)); else writeAtomic(path, a.content); return { written: a.path };
+      mutate(a.path, () => writeAtomic(path, a.content)); return { written: a.path };
     } },
-    { name: "delete_memory", description: "Remove a memory Markdown file after merging or pruning it.", inputSchema: schema({ path: str }, ["path"]), call: a => { const p = machinePath(root, a.path, true); const remove = () => { if (existsSync(p)) unlinkSync(p); }; if (edits) edits.capture([a.path], remove); else remove(); return { deleted: a.path }; } },
+    { name: "edit_memory", description: "Replace one exact passage in a memory Markdown file. old_text must occur exactly once; use this to trim or update without rewriting the file.", inputSchema: schema({ path: str, old_text: str, new_text: str }, ["path", "old_text", "new_text"]), call: a => {
+      const path = machinePath(root, a.path, true);
+      if (typeof a.old_text !== "string" || !a.old_text || typeof a.new_text !== "string") throw new Error("old_text and new_text must be text");
+      mutate(a.path, () => {
+        const text = existsSync(path) ? readFileSync(path, "utf8") : "";
+        const at = text.indexOf(a.old_text);
+        if (at < 0 || text.indexOf(a.old_text, at + 1) >= 0) throw new Error("old_text must occur exactly once in the file");
+        writeAtomic(path, text.slice(0, at) + a.new_text + text.slice(at + a.old_text.length));
+      });
+      return { edited: a.path };
+    } },
+    { name: "delete_memory", description: "Remove a memory Markdown file after merging or pruning it.", inputSchema: schema({ path: str }, ["path"]), call: a => { const p = machinePath(root, a.path, true); mutate(a.path, () => { if (existsSync(p)) unlinkSync(p); }); return { deleted: a.path }; } },
     { name: "assertions", description: "The bigbrain assertions command: survey the live record by content date, entity, or entity tally.", inputSchema: schema({ since: str, until: str, entity: str, entities: { type: "boolean" }, limit: { type: "integer" } }), call: a => {
       syncAssertionProjection(root);
       if (a.entities) return tallyAssertionEntities(root);

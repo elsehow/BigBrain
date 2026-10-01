@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import * as pi from "@earendil-works/pi-coding-agent";
@@ -6,6 +6,8 @@ import { InMemoryCredentialStore, createAssistantMessageEventStream, getCurrentT
 import { spawnSync } from "node:child_process";
 import { applyConfig } from "../lib/config";
 import { runAgent } from "../lib/run/agent";
+import { runModel } from "../lib/run/model";
+import { BACKGROUND_JOB_TIMEOUT_MS } from "../lib/run/sessionJob";
 import { readModelRuns } from "../lib/run/monitor";
 import type { Auth } from "../lib/manifest";
 import type { ToolObserver } from "../lib/run/toolActivity";
@@ -107,6 +109,15 @@ test("a Pi job deadline prevents dispatch after delayed initialization", async (
     })).rejects.toThrow();
     expect(f.contexts).toHaveLength(0);
   } finally { f.close(); }
+});
+test("background jobs, memory turns included, default to a 60-minute deadline", async () => {
+  expect(BACKGROUND_JOB_TIMEOUT_MS).toBe(60 * 60_000);
+  const f = await fixture([]);
+  const timers = spyOn(globalThis, "setTimeout");
+  try {
+    await runModel({ root: f.root, role: MEMORY_ROLE, auth: "max", target: { adapter: "pi", provider: "openai-codex", model: f.model }, prompt: "Update memory" }, f.load);
+    expect(timers.mock.calls.some(([, ms]) => ms === BACKGROUND_JOB_TIMEOUT_MS)).toBe(true);
+  } finally { timers.mockRestore(); f.close(); }
 });
 test("tool-only background completion is valid; text-required jobs still reject an empty answer", async () => {
   const frames: any[][] = [[]];

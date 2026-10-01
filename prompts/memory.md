@@ -76,8 +76,10 @@ Report important missing evidence without treating a question's premise as fact.
    stale material. Reorganize only when it improves retrieval, keeping the
    topic index and links consistent. Write only under `memory/`.
 4. Check citations, links, and the supplied size limits. Use `memory_files`
-   when available. Drop low-value material before stripping qualifications
-   from useful claims. There is no minimum size to fill.
+   when available. Trim and update with `edit_memory`; rewrite a whole file
+   with `write_memory` only when creating or reorganizing it. Drop low-value
+   material before stripping qualifications from useful claims. There is no
+   minimum size to fill.
 
 Retrieve live assertions with `bigbrain assertions`: `--entities` for a
 subject overview, `--entity <id>` for a subject, `--since <date>` for content

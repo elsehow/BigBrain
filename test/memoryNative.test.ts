@@ -19,7 +19,7 @@ import {
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import type { Manifest } from "../lib/manifest";
-import type { PiLoader } from "./support/pi";
+import { fakePi as scriptedPi, type PiLoader } from "./support/pi";
 import { fakeMemoryPi as fakePi } from "./support/memoryPi";
 import {
   appendAssertionEvent,
@@ -668,5 +668,27 @@ describe("memory protocol upgrade notices", () => {
     const rebuilt = await run(root, write, { fromScratch: true });
     expect(rebuilt.error).toBeUndefined();
     expect(readMemoryStamp(root).protocolVersion).toBe(MEMORY_PROTOCOL_VERSION + 1);
+  });
+});
+
+// ── edit_memory: passage trims share the run's rollback ─────────────────
+
+describe("edit_memory — a failed run reverts passage edits too", () => {
+  test("the model trims with edit_memory, then fails: the tree is restored", async () => {
+    const { root } = nativeVault(1);
+    const before = read(root, "memory/topic.md");
+    let during = "";
+    const res = await runMemory({
+      root, manifest: memManifest(root), force: true,
+      loadPi: scriptedPi(async (_prompt, options) => {
+        const edit = options.customTools!.find((t) => t.name === "edit_memory")!;
+        await edit.execute("edit-1", { path: "memory/topic.md", old_text: "standing context", new_text: "trimmed" }, new AbortController().signal);
+        during = read(root, "memory/topic.md");
+        throw new Error("model failed after a trim");
+      }),
+    });
+    expect(during).toContain("trimmed");
+    expect(res.error).toBeDefined();
+    expect(read(root, "memory/topic.md")).toBe(before);
   });
 });
