@@ -216,7 +216,7 @@
   </footer>
   <VaultSwitcher />
 </section>
-{:else}
+{:else if rows.length}
   <div class="workspace-menu-hint"><ListNavigationHint /></div>
 {/if}
 <style>

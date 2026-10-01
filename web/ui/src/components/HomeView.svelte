@@ -19,6 +19,7 @@
   import { searchOverlay } from "../lib/omnibox.svelte";
   import { floatingResults as results } from "../lib/floatingSearch.svelte";
   import HomeFolds from "./HomeFolds.svelte";
+  import EmptyVault from "./EmptyVault.svelte";
   import NoteTab from "./NoteTab.svelte";
   import SystemGraph from "./SystemGraph.svelte";
   import { withSourceReadStates } from "../lib/sourceReadGraph";
@@ -55,6 +56,8 @@
   const viewSession = $derived(session ?? chatSessions().find(s => s.id === selectedWork?.origin?.pilot));
   $effect(() => { if (sourceAttention.selection && !isUnreadSelection()) sourceAttention.selection = ""; });
   const arrivalGraph = $derived(withArrivals(graph, arrivals.nodes));
+  // Nothing has landed yet: at most the gardener's memory notes, no arrival on its way.
+  const vaultEmpty = $derived(!!arrivalGraph && arrivalGraph.nodes.every(n => n.group === "memory" && !n.pending));
   const readGraph = $derived(withSourceReadStates(arrivalGraph, sourceAttention.rows));
   const pilotGraph = $derived(preparePilotChats(readGraph, personalIncluded ? chatSessions() : []));
   const visibleGraph = $derived(withAgentHistory(readGraph ? pilotGraph(sidebar ? null : viewSession?.id ?? null) : null, personalIncluded ? work.sessions : []));
@@ -253,6 +256,7 @@
         if (chat.sessions.some(s => s.id === id)) openChat(id);
         else { const node = visibleGraph?.nodes.find(n => n.id === id); if (node?.path) gotoNote(node.path); }
       }} />
+    {#if vaultEmpty && !drawerUp && !sidebar?.open}<EmptyVault />{/if}
     {#if viewSession}<div class="pilot-view"><strong>Pilot view</strong><span>{viewSession.title}</span></div>{/if}
     {#if chat.error && !chat.open}<p class="pilot-error" role="alert">{chat.error}</p>{/if}
     {#if chat.toast}<div class="pilot-toast" role="alert">{chat.toast}<button aria-label="Dismiss Pilot error" onclick={() => chat.toast = ""}>×</button></div>{/if}
