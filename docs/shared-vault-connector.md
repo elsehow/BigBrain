@@ -235,7 +235,7 @@ read-only.
   handle-bound invite's pre-issued person credential is revoked as it is
   consumed.
 - **Pages** wear bigbrain.cool's tokens, type ramp, buttons and wire mark
-  (light only, as the site is). They are self-contained HTML with everything
+  in the site's default blue theme. They are self-contained HTML with everything
   escaped, `Cache-Control: no-store`, `X-Frame-Options: DENY`,
   `Referrer-Policy: no-referrer`, and a CSP of `default-src 'none'`, the one
   stylesheet and the one script (it only reveals Copy buttons; pages work
