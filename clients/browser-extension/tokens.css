@@ -5,10 +5,8 @@
   --bg: #FFFFFF;
   --fg: #211A18;
   --activity: #CC4A3E;
-  /* typography — one knob: --font-app. --font-display is for the rare
-     large invitation (home's empty state), never running text. */
+  /* typography — one knob: --font-app */
   --font-app: "Hanken Grotesk", system-ui, -apple-system, sans-serif;
-  --font-display: "Instrument Serif", Georgia, serif;
   --font-mono: ui-monospace, Menlo, "SF Mono", monospace;
   --fw-regular: 400;
   --fw-medium: 500;
