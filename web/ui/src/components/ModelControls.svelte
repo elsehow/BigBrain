@@ -1,11 +1,12 @@
 <script lang="ts">
-  import { changeModel, reasoningOptions, choiceKey, type ModelAgent, type ModelChoice } from "../lib/modelSettings";
+  import { changeModel, latestModels, reasoningOptions, choiceKey, type ModelAgent, type ModelChoice } from "../lib/modelSettings";
   const { label, agents, value, disabled = false, deferred = false, save }: {
     label: string; agents: ModelAgent[]; value: ModelChoice; disabled?: boolean; deferred?: boolean;
     save: (choice: ModelChoice) => Promise<void>;
   } = $props();
   let busy = $state(false), error = $state(""), saved = $state(false);
   const selected = $derived(`${choiceKey(value)}:${value.model}`);
+  const menus = $derived(agents.map(a => ({ ...a, models: latestModels(a.models, a.id === choiceKey(value) ? value.model : undefined) })));
   const known = $derived(agents.some(a => a.id === choiceKey(value) && a.models.some(m => m.id === value.model)));
   const efforts = $derived(reasoningOptions(agents, value));
   const available = $derived(agents.some(a => a.id === choiceKey(value) && a.ready));
@@ -21,7 +22,7 @@
     <select aria-label={`${label} model`} value={selected} disabled={disabled || busy}
       onchange={e => void commit(changeModel(agents, value, e.currentTarget.value), e.currentTarget, selected)}>
       {#if !known}<option value={selected} disabled>{value.model || "Choose a model"}</option>{/if}
-      {#each agents as agent (agent.id)}
+      {#each menus as agent (agent.id)}
         <optgroup label={`${agent.label}${agent.billing === "api" ? " · API" : agent.billing === "subscription" ? " · subscription" : ""}${agent.ready ? "" : " — not connected"}`} disabled={!agent.ready}>
           {#each agent.models as model (model.id)}<option value={`${agent.id}:${model.id}`}>{model.label}</option>{/each}
         </optgroup>
