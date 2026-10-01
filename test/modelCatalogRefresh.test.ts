@@ -41,6 +41,18 @@ test("real initialization restores validated Pi persistence offline; malformed r
   expect(restarted.getModel("openai-codex", f.model.id)?.id).toBe(f.model.id);
   expect(calls).toBe(2);
 });
+test("a restored overlay model still resolves when Pi's models.json configures its provider", async () => {
+  const f = await fixture();
+  const installed = f.provider.getModels()[0]!;
+  writeFileSync(join(f.root, "store.json"), JSON.stringify({ "openai-codex": { models: [f.model], checkedAt: Date.now() } }));
+  writeFileSync(join(f.root, "models.json"), JSON.stringify({ providers: { "openai-codex": { modelOverrides: { [installed.id]: { name: "Renamed fixture" } } } } }));
+  const runtime = await pi.ModelRuntime.create(f.options);
+  await initializeCatalog(runtime, new CatalogRefresh(), false);
+  // Pi composes this provider from getAllModels(); the overlay must be there as well as in getModels().
+  expect(runtime.getModel("openai-codex", installed.id)?.name).toBe("Renamed fixture");
+  expect(runtime.getModel("openai-codex", f.model.id)?.id).toBe(f.model.id);
+  expect(runtime.getAllModels("openai-codex").some(m => m.id === f.model.id)).toBe(true);
+});
 test("concurrent exact misses coalesce, appear in shared discovery, and launch only the exact subscription model", async () => {
   const f = await fixture(); let calls = 0;
   const owner = new CatalogRefresh((async () => { calls++; await Bun.sleep(10); return Response.json([f.model]); }) as typeof fetch);
