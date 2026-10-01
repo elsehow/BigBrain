@@ -263,7 +263,9 @@ With the connector on, these answer without a credential: the two
 `/.well-known/oauth-protected-resource` documents and
 `/.well-known/oauth-authorization-server` (static JSON derived from the
 public URL), `POST /register`, `GET /authorize`, `POST /authorize/consent`,
-`POST /token` and the two font files; with Google, also `GET /oauth/google`,
+`POST /token`, the two font files, and `GET /invite` (a generic "paste this
+link, don't open it" page for an invite or app link opened in a browser — the
+link's secret is in the fragment and never reaches the door); with Google, also `GET /oauth/google`,
 `GET /oauth/google/callback`, `GET /join`, `GET /join/google`, `GET /me`,
 `POST /me/app-link` and `POST /me/signout`; without Google,
 `POST /authorize/invite` instead. `/mcp` still requires a credential; its 401 carries
@@ -278,6 +280,11 @@ these, is the door's usual undifferentiated 401.
   the credential is revoked.
 - **Dynamic client registration only** — no Client ID Metadata Documents,
   so Claude registers a fresh client per connection (bounded as above).
+- **Protocol versions are the SDK's.** Claude Desktop (tested 2026-10-01)
+  opens each connection naming MCP protocol `2026-07-28`, which
+  `@modelcontextprotocol/sdk` 1.30–1.31 does not speak; that first request is
+  refused with 400 and Claude falls back to a supported version on its own.
+  The door logs each such refusal as `mcp refused` with the reason.
 - **In-memory sign-in state.** A server restart drops sign-ins in flight
   and `/me` sessions; the member starts again.
 - **No invitation email** is sent by the door; the owner sends the join link.

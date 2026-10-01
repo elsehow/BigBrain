@@ -931,6 +931,19 @@ describe("the join link and the personal page", () => {
     expect(await (await req(w, "GET", "/join", { cookie: session })).text()).toBe(html);
   });
 
+  test("an invite or app link opened in a browser gets a generic page saying to paste it", async () => {
+    for (const google of [true, false]) {
+      const res = await req(world({ google }), "GET", "/invite");
+      expect(res.status).toBe(200);
+      const html = await res.text();
+      expect(html).toContain("Paste this link");
+      // only without Google is the link also pasted into Claude's sign-in page
+      expect(html.includes("sign-in page Claude opens")).toBe(!google);
+      expect([html.includes(VAULT), res.headers.get("set-cookie")]).toEqual([false, null]);
+    }
+    expect((await req(world({ connector: false }), "GET", "/invite")).status).toBe(401);
+  });
+
   test("Google sign-in from /join opens a session on /me with the connector URL and app links", async () => {
     const w = world();
     const { res, session } = await joinLogin(w);

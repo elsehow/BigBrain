@@ -157,6 +157,13 @@ export const expiredPage = (): Response =>
 export const joinPage = (): Response =>
   page(200, "Sign in to a shared BigBrain", `${EYEBROW}<h1>Sign in to a shared BigBrain</h1><div class="actions"><a class="cta" href="/join/google">Sign in with Google</a></div><p class="meta">Use the Google account for the address you were invited with.</p>`);
 
+/** `/invite` — an invite or app link opened in a browser instead of pasted.
+ * The same page for every link: the secret is in the fragment, which never
+ * reaches the door. `claudeSignIn` is the no-Google case, where the link is
+ * also what a member pastes into the connector's sign-in page. */
+export const inviteLinkPage = (claudeSignIn: boolean): Response =>
+  page(200, "Paste this link", `${EYEBROW}<h1>Paste this link, don't open it</h1><p class="lead">Copy the whole link and paste it into BigBrain under Connect a shared vault.${claudeSignIn ? " To connect Claude, paste it into the sign-in page Claude opens." : ""}</p><p class="meta">The link works once.</p>`);
+
 export interface AuthorizeView {
   clientName: string;
   redirectHost: string;

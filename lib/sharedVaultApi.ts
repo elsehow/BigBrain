@@ -470,7 +470,13 @@ export function makeSharedApiHandler(deps: SharedApiDeps): (req: Request) => Pro
       touchCredential(deps.storePath, actor.credential_id, now());
       try {
         vault.recoverPending();
-        return respond(await serveSharedMcp(req, { vault, actor, storePath: deps.storePath, vaultName: sharedVaultIdentity(deps.root).name }));
+        const answer = await serveSharedMcp(req, { vault, actor, storePath: deps.storePath, vaultName: sharedVaultIdentity(deps.root).name });
+        // A refusal's own words (the transport's or ours — never the request
+        // body) and the protocol version the client named: what tells an
+        // operator why a client's request was turned away.
+        if (answer.status >= 400)
+          log(JSON.stringify({ ts: now().toISOString(), warn: "mcp refused", status: answer.status, credential, reason: (await answer.clone().text()).slice(0, 300), protocol: (req.headers.get("mcp-protocol-version") ?? "").slice(0, 40) }));
+        return respond(answer);
       } catch (error) {
         log(JSON.stringify({ ts: now().toISOString(), error: "unhandled", path, message: error instanceof Error ? error.message : String(error) }));
         return respond(json(500, { error: "internal error" }));
