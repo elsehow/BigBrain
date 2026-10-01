@@ -530,7 +530,7 @@ export async function runMemory(opts: MemoryRunOpts): Promise<MemoryRunResult> {
       // told what killed this one (previousRunFailure). Before this, the
       // stamp was untouched on failure, nextRunAt stayed in the past, and
       // the next five-minute tick was due again: a run that died at the
-      // 20-minute timeout, or a tree still over budget after its trims,
+      // background-job timeout, or a tree still over budget after its trims,
       // re-ran and re-paid every tick until something changed (#598
       // measured $1–4 a revert). Silent by design — the stamp and the
       // journal say so, and diagnostics reads both (lib/diagnostics.ts).

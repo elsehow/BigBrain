@@ -23,8 +23,8 @@ test("memory rejects hard links as well as traversal before reads or writes", ()
   writeFileSync(join(root, "private.txt"), "synthetic protected content");
   linkSync(join(root, "private.txt"), join(root, "memory", "linked.md"));
   const tools = machineTools(root, "memory");
-  for (const name of ["read_file", "write_memory", "delete_memory"])
-    expect(() => tools.find(t => t.name === name)!.call({ path: "memory/linked.md", content: "replacement" })).toThrow("hard-linked");
+  for (const name of ["read_file", "write_memory", "edit_memory", "delete_memory"])
+    expect(() => tools.find(t => t.name === name)!.call({ path: "memory/linked.md", content: "replacement", old_text: "synthetic", new_text: "replacement" })).toThrow("hard-linked");
 });
 test("saved Claude aliases migrate to native Pi identity without silently changing providers", () => {
   expect(readModelChoice({ adapter: "claude", model: "sonnet", reasoning: "high" })).toEqual({ adapter: "pi", provider: "anthropic", model: "claude-sonnet-5", reasoning: "high" });
