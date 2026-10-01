@@ -8,6 +8,10 @@ import {SharedMemberBusyError} from './sharedMemberLock';
  * Every route requires a member credential (lib/sharedMembers.ts) — there
  * is no unauthenticated surface at all, not a health probe, not a 404: an
  * unauthenticated request learns nothing, including whether a path exists.
+ * The one exception is opt-in: when the operator configures a public URL,
+ * the Claude connector's OAuth discovery, registration and sign-in pages
+ * answer without a credential (lib/sharedOAuth.ts), and `/mcp` answers a
+ * stranger with the 401 that starts Claude's sign-in (lib/sharedMcp.ts).
  * Auth failures are an undifferentiated 401 (the reason goes to the server
  * log by credential id, never the secret). 403 names the missing
  * permission — the caller holds a real credential and may as well know.
@@ -25,6 +29,9 @@ import {SharedMemberBusyError} from './sharedMemberLock';
  *   GET  /v1/search?q&limit                 read         term-AND hits over evidence and live assertions
  *   GET  /v1/feed?after&limit               read         the durable change feed from a cursor
  *   POST /v1/credentials/agent              write+person a new agent credential for the caller → {token, credential}
+ *   POST /v1/members                        write+OWNER  {name, email, permission} → a member who signs in by email
+ *   POST /v1/members/:id/email              write+OWNER  {email | null} — set, change or clear; any change unbinds
+ *   POST /mcp                               read         the read-only MCP server (connector enabled only)
  *
  * The door reads and writes ONLY the vault's logs through lib/sharedVault.ts
  * — never a path a client names. Ids are validated by pattern before
@@ -33,8 +40,11 @@ import {SharedMemberBusyError} from './sharedMemberLock';
  */
 
 import { sharedVaultIdentity, redeemSharedInvite, createMemberInvite, pendingMemberInvites, cancelMemberInvite } from './sharedInvites';
+import { makeSharedConnector, MCP_PATH, type SharedConnectorConfig } from "./sharedOAuth";
+import { serveSharedMcp } from "./sharedMcp";
 import {
   listMembers, setMemberPermissions, revokeMember, mintCredential, SharedMemberError,
+  addMemberByEmail, setMemberEmail, type SharedMember,
   hasPermission,
   touchCredential,
   verifyCredential,
@@ -57,6 +67,11 @@ export interface SharedApiDeps {
   log?: (line: string) => void;
   /** An already-opened vault (the server's), else one is opened on `root`. */
   vault?: SharedVault;
+  /** The Claude connector — set only when the operator configured a public
+   * URL. Absent, none of its paths exist and the door is as described above. */
+  connector?: SharedConnectorConfig;
+  /** Outbound HTTP for the connector's Google sign-in; tests inject a fake. */
+  fetch?: (input: string, init?: RequestInit) => Promise<Response>;
 }
 
 /** Whole-request cap: the evidence body cap plus JSON overhead. Set on
@@ -278,10 +293,39 @@ function feed({ url, vault, json }: RouteCtx): Response {
   return json(200, vault.feed(after, limit));
 }
 
+/** A member as the roster shows them: emails and sign-in binding are the
+ * owner's business only. */
+function memberView(m: SharedMember, owner: boolean): Record<string, unknown> {
+  const { email, identity, ...rest } = m;
+  return owner ? { ...rest, email: email ?? null, signed_in: identity?.bound ?? null } : rest;
+}
+
+function addMemberRoute({ storePath, now, body, json }: RouteCtx): Response {
+  const input = body as { name?: unknown; email?: unknown; permission?: unknown } | null;
+  if (!input || typeof input.name !== "string" || typeof input.email !== "string" || (input.permission !== "read" && input.permission !== "write"))
+    return json(400, { error: "Enter a name, an email and a valid access level." });
+  const member = addMemberByEmail(storePath, {
+    display: input.name,
+    email: input.email,
+    permissions: input.permission === "write" ? ["read", "write"] : ["read"],
+  }, now);
+  return json(201, memberView(member, true));
+}
+
+function setMemberEmailRoute({ storePath, params, body, json }: RouteCtx): Response {
+  const member = listMembers(storePath).find((m) => m.id === params["id"] && !m.revoked);
+  if (!member) return json(404, { error: "Member not found." });
+  const input = body as { email?: unknown } | null;
+  if (!input || !(typeof input.email === "string" || input.email === null)) return json(400, { error: "Send {email} — an address, or null to clear it." });
+  return json(200, memberView(setMemberEmail(storePath, member.handle, input.email), true));
+}
+
 // ── the route table ──────────────────────────────────────────────────────
 
 const ROUTE_TABLE: Route[] = [
-  {method:'GET',path:'/v1/members',permission:'read',handler:({storePath,now,actor,json})=>{const can_manage=actor.role==='owner'&&actor.kind==='person'&&actor.permissions.includes('write');return json(200,{members:listMembers(storePath).filter(m=>!m.revoked),can_manage,invites:can_manage?pendingMemberInvites(storePath,now):[]});}},
+  {method:'GET',path:'/v1/members',permission:'read',handler:({storePath,now,actor,json})=>{const can_manage=actor.role==='owner'&&actor.kind==='person'&&actor.permissions.includes('write');return json(200,{members:listMembers(storePath).filter(m=>!m.revoked).map(m=>memberView(m,can_manage)),can_manage,invites:can_manage?pendingMemberInvites(storePath,now):[]});}},
+  { method: "POST", path: "/v1/members", ownerOnly: true, permission: "write", rateLimited: true, handler: addMemberRoute },
+  { method: "POST", path: "/v1/members/:id/email", ownerOnly: true, permission: "write", rateLimited: true, handler: setMemberEmailRoute },
   {method:'POST',path:'/v1/invites',ownerOnly:true,permission:'write',rateLimited:true,handler:({storePath,now,body,json})=>{
     const input=body as {name?:unknown;permission?:unknown}|null;
     if(!input||typeof input.name!=='string'||!input.name.trim()||input.name.trim().length>120||/[\p{Cc}]/u.test(input.name)||(input.permission!=='read'&&input.permission!=='write'))return json(400,{error:'Enter a name and valid access level.'});
@@ -337,6 +381,9 @@ export function makeSharedApiHandler(deps: SharedApiDeps): (req: Request) => Pro
   const log = deps.log ?? ((line: string) => console.log(line));
   const vault = deps.vault ?? new SharedVault(deps.root, { now });
   const buckets = new Map<string, { tokens: number; last: number }>();
+  const connector = deps.connector
+    ? makeSharedConnector({ config: deps.connector, root: deps.root, storePath: deps.storePath, now, log, ...(deps.fetch ? { fetch: deps.fetch } : {}) })
+    : undefined;
 
   function takeToken(id: string): { ok: true } | { ok: false; retryAfter: number } {
     const t = now().getTime();
@@ -378,6 +425,11 @@ export function makeSharedApiHandler(deps: SharedApiDeps): (req: Request) => Pro
     const authHeader = req.headers.get("authorization") ?? "";
     // The scheme is case-insensitive (RFC 9110 §11.1); the credential is not.
     const presented = /^bearer /iu.test(authHeader) ? authHeader.slice(7).trim() : "";
+    // The connector's public surface (discovery, registration, sign-in,
+    // token): the deliberate exception to "everything is 401", and only
+    // when the operator turned the connector on.
+    const publicAnswer = connector ? await connector.handlePublic(req, url) : undefined;
+    if (publicAnswer) return respond(publicAnswer);
     if(path==='/v1/invites/redeem'&&req.method==='POST') {
       // Invite travels in Authorization, never URL or logs. No request body.
       const rate=takeToken('invite-redemptions');
@@ -391,11 +443,23 @@ export function makeSharedApiHandler(deps: SharedApiDeps): (req: Request) => Pro
     if (!verdict.ok) {
       const idHint = /^sv_([0-9a-f]{8})_/u.exec(presented)?.[1];
       log(JSON.stringify({ ts: now().toISOString(), warn: "auth refused", path, reason: verdict.reason, ...(idHint ? { credential: idHint } : {}) }));
-      return respond(unauthorized());
+      // `/mcp`'s 401 names the metadata Claude discovers sign-in from.
+      return respond(connector && path === MCP_PATH ? connector.unauthorized() : unauthorized());
     }
     const actor = verdict.actor;
     credential = actor.credential_id;
     handle = actor.handle;
+
+    if (connector && path === MCP_PATH) {
+      touchCredential(deps.storePath, actor.credential_id, now());
+      try {
+        vault.recoverPending();
+        return respond(await serveSharedMcp(req, { vault, actor, storePath: deps.storePath, vaultName: sharedVaultIdentity(deps.root).name }));
+      } catch (error) {
+        log(JSON.stringify({ ts: now().toISOString(), error: "unhandled", path, message: error instanceof Error ? error.message : String(error) }));
+        return respond(json(500, { error: "internal error" }));
+      }
+    }
 
     let route: Route | undefined;
     let params: Record<string, string> = {};

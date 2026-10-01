@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { writeAtomic } from './fsx';
 import { sha256hex } from './hash';
-import { addMember, mintCredential, verifyCredential, revokeCredential } from './sharedMembers';
+import { addMember, listMembers, mintCredential, verifyCredential, revokeCredential, type SharedActor, type SharedMember } from './sharedMembers';
 export function sharedVaultIdentity(root:string) {
   const path=join(root,'.shared-identity.json');
   if(!existsSync(path))writeAtomic(path,JSON.stringify({id:randomUUID(),name:'Shared BigBrain'}),0o600);
@@ -24,27 +24,47 @@ function issueSharedInviteLocked(store:string,handle:string,endpoint:string,hour
   writeAtomic(path,JSON.stringify(items),0o600);
   return `${url.origin}/invite#${secret}`;
 }
-function redeemSharedInviteLocked(store:string,secret:string,now=new Date()) {
+type Consumed={kind:'member';member:SharedMember}|{kind:'legacy';token:string;actor:SharedActor};
+/** Consume an invitation and say whom it names, minting nothing: an owner-created
+ * invitation becomes its new member here; a legacy handle-bound one hands back the
+ * credential minted when it was issued. Shared by redemption and the connector's
+ * invite-link sign-in (lib/sharedOAuth.ts). */
+function consumeInviteLocked(store:string,secret:string,now:Date):Consumed|null {
   if(!/^[A-Za-z0-9_-]{43}$/.test(secret))return null;
   const path=store+'.invites.json',items=read(path),invite=items.find(i=>i.hash===sha256hex(secret));
   if(!invite||invite.used||invite.cancelled||Date.parse(invite.expires)<=now.getTime())return null;
   if(invite.display && invite.permission && invite.id) {
     // Consume before minting: a crash can burn a link, never redeem it twice.
     invite.used=true;delete invite.secret;writeAtomic(path,JSON.stringify(items),0o600);
-    const member=addMember(store,{handle:'invite-'+invite.id,display:invite.display,permissions:invite.permission==='write'?['read','write']:['read']});
-    // Full member-following scope allows a later owner upgrade to take effect.
-    const {token}=mintCredential(store,member.handle,{name:'BigBrain',followsMember:true});
-    const verified=verifyCredential(store,token);
-    return verified.ok?{token,identity:verified.actor}:null;
+    return {kind:'member',member:addMember(store,{handle:'invite-'+invite.id,display:invite.display,permissions:invite.permission==='write'?['read','write']:['read']})};
   }
   const verified=verifyCredential(store,invite.token);
   if(!verified.ok)return null;
   const token=invite.token;invite.used=true;invite.token='';writeAtomic(path,JSON.stringify(items),0o600);
-  return {token,identity:verified.actor};
+  return {kind:'legacy',token,actor:verified.actor};
+}
+function redeemSharedInviteLocked(store:string,secret:string,now=new Date()) {
+  const consumed=consumeInviteLocked(store,secret,now);
+  if(!consumed)return null;
+  if(consumed.kind==='legacy')return {token:consumed.token,identity:consumed.actor};
+  // Full member-following scope allows a later owner upgrade to take effect.
+  const {token}=mintCredential(store,consumed.member.handle,{name:'BigBrain',followsMember:true});
+  const verified=verifyCredential(store,token);
+  return verified.ok?{token,identity:verified.actor}:null;
+}
+/** The connector's sign-in by invite link: the same single-use consumption, but no
+ * person credential survives it — a legacy invitation's pre-minted one is revoked. */
+function identifyBySharedInviteLocked(store:string,secret:string,now=new Date()):SharedMember|null {
+  const consumed=consumeInviteLocked(store,secret,now);
+  if(!consumed)return null;
+  if(consumed.kind==='member')return consumed.member;
+  revokeCredential(store,consumed.actor.credential_id,now);
+  return listMembers(store).find(m=>m.id===consumed.actor.member_id&&!m.revoked)??null;
 }
 
 export const issueSharedInvite=(...args:Parameters<typeof issueSharedInviteLocked>)=>withMemberLock(args[0],()=>issueSharedInviteLocked(...args));
 export const redeemSharedInvite=(...args:Parameters<typeof redeemSharedInviteLocked>)=>withMemberLock(args[0],()=>redeemSharedInviteLocked(...args));
+export const identifyBySharedInvite=(...args:Parameters<typeof identifyBySharedInviteLocked>)=>withMemberLock(args[0],()=>identifyBySharedInviteLocked(...args));
 export function createMemberInvite(store:string,display:string,permission:'read'|'write',now=new Date()) {
  return withMemberLock(store,()=>{
   const secret=randomBytes(32).toString('base64url'),id=randomBytes(12).toString('hex');

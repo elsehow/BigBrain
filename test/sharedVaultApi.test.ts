@@ -441,7 +441,7 @@ describe("shared vault — citations, ids and paths", () => {
       expect([route.method, path, res.status]).not.toEqual([route.method, path, 404]);
       expect((await call(w.handler, route.method, path)).status).toBe(401);
     }
-    for (const [method, path] of [["DELETE", "/v1/evidence"], ["PUT", "/v1/assertions"], ["GET", "/v1/unknown-admin"], ["POST", "/v1/members"], ["GET", "/api/vault"], ["GET", "/v1/memory"], ["GET", "/v1/note?path=vault.yaml"]]) {
+    for (const [method, path] of [["DELETE", "/v1/evidence"], ["PUT", "/v1/assertions"], ["GET", "/v1/unknown-admin"], ["DELETE", "/v1/members"], ["GET", "/api/vault"], ["GET", "/v1/memory"], ["GET", "/v1/note?path=vault.yaml"]]) {
       expect((await call(w.handler, method!, path!, w.owner)).status).toBe(404);
     }
   });

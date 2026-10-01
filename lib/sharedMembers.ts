@@ -66,6 +66,20 @@ export interface SharedMember {
   created: string;
   /** Revocation timestamp; the record stays, the handle stays reserved. */
   revoked: string | null;
+  /** Owner-set, normalized lowercase; unique among live members. The
+   * connector's Google sign-in (lib/sharedOAuth.ts) matches it ONCE, then
+   * binds `identity` and matches by that from then on. */
+  email?: string;
+  /** The verified account bound at first sign-in. Changing or clearing
+   * `email` clears it; one identity names at most one live member. */
+  identity?: SharedIdentityBinding;
+}
+
+export interface SharedIdentityBinding {
+  iss: string;
+  sub: string;
+  /** When it was bound. */
+  bound: string;
 }
 
 export interface SharedCredential {
@@ -173,6 +187,22 @@ function checkOneLine(what: string, value: string, max: number): string {
   return v;
 }
 
+/** Lowercased and trimmed; deliberately loose beyond `local@domain.tld` —
+ * the address only has to equal what the identity provider verified. */
+export function normalizeEmail(raw: string): string {
+  const v = raw.trim().toLowerCase();
+  if (v.length > 254 || /[\p{Cc}\s]/u.test(v) || !/^[^@]+@[^@]+\.[^@]+$/u.test(v))
+    throw new SharedMemberError(`shared-members: "${raw}" is not an email address`);
+  return v;
+}
+
+/** One email names at most one LIVE member; a revoked member's address may
+ * be given to someone new, as their handle never can. */
+function checkEmailFree(store: MemberStore, email: string, except?: SharedMember): void {
+  if (store.members.some((m) => m !== except && !m.revoked && m.email === email))
+    throw new SharedMemberError(`shared-members: ${email} already belongs to a member`);
+}
+
 function memberByHandle(store: MemberStore, handle: string): SharedMember {
   const member = store.members.find((m) => m.handle === handle);
   if (!member) throw new SharedMemberError(`shared-members: no member "${handle}"`);
@@ -211,13 +241,15 @@ function initMemberStoreLocked(
  * never inherit an old one's assertions by reusing the name. */
 function addMemberLocked(
   storePath: string,
-  input: { handle: string; display?: string; permissions?: readonly string[] },
+  input: { handle: string; display?: string; permissions?: readonly string[]; email?: string },
   now: Date = new Date()
 ): SharedMember {
   const store = requireStore(storePath);
   const handle = checkHandle(input.handle);
   if (store.members.some((m) => m.handle === handle))
     throw new SharedMemberError(`shared-members: handle "${handle}" is taken (handles are never reused)`);
+  const email = input.email === undefined ? undefined : normalizeEmail(input.email);
+  if (email) checkEmailFree(store, email);
   const member: SharedMember = {
     id: `mem_${randomBytes(4).toString("hex")}`,
     handle,
@@ -226,10 +258,65 @@ function addMemberLocked(
     permissions: normalizePermissions(input.permissions ?? ["read"]),
     created: now.toISOString(),
     revoked: null,
+    ...(email ? { email } : {}),
   };
   store.members.push(member);
   writeStore(storePath, store);
   return member;
+}
+
+/** The owner's "add by email": a member record NOW, with no credential —
+ * they get one by signing in through the connector. The handle is opaque,
+ * shaped like the one an owner-created invitation yields (lib/sharedInvites.ts). */
+function addMemberByEmailLocked(
+  storePath: string,
+  input: { display: string; email: string; permissions: readonly string[] },
+  now: Date = new Date()
+): SharedMember {
+  return addMemberLocked(storePath, { handle: `invite-${randomBytes(12).toString("hex")}`, ...input }, now);
+}
+
+/** Set, change or clear (`null`) a member's email. Any change unbinds the
+ * identity: the owner re-pointing an address is re-pointing who may sign
+ * in, and the old account must not keep matching by `sub`. */
+function setMemberEmailLocked(storePath: string, handle: string, raw: string | null): SharedMember {
+  const store = requireStore(storePath);
+  const member = memberByHandle(store, handle);
+  if (member.revoked) throw new SharedMemberError(`shared-members: "${handle}" is revoked`);
+  const email = raw === null ? undefined : normalizeEmail(raw);
+  if (email === member.email) return member;
+  if (email) checkEmailFree(store, email, member);
+  if (email) member.email = email;
+  else delete member.email;
+  delete member.identity;
+  writeStore(storePath, store);
+  return member;
+}
+
+export type BindIdentityResult =
+  | { ok: true; member: SharedMember }
+  | { ok: false; reason: "not-member" | "bound-elsewhere" };
+
+/** Resolve a VERIFIED sign-in to a live member, binding on first use:
+ * by bound (iss, sub) first, so a later change of address at the provider
+ * still matches; else by email on a live member not yet bound, which binds
+ * it; an email whose member is bound to a different account is refused. */
+function bindMemberIdentityLocked(
+  storePath: string,
+  who: { iss: string; sub: string; email: string },
+  now: Date = new Date()
+): BindIdentityResult {
+  const store = requireStore(storePath);
+  const live = store.members.filter((m) => !m.revoked);
+  const bound = live.find((m) => m.identity?.iss === who.iss && m.identity.sub === who.sub);
+  if (bound) return { ok: true, member: bound };
+  const email = who.email.trim().toLowerCase();
+  const byEmail = live.find((m) => m.email === email);
+  if (!byEmail) return { ok: false, reason: "not-member" };
+  if (byEmail.identity) return { ok: false, reason: "bound-elsewhere" };
+  byEmail.identity = { iss: who.iss, sub: who.sub, bound: now.toISOString() };
+  writeStore(storePath, store);
+  return { ok: true, member: byEmail };
 }
 
 /** Change a member's permissions. Takes effect on their next request, on
@@ -405,6 +492,12 @@ export function ownerOf(storePath: string): SharedMember | undefined {
 export const initMemberStore = (...args: Parameters<typeof initMemberStoreLocked>): ReturnType<typeof initMemberStoreLocked> => withMemberLock(args[0],()=>initMemberStoreLocked(...args));
 
 export const addMember = (...args: Parameters<typeof addMemberLocked>): ReturnType<typeof addMemberLocked> => withMemberLock(args[0],()=>addMemberLocked(...args));
+
+export const addMemberByEmail = (...args: Parameters<typeof addMemberByEmailLocked>): ReturnType<typeof addMemberByEmailLocked> => withMemberLock(args[0],()=>addMemberByEmailLocked(...args));
+
+export const setMemberEmail = (...args: Parameters<typeof setMemberEmailLocked>): ReturnType<typeof setMemberEmailLocked> => withMemberLock(args[0],()=>setMemberEmailLocked(...args));
+
+export const bindMemberIdentity = (...args: Parameters<typeof bindMemberIdentityLocked>): ReturnType<typeof bindMemberIdentityLocked> => withMemberLock(args[0],()=>bindMemberIdentityLocked(...args));
 
 export const setMemberPermissions = (...args: Parameters<typeof setMemberPermissionsLocked>): ReturnType<typeof setMemberPermissionsLocked> => withMemberLock(args[0],()=>setMemberPermissionsLocked(...args));
 
