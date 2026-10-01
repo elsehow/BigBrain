@@ -141,7 +141,7 @@ function runMember(store: string): void {
   } else if (sub === "list") {
     const rows = listMembers(store);
     out(
-      rows.map((m) => `${m.handle.padEnd(20)} ${m.role.padEnd(7)} ${m.permissions.join(",").padEnd(11)} ${m.revoked ? `revoked ${m.revoked}` : "live"}${m.email ? `  ${m.email}${m.identity ? " (signed in)" : ""}` : ""}`).join("\n") || "(no members)",
+      rows.map((m) => `${m.handle.padEnd(20)} ${m.role.padEnd(7)} ${m.permissions.join(",").padEnd(11)} ${m.revoked ? `revoked ${m.revoked}` : "live"}${m.email ? `  ${m.email}${m.identity ? " (signed in)" : m.pending ? " (pending)" : ""}` : ""}`).join("\n") || "(no members)",
       rows
     );
   } else if (sub === "set") {
