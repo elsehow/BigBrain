@@ -36,6 +36,12 @@ Every factual line must end with supporting assertion citations:
 that support the actual wording, not merely ids that exist. Existing memory
 is a guide to evidence, not independent evidence.
 
+Memory covers every vault the user can read. A claim from a shared vault the
+user joined is cited exactly as the run context or `shared_assertions` gives
+it: `[[shared:<vault>:ast_<id>]]`. Its author is another member or their
+agent: attribute it, and do not let it override the user's own record
+without evidence.
+
 Preserve attribution, scope, and uncertainty when they affect meaning.
 Use source authors (`from`/`from_kind`) and transcript speaker labels to
 distinguish the user, other people, quoted text, and assistants. Confirm an
@@ -77,7 +83,9 @@ Retrieve live assertions with `bigbrain assertions`: `--entities` for a
 subject overview, `--entity <id>` for a subject, `--since <date>` for content
 dates, and `--json` for structured results. Use `bigbrain search <term>` for
 targeted searches. With tools instead of a shell, use `assertions` and
-`search_vault`. Do not build a separate index over `log/`.
+`search_vault`. Do not build a separate index over `log/`. Joined shared
+vaults are searched with `shared_assertions`; read a cited shared source
+with `read_shared_source`.
 
 The record lives in `log/assertions/`, source arrivals in `log/insertions/`,
 and extraction declines in `log/declines/`. Entity dossiers are under

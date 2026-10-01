@@ -79,6 +79,10 @@ export interface SharedCredential {
   scopes: SharedPermission[];
   /** Interactive member credential follows owner-managed access changes. */
   followsMember?: boolean;
+  /** The credential that minted this one over the door (an app's agent
+   * delegate). It stands only while that one does: revoking a leaked
+   * credential cannot leave a delegate it minted behind. */
+  minted_by?: string;
   /** hex sha256 of the full `sv_<id>_<secret>` string. */
   sha256: string;
   created: string;
@@ -250,7 +254,7 @@ function setMemberPermissionsLocked(
 function mintCredentialLocked(
   storePath: string,
   handle: string,
-  input: { name: string; kind?: SharedCredentialKind; scopes?: readonly string[]; followsMember?: boolean },
+  input: { name: string; kind?: SharedCredentialKind; scopes?: readonly string[]; followsMember?: boolean; mintedBy?: string },
   now: Date = new Date()
 ): { credential: SharedCredential; token: string } {
   const store = requireStore(storePath);
@@ -275,6 +279,7 @@ function mintCredentialLocked(
     kind,
     scopes,
     ...(input.followsMember ? {followsMember:true} : {}),
+    ...(input.mintedBy ? { minted_by: input.mintedBy } : {}),
     sha256: sha256hex(token),
     created: now.toISOString(),
     last_used: null,
@@ -305,6 +310,8 @@ export function verifyCredential(storePath: string, presented: string): VerifyMe
   if (!credential) return { ok: false, reason: `unknown credential id ${m[1]}` };
   if (!match) return { ok: false, reason: `secret mismatch for credential ${credential.id}` };
   if (credential.revoked) return { ok: false, reason: `credential ${credential.id} revoked at ${credential.revoked}` };
+  if (credential.minted_by && !store.credentials.some((c) => c.id === credential.minted_by && !c.revoked))
+    return { ok: false, reason: `credential ${credential.id} was minted by revoked credential ${credential.minted_by}` };
   const member = store.members.find((one) => one.id === credential.member_id);
   if (!member) return { ok: false, reason: `credential ${credential.id} names no member` };
   if (member.revoked) return { ok: false, reason: `member ${member.handle} revoked at ${member.revoked}` };

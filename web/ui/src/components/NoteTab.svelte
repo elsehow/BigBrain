@@ -169,9 +169,10 @@
     return sanitizeHtml(
       md(body).replace(/\[\[([^\]|]+)(?:\|((?:[^\]]|\](?!\]))+))?\]\]/g, (_m, target: string, label?: string) => {
         const t = target.trim();
-        // a citation of the record (memory's `[[ast_…]]`): a mark, not a
-        // link — there is no note behind an assertion id to open
-        if (/^ast_[a-f0-9]+$/.test(t)) return `<sup class="cite">°</sup>`;
+        // a citation of the record (memory's `[[ast_…]]`, or a joined shared
+        // vault's `[[shared:<vault>:ast_…]]`): a mark, not a link — there is
+        // no note behind an assertion id to open
+        if (/^(?:shared:[A-Za-z0-9-]+:)?ast_[a-f0-9]+$/.test(t)) return `<sup class="cite">°</sup>`;
         const lbl = (label ?? target).trim();
         if (isUserNote(t)) return lbl;
         return `<a class="wl" role="link" tabindex="0" data-note="${t.replace(/"/g, "&quot;")}">${lbl}</a>`;

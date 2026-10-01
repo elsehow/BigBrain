@@ -24,6 +24,7 @@ import {SharedMemberBusyError} from './sharedMemberLock';
  *   POST /v1/moderation                     write+OWNER  {assertion_id, reason}
  *   GET  /v1/search?q&limit                 read         term-AND hits over evidence and live assertions
  *   GET  /v1/feed?after&limit               read         the durable change feed from a cursor
+ *   POST /v1/credentials/agent              write+person a new agent credential for the caller → {token, credential}
  *
  * The door reads and writes ONLY the vault's logs through lib/sharedVault.ts
  * — never a path a client names. Ids are validated by pattern before
@@ -33,7 +34,7 @@ import {SharedMemberBusyError} from './sharedMemberLock';
 
 import { sharedVaultIdentity, redeemSharedInvite, createMemberInvite, pendingMemberInvites, cancelMemberInvite } from './sharedInvites';
 import {
-  listMembers, setMemberPermissions, revokeMember, SharedMemberError,
+  listMembers, setMemberPermissions, revokeMember, mintCredential, SharedMemberError,
   hasPermission,
   touchCredential,
   verifyCredential,
@@ -301,6 +302,13 @@ const ROUTE_TABLE: Route[] = [
     const items=(body as {items?:unknown[]})?.items;
     if(!Array.isArray(items)||items.length<1||items.length>20)return json(400,{error:'Batch requires 1–20 items'});
     return json(200,{results:items.map(item=>{try{const r=vault.dropEvidence(actor,item);return {ok:true,id:r.insertion.id,deduped:r.deduped};}catch(e){return {ok:false,error:e instanceof SharedVaultError?e.message:'Contribution failed'};}})});
+  }},
+  // A member's app publishes its gardener's claims as their agent, never in
+  // the member's own voice; only a person credential may mint that delegate.
+  {method:'POST',path:'/v1/credentials/agent',permission:'write',rateLimited:true,handler:({storePath,actor,json})=>{
+    if(actor.kind!=='person')return json(403,{error:'Only a person credential can mint an agent credential.'});
+    const {credential,token}=mintCredential(storePath,actor.handle,{name:'BigBrain agent',kind:'agent',mintedBy:actor.credential_id});
+    return json(201,{token,credential:{id:credential.id,name:credential.name,kind:credential.kind}});
   }},
   {method:'GET',path:'/v1/contributions',permission:'read',handler:({vault,actor,json})=>json(200,{items:vault.contributions(actor)})},
   {method:'POST',path:'/v1/contributions/:id/withdraw',permission:'write',rateLimited:true,handler:({vault,actor,params,body,json})=>json(200,vault.transitionContribution(actor,params.id!,'withdrawn',body))},

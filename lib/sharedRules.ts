@@ -22,7 +22,7 @@ export function setRule(store:string,id:string,text:unknown,root:string) {
  else {if(typeof text!=='string'||!text.trim()||text.length>4000)throw Error('Rule must be 1–4000 characters');resolveRuleMentions(root,text);c[id]={root,text:text.trim(),version:randomUUID(),created:new Date().toISOString(),seen:[]};}
  save(store,c);return c[id]??null;
 }
-export const sourceKey=(s:SourceInsertion)=>'personal-'+sha256hex(s.source_id).slice(0,40);
+export const sourceKey=(s:Pick<SourceInsertion,'source_id'>)=>'personal-'+sha256hex(s.source_id).slice(0,40);
 function sources(root:string) {
  const latest=new Map<string,SourceInsertion>();
  for(const s of readSourceInsertionLog(root,{strict:true}))latest.set(s.source_id,s);
@@ -62,7 +62,7 @@ export function startTest(root:string,store:string,c:SharedConnection,text:unkno
 
  }catch(e){t.error=e instanceof Error?e.message:String(e)}finally{t.complete=true;}})();return publicTest(t);
 }
-async function sendSources(store:string,c:SharedConnection,rows:SourceInsertion[]) {
+export async function sendSources(store:string,c:SharedConnection,rows:SourceInsertion[]) {
  let added=0;
  // Batches remain under the server's whole-request byte bound.
  let batch:unknown[]=[],batchSources:SourceInsertion[]=[],bytes=0;

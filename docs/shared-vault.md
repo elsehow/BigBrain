@@ -62,6 +62,13 @@ door records `last_used` in a sidecar (`<store>.usage.json`, 0600) so a
 server's stamp can never race an operator's revoke and write the
 un-revoked member back.
 
+One self-service exception (`POST /v1/credentials/agent`): a person
+credential with write access may mint an agent credential for its own
+handle, so a member's app publishes its gardener's claims as their
+delegate rather than in their own voice. The agent records the credential
+that minted it (`minted_by`) and stands only while that one does, so
+revoking a leaked credential also retires every delegate it minted.
+
 ### The door
 
 Bearer-only. Every path — real or not — answers 401 without a live
@@ -80,6 +87,7 @@ names the missing permission. Bodies are `application/json`.
 | `POST /v1/moderation` | write, **owner** | `{assertion_id, reason}` → revocation attributed to the owner |
 | `GET /v1/search?q&limit` | read | term-AND hits over evidence and live assertions |
 | `GET /v1/feed?after&limit` | read | `{entries, next_cursor, has_more, head}`, ≤200 per page |
+| `POST /v1/credentials/agent` | write, **person** | `{token, credential}` — an agent credential for the caller's own handle, returned once |
 
 Refusals a client will meet, by design:
 
