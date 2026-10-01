@@ -5,8 +5,8 @@
  import {onMount} from 'svelte';
  import {gotoNote} from '../lib/store.svelte';
  import SettingsPage from './SettingsPage.svelte';
- import {sharedSettings,reloadSharedConnections} from '../lib/sharedSettings.svelte';
- import {vaultFetch} from '../lib/vaultScope';
+ import {sharedSettings,reloadSharedConnections,connectSharedInvite} from '../lib/sharedSettings.svelte';
+ import {vaultFetch,switchVaults} from '../lib/vaultScope';
  import type {Contribution} from '../../../../lib/sharedRules';
  let data=$state<{evaluator?:string;name:string;endpoint:string;identity:{role:string;display:string;permissions:string[];vault?:{recommended_rules?:{id:string;text:string;mentions:string[]}[]}};rule:{text:string;error?:string;lastRun?:string}|null;items:Contribution[]}|null>(null);
  const activeItems=$derived(data?.items.filter(item=>item.status==='active')??[]);
@@ -39,7 +39,7 @@
  </div></section>
  {:else}<small>{sharedSettings.selected?'Loading shared vault…':'Connect a shared vault to get started.'}</small>{/if}
 </SettingsPage>
-{#if sharedSettings.invite}<dialog use:openDialog onclose={()=>sharedSettings.invite=false}><form onsubmit={e=>{e.preventDefault();void act(async()=>{const c=await request('',{invite});invite='';sharedSettings.invite=false;await reloadSharedConnections();sharedSettings.selected=c.id;await load()})}}><h2>Connect a shared vault</h2><label>Invite link<input type="url" required disabled={busy} bind:value={invite} placeholder="https://vault.example.org/invite#…" autocomplete="off"/></label>{#if notice&&!notice.ok}<small role="alert">{notice.text}</small>{/if}<div class="invite-actions"><button class="settings-add" disabled={busy||!invite.trim()}>Connect</button><button class="text-button" type="button" disabled={busy} onclick={()=>{sharedSettings.invite=false;invite=''}}>Cancel</button></div></form></dialog>{/if}
+{#if sharedSettings.invite}<dialog use:openDialog onclose={()=>sharedSettings.invite=false}><form onsubmit={e=>{e.preventDefault();void act(async()=>{const c=await connectSharedInvite(invite);switchVaults([c.id])})}}><h2>Connect a shared vault</h2><label>Invite link<input type="url" required disabled={busy} bind:value={invite} placeholder="https://vault.example.org/invite#…" autocomplete="off"/></label>{#if notice&&!notice.ok}<small role="alert">{notice.text}</small>{/if}<div class="invite-actions"><button class="settings-add" disabled={busy||!invite.trim()}>Connect</button><button class="text-button" type="button" disabled={busy} onclick={()=>{sharedSettings.invite=false;invite=''}}>Cancel</button></div></form></dialog>{/if}
 <style>
  .source-title{font:var(--type-body);color:var(--text);text-align:left;border:0;padding:0;background:none;cursor:pointer;}.source-title:hover{text-decoration:underline;}
  .suggestion{display:grid;gap:14px;border:1px solid var(--rule);padding:18px;}
