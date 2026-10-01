@@ -183,7 +183,9 @@ Two linters, each only where it is competent. Keep it that way.
 - `web/` — the read-only web viewer (:4747)
 - `bin/shared.ts` + `lib/shared*.ts` — the SHARED vault door (:4749,
   `docs/shared-vault.md`): one vault several authenticated members write
-  to, named explicitly by `--vault` and never discovered
+  to, named explicitly by `--vault` and never discovered. `--public-url`
+  opts it into a read-only Claude connector (OAuth + `/mcp`,
+  `docs/shared-vault-connector.md`)
 - `desktop/` — the Tauri app: a shell around the same engine
   (`desktop/README.md`)
 - `test/` — the bun test suite; fixtures and helpers under `test/support/`

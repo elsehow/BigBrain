@@ -73,7 +73,11 @@ revoking a leaked credential also retires every delegate it minted.
 
 Bearer-only. Every path — real or not — answers 401 without a live
 credential; there is no health probe and no unauthenticated read. 403
-names the missing permission. Bodies are `application/json`.
+names the missing permission. Bodies are `application/json`. The one
+exception is opt-in: an operator who sets a public URL turns on the
+[Claude connector](shared-vault-connector.md), whose OAuth discovery,
+registration, sign-in and token paths answer without a credential, and
+whose read-only `/mcp` answers a stranger with a 401 naming where to sign in.
 
 | Route | Needs | Does |
 |---|---|---|
@@ -88,6 +92,9 @@ names the missing permission. Bodies are `application/json`.
 | `GET /v1/search?q&limit` | read | term-AND hits over evidence and live assertions |
 | `GET /v1/feed?after&limit` | read | `{entries, next_cursor, has_more, head}`, ≤200 per page |
 | `POST /v1/credentials/agent` | write, **person** | `{token, credential}` — an agent credential for the caller's own handle, returned once |
+| `POST /v1/members` | write, **owner person** | `{name, email, permission}` → a member who signs in to the connector by email |
+| `POST /v1/members/:id/email` | write, **owner person** | `{email}` or `{email: null}` — set, change or clear; any change unbinds the member's sign-in |
+| `POST /mcp` | read | the read-only MCP server — only with the connector on ([shared-vault-connector.md](shared-vault-connector.md)) |
 
 Refusals a client will meet, by design:
 
