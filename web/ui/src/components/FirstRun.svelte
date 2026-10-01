@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { vaultFetch as fetch } from "../lib/vaultScope";
+  import { vaultFetch as fetch, switchVaults } from "../lib/vaultScope";
+  import { connectSharedInvite } from "../lib/sharedSettings.svelte";
 
   import { onMount, tick, untrack } from 'svelte';
   import '../lib/settingsLists.css';
@@ -21,6 +22,14 @@
   let step=$state(untrack(initial)), name=$state(''),email=$state(''),needsEmail=$state(false);
   let saving=$state(false),moving=$state(false),clientBusy=$state(false),problem=$state('');
   let panel=$state<HTMLDivElement>(),heading=$state<HTMLHeadingElement>();
+  // A member joining someone's shared vault finishes setup inside it.
+  let invite=$state(''),joining=$state(false),joined=$state<{id:string;name:string}|null>(null);
+  async function join(e:SubmitEvent){
+    e.preventDefault();if(joining)return;
+    joining=true;problem='';
+    try{joined=await connectSharedInvite(invite);invite='';}catch(error){problem=error instanceof Error?error.message:'Could not connect.';}finally{joining=false;}
+  }
+  const land=()=>{if(joined)switchVaults([joined.id]);else app.rev++;};
   const providerReady=$derived(!!setup.chatgpt?.connected||!!setup.anthropic?.connected);
   const privacy=$derived(step===4);
   const nextReady=$derived(step===0?!!setup.vault&&!!(setup.identity||name.trim()):step===1?providerReady:true);
@@ -44,7 +53,7 @@
       }
       const finish=next===4&&!telemetryPending;
       await progress(finish?'complete':phases[next]);
-      if(finish){app.rev++;return;}
+      if(finish){land();return;}
       moving=true;
       const direction=next>step?1:-1,motion=!matchMedia('(prefers-reduced-motion: reduce)').matches;
       const leaving=motion?panel?.animate([{transform:'translateX(0)',opacity:1},{transform:`translateX(${-direction*24}px)`,opacity:0}],{duration:120,easing:'ease-in',fill:'forwards'}):undefined;
@@ -60,7 +69,7 @@
     saving=true;problem='';
     try{
       if(enabled!==undefined){if(!onConsent)throw Error('Sharing preferences unavailable.');await onConsent(enabled);}
-      await progress('complete');app.rev++;
+      await progress('complete');land();
     }catch{problem='Could not finish setup. Please try again.';}finally{saving=false;}
   }
 </script>
@@ -98,7 +107,13 @@
             <section aria-label="ChatGPT provider"><SubscriptionConnect provider="chatgpt" {setup} compact onChange={s=>setup=s}/></section>
           </div>
         {:else if step===2}<ClientChecklist onBusy={value=>clientBusy=value} />
-        {:else}<IntegrationLibrary />{/if}
+        {:else}<IntegrationLibrary />
+          <section class="shared-invite" aria-label="Shared vault">
+            <h2>Shared vault</h2>
+            {#if joined}<div class="chosen"><span>{joined.name}</span><span class="status">Connected</span></div>
+            {:else}<p>Joining someone's shared vault? Paste the invite link they sent you.</p>
+              <form onsubmit={join}><label>Invite link<input type="url" required bind:value={invite} disabled={joining} placeholder="https://vault.example.org/invite#…" autocomplete="off"/></label><button disabled={joining||!invite.trim()}>{joining?'Connecting…':'Connect'}</button></form>{/if}
+          </section>{/if}
       </div>
       <footer>{#if step>0}<button class="back" disabled={saving||moving||clientBusy} onclick={()=>go(step-1)}>← Back</button>{/if}<div class="forward">{#if step>=2}<button class="skip" disabled={saving||moving||clientBusy} onclick={()=>go(step+1)}>Skip</button>{/if}<button class="primary" disabled={!nextReady||saving||moving||clientBusy} onclick={()=>go(step+1)}>{saving?'Saving…':step===3&&!telemetryPending?'Finish →':'Next →'}</button></div></footer>
     {/if}
@@ -115,6 +130,7 @@ button{font:var(--type-body);padding:10px 16px;border:1px solid var(--rule);bord
 .consent-actions .opt-in{background:var(--text-strong);color:var(--bg);border-color:var(--text-strong);transition:background-color 120ms ease,box-shadow 120ms ease}
 .consent-actions .opt-in:is(:hover,:focus-visible):not(:disabled){background:color-mix(in srgb,var(--text-strong) 93%,var(--bg));border-color:var(--text-strong);box-shadow:3px 3px 0 color-mix(in srgb,var(--text-strong) 30%,transparent)}
 .consent-actions .opt-in:active:not(:disabled){background:var(--text-strong);box-shadow:inset 0 0 0 2px var(--bg)}
+.shared-invite{display:grid;gap:14px;margin-top:30px}.shared-invite h2{font:var(--type-body);font-weight:500;margin:0}.shared-invite p{font:var(--type-meta);color:var(--text-muted);line-height:1.5;margin:0}.shared-invite form{display:flex;align-items:flex-end;gap:12px}.shared-invite label{flex:1;display:grid;gap:8px;font:var(--type-meta);color:var(--text-muted)}.shared-invite form button{padding:12px 16px}.shared-invite input{min-width:0;padding:12px;font:var(--type-body);background:var(--well);color:var(--text);border:1px solid var(--rule)}.shared-invite .chosen{margin-bottom:0}
 @media(prefers-reduced-motion:reduce){.consent-actions .opt-in{transition:none}}
-@media(max-width:600px){main{padding:0 20px;margin-top:60px}nav{gap:6px;margin-bottom:32px}nav button{font-size:12px;gap:6px}.number{width:20px;height:20px}h1{font-size:30px}.intro{font-size:15px}}
+@media(max-width:600px){.shared-invite form{flex-direction:column;align-items:stretch}main{padding:0 20px;margin-top:60px}nav{gap:6px;margin-bottom:32px}nav button{font-size:12px;gap:6px}.number{width:20px;height:20px}h1{font-size:30px}.intro{font-size:15px}}
 </style>

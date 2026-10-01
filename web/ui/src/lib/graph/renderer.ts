@@ -13,7 +13,7 @@ import { GRAPH_FOCUS, overviewNodes } from '../graphFocus';
 import { memoryThemeLayout } from '../memoryThemeLayout';
 import { memoryDomain, memoryDomainDepth, memoryDomainEdge } from '../memoryDomain';
 import { importanceScores, FOREGROUND_IMPORTANCE } from '../../../../../lib/graphImportance';
-import { memoryHomeDepth } from '../graphHomeDepth';
+import { anchorHomeDepth, overviewAnchors } from '../graphHomeDepth';
 import { applyOverviewAttention } from '../graphOverviewAttention';
 import { fitCamera, revealCamera } from './framing';
 import { edgeContrast } from '../graphEdgeContrast';
@@ -46,6 +46,17 @@ export class GraphRenderer {
   private reducedMotion = false;
   private homeDepth: Float32Array;
   private homeVisible: Set<number>;
+  /** Overview landmarks: memories, or their stand-ins before the first one. */
+  private anchors: boolean[];
+  /** Anchors, most important first, and how full the overview may get with
+   * them: memories always stand on it, while stand-ins join only up to its
+   * budget — a large memoryless vault (an evidence-only shared vault) must
+   * not be drawn whole, but a small one keeps every landmark in view. */
+  private anchorOrder: number[] = [];
+  private anchorBudget = Infinity;
+  private revealAnchors() {
+    for (const i of this.anchorOrder) { if (this.homeVisible.size >= this.anchorBudget) break; this.homeVisible.add(i); }
+  }
   private overview: Set<number>;
   private geometryKey: string;
   private statusKey = '';
@@ -146,13 +157,16 @@ export class GraphRenderer {
     this.adjacency = graph.nodes.map(() => []);
     const edges = this.edges = graph.edges.flatMap(e => { const a = this.ids.get(e.source), b = this.ids.get(e.target); return a === undefined || b === undefined ? [] : [[a, b]]; });
     for (const [a, b] of edges) { this.adjacency[a!]!.push(b!); this.adjacency[b!]!.push(a!); }
-    const importance = graph.selectionRelative ? Float32Array.from(graph.nodes, n => n.relevance ?? 0) : importanceScores(this.adjacency, graph.nodes.map(n => n.group === 'memory'), Uint8Array.from(graph.nodes, n => n.live ? 1 : 0), graph.nodes.map(n => n.memorySupport ?? 0));
+    this.anchors = overviewAnchors(graph.nodes.map(n => n.group), this.adjacency);
+    const importance = graph.selectionRelative ? Float32Array.from(graph.nodes, n => n.relevance ?? 0) : importanceScores(this.adjacency, this.anchors, Uint8Array.from(graph.nodes, n => n.live ? 1 : 0), graph.nodes.map(n => n.memorySupport ?? 0));
     const overview = overviewNodes(importance, GRAPH_FOCUS.overviewCount, graph.nodes.map(n => n.id), this.adjacency, GRAPH_FOCUS.preferConnected);
+    this.anchorOrder = graph.nodes.flatMap((_, i) => this.anchors[i] ? [i] : []).sort((a, b) => importance[b]! - importance[a]! || a - b);
+    if (!graph.nodes.some(n => n.group === 'memory')) this.anchorBudget = GRAPH_FOCUS.overviewCount;
     this.homeVisible = new Set(graph.nodes.flatMap((_, i) => graph.selectionRelative || overview[i] ? [i] : []));
     this.overview = new Set(this.homeVisible);
     applyOverviewAttention(graph.nodes.map(n => ({ ...n, unread: n.readState?.unread === true })), this.homeVisible, new Set(), true);
-    graph.nodes.forEach((n, i) => { if (n.group === 'memory') this.homeVisible.add(i); });
-    this.homeDepth = graph.selectionRelative ? Float32Array.from(graph.nodes, n => (graph.selectionStyle === 'cloud' ? -18 + 52 * (n.relevance ?? 0) : -100 + 170 * (n.relevance ?? 0))) : memoryHomeDepth(graph.nodes.map(n => n.group), this.adjacency);
+    this.revealAnchors();
+    this.homeDepth = graph.selectionRelative ? Float32Array.from(graph.nodes, n => (graph.selectionStyle === 'cloud' ? -18 + 52 * (n.relevance ?? 0) : -100 + 170 * (n.relevance ?? 0))) : anchorHomeDepth(this.anchors, this.adjacency);
     graph.nodes.forEach((n, i) => { if (!graph.selectionRelative && activeContextPilot(n)) this.homeDepth[i] = 80; });
     const display = graph.selectionRelative ? graph.nodes.map(n => ({ x: n.x ?? 0, y: n.y ?? 0 })) : createDisplayLayout()(graph, GRAPH_FOCUS);
     this.positions = graph.selectionRelative ? display : memoryThemeLayout(graph.nodes.map((n, i) => ({ ...n, ...(display[i] ?? { x: seedPosition(i)[0], y: seedPosition(i)[1] }) })), this.adjacency);
@@ -168,7 +182,7 @@ export class GraphRenderer {
       const n = graph.nodes[i]!;
       const ink = graph.selectionRelative ? (graph.selectionStyle === 'cloud' ? .7 + .3 * (n.relevance ?? 0) : .25 + .75 * (n.relevance ?? 0)) : this.homeDepth[i]! < -18 ? .18 : 1;
       // a_node.x / a_other.w hold the previous/next hover-neighborhood emphasis.
-      return [0, this.homeDepth[i]!, this.radius(n), n.pilotPhase ? (n.group === 'agent' ? 3 : 2) : n.group === 'memory' ? 1 : 0, i, 0, 0, 0, graph.selectionStyle === 'cloud' || n.degree >= 5 || n.group === 'memory' || n.pilotPhase ? 1 : .55, ink, 0, ink];
+      return [0, this.homeDepth[i]!, this.radius(n), n.pilotPhase ? (n.group === 'agent' ? 3 : 2) : n.group === 'memory' ? 1 : 0, i, 0, 0, 0, graph.selectionStyle === 'cloud' || n.degree >= 5 || this.anchors[i] || n.pilotPhase ? 1 : .55, ink, 0, ink];
     };
     const sparseEdges = graph.selectionRelative ? selectionEdges(graph) : null;
     let edgeIndex = 0;
@@ -181,7 +195,7 @@ export class GraphRenderer {
       const high = presence(Math.max(importance[a]!, importance[b]!));
       const low = presence(Math.min(importance[a]!, importance[b]!));
       const salience = .035 + .965 * high * (.35 + .65 * low);
-      const homeInk = graph.selectionRelative ? (sparseEdges!.has(edgeIndex) ? .32 : 0) : graph.nodes[a]!.group === 'memory' || graph.nodes[b]!.group === 'memory' ? Math.max(.45, salience) : .06 * salience;
+      const homeInk = graph.selectionRelative ? (sparseEdges!.has(edgeIndex) ? .32 : 0) : this.anchors[a] || this.anchors[b] ? Math.max(.45, salience) : .06 * salience;
       this.edgeHome.push(homeInk);
       const stateIndex = graph.nodes.length + edgeIndex++;
       this.states[stateIndex * 4] = this.states[stateIndex * 4 + 1] = homeInk;
@@ -225,7 +239,7 @@ export class GraphRenderer {
     const activityChanged = activityKey !== this.activityKey;
     if (activityChanged) {
       this.activityKey = activityKey;
-      const natural = graph.selectionRelative ? Float32Array.from(graph.nodes, n => (graph.selectionStyle === 'cloud' ? -18 + 52 * (n.relevance ?? 0) : -100 + 170 * (n.relevance ?? 0))) : memoryHomeDepth(graph.nodes.map(n => n.group), this.adjacency);
+      const natural = graph.selectionRelative ? Float32Array.from(graph.nodes, n => (graph.selectionStyle === 'cloud' ? -18 + 52 * (n.relevance ?? 0) : -100 + 170 * (n.relevance ?? 0))) : anchorHomeDepth(this.anchors, this.adjacency);
       graph.nodes.forEach((n, i) => {
         const depth = !graph.selectionRelative && activeContextPilot(n) ? 80 : natural[i]!;
         const delta = depth - this.homeDepth[i]!;
@@ -252,7 +266,7 @@ export class GraphRenderer {
         // All actual connections of active agents stay visible, including
         // endpoints outside the compact overview. This does not recurse.
         this.edges.map(([a, b]) => ({ a: a!, b: b!, pilotContext: true })));
-      graph.nodes.forEach((n, i) => { if (n.group === 'memory') this.homeVisible.add(i); });
+      this.revealAnchors();
       this.cachedBounds = undefined;
       if (this.cameraReady) {
         this.previous = this.selected; this.retarget(performance.now(), this.reducedMotion);
@@ -297,7 +311,7 @@ export class GraphRenderer {
   private updateLabels() {
     const nodes = this.graph.nodes;
     this.landmarks = this.composedSelection && this.graph.selectionRelative ? neighborhoodLandmarks(nodes, this.selectedNodes) : new Set();
-    const named = this.composedSelection && this.graph.selectionRelative ? new Set(this.landmarks) : new Set(nodes.map((n, i) => ({ n, i })).filter(({ n }) => n.group === 'memory')
+    const named = this.composedSelection && this.graph.selectionRelative ? new Set(this.landmarks) : new Set(nodes.map((n, i) => ({ n, i })).filter(({ i }) => this.anchors[i])
       .sort((a, b) => b.n.degree - a.n.degree).slice(0, 64).map(({ i }) => i));
     for (const i of [this.selected, this.previous, this.hovered, ...this.selectedNodes, ...this.highlighted]) if (i >= 0) named.add(i);
     const labels = [...named].map(i => ({ i, text: nodes[i]!.title, draft: false }));
@@ -329,15 +343,15 @@ export class GraphRenderer {
     const t = this.reducedMotion ? 1 : this.progress(now), nodes = this.graph.nodes;
     const candidates: LabelCandidate[] = this.labels.map(label => {
       const { i, draft, key, width } = label, n = nodes[i]!, state = this.sample(i, now);
-      const memory = n.group === 'memory', hovered = i === this.hovered || this.highlighted.has(i), selected = this.selectedNodes.has(i);
-      const wanted = (selection: number) => this.landmarks.has(i) || selection === i || !this.composedSelection && memory && (selection < 0 || this.selectionSubgraph) ? 1 : 0;
+      const anchor = this.anchors[i], hovered = i === this.hovered || this.highlighted.has(i), selected = this.selectedNodes.has(i);
+      const wanted = (selection: number) => this.landmarks.has(i) || selection === i || !this.composedSelection && anchor && (selection < 0 || this.selectionSubgraph) ? 1 : 0;
       const labelReveal = this.stagedSelection && !hovered && !selected ? graphChoreography(now - this.stagedAt, this.reducedMotion).labels : 1;
       const opacity = labelReveal * (draft || hovered || selected ? 1 : wanted(this.previous) * (1 - t) + wanted(this.selected) * t) * state.alpha * (this.landmarks.has(i) && !hovered && !selected ? .78 : 1);
       const point = projectPoint(this.positions[i]!, state.x, this.camera, this.size);
       const radius = Math.max(n.pilotPhase ? 6 : 3, this.radius(n) * Math.min(1, Math.sqrt(this.camera.zoom)) * 600 / (600 - state.x));
-      return { key, index: i, ...point, width, opacity, above: hovered && !selected && !memory,
+      return { key, index: i, ...point, width, opacity, above: hovered && !selected && !anchor,
         gap: draft ? radius * SELECTOR_RATIO + 25 : radius * (selected || hovered || n.pilotPhase ? SELECTOR_RATIO : 1) + 4,
-        priority: selected && !draft ? 0 : hovered && !draft ? 1 : draft ? 2 : memory ? 3 : 4 };
+        priority: selected && !draft ? 0 : hovered && !draft ? 1 : draft ? 2 : anchor ? 3 : 4 };
     });
     this.labelBoxes = placeGraphLabels(candidates, this.size);
     const byKey = new Map(this.labels.map(label => [label.key, label]));
@@ -770,7 +784,7 @@ export class GraphRenderer {
   pick(x: number, y: number) {
     const now = performance.now(), w = this.canvas.clientWidth, h = this.canvas.clientHeight;
     for (const box of this.labelBoxes) {
-      if (!this.excluded.has(box.index) && this.graph.nodes[box.index]!.group === 'memory' && box.opacity > .5 && x >= box.left && x <= box.left + box.width && y >= box.top && y <= box.top + box.height)
+      if (!this.excluded.has(box.index) && this.anchors[box.index] && box.opacity > .5 && x >= box.left && x <= box.left + box.width && y >= box.top && y <= box.top + box.height)
         return this.graph.nodes[box.index]!.id;
     }
     let hit = -1, distance = 18;

@@ -152,7 +152,11 @@
 [data-sidebar-workbench][data-sidebar-settings="true"] .sidebar-close { left:auto; right:24px; }
 [data-sidebar-workbench][data-sidebar-settings="true"] #topbar { background:var(--bg); }
 
-[data-sidebar-workbench] .sidebar-quick .original-note { display:none; }
+[data-sidebar-workbench] .sidebar-quick .original-note:not(.shared-record) { display:none; }
+/* A shared record has no briefing; an excerpt of its text stands in. */
+[data-sidebar-workbench] .sidebar-quick .original-note.shared-record { margin-top:0; }
+[data-sidebar-workbench] .sidebar-quick .original-note.shared-record summary { display:none; }
+[data-sidebar-workbench] .sidebar-quick .original-note.shared-record .note-body { max-height:9em; overflow:hidden; }
 
 /* One reading measure, independent of each element's font size (ch differed
    between the transcript, editor and small Send label). */
