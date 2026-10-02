@@ -7,7 +7,7 @@ import { machineTools } from '../lib/run/machineTools';
 import { dueIntakeIds, nextWork, type WorkItem, type SubmitResult } from '../lib/work';
 import { readAssertionLog } from '../lib/assertionLog';
 import { intakeRunning } from '../lib/assertionAgent';
-import { stage } from '../lib/stage';
+import { stage } from '../lib/stageStorage';
 import { GardenerAssignments, gardenerLane, runConcurrentGardener } from './support/concurrentGardener';
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });

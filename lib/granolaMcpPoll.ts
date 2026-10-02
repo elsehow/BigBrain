@@ -64,7 +64,7 @@ export async function pollGranolaMcp(root:string,account:string,options:{now?:Da
    const notes=await call('get_meetings',{meeting_ids:[meeting.id]});
    const transcript=await call('get_meeting_transcript',{meeting_id:meeting.id});
    const content=granolaMcpContent(account,connection.identity,meeting,notes,transcript),hash=sha256hex(content);
-   if(cursor.seen[meeting.id]!==hash){check();if(stageGranolaContent(root,account,content))arrivals++;cursor.seen[meeting.id]=hash;}
+   if(cursor.seen[meeting.id]!==hash){check();if(await stageGranolaContent(root,account,content))arrivals++;cursor.seen[meeting.id]=hash;}
    check();writeAtomic(file,JSON.stringify(cursor)+'\n');
   }
   cursor.lastPolledAt=now.toISOString();

@@ -13,7 +13,8 @@ import { handleMcpTool, mcpToolList, type McpContext } from "../lib/mcp";
 import { mintToken, revokeToken } from "../lib/auth";
 import { loadManifest } from "../lib/manifest";
 import { readSourceInsertionLog } from "../lib/insertionLog";
-import { stage, stagedHeads, admitStaged, passStaged } from "../lib/stage";
+import { stagedHeads, admitStaged, passStaged } from "../lib/stage";
+import { stage } from "../lib/stageStorage";
 import { nextWork } from "../lib/work";
 const roots: string[] = [];
 const originalStore = process.env.BIGBRAIN_TOKENS;
@@ -124,7 +125,7 @@ test("staged That Tracks revisions link at admission and cannot resurrect an old
  const { readSourceInsertionLog } = await import("../lib/insertionLog");
  const f=fixture();fakeIntegrationActivation(f.root,"that-tracks");
  const content=(seq:number)=>serializeEnvelope({id:"that-tracks-account-event",source:"that-tracks",stream:"that-tracks:account",seq,title:"Tracked event"},`Revision ${seq}`);
- for(const seq of [1,2,3])stageIntegrationContent(f.root,"that-tracks",content(seq));
+ for(const seq of [1,2,3])await stageIntegrationContent(f.root,"that-tracks",content(seq));
  const pending=stagedHeads(f.root);expect(pending).toHaveLength(3);
  const ids=[1,2,3].map(seq=>pending.find(h=>openStaged(f.root,[h.id]).some((v:any)=>v.content?.includes(`Revision ${seq}`)))!.id);
  const first=admitStaged(f.root,[ids[0]!])[0]!;expect(first.ok).toBe(true);

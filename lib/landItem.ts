@@ -2,8 +2,8 @@
  * apply verified provenance, then append an insertion. Each door owns its
  * authentication, transport limits, and wire response. */
 
+import { land } from "./door";
 import {
-  receive,
   stampIntake,
   type Attachment,
   type IntakeReceipt,
@@ -36,7 +36,7 @@ export async function landDrop(opts: LandDropOpts): Promise<IntakeReceipt> {
   // earlier has to its text, the lake being append-only.
   const discussable = await discussablePdf(opts.content, opts.attachments);
   const content = opts.stamp ? stampIntake(discussable, opts.stamp) : discussable;
-  return receive({
+  return land({
     root: opts.root,
     content,
     raw: discussable,

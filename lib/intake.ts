@@ -15,7 +15,7 @@ import { commitLanding, landReference } from "./references";
  * disk, not history — so size costs the host, never the record. */
 export const MAX_BYTES = 10 * 1024 * 1024;
 
-export type IntakeErrorCode = "empty" | "too-large";
+export type IntakeErrorCode = "empty" | "too-large" | "withheld";
 
 export class IntakeError extends Error {
   code: IntakeErrorCode;

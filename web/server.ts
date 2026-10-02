@@ -40,7 +40,7 @@ import { ENGINE_ROOT, engineIdentity } from "../lib/engine";
 import { dieWithSupervisor } from "../lib/parentWatch";
 import { configSave, integrationsInfo } from "../lib/configWrite";
 import { allowLoopbackRequest, armor, dispatch, json, readBody, send, type Ctx, type Route } from "../lib/httpx";
-import { IntakeError } from "../lib/intake";
+import { dropErrorStatus } from "../lib/door";
 import { landDirective, landDrop } from "../lib/landItem";
 import { voiceMessagesFor } from "../lib/voice";
 import { createLive } from "../lib/liveEvents";
@@ -628,8 +628,7 @@ function drop(ctx: Ctx): void {
       // are uncapped by design — the CAS is add-only disk, not git
       // history. The item TEXT stays capped inside lib/intake.ts (413).
       cap: Infinity,
-      onError: (e) =>
-        json(ctx.res, e instanceof IntakeError && e.code === "too-large" ? 413 : 400, { error: errText(e) }),
+      onError: (e) => json(ctx.res, dropErrorStatus(e), { error: errText(e) }),
     }
   );
 }

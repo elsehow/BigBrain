@@ -7,7 +7,8 @@ import {fakeIntegrationActivation} from './support/integrationActivation';
 import {granolaMcpContent,pollGranolaMcp} from '../lib/granolaMcpPoll';
 import {stageGranolaContent} from '../lib/granolaStage';
 import {granolaRevision,receiveStagedGranola} from '../lib/granolaRevision';
-import {admitStaged,passStaged,stage,stagedItems,stageDir} from '../lib/stage';
+import {admitStaged,passStaged,stagedItems,stageDir} from '../lib/stage';
+import {stage} from '../lib/stageStorage';
 import {readSourceInsertionLog,insertionEventRel} from '../lib/insertionLog';
 import {receive} from '../lib/intake';
 import {sha256hex} from '../lib/hash';
@@ -26,90 +27,90 @@ function pending(root:string,version:string){return stagedItems(root,'granola').
 const observe=(root:string,v:string)=>stageGranolaContent(root,'granola',content(v));
 const resetCaches=(root:string)=>{rmSync(join(root,'.state'),{recursive:true,force:true});rmSync(join(root,'.spool/integration-cursors'),{recursive:true,force:true});};
 
-test('pending, admitted and passed revisions survive cursor/projection loss without another arrival',()=>{
+test('pending, admitted and passed revisions survive cursor/projection loss without another arrival',async()=>{
  const root=vault();
- expect(observe(root,'A')).toBe(true);resetCaches(root);expect(observe(root,'A')).toBe(false);
+ expect(await observe(root,'A')).toBe(true);resetCaches(root);expect(await observe(root,'A')).toBe(false);
  expect(readSourceInsertionLog(root)).toHaveLength(0); // Reading/staging never grants admission.
  const a=pending(root,'A');expect(admitStaged(root,[a.id])[0]?.ok).toBe(true);
  const first=readSourceInsertionLog(root)[0]!,bytes=readFileSync(join(root,insertionEventRel(first)),'utf8');
- resetCaches(root);expect(observe(root,'A')).toBe(false);expect(stagedItems(root,'granola')).toHaveLength(0);
- expect(observe(root,'B')).toBe(true);const b=pending(root,'B');expect(passStaged(root,[b.id],'Not relevant')[0]?.ok).toBe(true);
- resetCaches(root);expect(observe(root,'B')).toBe(false);expect(stagedItems(root,'granola')).toHaveLength(0);
+ resetCaches(root);expect(await observe(root,'A')).toBe(false);expect(stagedItems(root,'granola')).toHaveLength(0);
+ expect(await observe(root,'B')).toBe(true);const b=pending(root,'B');expect(passStaged(root,[b.id],'Not relevant')[0]?.ok).toBe(true);
+ resetCaches(root);expect(await observe(root,'B')).toBe(false);expect(stagedItems(root,'granola')).toHaveLength(0);
  expect(readSourceInsertionLog(root)).toHaveLength(1);
  expect(readFileSync(join(root,insertionEventRel(first)),'utf8')).toBe(bytes);
- expect(observe(root,'C')).toBe(true);expect(granolaRevision(pending(root,'C').content).seq).toBe(3);
+ expect(await observe(root,'C')).toBe(true);expect(granolaRevision(pending(root,'C').content).seq).toBe(3);
 });
 
-test('changed evidence shares source identity, supersedes only at admission, and known old content cannot roll back',()=>{
- const root=vault();observe(root,'A');const a=admitStaged(root,[pending(root,'A').id])[0]!;
- observe(root,'B');expect(readSourceInsertionLog(root)).toHaveLength(1);
+test('changed evidence shares source identity, supersedes only at admission, and known old content cannot roll back',async()=>{
+ const root=vault();await observe(root,'A');const a=admitStaged(root,[pending(root,'A').id])[0]!;
+ await observe(root,'B');expect(readSourceInsertionLog(root)).toHaveLength(1);
  const b=admitStaged(root,[pending(root,'B').id])[0]!;
  expect(b.ok).toBe(true);expect(b.source_id).toBe(a.source_id);
  expect(readSourceInsertionLog(root).find(e=>e.id===b.insertion_id)?.envelope.supersedes).toBe(a.insertion_id);
- resetCaches(root);expect(observe(root,'A')).toBe(false);expect(observe(root,'B')).toBe(false);
+ resetCaches(root);expect(await observe(root,'A')).toBe(false);expect(await observe(root,'B')).toBe(false);
  expect(readSourceInsertionLog(root)).toHaveLength(2);
 });
 
-test('admitting pending versions in reverse order refuses the older observation without deleting it',()=>{
- const root=vault();observe(root,'A');observe(root,'B');const a=pending(root,'A'),b=pending(root,'B');
+test('admitting pending versions in reverse order refuses the older observation without deleting it',async()=>{
+ const root=vault();await observe(root,'A');await observe(root,'B');const a=pending(root,'A'),b=pending(root,'B');
  expect(admitStaged(root,[b.id])[0]?.ok).toBe(true);
  expect(admitStaged(root,[a.id])[0]).toMatchObject({ok:false,error:expect.stringContaining('later-observed')});
  expect(pending(root,'A')).toBeDefined();expect(passStaged(root,[a.id],'Already superseded')[0]?.ok).toBe(true);
- resetCaches(root);expect(observe(root,'A')).toBe(false);expect(readSourceInsertionLog(root)).toHaveLength(1);
+ resetCaches(root);expect(await observe(root,'A')).toBe(false);expect(readSourceInsertionLog(root)).toHaveLength(1);
 });
 
-test('interruption between append and pending cleanup returns the same insertion on retry',()=>{
- const root=vault();observe(root,'A');const a=pending(root,'A');
+test('interruption between append and pending cleanup returns the same insertion on retry',async()=>{
+ const root=vault();await observe(root,'A');const a=pending(root,'A');
  const receipt=receiveStagedGranola(root,a.content);resetCaches(root);
  expect(admitStaged(root,[a.id])[0]).toMatchObject({ok:true,insertion_id:receipt.insertionId});
  expect(readSourceInsertionLog(root)).toHaveLength(1);expect(stagedItems(root,'granola')).toHaveLength(0);
 });
 
-test('legacy MCP insertions keep their source IDs and bytes; legacy pending and pass decisions recover',()=>{
+test('legacy MCP insertions keep their source IDs and bytes; legacy pending and pass decisions recover',async()=>{
  const root=vault(),raw=content('A'),old=receive({root,content:raw});
  const bytes=readFileSync(join(root,old.path),'utf8');resetCaches(root);
- expect(observe(root,'A')).toBe(false);observe(root,'B');
+ expect(await observe(root,'A')).toBe(false);await observe(root,'B');
  const next=admitStaged(root,[pending(root,'B').id])[0]!;
  expect(next).toMatchObject({ok:true,source_id:old.id});
  expect(readSourceInsertionLog(root).find(e=>e.id===next.insertion_id)?.envelope.supersedes).toBe(old.insertionId);
  expect(readFileSync(join(root,old.path),'utf8')).toBe(bytes);
  const legacy=content('C'),id='granola-'+sha256hex('granola\n'+legacy).slice(0,32);
  stage(root,{id,source:'granola',account:'granola',at:meeting.date,line:meeting.title,scopes:{},name:id+'.md',content:legacy});
- expect(observe(root,'C')).toBe(false);
+ expect(await observe(root,'C')).toBe(false);
  // A pre-upgrade pending observation has no reliable sequence: don't claim it is newest.
  expect(admitStaged(root,[id])[0]?.ok).toBe(false);
  const passed=content('D'),passedId='granola-'+sha256hex('granola\n'+passed).slice(0,32);
  appendFileSync(join(stageDir(root),'passed.jsonl'),JSON.stringify({id:passedId,source:'granola',reason:'Earlier decision'})+'\n');
- resetCaches(root);expect(observe(root,'D')).toBe(false);
+ resetCaches(root);expect(await observe(root,'D')).toBe(false);
 });
 
-test('two accounts and changed upstream identities cannot deduplicate or supersede each other',()=>{
+test('two accounts and changed upstream identities cannot deduplicate or supersede each other',async()=>{
  const root=vault(),account='account-2222222222222222';
  writeAtomic(join(root,'.spool/integration-accounts/granola/accounts.json'),JSON.stringify([{id:account,label:'Other'}]));
  writeAtomic(join(root,'.spool/source-mcp/granola',sha256hex(account)+'.json'),JSON.stringify({generation:'other',connected:true,tokens:{access_token:'synthetic'},identity:{workspace:'fixture'}}));
  writeAccountPolicy(root,'granola',account,{...accountPolicy(root,'granola','granola'),fingerprint:accountFingerprint(root,'granola',account)});
- observe(root,'A');admitStaged(root,[pending(root,'A').id]);
- expect(stageGranolaContent(root,account,content('A',account))).toBe(true);
+ await observe(root,'A');admitStaged(root,[pending(root,'A').id]);
+ expect(await stageGranolaContent(root,account,content('A',account))).toBe(true);
  const other=stagedItems(root,'granola').find(i=>i.account===account)!;
  expect(admitStaged(root,[other.id])[0]?.ok).toBe(true);
- expect(stageGranolaContent(root,'granola',content('A','granola',{workspace:'changed'}))).toBe(true);
+ expect(await stageGranolaContent(root,'granola',content('A','granola',{workspace:'changed'}))).toBe(true);
  admitStaged(root,stagedItems(root,'granola').map(i=>i.id));
  const log=readSourceInsertionLog(root);expect(log).toHaveLength(3);expect(new Set(log.map(e=>e.source_id)).size).toBe(3);
  expect(log.every(e=>!e.envelope.supersedes)).toBe(true);
 });
 
-test('disabled remembering preserves pending material and prevents staging, admission and passing',()=>{
- const root=vault();observe(root,'A');const a=pending(root,'A'),p=accountPolicy(root,'granola','granola');
+test('disabled remembering preserves pending material and prevents staging, admission and passing',async()=>{
+ const root=vault();await observe(root,'A');const a=pending(root,'A'),p=accountPolicy(root,'granola','granola');
  writeAccountPolicy(root,'granola','granola',{...p,remembering:{...p.remembering,enabled:false}});
- expect(()=>observe(root,'B')).toThrow('remembering is off');
+ await expect(observe(root,'B')).rejects.toThrow('remembering is off');
  expect(admitStaged(root,[a.id])[0]?.ok).toBe(false);expect(passStaged(root,[a.id],'No')[0]?.ok).toBe(false);
  expect(pending(root,'A')).toBeDefined();expect(readSourceInsertionLog(root)).toHaveLength(0);
 });
 
-test('corrupt pass audit fails closed instead of silently forgetting a decision',()=>{
- const root=vault();observe(root,'A');passStaged(root,[pending(root,'A').id],'No');
+test('corrupt pass audit fails closed instead of silently forgetting a decision',async()=>{
+ const root=vault();await observe(root,'A');passStaged(root,[pending(root,'A').id],'No');
  appendFileSync(join(stageDir(root),'passed.jsonl'),'{torn');resetCaches(root);
- expect(()=>observe(root,'A')).toThrow();expect(stagedItems(root,'granola')).toHaveLength(0);
+ await expect(observe(root,'A')).rejects.toThrow();expect(stagedItems(root,'granola')).toHaveLength(0);
 });
 
 test('the MCP poller recovers admitted and passed decisions after cursor loss and same-identity reconnect',async()=>{
@@ -130,7 +131,7 @@ test('the MCP poller recovers admitted and passed decisions after cursor loss an
 });
 
 test('concurrent admission of one revision has one immutable insertion and one receipt',async()=>{
- const root=vault();observe(root,'A');const item=pending(root,'A');
+ const root=vault();await observe(root,'A');const item=pending(root,'A');
  const payload=join(root,'candidate.md'),script=join(root,'admit.ts');writeFileSync(payload,item.content);
  writeFileSync(script,`import {readFileSync} from 'node:fs';\nimport {receiveStagedGranola} from ${JSON.stringify(join(import.meta.dir,'../lib/granolaRevision.ts'))};\nconsole.log(JSON.stringify(receiveStagedGranola(process.argv[2]!,readFileSync(process.argv[3]!,'utf8'))));\n`);
  const run=async()=>{
