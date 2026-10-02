@@ -49,7 +49,9 @@
   let openPilot: string | null = $state(null);
   let detail: PilotDetail | null = $state(null);
   let draftText = $state("");
-  let sidebarOpen = $state(false);
+  /** The workspace belongs to an agent's chat: each remembers its own. */
+  let workspaces: Record<string, boolean> = $state({});
+  let sidebarOpen = $derived(!!openPilot && !!workspaces[openPilot]);
   let chatEl: HTMLElement | undefined = $state();
   let msgsEl: HTMLElement | undefined = $state();
   let composerEl: HTMLTextAreaElement | undefined = $state();
@@ -190,7 +192,11 @@
     const right = sidebarOpen ? Math.min(640, innerWidth * 0.38) + 34 : 0;
     return (left - right) / 2;
   };
-  function toggleSidebar(): void { sidebarOpen = !sidebarOpen; scene?.shift(shiftFor()); }
+  function toggleSidebar(): void {
+    if (!openPilot) return;
+    workspaces[openPilot] = !workspaces[openPilot];
+    void tick().then(() => scene?.shift(shiftFor()));
+  }
   function overview(): void {
     ent = null; entRows = null;
     scene?.overview();
@@ -372,7 +378,7 @@
     if (e.key === "Escape" && openPilot) { take(e); closePilot(); return true; }
     if (e.key === "Escape" && ent != null) { take(e); overview(); return true; }
     if (e.key === "n") { take(e); void createPilot([]); return true; }
-    if (e.key === "\\") { take(e); toggleSidebar(); return true; }
+    if (e.key === "\\" && openPilot) { take(e); toggleSidebar(); return true; }
     if (e.key === "j" || e.key === "k") { take(e); stepMemory(e.key === "j" ? 1 : -1); return true; }
     if (e.key === "Enter" && e.shiftKey) { take(e); void startPilot(); return true; }
     return false;
@@ -399,7 +405,6 @@
       {/each}
       <button type="button" class="new" onclick={() => void createPilot([])} title="New pilot (⌘N)">+ <span class="k">⌘N</span></button>
       <button type="button" class="find" onclick={openSearch}>Search <span class="k">/</span></button>
-      <button type="button" class="find" class:lit={sidebarOpen} onclick={toggleSidebar} title="Workspace sidebar (\)">Workspace <span class="k">\</span></button>
       <a class="gear" href={`${APP}#/vaultSettings`} title="Settings (⌘,)" aria-label="Settings">
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
           <circle cx="12" cy="12" r="3" />
@@ -456,7 +461,10 @@
   {#if openPilot && detail}
     <section class="chat" bind:this={chatEl} aria-label="Pilot conversation">
       <header>
-        <span class="eyebrow" class:hot={detail.phase === "working"}>Pilot · {detail.model} · {PHASE[detail.phase]}</span>
+        <div class="top">
+          <span class="eyebrow" class:hot={detail.phase === "working"}>Pilot · {detail.model} · {PHASE[detail.phase]}</span>
+          <button type="button" class="find" class:lit={sidebarOpen} onclick={toggleSidebar} title="This agent's workspace (\)">Workspace <span class="k">\</span></button>
+        </div>
         <h2>{detail.title}</h2>
         {#if detail.contextNodes?.length}<p class="ctx">{detail.contextNodes.map((n) => n.title ?? n.id).join(" · ")}</p>{/if}
       </header>
@@ -481,12 +489,12 @@
   {/if}
   {#if sidebarOpen}
     <aside class="side" bind:this={sidebarEl} aria-label="Workspace">
-      <p>Workspace</p>
-      <span>A browser the pilot can drive, and notes you write together. Not built yet — this shows its proportions.</span>
+      <p>Workspace · {detail?.title ?? ""}</p>
+      <span>This agent's browser it can drive, and notes you write together. Not built yet — this shows its proportions.</span>
     </aside>
   {/if}
 
-  <p class="hints" aria-hidden="true"><span>/ Search</span><span>j k Memories</span><span>⇧↵ Pilot</span><span>⌘N New</span><span>\ Workspace</span>{#if ent != null}<span>Esc Back</span>{/if}</p>
+  <p class="hints" aria-hidden="true"><span>/ Search</span><span>j k Memories</span><span>⇧↵ Pilot</span><span>⌘N New</span>{#if openPilot}<span>\ Workspace</span>{/if}{#if ent != null}<span>Esc Back</span>{/if}</p>
   {#if notice}<p class="notice" role="status">{notice}</p>{/if}
   {#if error}<p class="error">The squad view couldn’t load: {error}</p>{/if}
 </div>
@@ -518,7 +526,7 @@
     font: 400 13px/1.45 var(--font-app); color: color-mix(in srgb, var(--fg) 82%, var(--bg)); }
   .stage :global(.sq-node .q b) { font-weight: 600; color: var(--fg); }
 
-  .strip { position: absolute; top: 18px; left: var(--app-gutter, 34px); right: var(--app-gutter, 34px); display: flex; gap: 4px; min-width: 0; }
+  .strip { position: absolute; top: 18px; left: var(--app-gutter, 34px); right: var(--app-gutter, 34px); display: flex; gap: 4px; min-width: 0; z-index: 2; }
   .strip > :global(*) { flex: 0 1 auto; min-width: 0; }
   .strip .find, .strip .gear, .strip .new { flex: none; }
   .find { display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 11px; border: 0; border-radius: 999px;
@@ -537,8 +545,13 @@
   .tok.on .by { color: color-mix(in srgb, var(--bg) 65%, var(--fg)); }
   .new { color: var(--sq-muted); }
   .find.lit { color: var(--fg); }
-  .chat { position: absolute; top: 72px; bottom: 26px; left: var(--app-gutter, 34px); width: min(560px, 40vw); display: flex; flex-direction: column; gap: 14px;
-    background: color-mix(in srgb, var(--bg) 86%, transparent); }
+  /* the chat sits on the ground itself: opaque, fading into the field at its right edge */
+  .chat { position: absolute; top: 0; bottom: 0; left: 0; width: calc(min(560px, 40vw) + var(--app-gutter, 34px)); padding: 72px 0 26px var(--app-gutter, 34px); box-sizing: border-box;
+    display: flex; flex-direction: column; gap: 14px; background: var(--bg); z-index: 1; }
+  .chat::after { content: ""; position: absolute; top: 0; bottom: 0; right: -96px; width: 96px; pointer-events: none;
+    background: linear-gradient(to right, var(--bg), color-mix(in srgb, var(--bg) 0%, transparent)); }
+  .chat .top { display: flex; align-items: center; gap: 10px; }
+  .chat .top .find { margin-left: auto; height: 24px; }
   .chat header { display: flex; flex-direction: column; gap: 8px; }
   .chat h2 { margin: 0; font: 500 clamp(22px, 2vw, 28px)/1.15 var(--font-app); letter-spacing: -0.025em; }
   .chat .ctx { margin: 0; font: 400 11px/1.4 var(--font-mono); color: var(--sq-faint); }
