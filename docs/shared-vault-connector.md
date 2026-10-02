@@ -263,8 +263,8 @@ With the connector on, these answer without a credential: the two
 `/.well-known/oauth-protected-resource` documents and
 `/.well-known/oauth-authorization-server` (static JSON derived from the
 public URL), `POST /register`, `GET /authorize`, `POST /authorize/consent`,
-`POST /token`, the two font files, and `GET /invite` (a generic "paste this
-link, don't open it" page for an invite or app link opened in a browser — the
+`POST /token`, the two font files, and `GET /invite` (a generic page explaining how to use
+an invite or app link opened in a browser: in Claude or the app, once — the
 link's secret is in the fragment and never reaches the door); with Google, also `GET /oauth/google`,
 `GET /oauth/google/callback`, `GET /join`, `GET /join/google`, `GET /me`,
 `POST /me/app-link` and `POST /me/signout`; without Google,

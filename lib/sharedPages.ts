@@ -108,9 +108,11 @@ input[type=text],input[type=password]{width:100%;min-width:0;padding:13px 14px;b
  * the page's own --fg and --bg. */
 const MARK = `<svg class="mark" viewBox="-100 -110 200 220" aria-hidden="true" focusable="false"><g stroke-linejoin="miter" stroke-linecap="square" stroke-width="5"><polygon points="0,-80.23 -72.125,-44.167 0,-8.105 72.125,-44.167"/><path d="M-36.062,-62.199L36.062,-26.136" fill="none"/><path d="M36.062,-62.199L-36.062,-26.136" fill="none"/><polygon points="72.125,-44.167 72.125,44.167 0,80.23 0,-8.105"/><path d="M72.125,0L0,36.062" fill="none"/><path d="M36.062,-26.136L36.062,62.199" fill="none"/><polygon points="-72.125,-44.167 0,-8.105 0,80.23 -72.125,44.167"/><path d="M-36.062,-26.136L-36.062,62.199" fill="none"/><path d="M-72.125,0L0,36.062" fill="none"/></g></svg>`;
 
-/** Reveals each hidden Copy button and copies its field. Without script the
- * field is still there to select. */
-const SCRIPT = `for(const b of document.querySelectorAll("button[data-copy]")){const f=document.getElementById(b.dataset.copy);if(!f)continue;b.hidden=false;b.addEventListener("click",async()=>{try{await navigator.clipboard.writeText(f.value);b.textContent="Copied";}catch{f.select();}});}`;
+/** Fills an invite page's link field from the address bar (the secret is in
+ * the fragment, which the server never sees), then reveals each hidden Copy
+ * button and copies its field. Without script the fields are still there to
+ * select, and the invite page says to copy the address bar instead. */
+const SCRIPT = `if(location.hash.length>1){for(const f of document.querySelectorAll("input[data-href]"))f.value=location.href;for(const e of document.querySelectorAll("[data-with-link]"))e.hidden=false;for(const e of document.querySelectorAll("[data-without-link]"))e.hidden=true;}for(const b of document.querySelectorAll("button[data-copy]")){const f=document.getElementById(b.dataset.copy);if(!f)continue;b.hidden=false;b.addEventListener("click",async()=>{try{await navigator.clipboard.writeText(f.value);b.textContent="Copied";}catch{f.select();}});}`;
 
 const hash = (s: string): string => createHash("sha256").update(s).digest("base64");
 
@@ -157,12 +159,33 @@ export const expiredPage = (): Response =>
 export const joinPage = (): Response =>
   page(200, "Sign in to a shared BigBrain", `${EYEBROW}<h1>Sign in to a shared BigBrain</h1><div class="actions"><a class="cta" href="/join/google">Sign in with Google</a></div><p class="meta">Use the Google account for the address you were invited with.</p>`);
 
-/** `/invite` — an invite or app link opened in a browser instead of pasted.
- * The same page for every link: the secret is in the fragment, which never
- * reaches the door. `claudeSignIn` is the no-Google case, where the link is
- * also what a member pastes into the connector's sign-in page. */
-export const inviteLinkPage = (claudeSignIn: boolean): Response =>
-  page(200, "Paste this link", `${EYEBROW}<h1>Paste this link, don't open it</h1><p class="lead">Copy the whole link and paste it into BigBrain under Connect a shared vault.${claudeSignIn ? " To connect Claude, paste it into the sign-in page Claude opens." : ""}</p><p class="meta">The link works once.</p>`);
+export interface InviteLinkView {
+  /** `<public>/mcp`, for the Claude steps. */
+  connectorUrl: string;
+  /** No Google: the link is also what a member pastes into the sign-in page
+   * Claude opens. With Google, Claude signs in with Google instead, and an
+   * invite link here is an app link from the personal page. */
+  claudeSignIn: boolean;
+}
+
+/** `/invite` — what an invite (or app) link shows when opened in a browser:
+ * how to use it. The same page for every link, naming no vault or person —
+ * the secret is in the fragment, which never reaches the server, and only
+ * the page's script puts it back in front of the visitor. */
+export function inviteLinkPage(v: InviteLinkView): Response {
+  const linkField = `<div data-with-link hidden><label for="invite-link">Your invite link</label><div class="copy"><input id="invite-link" type="text" readonly data-href><button class="cta secondary" type="button" data-copy="invite-link" hidden>Copy</button></div></div>
+<p class="meta" data-without-link>Your invite link is this page's full address, including everything after the #. Copy it from the address bar.</p>`;
+  const app = `<section aria-labelledby="app"><h2 id="app">Use it in the BigBrain app</h2>
+<ol><li>In BigBrain, choose Connect a shared vault.</li><li>Paste your invite link.</li></ol></section>`;
+  const claude = `<section aria-labelledby="claude"><h2 id="claude">Use it in Claude</h2>
+<p>Claude can then search and read the vault in your conversations; it can't change anything.</p>
+${copyField("connector", "Connector URL", v.connectorUrl)}
+<ol><li>In Claude, open Settings → Connectors and choose Add custom connector.</li><li>Paste the connector URL and add it.</li><li>Choose Connect. On the page that opens, paste your invite link, then allow access.</li></ol></section>`;
+  const body = v.claudeSignIn
+    ? `${EYEBROW}<h1>You're invited to a shared BigBrain</h1><p class="lead">Use this link in Claude or in the BigBrain app. It works once: whichever you use first, it's spent.</p>${linkField}${claude}${app}`
+    : `${EYEBROW}<h1>Connect the BigBrain app</h1><p class="lead">Paste this link into the BigBrain app. It works once, within an hour.</p>${linkField}${app}`;
+  return page(200, "Your shared BigBrain invite", body);
+}
 
 export interface AuthorizeView {
   clientName: string;

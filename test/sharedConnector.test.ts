@@ -931,15 +931,18 @@ describe("the join link and the personal page", () => {
     expect(await (await req(w, "GET", "/join", { cookie: session })).text()).toBe(html);
   });
 
-  test("an invite or app link opened in a browser gets a generic page saying to paste it", async () => {
+  test("an invite or app link opened in a browser explains how to use it, naming nothing", async () => {
     for (const google of [true, false]) {
       const res = await req(world({ google }), "GET", "/invite");
       expect(res.status).toBe(200);
       const html = await res.text();
-      expect(html).toContain("Paste this link");
-      // only without Google is the link also pasted into Claude's sign-in page
-      expect(html.includes("sign-in page Claude opens")).toBe(!google);
-      expect([html.includes(VAULT), res.headers.get("set-cookie")]).toEqual([false, null]);
+      expect(html).toContain("Use it in the BigBrain app");
+      expect(html).toContain('data-href');
+      // the Claude steps (paste the link on Claude's sign-in page) only without Google
+      expect(html.includes("Use it in Claude")).toBe(!google);
+      expect(html.includes(`${PUBLIC}/mcp`)).toBe(!google);
+      for (const secret of [VAULT, "Ada", "The Owner", "ada@example.com"]) expect([secret, html.includes(secret)]).toEqual([secret, false]);
+      expect(res.headers.get("set-cookie")).toBeNull();
     }
     expect((await req(world({ connector: false }), "GET", "/invite")).status).toBe(401);
   });

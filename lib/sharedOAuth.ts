@@ -921,9 +921,9 @@ export function makeSharedConnector(deps: SharedConnectorDeps): SharedConnector 
     "/authorize": { GET: authorize },
     "/authorize/consent": { POST: consent },
     "/token": { POST: token },
-    // An invite or app link OPENED instead of pasted. Its secret is in the
-    // fragment and never arrives, so there is nothing here to redeem.
-    "/invite": { GET: () => inviteLinkPage(!google) },
+    // An invite or app link opened in a browser: how to use it. Its secret
+    // is in the fragment and never arrives, so nothing here redeems it.
+    "/invite": { GET: () => inviteLinkPage({ connectorUrl: resourceUrl, claudeSignIn: !google }) },
     ...Object.fromEntries(FONT_PATHS.map((path) => [path, { GET: async () => (await fontResponse(path))! }])),
     // With Google, it is the only login: the invite form and its POST do not
     // exist, and the join and personal pages do.
