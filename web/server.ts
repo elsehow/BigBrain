@@ -1,6 +1,7 @@
 import {integrationAccountRoutes} from '../lib/integrationAccountRoutes';
 import {IntegrationAccounts} from '../lib/integrationAccounts';
 import {inclusionReviewApi} from '../lib/inclusionReviewApi';
+import {inclusionBackfillApi} from '../lib/inclusionBackfillApi';
 import {tickIntegrationInclusion} from '../lib/inclusionStages';
 import { unionGraph, unionRecent, unionSearch, unionNote, vaultFilter, includesPersonal } from '../lib/sharedReadUnion';
 import { jevSettingsApi } from '../lib/jevSettingsApi';
@@ -798,6 +799,7 @@ export function start(): void {
     armor(res);
     if (!allowLoopbackRequest(req, res)) return;
     if (await inclusionReviewApi(req,res,ROOT)) return;
+    if (await inclusionBackfillApi(req,res,ROOT)) return;
     if (await jevSettingsApi(req,res,ROOT)) return;
     if (await sharedSettingsApi(req,res,ROOT)) return;
     if (await sharedWorkspace(req, res)) return;
