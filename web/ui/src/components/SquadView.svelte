@@ -67,6 +67,7 @@
       const { createSquadScene } = await import("../lib/squad/scene");
       scene = createSquadScene(host, field, {
         blockers: () => [hudEl, feedEl, searching ? searchEl : undefined].filter((e): e is HTMLElement => !!e).map((e) => e.getBoundingClientRect()).filter((r) => r.height > 0),
+        onPick,
       });
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
@@ -77,6 +78,12 @@
     return () => scene?.dispose();
   });
 
+  /** A click in the field: open what's under it; empty space backs out. */
+  function onPick(i: number | null): void {
+    if (i == null) { if (ent != null && !searching) overview(); return; }
+    if (searching) { searching = false; scene?.search(null); }
+    if (i !== ent) void openEntity(i);
+  }
   const shiftFor = () => (searching ? Math.min(300, innerWidth * 0.2) : ent != null ? Math.min(190, innerWidth * 0.13) : 0);
   function overview(): void {
     ent = null; entRows = null;
@@ -338,9 +345,10 @@
   .stage { position: absolute; inset: 0; }
   .stage :global(.sq-canvas) { display: block; width: 100%; height: 100%; touch-action: none; }
   .stage :global(.sq-labels) { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
-  .stage :global(.sq-lab) { position: absolute; left: 0; top: 0; white-space: nowrap; will-change: transform, opacity;
+  .stage :global(.sq-lab) { position: absolute; left: 0; top: 0; white-space: nowrap; will-change: transform, opacity; pointer-events: auto; cursor: pointer;
     text-shadow: 0 0 3px var(--bg), 0 0 8px var(--bg), 0 0 16px var(--bg); }
   .stage :global(.sq-node .t) { font: 400 11px/1.2 var(--font-mono); letter-spacing: -0.01em; color: var(--sq-muted); }
+  .stage :global(.sq-node:hover .t) { color: var(--fg); }
   .stage :global(.sq-node.memory .t) { font: 500 12px/1.2 var(--font-app); color: var(--fg); }
   .stage :global(.sq-node .q), .stage :global(.sq-node .c) { display: none; }
   .stage :global(.sq-node.full .c:not(:empty)) { display: block; margin-bottom: 6px; font: 600 9px/1 var(--font-mono); letter-spacing: .14em; text-transform: uppercase; color: var(--sq-faint); }

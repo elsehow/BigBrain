@@ -15,6 +15,8 @@ import type { Field } from "./model";
 export interface SceneHooks {
   /** Screen rects labels must stay out of (the view's panels). */
   blockers(): DOMRect[];
+  /** A click: the node under it (a point, a memory topic, a label), or null for empty space. */
+  onPick(i: number | null): void;
 }
 export interface SquadScene {
   /** Back to the whole field. */
@@ -34,7 +36,7 @@ export interface SquadScene {
 }
 
 /** Memory glass is a little see-through even at rest. */
-const GLASS_OPACITY = 0.86;
+const GLASS_OPACITY = 0.95;
 const LENS = Math.tan(THREE.MathUtils.degToRad(17)) / Math.tan(THREE.MathUtils.degToRad(10));
 const OVERVIEW_AT = { az: 0.05, el: 0.55, dist: 30, target: new THREE.Vector3(0, 3, -4) };
 
@@ -135,49 +137,48 @@ export function createSquadScene(host: HTMLElement, field: Field, hooks: SceneHo
 
   // ── glass: memory topics ─────────────────────────────────────────────────
   const octa = new THREE.OctahedronGeometry(1, 0);
-  interface Glass { mesh: THREE.Mesh; mat: THREE.MeshPhysicalMaterial; edges: THREE.LineSegments; vis: number }
-  // Frosted, slightly imperfect glass: a faint roughness grain so the frost
-  // isn't uniform, and a low, uneven waviness in the surface so faces catch
-  // light a little differently across them — handmade rather than machined.
-  const frost = (() => {
-    const S = 128, rough = new Uint8Array(new ArrayBuffer(S * S * 4)), wave = new Uint8Array(new ArrayBuffer(S * S * 4));
+  interface Glass { mesh: THREE.Mesh; mat: THREE.MeshPhysicalMaterial; vis: number }
+  // Clear glass, not frost: smooth and nearly colourless, crisp clear-coat
+  // highlights, a faint dispersion fringe, no outline. The one imperfection is
+  // a low, gentle waviness in the surface (no grain), and each topic sits at
+  // its own slight tilt, so no two catch the light the same way.
+  const wave = (() => {
+    const S = 128, data = new Uint8Array(new ArrayBuffer(S * S * 4)), F = 3;
     const rnd = (x: number, y: number) => { const h = Math.sin(x * 127.1 + y * 311.7) * 43758.5453; return h - Math.floor(h); };
-    const smooth = (x: number, y: number, f: number) => {
-      const fx = (x / S) * f, fy = (y / S) * f, ix = Math.floor(fx), iy = Math.floor(fy), tx = fx - ix, ty = fy - iy;
-      const w = (k: number) => k * k * (3 - 2 * k), at = (a: number, b: number) => rnd(((a % f) + f) % f, ((b % f) + f) % f);
+    const height = (x: number, y: number) => {
+      const fx = (x / S) * F, fy = (y / S) * F, ix = Math.floor(fx), iy = Math.floor(fy), tx = fx - ix, ty = fy - iy;
+      const w = (k: number) => k * k * (3 - 2 * k), at = (a: number, b: number) => rnd(((a % F) + F) % F, ((b % F) + F) % F);
       return THREE.MathUtils.lerp(THREE.MathUtils.lerp(at(ix, iy), at(ix + 1, iy), w(tx)), THREE.MathUtils.lerp(at(ix, iy + 1), at(ix + 1, iy + 1), w(tx)), w(ty));
     };
-    const height = (x: number, y: number) => smooth(x, y, 4) * 0.7 + smooth(x, y, 11) * 0.3;
+    const n = new THREE.Vector3();
     for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+      n.set(-(height(x + 1, y) - height(x - 1, y)) * 8, -(height(x, y + 1) - height(x, y - 1)) * 8, 1).normalize();
       const k = (y * S + x) * 4;
-      // roughness lives in the green channel; grain between 0.6 and 1 of the base
-      const g = Math.round(255 * (0.6 + 0.4 * (smooth(x, y, 16) * 0.6 + rnd(x, y) * 0.4)));
-      rough[k] = g; rough[k + 1] = g; rough[k + 2] = g; rough[k + 3] = 255;
-      const dx = height(x + 1, y) - height(x - 1, y), dy = height(x, y + 1) - height(x, y - 1);
-      const n = new THREE.Vector3(-dx * 6, -dy * 6, 1).normalize();
-      wave[k] = Math.round((n.x * 0.5 + 0.5) * 255); wave[k + 1] = Math.round((n.y * 0.5 + 0.5) * 255); wave[k + 2] = Math.round((n.z * 0.5 + 0.5) * 255); wave[k + 3] = 255;
+      data[k] = Math.round((n.x * 0.5 + 0.5) * 255); data[k + 1] = Math.round((n.y * 0.5 + 0.5) * 255); data[k + 2] = Math.round((n.z * 0.5 + 0.5) * 255); data[k + 3] = 255;
     }
-    const tex = (data: Uint8Array<ArrayBuffer>) => { const t = new THREE.DataTexture(data, S, S); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.needsUpdate = true; return t; };
-    return { rough: tex(rough), wave: tex(wave) };
+    const t = new THREE.DataTexture(data, S, S);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.needsUpdate = true;
+    return t;
   })();
   const glass = (geo: THREE.BufferGeometry): Glass => {
     const mat = new THREE.MeshPhysicalMaterial({ color: 0xffffff, metalness: 0, flatShading: true,
-      roughness: 0.34, roughnessMap: frost.rough, normalMap: frost.wave, normalScale: new THREE.Vector2(0.22, 0.22),
-      transmission: 0.94, thickness: 0.7, ior: 1.33, dispersion: 1.2, attenuationDistance: 6,
-      iridescence: 0.06, iridescenceIOR: 1.3, specularIntensity: 0.55, clearcoat: 0.25, clearcoatRoughness: 0.5,
+      roughness: 0.1, normalMap: wave, normalScale: new THREE.Vector2(0.07, 0.07),
+      transmission: 1, thickness: 1, ior: 1.42, dispersion: 2.5, attenuationDistance: 5,
+      clearcoat: 1, clearcoatRoughness: 0.04, specularIntensity: 0.85, iridescence: 0.08, iridescenceIOR: 1.3,
       transparent: true, opacity: GLASS_OPACITY, depthWrite: false });
     const mesh = new THREE.Mesh(geo, mat);
     mesh.renderOrder = 4;
-    const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo), new THREE.LineBasicMaterial({ transparent: true, opacity: 0.14 }));
-    mesh.add(edges);
     scene.add(mesh);
-    return { mesh, mat, edges, vis: 1 };
+    return { mesh, mat, vis: 1 };
   };
   const memory = field.nodes.filter((n) => n.memory).map((n) => {
     const g = glass(octa);
     g.mesh.position.set(...n.p);
     g.mesh.scale.setScalar(0.42);
-    g.mesh.rotation.y = 0.4;
+    // its own slight tilt: hashed from the id, so it holds across loads
+    const h = [...n.id].reduce((acc, c) => (acc * 31 + c.charCodeAt(0)) >>> 0, 7);
+    g.mesh.rotation.set(((h % 97) / 97 - 0.5) * 0.35, 0.4 + ((h % 89) / 89) * 0.9, ((h % 83) / 83 - 0.5) * 0.25);
     return { ...g, i: n.i };
   });
 
@@ -213,6 +214,7 @@ export function createSquadScene(host: HTMLElement, field: Field, hooks: SceneHo
     if (!L) {
       L = document.createElement("div") as HTMLDivElement & { w?: number };
       L.className = "sq-lab sq-node" + (field.nodes[i]!.memory ? " memory" : "");
+      L.dataset["i"] = String(i);
       const t = document.createElement("span");
       t.className = "t";
       t.textContent = field.nodes[i]!.label;
@@ -249,14 +251,43 @@ export function createSquadScene(host: HTMLElement, field: Field, hooks: SceneHo
 
   // ── input ────────────────────────────────────────────────────────────────
   let W = 1, H = 1, drag: { x: number; y: number; moved: number } | null = null;
+  // picking: a memory topic's glass under the pointer, else the nearest
+  // visible point within a few pixels of it
+  const ray = new THREE.Raycaster(), ndc = new THREE.Vector2(), sp = { x: 0, y: 0, ok: false };
+  const pickAt = (clientX: number, clientY: number): number | null => {
+    const r = canvas.getBoundingClientRect(), x = clientX - r.left, y = clientY - r.top;
+    ndc.set((x / r.width) * 2 - 1, -(y / r.height) * 2 + 1);
+    ray.setFromCamera(ndc, camera);
+    const glassHit = ray.intersectObjects(memory.filter((g) => g.vis > 0.5).map((g) => g.mesh), false)[0];
+    if (glassHit) return memory.find((g) => g.mesh === glassHit.object)?.i ?? null;
+    const alphas = aAlpha.array as Float32Array;
+    let best: number | null = null, bestD = 12 * 12;
+    for (let i = 0; i < N; i++) {
+      if (field.nodes[i]!.memory || alphas[i]! < 0.15) continue;
+      toScreen(P[i]!, sp);
+      if (!sp.ok) continue;
+      const d = (sp.x - x) ** 2 + (sp.y - y) ** 2;
+      if (d < bestD) { bestD = d; best = i; }
+    }
+    return best;
+  };
   const onDown = (e: PointerEvent) => { drag = { x: e.clientX, y: e.clientY, moved: 0 }; canvas.setPointerCapture(e.pointerId); };
   const onMove = (e: PointerEvent) => {
-    if (!drag) return;
+    if (!drag) { canvas.style.cursor = pickAt(e.clientX, e.clientY) == null ? "" : "pointer"; return; }
     const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
     drag.moved += Math.abs(dx) + Math.abs(dy); drag.x = e.clientX; drag.y = e.clientY;
     goal.az -= dx * 0.005; goal.el = THREE.MathUtils.clamp(goal.el + dy * 0.004, 0.08, 1.35);
   };
-  const onUp = () => { drag = null; };
+  const onUp = (e: PointerEvent) => {
+    if (drag && drag.moved < 4) hooks.onPick(pickAt(e.clientX, e.clientY));
+    drag = null;
+  };
+  // labels are clickable too: they name the thing
+  const onLabel = (e: MouseEvent) => {
+    const L = (e.target as HTMLElement).closest<HTMLElement>(".sq-node");
+    if (L?.dataset["i"]) hooks.onPick(Number(L.dataset["i"]));
+  };
+  labelLayer.addEventListener("click", onLabel);
   const onWheel = (e: WheelEvent) => { e.preventDefault(); goal.dist = THREE.MathUtils.clamp(goal.dist * Math.exp(e.deltaY * 0.0012), 4, 40); };
   canvas.addEventListener("pointerdown", onDown);
   canvas.addEventListener("pointermove", onMove);
@@ -289,11 +320,9 @@ export function createSquadScene(host: HTMLElement, field: Field, hooks: SceneHo
     scene.background = col.bg.clone();
     (strong.material as THREE.LineBasicMaterial).color.copy(col.fg);
     for (const g of memory) {
-      (g.edges.material as THREE.LineBasicMaterial).color.copy(col.fg);
-      // faintly ink-tinted glass, never tinted by state
-      g.mat.color.setRGB(1, 1, 1).lerp(col.fg, 0.03);
-      // tint only lightly: half-way to the ground, so it reads as frost, not smoke
-      g.mat.attenuationColor.copy(col.fg).lerp(col.bg, 0.5);
+      // all but colourless: the faintest ink in it, so it reads as glass, not smoke
+      g.mat.color.setRGB(1, 1, 1).lerp(col.fg, 0.02);
+      g.mat.attenuationColor.copy(col.fg).lerp(col.bg, 0.7);
     }
   };
   theme();
@@ -356,7 +385,6 @@ export function createSquadScene(host: HTMLElement, field: Field, hooks: SceneHo
       const linked = inPlay ? field.edges.some(([a, b]) => (a === g.i && inPlay.has(b)) || (b === g.i && inPlay.has(a))) : true;
       g.vis += (THREE.MathUtils.lerp(1, linked ? 1 : 0.3, dim) * THREE.MathUtils.lerp(searchDim, 1, match[g.i]!) - g.vis) * k;
       g.mat.opacity = GLASS_OPACITY * g.vis;
-      (g.edges.material as THREE.LineBasicMaterial).opacity = 0.1 * g.vis;
     }
 
     // the ties of an opened entity
@@ -435,8 +463,9 @@ export function createSquadScene(host: HTMLElement, field: Field, hooks: SceneHo
       ro.disconnect(); mo.disconnect(); schemeMQ.removeEventListener("change", theme);
       canvas.removeEventListener("pointerdown", onDown); canvas.removeEventListener("pointermove", onMove);
       canvas.removeEventListener("pointerup", onUp); canvas.removeEventListener("wheel", onWheel);
+      labelLayer.removeEventListener("click", onLabel);
       scene.traverse((o) => { const m = o as THREE.Mesh; m.geometry?.dispose(); const mat = m.material as THREE.Material | THREE.Material[] | undefined; if (Array.isArray(mat)) mat.forEach((x) => x.dispose()); else mat?.dispose(); });
-      frost.rough.dispose(); frost.wave.dispose();
+      wave.dispose();
     scene.environment?.dispose(); pmrem.dispose(); renderer.dispose();
       canvas.remove(); labelLayer.remove();
     },
