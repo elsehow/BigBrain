@@ -112,7 +112,7 @@
   $effect(() => { startUpdateChecks(); });
 
   $effect(() => {
-    const names = { sharedVaultSettings: "Shared vaults", home: "Home", top: "Top", vault: "Vault", graph: "Graph", connectedClients: "Connected Clients", pilotSettings: "Pilot", integrations: "Integrations", agents: "Models", vaultSettings: "General", themes: "General", diagnostics: "Diagnostics", search: "Search", squad: "Squad" };
+    const names = { sharedVaultSettings: "Shared vaults", home: "Home", top: "Top", vault: "Vault", graph: "Graph", connectedClients: "Connected Clients", pilotSettings: "Pilot", integrations: "Integrations", agents: "Models", vaultSettings: "General", themes: "General", diagnostics: "Diagnostics", search: "Search" };
     document.title = `${names[app.view]} — BigBrain`;
   });
 
@@ -163,9 +163,7 @@
 <div id="main">
   <UpdateNudge />
   <TopBar />
-  <!-- the squad view is a ground of its own: home (and its graph) must not
-       keep drawing underneath it -->
-  {#if app.view !== "squad" && (sidebar || app.view === "home" || app.view === "top" || app.view === "graph" || app.view === "search" || app.view === "vault")}
+  {#if sidebar || app.view === "home" || app.view === "top" || app.view === "graph" || app.view === "search" || app.view === "vault"}
     <!-- THE screen (HomeView): the graph as the ground and the text tab
          over it — the recents, a search's hits, or an open note's
          assertions, by the hash. Search and the note were screens of
@@ -189,9 +187,6 @@
     <VaultSettingsView />
   {:else if app.view === "diagnostics"}
     <DiagnosticsView />
-  {:else if app.view === "squad"}
-    <!-- loaded on demand: three.js stays out of every other screen's bundle -->
-    {#await import("./components/SquadView.svelte") then m}<m.default />{/await}
   {/if}
 </div>
 {/if}

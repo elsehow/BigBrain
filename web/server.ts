@@ -251,6 +251,13 @@ function serveIndex({ res }: Ctx): void {
   );
 }
 
+// The squad view is its own page (web/ui/squad.html), not a route in the app
+// shell: it owns the whole window and keyboard.
+function serveSquad({ res }: Ctx): void {
+  if (serveStatic(res, join(UI_DIST, "squad.html"))) return;
+  send(res, 404, "No squad view in this build — run `bun run web:build`.", "text/plain");
+}
+
 function serveAsset({ res, url }: Ctx): void {
   const rel = url.pathname.slice(1).replace(/\.\.+/g, "");
   if (serveStatic(res, join(UI_DIST, rel))) return;
@@ -718,6 +725,7 @@ export const ROUTES: readonly Route[] = [
   { method: "GET", path: "/api/search", handler: search },
   { method: "GET", path: "/api/graph", handler: graph },
   { method: "GET", path: "/api/squad", handler: squad },
+  { method: "GET", path: "/squad", handler: serveSquad },
   { method: "GET", path: "/api/note-log", handler: noteLogRoute },
   { method: "GET", path: "/api/note-messages", handler: noteMessages },
   // Under the desktop app (bin/desktop.ts sets BIGBRAIN_DESKTOP) the

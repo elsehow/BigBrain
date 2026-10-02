@@ -30,5 +30,7 @@ export default defineConfig({
       "/api": { target: `http://localhost:${process.env["BIGBRAIN_WEB_PORT"] ?? "4747"}`, changeOrigin: false },
     },
   },
-  build: { outDir: "dist", emptyOutDir: true },
+  // Two pages ship: the app, and the squad view on its own (squad.html → /squad).
+  // Every other *.html here is a dev workbench and stays out of the build.
+  build: { outDir: "dist", emptyOutDir: true, rollupOptions: { input: { index: "index.html", squad: "squad.html" } } },
 });

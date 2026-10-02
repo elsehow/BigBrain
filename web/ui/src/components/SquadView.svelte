@@ -1,10 +1,9 @@
 <script lang="ts">
-  // #/squad — the vault as a field, the agents writing it placed over what
-  // they're writing, and the record read as it lands. The canvas is
+  // /squad (its own page, squad.html) — the vault as a field, the agents
+  // writing it placed over what they're writing, and the record read as it lands. The canvas is
   // lib/squad/scene.ts (three.js, loaded on demand); everything with words
   // is here. Keys: 1–9 an agent, / search by name, Esc back out.
-  import { getContext, onMount, tick } from "svelte";
-  import { SIDEBAR_LAYOUT, type SidebarLayout } from "../lib/sidebarLayout";
+  import { onMount, tick } from "svelte";
   import { api } from "../lib/api";
   import type { GraphData } from "../lib/types";
   import { buildField, neighbours, searchNames, twinsOf, type Field, type SquadData, type SquadFeedRow } from "../lib/squad/model";
@@ -90,14 +89,9 @@
       error = e instanceof Error ? e.message : String(e);
     }
   }
-  // the shell owns the keyboard (AppShell's capture listener); a ground view
-  // answers first through its hook, and outside the shell (the workbench) the
-  // window listener below does the same job
-  const shell = getContext<SidebarLayout | undefined>(SIDEBAR_LAYOUT);
   onMount(() => {
     void load();
-    if (shell) shell.viewKey = onKey;
-    return () => { if (shell?.viewKey === onKey) shell.viewKey = undefined; scene?.dispose(); };
+    return () => scene?.dispose();
   });
 
   const shiftFor = () => (searching ? Math.min(300, innerWidth * 0.2) : sel != null || ent != null ? Math.min(190, innerWidth * 0.13) : 0);
@@ -184,7 +178,7 @@
     return i < 0 || !query.trim() ? [label, "", ""] : [label.slice(0, i), label.slice(i, i + query.trim().length), label.slice(i + query.trim().length)];
   };
 
-  /** True when this view took the key (so the shell's shortcuts don't also fire). */
+  /** True when this view took the key. */
   function onKey(e: KeyboardEvent): boolean {
     if (e.metaKey || e.ctrlKey || e.altKey || !field) return false;
     if (searching && e.target === qEl) {
@@ -209,7 +203,7 @@
 <svelte:head>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" />
 </svelte:head>
-<svelte:window onkeydowncapture={(e) => { if (!shell) onKey(e); }} />
+<svelte:window onkeydown={onKey} />
 
 <div class="squad">
   <div class="stage" bind:this={host}></div>
@@ -223,6 +217,7 @@
         </button>
       {/each}
       <button type="button" class="find" onclick={openSearch}>Search <span class="k">/</span></button>
+      <a class="app" href="./">BigBrain</a>
     </nav>
   {/if}
 
@@ -277,7 +272,7 @@
     --font-mono: "IBM Plex Mono", ui-monospace, monospace;
     --sq-muted: color-mix(in srgb, var(--fg) 65%, var(--bg));
     --sq-faint: color-mix(in srgb, var(--fg) 45%, var(--bg));
-    position: fixed; inset: 0; z-index: 0; background: var(--bg);
+    position: fixed; inset: 0; background: var(--bg);
     font-family: var(--font-app); color: var(--fg); overflow: hidden;
   }
   .stage { position: absolute; inset: 0; }
@@ -296,7 +291,7 @@
   .stage :global(.sq-agent .k) { font-size: 9.5px; }
   .stage :global(.sq-agent.working) { color: color-mix(in srgb, var(--activity) 80%, var(--fg)); }
 
-  .strip { position: absolute; top: calc(var(--topbar-h, 92px) - 6px); left: var(--app-gutter, 34px); right: var(--app-gutter, 34px); display: flex; flex-wrap: wrap; gap: 4px; }
+  .strip { position: absolute; top: 18px; left: var(--app-gutter, 34px); right: var(--app-gutter, 34px); display: flex; flex-wrap: wrap; gap: 4px; }
   .tok, .find { display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 11px; border: 0; border-radius: 999px;
     background: color-mix(in srgb, var(--bg) 70%, transparent); color: var(--fg); font: 500 13px/1 var(--font-app); cursor: pointer; }
   .tok svg { fill: currentColor; }
@@ -308,15 +303,17 @@
   .k { font: 500 10px/1 var(--font-mono); color: var(--sq-faint); }
   .tok.on .k { color: color-mix(in srgb, var(--bg) 65%, var(--fg)); }
   .find { margin-left: auto; color: var(--sq-muted); }
+  .app { display: inline-flex; align-items: center; height: 30px; padding: 0 11px; border-radius: 999px; color: var(--sq-muted); font: 500 13px/1 var(--font-app); text-decoration: none; }
+  .app:hover { color: var(--fg); background: color-mix(in srgb, var(--fg) 7%, var(--bg)); }
 
-  .hud { position: absolute; top: calc(var(--topbar-h, 92px) + 48px); left: var(--app-gutter, 34px); width: min(460px, calc(100% - 32px)); display: flex; flex-direction: column; gap: 9px;
+  .hud { position: absolute; top: 72px; left: var(--app-gutter, 34px); width: min(460px, calc(100% - 32px)); display: flex; flex-direction: column; gap: 9px;
     pointer-events: none; text-shadow: 0 0 8px var(--bg), 0 0 18px var(--bg); }
   .eyebrow { font: 600 10px/1 var(--font-app); letter-spacing: 0.24em; text-transform: uppercase; color: var(--sq-muted); }
   .eyebrow.hot { color: color-mix(in srgb, var(--activity) 80%, var(--fg)); }
   h1 { margin: 0; font: 500 clamp(28px, 2.5vw, 36px)/1.05 var(--font-app); letter-spacing: -0.03em; }
   .hud p { margin: 0; max-width: 44ch; font: 400 14.5px/1.5 var(--font-app); color: color-mix(in srgb, var(--fg) 80%, var(--bg)); }
 
-  .search { position: absolute; top: calc(var(--topbar-h, 92px) + 38px); left: calc(var(--app-gutter, 34px) - 8px); width: min(480px, calc(100% - 32px)); z-index: 2;
+  .search { position: absolute; top: 62px; left: calc(var(--app-gutter, 34px) - 8px); width: min(480px, calc(100% - 32px)); z-index: 2;
     border-radius: 11px; background: var(--bg); box-shadow: 0 0 0 1px var(--rule), 0 28px 70px -28px color-mix(in srgb, var(--fg) 45%, transparent); overflow: hidden; }
   .field { display: flex; align-items: center; gap: 12px; height: 56px; padding: 0 18px; }
   .field input { flex: 1; min-width: 0; border: 0; outline: none; background: transparent; color: var(--fg); font: 400 19px/1 var(--font-app); }
@@ -338,7 +335,7 @@
   .row:nth-last-child(2) { opacity: .7; } .row:nth-last-child(3) { opacity: .5; } .row:nth-last-child(4) { opacity: .36; }
   .row:nth-last-child(5) { opacity: .25; } .row:nth-last-child(6) { opacity: .16; }
   .feed:hover .row { opacity: .45; } .feed .row:hover { opacity: 1; } .row:hover .x { color: var(--fg); }
-  .error { position: absolute; top: calc(var(--topbar-h, 92px) + 40px); left: var(--app-gutter, 34px); font: 400 13px/1.5 var(--font-app); color: var(--sq-muted); }
+  .error { position: absolute; top: 80px; left: var(--app-gutter, 34px); font: 400 13px/1.5 var(--font-app); color: var(--sq-muted); }
   @media (max-width: 700px) {
     .row { grid-template-columns: 72px minmax(0, 1fr); } .row .w { display: none; }
     .tok .by { display: none; }
