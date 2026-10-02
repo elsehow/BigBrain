@@ -24,7 +24,10 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
   const card=page.locator('article').first();const title=await card.locator('.title').innerText();await card.getByRole('button',{name:(title.startsWith('Include')?'Include: ':'Exclude: ')+title,exact:true}).click();
   await page.waitForFunction(old=>!Array.from(document.querySelectorAll('article .title')).some(e=>e.textContent===old),title);
  }
- await done.click();await page.getByText('Automatically adding new matches',{exact:true}).waitFor();assert.equal(await page.getByRole('button',{name:'Test rule',exact:true}).count(),0);
+ await done.click();
+ // Saving opens the existing-matches list; "Not now" leaves without adding anything.
+ await page.getByRole('group',{name:'Existing matches',exact:true}).waitFor();await page.getByRole('button',{name:'Not now',exact:true}).click();
+ await page.getByText('Automatically adding new matches',{exact:true}).waitFor();assert.equal(await page.getByRole('button',{name:'Add existing matches',exact:true}).count(),1);assert.equal(await page.getByRole('button',{name:'Test rule',exact:true}).count(),0);
  await page.getByRole('button',{name:'Remove rule',exact:true}).click();await page.getByRole('button',{name:'Use suggestion',exact:true}).waitFor();
  await page.getByRole('button',{name:'Added by you',exact:false}).click();await page.getByRole('button',{name:'Withdraw',exact:true}).click();await page.getByText('No shared sources.',{exact:true}).waitFor();assert.equal(await page.getByRole('button',{name:'Shared launch decision',exact:true}).count(),0);assert.equal(await page.getByRole('button',{name:'Restore',exact:true}).count(),0);
  const connected=await (await fetch(fixture.base+'/api/shared-connections')).json();const owner=connected.connections.find(c=>c.id!==fixture.readonly);
