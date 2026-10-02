@@ -33,6 +33,8 @@ export interface SquadScene {
   dispose(): void;
 }
 
+/** Memory glass is a little see-through even at rest. */
+const GLASS_OPACITY = 0.86;
 const LENS = Math.tan(THREE.MathUtils.degToRad(17)) / Math.tan(THREE.MathUtils.degToRad(10));
 const OVERVIEW_AT = { az: 0.05, el: 0.55, dist: 30, target: new THREE.Vector3(0, 3, -4) };
 
@@ -134,9 +136,36 @@ export function createSquadScene(host: HTMLElement, field: Field, hooks: SceneHo
   // ── glass: memory topics ─────────────────────────────────────────────────
   const octa = new THREE.OctahedronGeometry(1, 0);
   interface Glass { mesh: THREE.Mesh; mat: THREE.MeshPhysicalMaterial; edges: THREE.LineSegments; vis: number }
+  // Frosted, slightly imperfect glass: a faint roughness grain so the frost
+  // isn't uniform, and a low, uneven waviness in the surface so faces catch
+  // light a little differently across them — handmade rather than machined.
+  const frost = (() => {
+    const S = 128, rough = new Uint8Array(new ArrayBuffer(S * S * 4)), wave = new Uint8Array(new ArrayBuffer(S * S * 4));
+    const rnd = (x: number, y: number) => { const h = Math.sin(x * 127.1 + y * 311.7) * 43758.5453; return h - Math.floor(h); };
+    const smooth = (x: number, y: number, f: number) => {
+      const fx = (x / S) * f, fy = (y / S) * f, ix = Math.floor(fx), iy = Math.floor(fy), tx = fx - ix, ty = fy - iy;
+      const w = (k: number) => k * k * (3 - 2 * k), at = (a: number, b: number) => rnd(((a % f) + f) % f, ((b % f) + f) % f);
+      return THREE.MathUtils.lerp(THREE.MathUtils.lerp(at(ix, iy), at(ix + 1, iy), w(tx)), THREE.MathUtils.lerp(at(ix, iy + 1), at(ix + 1, iy + 1), w(tx)), w(ty));
+    };
+    const height = (x: number, y: number) => smooth(x, y, 4) * 0.7 + smooth(x, y, 11) * 0.3;
+    for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+      const k = (y * S + x) * 4;
+      // roughness lives in the green channel; grain between 0.6 and 1 of the base
+      const g = Math.round(255 * (0.6 + 0.4 * (smooth(x, y, 16) * 0.6 + rnd(x, y) * 0.4)));
+      rough[k] = g; rough[k + 1] = g; rough[k + 2] = g; rough[k + 3] = 255;
+      const dx = height(x + 1, y) - height(x - 1, y), dy = height(x, y + 1) - height(x, y - 1);
+      const n = new THREE.Vector3(-dx * 6, -dy * 6, 1).normalize();
+      wave[k] = Math.round((n.x * 0.5 + 0.5) * 255); wave[k + 1] = Math.round((n.y * 0.5 + 0.5) * 255); wave[k + 2] = Math.round((n.z * 0.5 + 0.5) * 255); wave[k + 3] = 255;
+    }
+    const tex = (data: Uint8Array<ArrayBuffer>) => { const t = new THREE.DataTexture(data, S, S); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.needsUpdate = true; return t; };
+    return { rough: tex(rough), wave: tex(wave) };
+  })();
   const glass = (geo: THREE.BufferGeometry): Glass => {
-    const mat = new THREE.MeshPhysicalMaterial({ color: 0xffffff, roughness: 0.06, metalness: 0, transmission: 1, thickness: 1.1, ior: 1.45,
-      dispersion: 4, iridescence: 0.15, iridescenceIOR: 1.3, attenuationDistance: 3, flatShading: true });
+    const mat = new THREE.MeshPhysicalMaterial({ color: 0xffffff, metalness: 0, flatShading: true,
+      roughness: 0.34, roughnessMap: frost.rough, normalMap: frost.wave, normalScale: new THREE.Vector2(0.22, 0.22),
+      transmission: 0.94, thickness: 0.7, ior: 1.33, dispersion: 1.2, attenuationDistance: 6,
+      iridescence: 0.06, iridescenceIOR: 1.3, specularIntensity: 0.55, clearcoat: 0.25, clearcoatRoughness: 0.5,
+      transparent: true, opacity: GLASS_OPACITY, depthWrite: false });
     const mesh = new THREE.Mesh(geo, mat);
     mesh.renderOrder = 4;
     const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo), new THREE.LineBasicMaterial({ transparent: true, opacity: 0.14 }));
@@ -263,7 +292,8 @@ export function createSquadScene(host: HTMLElement, field: Field, hooks: SceneHo
       (g.edges.material as THREE.LineBasicMaterial).color.copy(col.fg);
       // faintly ink-tinted glass, never tinted by state
       g.mat.color.setRGB(1, 1, 1).lerp(col.fg, 0.03);
-      g.mat.attenuationColor.copy(col.fg);
+      // tint only lightly: half-way to the ground, so it reads as frost, not smoke
+      g.mat.attenuationColor.copy(col.fg).lerp(col.bg, 0.5);
     }
   };
   theme();
@@ -325,10 +355,8 @@ export function createSquadScene(host: HTMLElement, field: Field, hooks: SceneHo
     for (const g of memory) {
       const linked = inPlay ? field.edges.some(([a, b]) => (a === g.i && inPlay.has(b)) || (b === g.i && inPlay.has(a))) : true;
       g.vis += (THREE.MathUtils.lerp(1, linked ? 1 : 0.3, dim) * THREE.MathUtils.lerp(searchDim, 1, match[g.i]!) - g.vis) * k;
-      const tr = g.vis < 0.99;
-      if (g.mat.transparent !== tr) { g.mat.transparent = tr; g.mat.depthWrite = !tr; g.mat.needsUpdate = true; }
-      g.mat.opacity = g.vis;
-      (g.edges.material as THREE.LineBasicMaterial).opacity = 0.14 * g.vis;
+      g.mat.opacity = GLASS_OPACITY * g.vis;
+      (g.edges.material as THREE.LineBasicMaterial).opacity = 0.1 * g.vis;
     }
 
     // the ties of an opened entity
@@ -408,7 +436,8 @@ export function createSquadScene(host: HTMLElement, field: Field, hooks: SceneHo
       canvas.removeEventListener("pointerdown", onDown); canvas.removeEventListener("pointermove", onMove);
       canvas.removeEventListener("pointerup", onUp); canvas.removeEventListener("wheel", onWheel);
       scene.traverse((o) => { const m = o as THREE.Mesh; m.geometry?.dispose(); const mat = m.material as THREE.Material | THREE.Material[] | undefined; if (Array.isArray(mat)) mat.forEach((x) => x.dispose()); else mat?.dispose(); });
-      scene.environment?.dispose(); pmrem.dispose(); renderer.dispose();
+      frost.rough.dispose(); frost.wave.dispose();
+    scene.environment?.dispose(); pmrem.dispose(); renderer.dispose();
       canvas.remove(); labelLayer.remove();
     },
   };
