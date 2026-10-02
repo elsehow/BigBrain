@@ -1,4 +1,5 @@
-# Two broad merge checks; compatibility and repeated stress run separately.
+# One fast merge check. The browser suites (macOS and Linux) and repeated
+# stress run nightly and by hand in compatibility.yml.
 name: ci
 on:
   pull_request:
@@ -20,10 +21,3 @@ jobs:
           bun-version: 1.3.9
       - run: bun install --frozen-lockfile
       - run: bun run ci:checks
-  browser:
-    name: browser (macos-latest)
-    runs-on: macos-latest
-    timeout-minutes: 14
-    steps:
-      - uses: actions/checkout@v5
-      - uses: ./.github/actions/browser
