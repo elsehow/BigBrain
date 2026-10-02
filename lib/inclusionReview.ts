@@ -3,11 +3,16 @@ import {inclusionExcerpt} from './inclusionExamples';
 import {randomUUID} from 'node:crypto';
 import {readInclusionPolicy,writeInclusionPolicy,sourceDigest,type InclusionPolicy,type InclusionSource} from './inclusionPolicy';
 import {inclusionEvaluator} from './inclusionEvaluation';
-import {rankCandidates} from './inclusionCandidates';
+import {rankCandidates,type CandidateEntity} from './inclusionCandidates';
+import type {RuleQueries} from './inclusionQueries';
 import {resolveRuleMentions} from './sharedRuleMentions';
-export interface ReviewContext {root:string;store:string;scope:string;text:string;sources:InclusionSource[];select?:(text:string)=>InclusionSource[];check:()=>void;save:(text:string)=>void}
+export interface ReviewContext {root:string;store:string;scope:string;text:string;sources:InclusionSource[];select?:(text:string)=>InclusionSource[];check:()=>void;save:(text:string)=>void;
+ /** Search phrases and subject mentions for a rule (lib/inclusionQueries.ts); absent, the rule's own words rank. */
+ queries?:(text:string,entities:CandidateEntity[])=>Promise<RuleQueries|undefined>}
 type Evaluator=ReturnType<typeof inclusionEvaluator>;
-interface Session {factory:typeof inclusionEvaluator;id:string;context:ReviewContext;policy:InclusionPolicy;evaluator:Evaluator;pool:InclusionSource[];scores:Map<string,number>;failed:Map<string,string>;cards:InclusionSource[];busy:boolean;revision:number;error?:string;at:number}
+interface Session {factory:typeof inclusionEvaluator;id:string;context:ReviewContext;policy:InclusionPolicy;evaluator:Evaluator;pool:InclusionSource[];scores:Map<string,number>;failed:Map<string,string>;cards:InclusionSource[];busy:boolean;revision:number;error?:string;at:number;
+ /** The rule text the pool was last ranked for with model-derived queries. */
+ queriedFor?:string}
 const sessions=new Map<string,Session>(),latest=new Map<string,string>();
 const key=(c:ReviewContext)=>JSON.stringify([c.root,c.store,c.scope]);
 const labelKey=(s:InclusionSource)=>sourceDigest(s);
@@ -40,6 +45,13 @@ async function refill(s:Session){
  const revision=s.revision;s.busy=true;s.error=undefined;
  const valid=()=>active(s)&&revision===s.revision;
  try{
+  // Re-rank once per rule text with the model's search phrases before any paid scoring.
+  if(s.context.queries&&s.queriedFor!==s.policy.text){
+   const text=s.policy.text,q=await s.context.queries(text,mentionedEntities(s.context.root,text));
+   if(!valid())return;
+   if(q)s.pool=rankCandidates(s.context.select?.(text)??s.context.sources,text,q.subjects,q.phrases);
+   s.queriedFor=text;
+  }
   const judged=new Set(s.policy.labels.map(l=>labelKey(l.source)));
   const candidates=s.pool.filter(p=>!judged.has(labelKey(p)));
   // Bound paid requests per refill. Errors remain distinct from negative judgments.
@@ -75,7 +87,7 @@ export function editReview(s:Session,text:string,revision:number,factory=inclusi
  const evaluator=factory(s.context.root,s.context.store,text.trim(),s.policy.labels);s.factory=factory;
  s.revision++;s.policy.text=text.trim();s.pool=candidatePool(s.context,text.trim());s.evaluator=evaluator;s.scores.clear();s.failed.clear();s.cards=[];persist(s);void refill(s);return reviewState(s);
 }
-export function retryReview(s:Session){if(s.busy)return reviewState(s);const evaluator=inclusionEvaluator(s.context.root,s.context.store,s.policy.text,s.policy.labels);if(evaluator.identity!==s.evaluator.identity){s.revision++;s.evaluator=evaluator;s.scores.clear();s.cards=[];}s.pool=candidatePool(s.context,s.policy.text);s.failed.clear();void refill(s);return reviewState(s);}
+export function retryReview(s:Session){if(s.busy)return reviewState(s);const evaluator=inclusionEvaluator(s.context.root,s.context.store,s.policy.text,s.policy.labels);if(evaluator.identity!==s.evaluator.identity){s.revision++;s.evaluator=evaluator;s.scores.clear();s.cards=[];}s.pool=candidatePool(s.context,s.policy.text);s.queriedFor=undefined;s.failed.clear();void refill(s);return reviewState(s);}
 export function finishReview(s:Session){
  s.context.check();const current=inclusionEvaluator(s.context.root,s.context.store,s.policy.text,s.policy.labels);
  if(current.identity!==s.evaluator.identity)throw Error('The model changed. Reopen this review to recalibrate.');

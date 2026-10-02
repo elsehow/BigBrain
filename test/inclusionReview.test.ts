@@ -59,3 +59,34 @@ test('before any include, the likeliest matches are shown first',async()=>{
   expect(reviewState(s).items.map(i=>i.body)).toEqual(['Complete source 0.95','Complete source 0.9','Complete source 0.85']);
  }finally{rmSync(c.root,{recursive:true,force:true});}
 });
+test('model-derived phrases rank a rule\'s real topic first, and an audience mention is not a topic',()=>{
+ const source=(id:string,title:string,body:string)=>({id,title,body,origin:'Fixture'});
+ const rows=[source('a','Dream','Avery was beside me in the dream.'),source('b','Benefits','Avery and I compared dental plans.'),source('c','Lawyer call','Drafting the estate plan; we named an executor and a guardian.'),source('d','Journal','A quiet morning.')];
+ const avery={title:'Avery Example',aliases:['Avery'],sourceIds:new Set<string>()};
+ const rule='Items to be shared with [[projection/entities/a.md|Avery Example]] - things about our will';
+ // as before: "will" is dropped as rule grammar and the audience mention leads
+ expect(rankCandidates(rows,rule,[avery]).slice(0,2).map(r=>r.id).sort()).toEqual(['a','b']);
+ // with phrases and no subject entities, the estate note leads
+ expect(rankCandidates(rows,rule,[],['will','estate plan','executor','guardian'])[0]!.id).toBe('c');
+});
+test('a review re-ranks its pool with the rule\'s queries before scoring, once per rule text',async()=>{
+ const c=fixture();try{
+  let calls=0;const target=c.sources[3]!;
+  const queries=async(text:string)=>{calls++;return text.includes('Example')?{phrases:[target.body.toLowerCase()],subjects:[]}:undefined;};
+  const scored:string[]=[];
+  const s=await idle(c.root,startReview({...c,queries},(root,store,text,labels)=>({identity:inclusionEvaluator(root,store,text,labels).identity,score:async(source:{body:string})=>{scored.push(source.body);return .5;}})).id);
+  expect(scored[0]).toBe(target.body);expect(calls).toBe(1);
+  rateReview(s,reviewState(s).items[0]!.id,false,s.revision);await idle(c.root,s.id);expect(calls).toBe(1);
+ }finally{rmSync(c.root,{recursive:true,force:true});}
+});
+test('rule queries come from one Quick call, are cached, and fall back on failure',async()=>{
+ const {ruleQueries}=await import('../lib/inclusionQueries');
+ const c=fixture();try{
+  let calls=0;const avery={title:'Avery Example',aliases:[],sourceIds:new Set<string>()},estate={title:'Estate',aliases:[],sourceIds:new Set<string>()};
+  const run=(async()=>{calls++;return {text:JSON.stringify({phrases:['Estate  Plan','executor','x'],subjects:['Estate']})};}) as never;
+  const q=await ruleQueries(c.root,c.store,'shared with Avery: our estate',[avery,estate],run);
+  expect(q).toEqual({phrases:['estate plan','executor'],subjects:[estate]});
+  expect(await ruleQueries(c.root,c.store,'shared with Avery: our estate',[avery,estate],run)).toEqual(q);expect(calls).toBe(1);
+  expect(await ruleQueries(c.root,c.store,'another rule',[],(async()=>{throw Error('offline');}) as never)).toBeUndefined();
+ }finally{rmSync(c.root,{recursive:true,force:true});}
+});
