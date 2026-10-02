@@ -248,6 +248,8 @@
 
   /** True when this view took the key. */
   function onKey(e: KeyboardEvent): boolean {
+    // ⌘, (ctrl+, elsewhere): settings, the same view the app's gear opens
+    if ((e.metaKey || e.ctrlKey) && e.key === ",") { take(e); location.href = "./#/vaultSettings"; return true; }
     if (e.metaKey || e.ctrlKey || e.altKey || !field) return false;
     if (searching && e.target === qEl) {
       // typing in the search box is ours entirely; the characters still land
@@ -280,7 +282,12 @@
   {#if field}
     <nav class="strip" aria-label="Squad">
       <button type="button" class="find" onclick={openSearch}>Search <span class="k">/</span></button>
-      <a class="app" href="./">BigBrain</a>
+      <a class="gear" href="./#/vaultSettings" title="Settings (⌘,)" aria-label="Settings">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+          <circle cx="12" cy="12" r="3" />
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.08a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.08a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+        </svg>
+      </a>
     </nav>
   {/if}
 
@@ -363,8 +370,8 @@
   .find:hover { background: color-mix(in srgb, var(--fg) 7%, var(--bg)); }
   .k { font: 500 10px/1 var(--font-mono); color: var(--sq-faint); }
   .find { margin-left: auto; color: var(--sq-muted); }
-  .app { display: inline-flex; align-items: center; height: 30px; padding: 0 11px; border-radius: 999px; color: var(--sq-muted); font: 500 13px/1 var(--font-app); text-decoration: none; }
-  .app:hover { color: var(--fg); background: color-mix(in srgb, var(--fg) 7%, var(--bg)); }
+  .gear { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 999px; color: var(--sq-muted); }
+  .gear:hover { color: var(--fg); background: color-mix(in srgb, var(--fg) 7%, var(--bg)); }
 
   .hud { position: absolute; top: 72px; left: var(--app-gutter, 34px); width: min(460px, calc(100% - 32px)); display: flex; flex-direction: column; gap: 9px;
     pointer-events: none; text-shadow: 0 0 8px var(--bg), 0 0 18px var(--bg); }
