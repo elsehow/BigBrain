@@ -1,3 +1,4 @@
+import { recentHits, nestRecentHits } from "./recentHits";
 import { vaultFetch as fetch } from "./vaultScope";
 import { mergePilotSummary } from "./pilotChatSync";
 import { matchesPilotQuery, type PilotChatSummary } from "../../../../lib/pilotChatSummary";
@@ -16,12 +17,7 @@ import { withPilotSearch } from "./pilotSearch";
 // Fetch ahead of the three visible rows. Recents warm on startup/live changes
 // and survive reloads via the same session cache as the other read endpoints.
 const RECENT_PAGE = 50;
-export const recentHits = (page: RecentPage) => ({ nextOffset: page.nextOffset, hits: page.recent.map(row => ({
-  dir: row.path.startsWith("memory/") ? "memory" : row.path.startsWith("projection/entities/") ? "projection/entities" : "source",
-  note: { path: row.path, name: row.path.split("/").at(-1)!, modified: row.modified, size: 0 },
-  title: row.title ?? "", snippet: "",
-  sessionId: row.sessionId, from: row.from,
-})) });
+export { recentHits } from "./recentHits";
 let recentRequest: { revision: number; promise: Promise<RecentPage>; at: number } | undefined;
 let revision = 0;
 export function firstRecents(): Promise<RecentPage> {
@@ -62,7 +58,8 @@ export const floatingSearch = createPagedSearch(floatingResults, async (q, offse
   return recentHits(await (offset ? api.recent(RECENT_PAGE, offset, signal) : firstRecents()));
 }, { project: (hits, q) => {
   const rows = withPilotSearch(withWorkSearch(hits, work.sessions, q, { idleOnly: true }), chatSessions(), q, { graph: chat.graph, idleOnly: true });
-  return searchPresentation.includeAgents ? rows : rows.filter(hit => hit.dir !== "pilot" && hit.dir !== "agent" && !hit.agentState && !hit.sessionId && !hit.note.path.startsWith("sessions/"));
+  const visible = searchPresentation.includeAgents ? rows : rows.filter(hit => hit.dir !== "pilot" && hit.dir !== "agent" && !hit.agentState && !hit.sessionId && !hit.note.path.startsWith("sessions/"));
+  return q ? visible : nestRecentHits(visible);
 }, cached: q => {
   if (q || searchPresentation.unreadOnly) return undefined;
   const held = api.cachedRecent(RECENT_PAGE, 0);
