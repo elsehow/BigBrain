@@ -122,3 +122,56 @@ export function searchNames(field: Field, raw: string): number[] {
   return field.nodes.map((n) => [score(n), n] as const).filter(([s]) => s >= 0)
     .sort((a, b) => a[0] - b[0] || b[1].degree - a[1].degree).map(([, n]) => n.i);
 }
+
+// ── pilots: the real agents ────────────────────────────────────────────────
+/** A pilot session as /api/pilot/chat summarises it (the fields this view reads). */
+export interface PilotSummary {
+  id: string;
+  title: string;
+  model: string;
+  phase: "draft" | "working" | "answered" | "interrupted" | "failed";
+  lifecycle?: "active" | "dormant" | "ingested";
+  lastActivityAt?: string;
+  updated?: string;
+  live?: string;
+  activity?: string;
+  context?: string[];
+  contextNodes?: Array<{ id: string; path?: string; title?: string; group?: string }>;
+}
+export interface FieldPilot {
+  id: string;
+  title: string;
+  model: string;
+  phase: PilotSummary["phase"];
+  /** Field nodes in its context: what it's about. */
+  ctx: number[];
+  p: [number, number, number];
+}
+
+/** The pilots worth a place: not yet filed away (ingested), newest first;
+ * plus `keep` (an open one), whatever its state. */
+export function barPilots(sessions: readonly PilotSummary[], keep: string | null, limit = 6): PilotSummary[] {
+  const at = (s: PilotSummary) => s.lastActivityAt ?? s.updated ?? "";
+  const live = sessions.filter((s) => s.lifecycle !== "ingested").sort((a, b) => at(b).localeCompare(at(a))).slice(0, limit);
+  const open = keep ? sessions.find((s) => s.id === keep) : undefined;
+  return open && !live.includes(open) ? [open, ...live] : live;
+}
+
+/** Each pilot over its context; one with nothing placeable waits above the
+ * middle. Then they're pushed apart so none sits inside another. */
+export function placePilots(field: Field, sessions: readonly PilotSummary[]): FieldPilot[] {
+  const out: FieldPilot[] = sessions.map((s, k) => {
+    const refs = [...(s.contextNodes ?? []).flatMap((n) => [n.id, n.path ?? ""]), ...(s.context ?? [])];
+    const ctx = [...new Set(refs.map((r) => field.byId.get(r)).filter((x): x is number => x != null))];
+    const c: [number, number, number] = [0, 0, 0];
+    if (ctx.length) for (const i of ctx) for (let d = 0; d < 3; d++) c[d]! += field.nodes[i]!.p[d]! / ctx.length;
+    else { c[0] = (k - (sessions.length - 1) / 2) * 3; c[1] = 4; c[2] = -2; }
+    return { id: s.id, title: s.title, model: s.model, phase: s.phase, ctx, p: [c[0] + 0.4, Math.min(7.2, c[1] + 2.2), c[2] + 0.8] };
+  });
+  for (let pass = 0; pass < 40; pass++) for (const a of out) for (const b of out) {
+    if (a === b) continue;
+    const dx = a.p[0] - b.p[0], dz = a.p[2] - b.p[2], d = Math.hypot(dx, dz) || 0.01;
+    if (d < 3.2) { const push = (3.2 - d) / 2 / d; a.p[0] += dx * push; a.p[2] += dz * push; }
+  }
+  return out;
+}

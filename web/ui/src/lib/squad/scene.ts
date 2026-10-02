@@ -10,17 +10,23 @@
 
 import * as THREE from "three";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
-import type { Field } from "./model";
+import type { Field, FieldPilot } from "./model";
 
 export interface SceneHooks {
   /** Screen rects labels must stay out of (the view's panels). */
   blockers(): DOMRect[];
   /** A click: the node under it (a point, a memory topic, a label), or null for empty space. */
   onPick(i: number | null): void;
+  /** A click on a pilot's glass or its name. */
+  onPickPilot(id: string): void;
 }
 export interface SquadScene {
   /** Back to the whole field. */
   overview(): void;
+  /** The pilots to draw (real sessions, placed over their context). */
+  setPilots(pilots: FieldPilot[]): void;
+  /** Focus one pilot: it fills in, its context comes forward. Null lets go. */
+  focusPilot(id: string | null): void;
   /** Open an entity: it and its ties come forward. `text` sits beside it,
    * under `caption` — which says what the text is (a summary, the latest assertion). */
   openEntity(i: number | null, ties?: number[], text?: string, caption?: string): void;
@@ -133,7 +139,7 @@ export function createSquadScene(host: HTMLElement, field: Field, hooks: SceneHo
       end() { g.setDrawRange(0, k * 2); g.attributes.position!.needsUpdate = true; g.attributes.color!.needsUpdate = true; },
     };
   };
-  const ties = dynamic(64);
+  const ties = dynamic(160);
 
   // ── glass: memory topics ─────────────────────────────────────────────────
   const octa = new THREE.OctahedronGeometry(1, 0);
@@ -172,6 +178,39 @@ export function createSquadScene(host: HTMLElement, field: Field, hooks: SceneHo
     scene.add(mesh);
     return { mesh, mat, vis: 1 };
   };
+  // ── pilots: glass tetrahedra over what they're working on ─────────────────
+  const tetra = (() => {
+    const v = [[0, -1, 0], [0, 1 / 3, -0.9428], [0.8165, 1 / 3, 0.4714], [-0.8165, 1 / 3, 0.4714]].map((a) => new THREE.Vector3(...(a as [number, number, number])));
+    const pos: number[] = [];
+    for (const f of [[1, 2, 3], [0, 3, 2], [0, 2, 1], [0, 1, 3]]) {
+      let [a, b, d] = f.map((i) => v[i]!) as [THREE.Vector3, THREE.Vector3, THREE.Vector3];
+      if (new THREE.Vector3().crossVectors(b.clone().sub(a), d.clone().sub(a)).dot(a.clone().add(b).add(d)) < 0) [b, d] = [d, b];
+      pos.push(...a.toArray(), ...b.toArray(), ...d.toArray());
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+    g.computeVertexNormals();
+    return g;
+  })();
+  interface Pilot { d: FieldPilot; glass: Glass; solid: THREE.Mesh; label: HTMLDivElement & { w?: number; h?: number; op?: number }; scale: number; fill: number; at: THREE.Vector3 }
+  const pilots = new Map<string, Pilot>();
+  let focus: string | null = null;
+  const solidMat = () => new THREE.MeshStandardMaterial({ roughness: 1, metalness: 0, flatShading: true, transparent: true, opacity: 0 });
+  const makePilot = (d: FieldPilot): Pilot => {
+    const glassP = glass(tetra);
+    const solid = new THREE.Mesh(tetra, solidMat());
+    solid.renderOrder = 5;
+    solid.scale.setScalar(1.002);
+    glassP.mesh.add(solid);
+    glassP.mesh.userData["pilot"] = d.id;
+    const label = document.createElement("div") as Pilot["label"];
+    label.className = "sq-lab sq-pilot";
+    label.dataset["pilot"] = d.id;
+    labelLayer.append(label);
+    return { d, glass: glassP, solid, label, scale: 0, fill: 0, at: new THREE.Vector3(...d.p) };
+  };
+  const nameOf = (d: FieldPilot) => (d.title.length > 34 ? d.title.slice(0, 33).trimEnd() + "…" : d.title);
+
   const memory = field.nodes.filter((n) => n.memory).map((n) => {
     const g = glass(octa);
     g.mesh.position.set(...n.p);
@@ -254,10 +293,12 @@ export function createSquadScene(host: HTMLElement, field: Field, hooks: SceneHo
   // picking: a memory topic's glass under the pointer, else the nearest
   // visible point within a few pixels of it
   const ray = new THREE.Raycaster(), ndc = new THREE.Vector2(), sp = { x: 0, y: 0, ok: false };
-  const pickAt = (clientX: number, clientY: number): number | null => {
+  const pickAt = (clientX: number, clientY: number): number | string | null => {
     const r = canvas.getBoundingClientRect(), x = clientX - r.left, y = clientY - r.top;
     ndc.set((x / r.width) * 2 - 1, -(y / r.height) * 2 + 1);
     ray.setFromCamera(ndc, camera);
+    const pilotHit = ray.intersectObjects([...pilots.values()].map((pl) => pl.glass.mesh), false)[0];
+    if (pilotHit) return `pilot:${pilotHit.object.userData["pilot"] as string}`;
     const glassHit = ray.intersectObjects(memory.filter((g) => g.vis > 0.5).map((g) => g.mesh), false)[0];
     if (glassHit) return memory.find((g) => g.mesh === glassHit.object)?.i ?? null;
     const alphas = aAlpha.array as Float32Array;
@@ -279,11 +320,16 @@ export function createSquadScene(host: HTMLElement, field: Field, hooks: SceneHo
     goal.az -= dx * 0.005; goal.el = THREE.MathUtils.clamp(goal.el + dy * 0.004, 0.08, 1.35);
   };
   const onUp = (e: PointerEvent) => {
-    if (drag && drag.moved < 4) hooks.onPick(pickAt(e.clientX, e.clientY));
+    if (drag && drag.moved < 4) {
+      const hit = pickAt(e.clientX, e.clientY);
+      if (typeof hit === "string") hooks.onPickPilot(hit.slice(6)); else hooks.onPick(hit);
+    }
     drag = null;
   };
   // labels are clickable too: they name the thing
   const onLabel = (e: MouseEvent) => {
+    const pl = (e.target as HTMLElement).closest<HTMLElement>(".sq-pilot");
+    if (pl?.dataset["pilot"]) { hooks.onPickPilot(pl.dataset["pilot"]); return; }
     const L = (e.target as HTMLElement).closest<HTMLElement>(".sq-node");
     if (L?.dataset["i"]) hooks.onPick(Number(L.dataset["i"]));
   };
@@ -302,7 +348,7 @@ export function createSquadScene(host: HTMLElement, field: Field, hooks: SceneHo
     camera.updateProjectionMatrix();
     // the overview fits the field's width (radius 15, plus room) to the window
     const fit = THREE.MathUtils.clamp(17 / (LENS * Math.tan(THREE.MathUtils.degToRad(10)) * camera.aspect), 22, 46);
-    const atRest = !ent && !srch;
+    const atRest = !ent && !srch && !focus;
     OVERVIEW.dist = fit;
     if (atRest) goal.dist = fit;
     if (!sized) { rig.dist = fit; sized = true; }
@@ -334,7 +380,8 @@ export function createSquadScene(host: HTMLElement, field: Field, hooks: SceneHo
   // ── frame ────────────────────────────────────────────────────────────────
   const clock = new THREE.Clock();
   const c1 = new THREE.Color(), c2 = new THREE.Color(), dust = new THREE.Color();
-  const s1 = { x: 0, y: 0, ok: false };
+  const tA = new THREE.Vector3(), tB = new THREE.Vector3();
+  const s1 = { x: 0, y: 0, ok: false }, s2 = { x: 0, y: 0, ok: false };
   let raf = 0;
   const frame = () => {
     raf = requestAnimationFrame(frame);
@@ -358,7 +405,8 @@ export function createSquadScene(host: HTMLElement, field: Field, hooks: SceneHo
     pMat.uniforms["uPx"]!.value = renderer.getPixelRatio();
 
     // what is in play
-    const inPlay: Set<number> | null = srch ? null : ent ? new Set([ent.i, ...ent.ties]) : null;
+    const fp = focus ? pilots.get(focus) : undefined;
+    const inPlay: Set<number> | null = srch ? null : ent ? new Set([ent.i, ...ent.ties]) : fp ? new Set(fp.d.ctx) : null;
     const k = ease(9);
     dim += ((inPlay ? 1 : 0) - dim) * k;
     searchDim += ((srch && srch.matches.size ? 0.12 : srch ? 0.5 : 1) - searchDim) * ease(10);
@@ -387,9 +435,37 @@ export function createSquadScene(host: HTMLElement, field: Field, hooks: SceneHo
       g.mat.opacity = GLASS_OPACITY * g.vis;
     }
 
-    // the ties of an opened entity
+    // pilots: glide to their place, grow in, turn slowly while working; the
+    // focused one fills in as a matte solid in its colour
+    for (const pl of pilots.values()) {
+      const on = focus === pl.d.id, working = pl.d.phase === "working";
+      pl.at.set(...pl.d.p);
+      pl.glass.mesh.position.lerp(pl.at, ease(6));
+      pl.scale += ((on ? 1.15 : focus ? 0.8 : 0.9) - pl.scale) * ease(10);
+      pl.glass.mesh.scale.setScalar(pl.scale);
+      if (!reduced && working) pl.glass.mesh.rotation.y += dt * 0.25;
+      pl.fill += ((on ? 1 : 0) - pl.fill) * ease(9);
+      const sm = pl.solid.material as THREE.MeshStandardMaterial;
+      sm.color.copy(working ? col.act : col.fg);
+      // lit from within a little, so the faces turned from the light still read as the same matte solid
+      sm.emissive.copy(sm.color);
+      sm.emissiveIntensity = 0.5;
+      sm.opacity = pl.fill;
+      sm.depthWrite = pl.fill > 0.98;
+      pl.solid.visible = pl.fill > 0.01;
+      pl.glass.mat.attenuationColor.copy(working ? col.act : col.fg).lerp(col.bg, working ? 0.3 : 0.7);
+      pl.glass.vis += ((srch ? THREE.MathUtils.lerp(0.35, 1, searchDim) : 1) - pl.glass.vis) * k;
+      pl.glass.mat.opacity = GLASS_OPACITY * pl.glass.vis * (1 - 0.6 * pl.fill);
+    }
+
+    // the ties of an opened entity; each pilot's lines to what it's working on
     ties.begin();
     if (ent) for (const j of ent.ties) ties.add(P[ent.i]!, P[j]!, c1.copy(col.bg).lerp(col.fg, 0.55), c2.copy(col.bg).lerp(col.fg, 0.4));
+    for (const pl of pilots.values()) {
+      const on = focus === pl.d.id, tint = pl.d.phase === "working" ? col.act : col.fg;
+      const a = on ? 0.7 : focus ? 0.08 : 0.22;
+      for (const j of pl.d.ctx) ties.add(pl.glass.mesh.position, P[j]!, c1.copy(col.bg).lerp(tint, a), c2.copy(col.bg).lerp(tint, a * 0.6));
+    }
     ties.end();
 
     renderer.render(scene, camera);
@@ -401,6 +477,29 @@ export function createSquadScene(host: HTMLElement, field: Field, hooks: SceneHo
   const placeLabels = () => {
     placed.length = 0;
     for (const r of hooks.blockers()) placed.push([r.left - 8, r.top - 8, r.right + 16, r.bottom + 8]);
+    // pilot names first: they're the cast; a focused one's solid keeps labels off it
+    for (const pl of pilots.values()) {
+      const on = focus === pl.d.id;
+      tA.copy(pl.glass.mesh.position); tA.y += pl.scale * 0.55 + 0.3;
+      toScreen(tA, s1);
+      if (pl.label.textContent !== nameOf(pl.d)) { pl.label.textContent = nameOf(pl.d); pl.label.w = undefined; }
+      pl.label.classList.toggle("working", pl.d.phase === "working");
+      const op = !s1.ok || on ? 0 : (focus ? 0.45 : 1) * THREE.MathUtils.lerp(0.4, 1, searchDim);
+      pl.label.style.transform = `translate3d(${s1.x.toFixed(1)}px,${s1.y.toFixed(1)}px,0) translate(-50%,-100%)`;
+      const o = Math.round(op * 40) / 40;
+      if (o !== pl.label.op) { pl.label.style.opacity = String(o); pl.label.style.visibility = o <= 0 ? "hidden" : "visible"; pl.label.op = o; }
+      if (op > 0) {
+        if (pl.label.w == null) { pl.label.w = pl.label.offsetWidth; pl.label.h = pl.label.offsetHeight; }
+        placed.push([s1.x - pl.label.w / 2 - 6, s1.y - pl.label.h! - 4, s1.x + pl.label.w / 2 + 6, s1.y + 4]);
+      }
+      if (on && s1.ok) {
+        toScreen(pl.glass.mesh.position, s1);
+        tB.setFromMatrixColumn(camera.matrixWorld, 0);
+        toScreen(tA.copy(pl.glass.mesh.position).addScaledVector(tB, pl.scale * 0.9), s2);
+        const R = Math.abs(s2.x - s1.x);
+        placed.push([s1.x - R, s1.y - R, s1.x + R, s1.y + R]);
+      }
+    }
     const cand: Cand[] = [];
     const inHand = srch ? srch.active : ent ? ent.i : null;
     const handText = srch ? srch.text : ent?.text;
@@ -438,9 +537,26 @@ export function createSquadScene(host: HTMLElement, field: Field, hooks: SceneHo
   void document.fonts?.ready.then(() => { for (const L of labels.values()) L.w = undefined; });
 
   return {
-    overview() { ent = null; setGoal({ ...OVERVIEW, az: rig.az }); },
+    overview() { ent = null; focus = null; setGoal({ ...OVERVIEW, az: rig.az }); },
+    setPilots(list) {
+      const keep = new Set(list.map((d) => d.id));
+      for (const [id, pl] of pilots) if (!keep.has(id)) { scene.remove(pl.glass.mesh); pl.label.remove(); pilots.delete(id); }
+      for (const d of list) {
+        const pl = pilots.get(d.id);
+        if (pl) pl.d = d;
+        else { const made = makePilot(d); made.glass.mesh.position.set(...d.p); pilots.set(d.id, made); }
+      }
+    },
+    focusPilot(id) {
+      focus = id;
+      if (id == null) return;
+      ent = null;
+      const pl = pilots.get(id);
+      if (pl) frameAround([new THREE.Vector3(...pl.d.p), ...pl.d.ctx.map((j) => P[j]!)], 0.5, 2.6, 13, 22);
+    },
     openEntity(i, tiesTo = [], text, caption) {
       if (i == null) { ent = null; return; }
+      focus = null;
       const same = ent?.i === i;
       ent = { i, ties: tiesTo, text, caption };
       const lab = labels.get(i);

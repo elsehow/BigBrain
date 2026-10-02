@@ -3,12 +3,15 @@
   // read as it lands, each assertion with its author. The canvas is
   // lib/squad/scene.ts (three.js, loaded on demand); everything with words
   // is here. Keys: / search by name, j/k step through the memory topics,
-  // Shift+Enter starts a pilot on what's in hand (and opens it in the app),
-  // Esc back out.
+  // Shift+Enter starts a pilot on what's in hand ("Re: …"), ⌘N (or n) a blank
+  // one the pilot names itself, \ toggles the workspace sidebar, Esc back out.
+  // Pilots are the real agents: /api/pilot/chat sessions, placed over their
+  // context, and their chat opens here as a flat column over the field.
   import { onMount, tick } from "svelte";
   import { api } from "../lib/api";
   import type { GraphData } from "../lib/types";
-  import { buildField, neighbours, searchNames, twinsOf, type Field, type SquadData, type SquadFeedRow } from "../lib/squad/model";
+  import { barPilots, buildField, neighbours, placePilots, searchNames, twinsOf, type Field, type PilotSummary, type SquadData, type SquadFeedRow } from "../lib/squad/model";
+  import { md, sanitizeHtml } from "../lib/markdown";
   import type { SquadScene } from "../lib/squad/scene";
   import { plainText as plain } from "../../../../lib/squadGraph";
 
@@ -25,6 +28,7 @@
   let feedEl: HTMLElement | undefined = $state();
   let searchEl: HTMLElement | undefined = $state();
   let qEl: HTMLInputElement | undefined = $state();
+  let sidebarEl: HTMLElement | undefined = $state();
   let field: Field | null = $state(null);
   let squad: SquadData | null = $state(null);
   let error = $state("");
@@ -39,6 +43,88 @@
   let active = $state(0);
   let notice = $state("");
 
+  // ── pilots ──────────────────────────────────────────────────────────────
+  type PilotDetail = PilotSummary & { messages: Array<{ id: string; role: "user" | "assistant"; text: string; at: string }>; error?: string; viewRevision?: number };
+  let pilotsAll: PilotSummary[] = $state([]);
+  let openPilot: string | null = $state(null);
+  let detail: PilotDetail | null = $state(null);
+  let draftText = $state("");
+  let sidebarOpen = $state(false);
+  let chatEl: HTMLElement | undefined = $state();
+  let msgsEl: HTMLElement | undefined = $state();
+  let composerEl: HTMLTextAreaElement | undefined = $state();
+  let bar = $derived(barPilots(pilotsAll, openPilot));
+  const PHASE: Record<PilotSummary["phase"], string> = { draft: "draft", working: "working", answered: "answered", interrupted: "interrupted", failed: "failed" };
+  async function pilotReq<T>(path: string, body?: unknown): Promise<T> {
+    const r = await fetch(`/api/pilot/chat${path}`, body === undefined ? {} : { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    if (!r.ok) throw new Error(((await r.json().catch(() => ({}))) as { error?: string }).error ?? `The engine said ${r.status}.`);
+    return r.json() as Promise<T>;
+  }
+  async function refreshPilots(): Promise<void> {
+    if (data) return;
+    try { pilotsAll = (await pilotReq<{ sessions: PilotSummary[] }>("")).sessions; } catch { /* keep the last list */ }
+  }
+  async function loadDetail(): Promise<void> {
+    const id = openPilot;
+    if (!id) return;
+    try {
+      const d = await pilotReq<PilotDetail>(`/session?id=${encodeURIComponent(id)}`);
+      if (openPilot === id) detail = d;
+    } catch (e) { if (openPilot === id) flash(e instanceof Error ? e.message : String(e)); }
+  }
+  // the bar's pilots, placed over their context, are what the field draws
+  $effect(() => {
+    const f = field, b = bar;
+    if (f && scene) scene.setPilots(placePilots(f, b));
+  });
+  // keep the scroll at the newest message
+  $effect(() => {
+    void detail?.messages.length; void detail?.live;
+    void tick().then(() => { if (msgsEl) msgsEl.scrollTop = msgsEl.scrollHeight; });
+  });
+  function openPilotChat(id: string): void {
+    if (searching) { searching = false; scene?.search(null); }
+    ent = null; entRows = null;
+    openPilot = id; detail = (pilotsAll.find((p) => p.id === id) as PilotDetail | undefined) ?? null;
+    if (detail && !detail.messages) detail = { ...detail, messages: [] };
+    scene?.openEntity(null);
+    scene?.focusPilot(id);
+    scene?.shift(shiftFor());
+    void loadDetail();
+    void tick().then(() => composerEl?.focus());
+  }
+  function closePilot(): void {
+    openPilot = null; detail = null;
+    scene?.focusPilot(null);
+    overview();
+  }
+  /** A new session: on `context` (note paths), titled now if `title` is given,
+   * else named by the pilot itself once it starts (the engine's own rule). */
+  async function createPilot(context: string[], title?: string): Promise<void> {
+    const id = `pilot-${crypto.randomUUID().replaceAll("-", "")}`;
+    try {
+      const made = await pilotReq<PilotDetail>("/create", { id, context });
+      if (title) await pilotReq("/context", { id, nodes: context, title, expectedRevision: made.viewRevision ?? 0 });
+      await refreshPilots();
+      openPilotChat(id);
+    } catch (e) {
+      flash(`Couldn’t start a pilot: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+  async function sendDraft(): Promise<void> {
+    const id = openPilot, text = draftText.trim();
+    if (!id || !text) return;
+    draftText = "";
+    try { await pilotReq("/send", { id, text, inputId: `in-${crypto.randomUUID()}` }); await loadDetail(); }
+    catch (e) { draftText = text; flash(`Couldn’t send: ${e instanceof Error ? e.message : String(e)}`); }
+  }
+  async function stopPilot(): Promise<void> {
+    if (!openPilot) return;
+    try { await pilotReq("/stop", { id: openPilot }); await loadDetail(); } catch (e) { flash(e instanceof Error ? e.message : String(e)); }
+  }
+  /** Chat text: markdown, with [[path|title]] links read as their titles. */
+  const render = (t: string) => sanitizeHtml(md(t.replace(/\[\[[^|\]]*\|([^\]]*)\]\]/g, "**$1**").replace(/\[\[([^\]]*)\]\]/g, "**$1**")));
+
   const authorName = (id: string | null) => (id ? squad?.authors.find((a) => a.id === id)?.name ?? id : "You");
   const when = (iso: string) => {
     const d = new Date(iso);
@@ -50,7 +136,7 @@
   // the feed: an opened entity's own record, else the vault's latest
   let rows = $derived.by(() => (!squad ? [] : ent != null && entRows ? entRows.slice(-6) : squad.feed.slice(-6)));
   let hud = $derived.by(() => {
-    if (!field || !squad || searching) return null;
+    if (!field || !squad || searching || openPilot) return null;
     if (ent != null) {
       const n = field.nodes[ent]!;
       const tw = (twins.get(ent) ?? []).map((j) => field!.nodes[j]!.label);
@@ -71,8 +157,9 @@
       twins = twinsOf(field);
       const { createSquadScene } = await import("../lib/squad/scene");
       scene = createSquadScene(host, field, {
-        blockers: () => [hudEl, feedEl, searching ? searchEl : undefined].filter((e): e is HTMLElement => !!e).map((e) => e.getBoundingClientRect()).filter((r) => r.height > 0),
+        blockers: () => [hudEl, feedEl, searching ? searchEl : undefined, chatEl, sidebarEl].filter((e): e is HTMLElement => !!e).map((e) => e.getBoundingClientRect()).filter((r) => r.height > 0),
         onPick,
+        onPickPilot: (id) => (openPilot === id ? closePilot() : openPilotChat(id)),
       });
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
@@ -80,16 +167,30 @@
   }
   onMount(() => {
     void load();
-    return () => scene?.dispose();
+    void refreshPilots();
+    let tickN = 0;
+    const timer = setInterval(() => {
+      tickN++;
+      if (openPilot && (detail?.phase === "working" || tickN % 3 === 0)) void loadDetail();
+      if (tickN % 4 === 0) void refreshPilots();
+    }, 1200);
+    return () => { clearInterval(timer); scene?.dispose(); };
   });
 
   /** A click in the field: open what's under it; empty space backs out. */
   function onPick(i: number | null): void {
-    if (i == null) { if (ent != null && !searching) overview(); return; }
+    if (i == null) { if (openPilot) closePilot(); else if (ent != null && !searching) overview(); return; }
     if (searching) { searching = false; scene?.search(null); }
+    if (openPilot) { openPilot = null; detail = null; scene?.focusPilot(null); }
     if (i !== ent) void openEntity(i);
   }
-  const shiftFor = () => (searching ? Math.min(300, innerWidth * 0.2) : ent != null ? Math.min(190, innerWidth * 0.13) : 0);
+  /** Slide the field's centre clear of the panels: right of a left column, left of the sidebar. */
+  const shiftFor = () => {
+    const left = searching ? Math.min(600, innerWidth * 0.4) : openPilot ? Math.min(560, innerWidth * 0.4) + 34 : ent != null ? Math.min(380, innerWidth * 0.26) : 0;
+    const right = sidebarOpen ? Math.min(640, innerWidth * 0.38) + 34 : 0;
+    return (left - right) / 2;
+  };
+  function toggleSidebar(): void { sidebarOpen = !sidebarOpen; scene?.shift(shiftFor()); }
   function overview(): void {
     ent = null; entRows = null;
     scene?.overview();
@@ -120,19 +221,12 @@
 
   /** What Shift+Enter starts a pilot on: the active search result, else the opened thing. */
   const inHand = () => (searching ? matches[active] ?? null : ent);
-  /** A pilot seeded with that note, as the app's own lists start one; then open it there. */
+  /** A pilot on the thing in hand, as the app's lists start one, titled "Re: …". */
   async function startPilot(): Promise<void> {
     const i = inHand();
-    const path = i == null ? null : field?.nodes[i]?.path;
-    if (!path) { flash("Open something first — Shift+Enter starts a pilot on it."); return; }
-    const id = `pilot-${crypto.randomUUID().replaceAll("-", "")}`;
-    try {
-      const r = await fetch("/api/pilot/chat/create", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, context: [path] }) });
-      if (!r.ok) throw new Error(((await r.json().catch(() => ({}))) as { error?: string }).error ?? `The engine said ${r.status}.`);
-      location.href = `${APP}#/session/${id}`;
-    } catch (e) {
-      flash(`Couldn’t start a pilot: ${e instanceof Error ? e.message : String(e)}`);
-    }
+    const n = i == null ? null : field?.nodes[i];
+    if (!n?.path) { flash("Open something first — Shift+Enter starts a pilot on it."); return; }
+    await createPilot([n.path], `Re: ${n.label}`);
   }
   let noticeTimer: ReturnType<typeof setTimeout> | undefined;
   function flash(text: string): void { notice = text; clearTimeout(noticeTimer); noticeTimer = setTimeout(() => { notice = ""; }, 4200); }
@@ -256,6 +350,13 @@
     // ⌘, (ctrl+, elsewhere): settings, the same view the app's gear opens
     if ((e.metaKey || e.ctrlKey) && e.key === ",") { take(e); location.href = `${APP}#/vaultSettings`; return true; }
     if (e.metaKey || e.ctrlKey || e.altKey || !field) return false;
+    if ((e.metaKey || e.ctrlKey) && (e.key === "n" || e.key === "N") && !e.shiftKey) { take(e); void createPilot([]); return true; }
+    if (e.target === composerEl) {
+      // the composer: Enter sends, Shift+Enter is a new line, Esc leaves it
+      if (e.key === "Enter" && !e.shiftKey) { take(e); void sendDraft(); return true; }
+      if (e.key === "Escape") { take(e); composerEl?.blur(); return true; }
+      return false;
+    }
     if (searching && e.target === qEl) {
       // typing in the search box is ours entirely; the characters still land
       if (e.key === "ArrowDown") { take(e); void setActive(active + 1); }
@@ -268,7 +369,10 @@
     const t = e.target as HTMLElement | null;
     if (t?.tagName === "INPUT" || t?.tagName === "TEXTAREA" || t?.isContentEditable) return false;
     if (e.key === "/") { take(e); openSearch(); return true; }
+    if (e.key === "Escape" && openPilot) { take(e); closePilot(); return true; }
     if (e.key === "Escape" && ent != null) { take(e); overview(); return true; }
+    if (e.key === "n") { take(e); void createPilot([]); return true; }
+    if (e.key === "\\") { take(e); toggleSidebar(); return true; }
     if (e.key === "j" || e.key === "k") { take(e); stepMemory(e.key === "j" ? 1 : -1); return true; }
     if (e.key === "Enter" && e.shiftKey) { take(e); void startPilot(); return true; }
     return false;
@@ -285,8 +389,17 @@
   <div class="stage" bind:this={host}></div>
 
   {#if field}
-    <nav class="strip" aria-label="Squad">
+    <nav class="strip" aria-label="Pilots">
+      {#each bar as p (p.id)}
+        <button type="button" class="tok" class:on={openPilot === p.id} class:working={p.phase === "working"} aria-pressed={openPilot === p.id}
+          title={`${p.title} · ${p.model} · ${PHASE[p.phase]}`} onclick={() => (openPilot === p.id ? closePilot() : openPilotChat(p.id))}>
+          <svg width="11" height="11" viewBox="-12 -12 24 24" aria-hidden="true"><path d="M 0 9 L 7.794 -4.5 L -7.794 -4.5 Z" /></svg>
+          <span class="t">{p.title}</span><span class="by">{p.model}</span>
+        </button>
+      {/each}
+      <button type="button" class="new" onclick={() => void createPilot([])} title="New pilot (⌘N)">+ <span class="k">⌘N</span></button>
       <button type="button" class="find" onclick={openSearch}>Search <span class="k">/</span></button>
+      <button type="button" class="find" class:lit={sidebarOpen} onclick={toggleSidebar} title="Workspace sidebar (\)">Workspace <span class="k">\</span></button>
       <a class="gear" href={`${APP}#/vaultSettings`} title="Settings (⌘,)" aria-label="Settings">
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
           <circle cx="12" cy="12" r="3" />
@@ -326,7 +439,7 @@
     </div>
   {/if}
 
-  {#if rows.length}
+  {#if rows.length && !openPilot}
     <div class="feed" bind:this={feedEl} aria-label="Latest assertions">
       {#each rows as r (r.id)}
         <div class="row" role="presentation"
@@ -340,7 +453,40 @@
     </div>
   {/if}
 
-  <p class="hints" aria-hidden="true"><span>/ Search</span><span>j k Memories</span><span>⇧↵ Pilot</span>{#if ent != null}<span>Esc Back</span>{/if}</p>
+  {#if openPilot && detail}
+    <section class="chat" bind:this={chatEl} aria-label="Pilot conversation">
+      <header>
+        <span class="eyebrow" class:hot={detail.phase === "working"}>Pilot · {detail.model} · {PHASE[detail.phase]}</span>
+        <h2>{detail.title}</h2>
+        {#if detail.contextNodes?.length}<p class="ctx">{detail.contextNodes.map((n) => n.title ?? n.id).join(" · ")}</p>{/if}
+      </header>
+      <div class="msgs" bind:this={msgsEl}>
+        {#each detail.messages as m (m.id)}
+          <div class="msg {m.role}"><span class="who">{m.role === "user" ? "You" : detail.model}</span><div class="body">{@html render(m.text)}</div></div>
+        {/each}
+        {#if detail.live}<div class="msg assistant live"><span class="who">{detail.model}</span><div class="body">{@html render(detail.live)}</div></div>{/if}
+        {#if detail.phase === "working" && !detail.live}<p class="activity">{detail.activity || "Working…"}</p>{/if}
+        {#if detail.error}<p class="activity err">{detail.error}</p>{/if}
+        {#if !detail.messages.length && detail.phase === "draft"}<p class="activity">Ask it anything — it can read your vault.</p>{/if}
+      </div>
+      <div class="composer">
+        <textarea bind:this={composerEl} bind:value={draftText} rows="2" placeholder={`Message ${detail.title}…`} aria-label="Message"></textarea>
+        <div class="row">
+          <span class="k">↵ Send · ⇧↵ New line · Esc Back</span>
+          {#if detail.phase === "working"}<button type="button" class="find" onclick={() => void stopPilot()}>Stop</button>{/if}
+          <a class="find" href={`${APP}#/session/${detail.id}`}>Open in app</a>
+        </div>
+      </div>
+    </section>
+  {/if}
+  {#if sidebarOpen}
+    <aside class="side" bind:this={sidebarEl} aria-label="Workspace">
+      <p>Workspace</p>
+      <span>A browser the pilot can drive, and notes you write together. Not built yet — this shows its proportions.</span>
+    </aside>
+  {/if}
+
+  <p class="hints" aria-hidden="true"><span>/ Search</span><span>j k Memories</span><span>⇧↵ Pilot</span><span>⌘N New</span><span>\ Workspace</span>{#if ent != null}<span>Esc Back</span>{/if}</p>
   {#if notice}<p class="notice" role="status">{notice}</p>{/if}
   {#if error}<p class="error">The squad view couldn’t load: {error}</p>{/if}
 </div>
@@ -361,6 +507,9 @@
     text-shadow: 0 0 3px var(--bg), 0 0 8px var(--bg), 0 0 16px var(--bg); }
   .stage :global(.sq-node .t) { font: 400 11px/1.2 var(--font-mono); letter-spacing: -0.01em; color: var(--sq-muted); }
   .stage :global(.sq-node:hover .t) { color: var(--fg); }
+  .stage :global(.sq-pilot) { font: 500 11px/1 var(--font-mono); color: var(--sq-muted); }
+  .stage :global(.sq-pilot:hover) { color: var(--fg); }
+  .stage :global(.sq-pilot.working) { color: color-mix(in srgb, var(--activity) 80%, var(--fg)); }
   .stage :global(.sq-node.memory .t) { font: 500 12px/1.2 var(--font-app); color: var(--fg); }
   .stage :global(.sq-node .q), .stage :global(.sq-node .c) { display: none; }
   .stage :global(.sq-node.full .c:not(:empty)) { display: block; margin-bottom: 6px; font: 600 9px/1 var(--font-mono); letter-spacing: .14em; text-transform: uppercase; color: var(--sq-faint); }
@@ -369,12 +518,55 @@
     font: 400 13px/1.45 var(--font-app); color: color-mix(in srgb, var(--fg) 82%, var(--bg)); }
   .stage :global(.sq-node .q b) { font-weight: 600; color: var(--fg); }
 
-  .strip { position: absolute; top: 18px; left: var(--app-gutter, 34px); right: var(--app-gutter, 34px); display: flex; flex-wrap: wrap; gap: 4px; }
+  .strip { position: absolute; top: 18px; left: var(--app-gutter, 34px); right: var(--app-gutter, 34px); display: flex; gap: 4px; min-width: 0; }
+  .strip > :global(*) { flex: 0 1 auto; min-width: 0; }
+  .strip .find, .strip .gear, .strip .new { flex: none; }
   .find { display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 11px; border: 0; border-radius: 999px;
     background: color-mix(in srgb, var(--bg) 70%, transparent); color: var(--fg); font: 500 13px/1 var(--font-app); cursor: pointer; }
   .find:hover { background: color-mix(in srgb, var(--fg) 7%, var(--bg)); }
   .k { font: 500 10px/1 var(--font-mono); color: var(--sq-faint); }
   .find { margin-left: auto; color: var(--sq-muted); }
+  .tok, .new { display: inline-flex; align-items: center; gap: 7px; height: 30px; max-width: 210px; padding: 0 11px; border: 0; border-radius: 999px;
+    background: color-mix(in srgb, var(--bg) 70%, transparent); color: var(--fg); font: 500 13px/1 var(--font-app); cursor: pointer; }
+  .tok .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tok svg { flex: none; fill: currentColor; }
+  .tok.working svg { fill: none; stroke: var(--activity); stroke-width: 2.4; }
+  .tok .by { flex: none; font: 400 10.5px/1 var(--font-mono); color: var(--sq-faint); }
+  .tok:hover, .new:hover { background: color-mix(in srgb, var(--fg) 7%, var(--bg)); }
+  .tok.on { background: var(--fg); color: var(--bg); }
+  .tok.on .by { color: color-mix(in srgb, var(--bg) 65%, var(--fg)); }
+  .new { color: var(--sq-muted); }
+  .find.lit { color: var(--fg); }
+  .chat { position: absolute; top: 72px; bottom: 26px; left: var(--app-gutter, 34px); width: min(560px, 40vw); display: flex; flex-direction: column; gap: 14px;
+    background: color-mix(in srgb, var(--bg) 86%, transparent); }
+  .chat header { display: flex; flex-direction: column; gap: 8px; }
+  .chat h2 { margin: 0; font: 500 clamp(22px, 2vw, 28px)/1.15 var(--font-app); letter-spacing: -0.025em; }
+  .chat .ctx { margin: 0; font: 400 11px/1.4 var(--font-mono); color: var(--sq-faint); }
+  .msgs { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; gap: 16px; padding-right: 8px;
+    scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--fg) 22%, transparent) transparent; }
+  .msg .body :global(pre) { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0 0 8px; }
+  .msg { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 12px; }
+  .msg .who { font: 500 10.5px/1.7 var(--font-mono); color: var(--sq-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .msg.user .who { color: var(--sq-muted); }
+  .msg .body { font: 400 14px/1.55 var(--font-app); color: color-mix(in srgb, var(--fg) 88%, var(--bg)); overflow-wrap: anywhere; }
+  .msg.user .body { color: var(--fg); font-weight: 500; }
+  .msg .body :global(p) { margin: 0 0 8px; } .msg .body :global(p:last-child) { margin: 0; }
+  .msg .body :global(ul), .msg .body :global(ol) { margin: 0 0 8px; padding-left: 18px; }
+  .msg .body :global(code) { font: 400 12.5px/1.4 var(--font-mono); }
+  .msg.live .body { color: var(--sq-muted); }
+  .activity { margin: 0 0 0 108px; font: 400 12.5px/1.4 var(--font-mono); color: var(--sq-faint); }
+  .activity.err { color: color-mix(in srgb, var(--activity) 80%, var(--fg)); }
+  .composer { display: flex; flex-direction: column; gap: 8px; }
+  .composer textarea { resize: none; border: 0; border-radius: 10px; padding: 12px 14px; background: color-mix(in srgb, var(--fg) 7%, var(--bg)); color: var(--fg);
+    font: 400 15px/1.45 var(--font-app); outline: none; }
+  .composer textarea::placeholder { color: color-mix(in srgb, var(--fg) 55%, transparent); opacity: 1; }
+  .composer .row { display: flex; align-items: center; gap: 8px; }
+  .composer .row .k { margin-right: auto; }
+  .composer a.find { text-decoration: none; }
+  .side { position: absolute; top: 72px; bottom: 26px; right: var(--app-gutter, 34px); width: min(640px, 38vw); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+    border-radius: 12px; border: 1px dashed color-mix(in srgb, var(--fg) 30%, transparent); background: color-mix(in srgb, var(--bg) 80%, transparent); text-align: center; padding: 24px; }
+  .side p { margin: 0; font: 600 10px/1 var(--font-app); letter-spacing: .24em; text-transform: uppercase; color: var(--sq-muted); }
+  .side span { max-width: 34ch; font: 400 13px/1.5 var(--font-app); color: var(--sq-faint); }
   .gear { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 999px; color: var(--sq-muted); }
   .gear:hover { color: var(--fg); background: color-mix(in srgb, var(--fg) 7%, var(--bg)); }
 
