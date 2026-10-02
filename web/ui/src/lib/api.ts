@@ -200,6 +200,8 @@ export const api = {
     get<{ hits: import("./omnibox.svelte").SearchHit[]; nextOffset: number | null }>(
       `/api/search?q=${encodeURIComponent(q)}&limit=${limit}&offset=${offset}${mention ? "&purpose=mention" : ""}`, signal),
   graph: () => get<GraphData>(U.graph()),
+  /** The squad view's who and what (lib/squadGraph.ts): agents and the latest assertions. */
+  squad: () => get<import("./squad/model").SquadData>("/api/squad"),
   folds: () => get<FoldsView>(U.folds()),
   /** ACCEPT a fold: every member's label becomes an alias of the canonical. */
   acceptFold: (canonical: string, members: string[]) =>

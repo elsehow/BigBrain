@@ -26,7 +26,8 @@ export type View =
   | "vaultSettings"
   | "themes"
   | "diagnostics"
-  | "search";
+  | "search"
+  | "squad";
 
 export const app = $state({
   view: "home" as View,
@@ -96,6 +97,8 @@ function parseHash(): { view: View; note: string | null; q: string; pilot?: stri
   }
   if (head === "top") return { view: "top", note: null, q: "" };
   if (head === "graph") return { view: "graph", note: null, q: "" };
+  // the squad view (SquadView.svelte): the agents writing the vault, in its field
+  if (head === "squad") return { view: "squad", note: null, q: "" };
   if (head === "connectedClients" || (head === "settings" && rest === "connected-clients")) return { view: "connectedClients", note: null, q: "" };
   if (head === "connectedAgents" || head === "agentOrchestration" || (head === "settings" && rest === "agent-orchestration") || (head === "settings" && rest === "connected-agents")) return { view: "pilotSettings", note: null, q: "" };
   if (head === "pilotSettings" || (head === "settings" && rest === "pilot")) return { view: "agents", note: null, q: "" };

@@ -2,6 +2,7 @@ import { svelte } from "@sveltejs/vite-plugin-svelte";
 import { defineConfig } from "vite";
 import { devProvenance } from "./devProvenance";
 import { devGraphSnapshot } from "./devGraphSnapshot";
+import { devSquadLive } from "./devSquadLive";
 
 export default defineConfig({
   // Relative base: ONE build must serve at "/" (web/server.ts) AND from any
@@ -9,7 +10,7 @@ export default defineConfig({
   // app is hash-routed, so the document URL never leaves its mount point and
   // relative asset URLs resolve correctly at either depth.
   base: "./",
-  plugins: [svelte(), devProvenance(), devGraphSnapshot(), {
+  plugins: [svelte(), devProvenance(), devGraphSnapshot(), devSquadLive(), {
     name: "read-only-live-preview", apply: "serve",
     configureServer(server) {
       if (process.env["BIGBRAIN_PREVIEW_READ_ONLY"] !== "1") return;

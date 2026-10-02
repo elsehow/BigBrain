@@ -112,7 +112,7 @@
   $effect(() => { startUpdateChecks(); });
 
   $effect(() => {
-    const names = { sharedVaultSettings: "Shared vaults", home: "Home", top: "Top", vault: "Vault", graph: "Graph", connectedClients: "Connected Clients", pilotSettings: "Pilot", integrations: "Integrations", agents: "Models", vaultSettings: "General", themes: "General", diagnostics: "Diagnostics", search: "Search" };
+    const names = { sharedVaultSettings: "Shared vaults", home: "Home", top: "Top", vault: "Vault", graph: "Graph", connectedClients: "Connected Clients", pilotSettings: "Pilot", integrations: "Integrations", agents: "Models", vaultSettings: "General", themes: "General", diagnostics: "Diagnostics", search: "Search", squad: "Squad" };
     document.title = `${names[app.view]} — BigBrain`;
   });
 
@@ -187,6 +187,9 @@
     <VaultSettingsView />
   {:else if app.view === "diagnostics"}
     <DiagnosticsView />
+  {:else if app.view === "squad"}
+    <!-- loaded on demand: three.js stays out of every other screen's bundle -->
+    {#await import("./components/SquadView.svelte") then m}<m.default />{/await}
   {/if}
 </div>
 {/if}

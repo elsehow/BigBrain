@@ -10,6 +10,9 @@ export interface SidebarLayout {
   homePreview?: string | null;
   homeMenuRight?: number;
   homeMenuKey?: (event: KeyboardEvent) => boolean;
+  /** A ground view's own keys (SquadView): asked before the shell's shortcuts;
+   * true means the view took the key. */
+  viewKey?: (event: KeyboardEvent) => boolean;
   dismissEditor?: () => void;
   listSelection?: string[];
   listAction?: (action: "toggle" | "pilot" | "read" | "first" | "last") => void;

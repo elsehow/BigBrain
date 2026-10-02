@@ -55,6 +55,8 @@ import { walkMarkdown } from "../lib/vaultRead";
 import { parseBlobRef, readBlob } from "../lib/blobs";
 import { recentSourcePageAsync } from "../lib/sourceFeed";
 import { primaryGraphWithLayoutAsync, primaryGraphAsync } from "../lib/graphCache";
+import { buildSquad } from "../lib/squadGraph";
+import { vaultRecord } from "../lib/vaultReadModel";
 import { frozenMessagesForRefs, sortFrozenDesc } from "../lib/frozenQueue";
 import { queueHead } from "../lib/queueHead";
 import { noteLog } from "../lib/noteLog";
@@ -502,6 +504,18 @@ function search({ req, res, url }: Ctx): void {
   });
 }
 
+// The squad view's read (lib/squadGraph.ts): the agents writing this vault,
+// what each centres on lately, and the latest assertions as a feed. The
+// graph itself comes from /api/graph; this adds only who and what.
+function squad({ res }: Ctx): void {
+  try {
+    const record = vaultRecord(ROOT);
+    json(res, 200, buildSquad(record.rows, record.aliases));
+  } catch (error) {
+    json(res, 500, { error: errText(error) });
+  }
+}
+
 // Serve the graph as a FINISHED PICTURE: structure plus settled positions,
 // computed once per structure by lib/graphLayout.ts and cached in .state.
 // The client used to receive only the structure and simulate it itself on
@@ -703,6 +717,7 @@ export const ROUTES: readonly Route[] = [
   { method: "GET", path: "/api/recent", handler: recentFeed },
   { method: "GET", path: "/api/search", handler: search },
   { method: "GET", path: "/api/graph", handler: graph },
+  { method: "GET", path: "/api/squad", handler: squad },
   { method: "GET", path: "/api/note-log", handler: noteLogRoute },
   { method: "GET", path: "/api/note-messages", handler: noteMessages },
   // Under the desktop app (bin/desktop.ts sets BIGBRAIN_DESKTOP) the

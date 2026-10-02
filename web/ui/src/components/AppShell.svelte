@@ -134,6 +134,7 @@
     if (notificationKeyboard.handle(e)) return;
     wakeToolbar();
     if (sidebar.homeMenuKey?.(e)) return;
+    if (!sidebar.open && sidebar.viewKey?.(e)) { e.stopImmediatePropagation(); return; }
     if (baseline || e.isComposing) return;
     // Option changes e.key on macOS (e.g. Option-L is ¬); use physical codes.
     if (e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey && sidebar.open
@@ -212,7 +213,8 @@
     else if (sidebar.tab === 'settings') { sidebar.tab = undefined; sidebar.expanded = false; }
     if (sidebar.memoryPreview && target === sidebar.memoryPreview && !chat.open) return;
     if (sidebar.memoryPreview) sidebar.memoryPreview = null;
-    if (target || !['home', 'graph', 'top', 'search'].includes(view)) { sidebar.open = true; sidebar.searchVisible = false; }
+    // the squad view is a ground of its own, like home: no sidebar over it
+    if (target || !['home', 'graph', 'top', 'search', 'squad'].includes(view)) { sidebar.open = true; sidebar.searchVisible = false; }
   });
   $effect(() => {
     if (!baseline) {
