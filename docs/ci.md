@@ -5,20 +5,22 @@ privacy and release gates. A green check does not claim those gates are complete
 
 ## Merge checks
 
-Every PR and main push runs two jobs in parallel:
+Every PR and main push runs one job:
 
 - `checks` on Linux: generated plugins, lint, TypeScript, production viewer build,
   the full unit suite, and Svelte checks. The ordinary filesystem watcher regression
   remains part of the full suite.
-- `browser (macos-latest)`: every browser regression in `test/browser-suite.json`,
-  plus the macOS packaging/install tests in `test/siteBuild.test.ts`. Those tests
-  previously skipped on the Linux-only unit job. Browser coverage uses Chromium;
-  it does not claim native WKWebView or packaged-desktop parity.
 
 Aim for ordinary PR feedback within five minutes, excluding runner queue time.
 The ten-minute timeout is a safety bound, not the performance target. Superseded
 PR runs cancel; main runs are not actively cancelled. No path filters can leave
-these two checks pending. Keep these stable names in any repository merge rules.
+this check pending. Keep its stable name in any repository merge rules.
+
+The browser suite is not a merge gate: at ~11 minutes on macOS it slowed every PR
+for the work we use ourselves. It runs nightly and by hand (Compatibility and
+stress, below), and **an official desktop release must pass it first**: run
+`gh workflow run compatibility.yml --ref <release branch>` and wait for green.
+Run `bun run ci:browser` locally when a change touches what a browser test covers.
 
 ## One local command per suite
 
@@ -94,8 +96,11 @@ critical behavior elsewhere. A rerun alone is not a repair.
 `compatibility.yml` runs nightly at 08:23 UTC and through Actions → compatibility
 → Run workflow. For CI/runner changes, choose the feature branch in that dialog
 or use `gh workflow run compatibility.yml --ref <branch>` before merging.
-It runs the exact same browser command on Linux and the watcher
-regression 100 times. Linux software rendering took 11m39s on the repair baseline,
+It runs the browser suite on macOS (`browser (macos-latest)`: every regression
+in `test/browser-suite.json`, plus the macOS packaging/install tests in
+`test/siteBuild.test.ts`; Chromium, not native WKWebView or packaged-desktop
+parity), the exact same browser command on Linux, and the watcher regression 100
+times. Linux software rendering took 11m39s on the repair baseline,
 versus 2m15s on macOS, so it is outside the ordinary PR gate with a 20-minute bound.
 No assertions were deleted to make this split. Functional Linux browser contexts
 use reduced motion; macOS retains normal motion, and the consent transition test
