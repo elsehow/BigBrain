@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { changeModel, reasoningOptions, type ModelAgent } from "../web/ui/src/lib/modelSettings";
+import { changeModel, latestModels, reasoningOptions, type ModelAgent } from "../web/ui/src/lib/modelSettings";
 import { fakePi } from "./support/pi";
 import { runAgent } from "../lib/run/agent";
 import { nativeVault } from "./support/vault";
@@ -13,6 +13,14 @@ test("model changes preserve supported effort, reset incompatible effort, and ho
   expect(changeModel(agents, { adapter: "pi", provider: "openai-codex", model: "example", reasoning: "xhigh" }, "pi/anthropic:opus")).toEqual({ adapter: "pi", provider: "anthropic", model: "opus" });
   expect(reasoningOptions(agents, { adapter: "pi", provider: "openai-codex", model: "example" })).toEqual(["low", "high", "xhigh"]);
   expect(reasoningOptions(agents, { adapter: "pi", provider: "openai-codex", model: "unknown" })).toEqual([]);
+});
+test("menus offer the newest model of each family and keep a saved older choice", () => {
+  const ids = ["claude-lark-4-5", "claude-lark-4-5-20250101", "claude-lark-4-10", "claude-lark-5", "claude-wren-3-9", "claude-wren-4",
+    "gpt-4.9", "gpt-5", "gpt-5.1-mini", "gpt-5.10-mini", "gpt-4o", "gpt-4o-2024-01-01", "o3", "o4-mini", "o3-mini", "fixture"];
+  const models = ids.map(id => ({ id, label: id === "claude-lark-4-5" ? "Lark 4.5 (latest)" : id }));
+  expect(latestModels(models).map(m => m.id)).toEqual(["claude-lark-5", "claude-wren-4", "gpt-5", "gpt-5.10-mini", "gpt-4o", "o3", "o4-mini", "fixture"]);
+  expect(latestModels(models, "claude-lark-4-5").map(m => [m.id, m.label])).toContainEqual(["claude-lark-4-5", "Lark 4.5"]);
+  expect(latestModels(models.filter(m => m.id.startsWith("claude-lark-4-5"))).map(m => m.id)).toEqual(["claude-lark-4-5"]);
 });
 test("Pi execution receives the saved reasoning flag", async () => {
   const root = nativeVault();

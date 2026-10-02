@@ -55,7 +55,9 @@ order is unchanged.
 
 ## Eligibility and execution
 
-All four pickers consume the same catalog and `ModelControls`. Role requirements
+All four pickers consume the same catalog and `ModelControls`. Menus list only
+the newest model of each family per provider (`latestModels`); a saved older
+choice stays listed, and discovery and execution still see every model. Role requirements
 live in `lib/modelChoice.ts`. `lib/modelResolution.ts` applies the same capability
 and reasoning policy to menu discovery and live execution. Gardener and Memory
 need tools, Pilot needs tools and streaming, and Quick needs validated structured
