@@ -148,11 +148,12 @@ export interface FieldPilot {
   p: [number, number, number];
 }
 
-/** The pilots worth a place: not yet filed away (ingested), newest first;
- * plus `keep` (an open one), whatever its state. */
+/** The pilots worth a place: active ones only, newest first — archived
+ * (dormant) and filed-away (ingested) sessions don't take a seat; plus `keep`
+ * (the one open), whatever its state, until it's closed. */
 export function barPilots(sessions: readonly PilotSummary[], keep: string | null, limit = 6): PilotSummary[] {
   const at = (s: PilotSummary) => s.lastActivityAt ?? s.updated ?? "";
-  const live = sessions.filter((s) => s.lifecycle !== "ingested").sort((a, b) => at(b).localeCompare(at(a))).slice(0, limit);
+  const live = sessions.filter((s) => s.lifecycle === "active").sort((a, b) => at(b).localeCompare(at(a))).slice(0, limit);
   const open = keep ? sessions.find((s) => s.id === keep) : undefined;
   return open && !live.includes(open) ? [open, ...live] : live;
 }
