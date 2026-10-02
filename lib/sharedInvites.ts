@@ -95,6 +95,17 @@ export function createAppLink(store:string,handle:string,now=new Date()) {
   return {secret,expires};
  });
 }
+/** Would this secret redeem now? Reads only — nothing is consumed or minted.
+ * Lets the page an opened invite link shows name the vault to the link's
+ * holder, and no one else (lib/sharedOAuth.ts). */
+export function sharedInviteIsLive(store:string,secret:string,now=new Date()):boolean {
+  if(!/^[A-Za-z0-9_-]{43}$/.test(secret))return false;
+  const invite=read(store+'.invites.json').find(i=>i.hash===sha256hex(secret));
+  if(!invite||invite.used||invite.cancelled||Date.parse(invite.expires)<=now.getTime())return false;
+  if(invite.member)return listMembers(store).some(m=>m.handle===invite.member&&!m.revoked);
+  if(invite.display&&invite.permission&&invite.id)return true;
+  return verifyCredential(store,invite.token).ok;
+}
 export function pendingMemberInvites(store:string,now=new Date()) {
  return read(store+'.invites.json').filter(i=>i.id&&!i.used&&!i.cancelled&&Date.parse(i.expires)>now.getTime()).map(i=>({id:i.id!,secret:i.secret!,display:i.display!,permission:i.permission!,expires:i.expires}));
 }

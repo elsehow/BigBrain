@@ -936,15 +936,31 @@ describe("the join link and the personal page", () => {
       const res = await req(world({ google }), "GET", "/invite");
       expect(res.status).toBe(200);
       const html = await res.text();
-      expect(html).toContain("Use it in the BigBrain app");
+      expect(html).toContain("To join in the BigBrain app");
       expect(html).toContain('data-href');
+      expect(html).not.toContain('class="eyebrow"');
       // the Claude steps (paste the link on Claude's sign-in page) only without Google
-      expect(html.includes("Use it in Claude")).toBe(!google);
+      expect(html.includes("To join in Claude desktop")).toBe(!google);
       expect(html.includes(`${PUBLIC}/mcp`)).toBe(!google);
       for (const secret of [VAULT, "Ada", "The Owner", "ada@example.com"]) expect([secret, html.includes(secret)]).toEqual([secret, false]);
       expect(res.headers.get("set-cookie")).toBeNull();
     }
     expect((await req(world({ connector: false }), "GET", "/invite")).status).toBe(401);
+  });
+
+  test("/invite/check names the vault to a live link's holder, consumes nothing, and is one 404 otherwise", async () => {
+    const w = world({ google: false });
+    const { secret } = createMemberInvite(w.store, "Grace", "read", w.now());
+    const check = (s: string) => req(w, "POST", "/invite/check", { headers: { Authorization: `Bearer ${s}` } });
+    for (let i = 0; i < 2; i++) expect([(await check(secret)).status, await (await check(secret)).json()]).toEqual([200, { vault: VAULT }]);
+    // still redeemable after being checked
+    const redeemed = await req(w, "POST", "/v1/invites/redeem", { token: secret });
+    expect(redeemed.status).toBe(200);
+    for (const s of [secret, "x".repeat(43), "", "not a secret"]) {
+      const res = await check(s);
+      expect([s, res.status, await res.text()]).toEqual([s, 404, '{"error":"not found"}\n']);
+    }
+    expect((await req(world({ connector: false }), "POST", "/invite/check", { headers: { Authorization: `Bearer ${secret}` } })).status).toBe(401);
   });
 
   test("Google sign-in from /join opens a session on /me with the connector URL and app links", async () => {
