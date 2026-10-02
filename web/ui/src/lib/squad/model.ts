@@ -1,9 +1,8 @@
 // The squad view's model: /api/graph's entities lifted into a shallow 3D
-// field, the agents of /api/squad placed over what they're writing about,
-// and the name search. Pure — the scene (scene.ts) draws it, the view
+// field, and the name search. Pure — the scene (scene.ts) draws it, the view
 // (SquadView.svelte) reads it, and neither reshapes it.
 
-import type { Squad, SquadAgent, SquadFeedRow } from "../../../../../lib/squadGraph";
+import type { Squad, SquadFeedRow } from "../../../../../lib/squadGraph";
 import type { GraphData } from "../types";
 
 export type { SquadFeedRow };
@@ -18,16 +17,8 @@ export interface FieldNode {
   degree: number;
   memory: boolean;
   p: [number, number, number];
-  /** Labelled at rest: a hub, a memory topic, or something an agent touches. */
+  /** Labelled at rest: a hub or a memory topic. */
   named: boolean;
-}
-export interface FieldAgent extends SquadAgent {
-  i: number;
-  key: string;
-  /** Wrote within the last day. */
-  working: boolean;
-  p: [number, number, number];
-  touchIdx: number[];
 }
 export interface Field {
   nodes: FieldNode[];
@@ -36,7 +27,6 @@ export interface Field {
   edges: Array<[number, number, number]>;
   /** The few worth drawing: strong, and strong for both ends. */
   strong: Array<[number, number]>;
-  agents: FieldAgent[];
   hubs: Set<number>;
 }
 
@@ -50,7 +40,7 @@ function unit(s: string): number {
   return ((h >>> 0) % 10007) / 10007;
 }
 
-export function buildField(graph: GraphData, squad: SquadData, now = Date.now()): Field {
+export function buildField(graph: GraphData): Field {
   const drawn = graph.nodes.filter((n) => (n.entity || n.group === "memory") && n.x != null && n.y != null);
   // the engine's settled 2D layout is the floor plan; height is a small,
   // stable lift so the field reads as a volume without inventing structure
@@ -81,24 +71,8 @@ export function buildField(graph: GraphData, squad: SquadData, now = Date.now())
   const hubs = new Set([...nodes].filter((n) => !n.memory).sort((a, b) => b.degree - a.degree).slice(0, HUBS).map((n) => n.i));
   for (const h of hubs) nodes[h]!.named = true;
 
-  const agents: FieldAgent[] = squad.agents.map((a, i) => {
-    const touchIdx = a.touch.map((id) => byId.get(id)).filter((x): x is number => x != null);
-    for (const t of touchIdx) nodes[t]!.named = true;
-    const c: [number, number, number] = [0, 0, 0];
-    const pts = touchIdx.length ? touchIdx : [...hubs];
-    for (const t of pts) for (let d = 0; d < 3; d++) c[d]! += nodes[t]!.p[d]! / pts.length;
-    return { ...a, i, key: String(i + 1), working: now - Date.parse(a.lastAt) < 864e5, touchIdx, p: [c[0] + 0.4, Math.min(7.2, c[1] + 2.2), c[2] + 0.8] };
-  });
-  // agents whose work centres on the same cluster would sit inside each
-  // other: push them apart on the floor until each has room
-  for (let pass = 0; pass < 40; pass++) for (const a of agents) for (const b of agents) {
-    if (a === b) continue;
-    const dx = a.p[0] - b.p[0], dz = a.p[2] - b.p[2], d = Math.hypot(dx, dz) || 0.01;
-    if (d < AGENT_ROOM) { const push = (AGENT_ROOM - d) / 2 / d; a.p[0] += dx * push; a.p[2] += dz * push; }
-  }
-  return { nodes, byId, edges, strong: strongEdges(nodes, edges), agents, hubs };
+  return { nodes, byId, edges, strong: strongEdges(nodes, edges), hubs };
 }
-const AGENT_ROOM = 3.2;
 
 /** Keep each node's strongest ties, then the few that are strong AND specific
  * to both ends (weight × cosine): a hub's lines don't crowd out the rest. */

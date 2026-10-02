@@ -1,8 +1,8 @@
 <script lang="ts">
-  // /squad (its own page, squad.html) — the vault as a field, the agents
-  // writing it placed over what they're writing, and the record read as it lands. The canvas is
+  // /squad (its own page, squad.html) — the vault as a field, and the record
+  // read as it lands, each assertion with its author. The canvas is
   // lib/squad/scene.ts (three.js, loaded on demand); everything with words
-  // is here. Keys: 1–9 an agent, / search by name, Esc back out.
+  // is here. Keys: / search by name, Esc back out.
   import { onMount, tick } from "svelte";
   import { api } from "../lib/api";
   import type { GraphData } from "../lib/types";
@@ -24,7 +24,6 @@
   let scene: SquadScene | null = null;
   let twins = new Map<number, number[]>();
 
-  let sel: number | null = $state(null);
   let ent: number | null = $state(null);
   let entRows: SquadFeedRow[] | null = $state(null);
   let searching = $state(false);
@@ -32,26 +31,16 @@
   let matches: number[] = $state([]);
   let active = $state(0);
 
-  const agentIndex = (id: string | null) => (id == null ? -1 : squad?.agents.findIndex((a) => a.id === id) ?? -1);
-  const agentName = (id: string | null) => (id ? squad?.agents.find((a) => a.id === id)?.name ?? id : "Import");
+  const authorName = (id: string | null) => (id ? squad?.authors.find((a) => a.id === id)?.name ?? id : "You");
   const when = (iso: string) => {
     const d = new Date(iso);
     return d.toLocaleDateString("en-US", { month: "short", day: "2-digit" }) + " " + d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
   };
-  const ago = (iso: string) => {
-    const h = (Date.now() - Date.parse(iso)) / 36e5;
-    return h < 1 ? "just now" : h < 24 ? `${Math.round(h)} h ago` : `${Math.round(h / 24)} d ago`;
-  };
-  /** The agents whose recent feed rows mention an entity. */
-  const writersOf = (id: string) => [...new Set(squad!.feed.filter((r) => r.entities.includes(id) && r.agent).map((r) => agentName(r.agent)))];
+  /** Who wrote the recent feed rows that mention an entity. */
+  const writersOf = (id: string) => [...new Set(squad!.feed.filter((r) => r.entities.includes(id) && r.author).map((r) => authorName(r.author)))];
 
-  // the feed: an opened entity's own record, else the selected agent's, else everyone's
-  let rows = $derived.by(() => {
-    if (!squad) return [];
-    if (ent != null && entRows) return entRows.slice(-6);
-    const a = sel != null ? squad.agents[sel]?.id : null;
-    return (a ? squad.feed.filter((r) => r.agent === a) : squad.feed).slice(-6);
-  });
+  // the feed: an opened entity's own record, else the vault's latest
+  let rows = $derived.by(() => (!squad ? [] : ent != null && entRows ? entRows.slice(-6) : squad.feed.slice(-6)));
   let hud = $derived.by(() => {
     if (!field || !squad || searching) return null;
     if (ent != null) {
@@ -61,13 +50,7 @@
       return {
         eyebrow: n.memory ? "Memory" : `${n.degree} ${n.degree === 1 ? "tie" : "ties"}`, name: n.label,
         status: (who.length ? `Lately written about by ${who.join(", ")}.` : "") + (tw.length ? ` Also in your vault as “${tw.join("”, “")}”.` : ""),
-        hot: false,
       };
-    }
-    if (sel != null) {
-      const a = field.agents[sel]!;
-      return { eyebrow: `${a.key} · ${a.working ? "working" : "idle"} · ${a.name}`, name: a.task?.label ?? a.name,
-        status: `${a.count.toLocaleString()} assertions written. The last one ${ago(a.lastAt)}.`, hot: a.working };
     }
     return null;
   });
@@ -76,14 +59,11 @@
     try {
       const [graph, sq] = data ? [data.graph, data.squad] : await Promise.all([api.graph(), api.squad()]);
       squad = sq;
-      field = buildField(graph, sq);
+      field = buildField(graph);
       twins = twinsOf(field);
       const { createSquadScene } = await import("../lib/squad/scene");
-      const f = field;
-      const sets = f.agents.map((a) => new Set([...a.touchIdx, ...sq.feed.filter((r) => r.agent === a.id).flatMap((r) => r.entities.map((id) => f.byId.get(id)).filter((x): x is number => x != null))]));
-      scene = createSquadScene(host, f, sets, {
+      scene = createSquadScene(host, field, {
         blockers: () => [hudEl, feedEl, searching ? searchEl : undefined].filter((e): e is HTMLElement => !!e).map((e) => e.getBoundingClientRect()).filter((r) => r.height > 0),
-        onPickAgent: (i) => selectAgent(sel === i ? null : i),
       });
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
@@ -94,11 +74,10 @@
     return () => scene?.dispose();
   });
 
-  const shiftFor = () => (searching ? Math.min(300, innerWidth * 0.2) : sel != null || ent != null ? Math.min(190, innerWidth * 0.13) : 0);
-  function selectAgent(i: number | null): void {
-    ent = null; entRows = null; sel = i;
-    scene?.openEntity(null);
-    scene?.selectAgent(i);
+  const shiftFor = () => (searching ? Math.min(300, innerWidth * 0.2) : ent != null ? Math.min(190, innerWidth * 0.13) : 0);
+  function overview(): void {
+    ent = null; entRows = null;
+    scene?.overview();
     scene?.shift(shiftFor());
   }
 
@@ -112,8 +91,7 @@
   }
   async function openEntity(i: number): Promise<void> {
     if (!field || !squad) return;
-    sel = null; ent = i; entRows = null;
-    scene?.selectAgent(null);
+    ent = i; entRows = null;
     scene?.openEntity(i, neighbours(field, i));
     scene?.shift(shiftFor());
     const n = field.nodes[i]!;
@@ -123,7 +101,7 @@
     try {
       const view = (await api.note(n.path, 6)).projectedEntity;
       if (ent !== i || !view) return;
-      entRows = view.assertions.map((a) => ({ id: a.id, at: a.created_at, agent: squad!.agents.some((g) => g.id === a.author.id) ? a.author.id : null, text: plain(a.text), entities: [n.id] }));
+      entRows = view.assertions.map((a) => ({ id: a.id, at: a.created_at, author: squad!.authors.some((g) => g.id === a.author.id) ? a.author.id : null, text: plain(a.text), entities: [n.id] }));
     } catch { entRows = squad.feed.filter((r) => r.entities.includes(n.id)); }
   }
 
@@ -138,7 +116,7 @@
     searching = false;
     scene?.search(null);
     scene?.shift(shiftFor());
-    if (ent != null) void openEntity(ent); else scene?.selectAgent(sel);
+    if (ent != null) void openEntity(ent); else scene?.overview();
   }
   async function runQuery(): Promise<void> {
     if (!field) return;
@@ -192,9 +170,7 @@
     const t = e.target as HTMLElement | null;
     if (t?.tagName === "INPUT" || t?.tagName === "TEXTAREA" || t?.isContentEditable) return false;
     if (e.key === "/") { take(e); openSearch(); return true; }
-    if (e.key === "Escape" && (sel != null || ent != null)) { take(e); selectAgent(null); return true; }
-    const k = Number(e.key);
-    if (k >= 1 && k <= field.agents.length) { take(e); selectAgent(sel === k - 1 ? null : k - 1); return true; }
+    if (e.key === "Escape" && ent != null) { take(e); overview(); return true; }
     return false;
   }
   function take(e: KeyboardEvent): void { e.preventDefault(); e.stopPropagation(); }
@@ -209,13 +185,7 @@
   <div class="stage" bind:this={host}></div>
 
   {#if field}
-    <nav class="strip" aria-label="Agents">
-      {#each field.agents as a (a.id)}
-        <button type="button" class="tok" class:on={sel === a.i} class:working={a.working} aria-pressed={sel === a.i} onclick={() => selectAgent(sel === a.i ? null : a.i)}>
-          <svg width="12" height="12" viewBox="-12 -12 24 24" aria-hidden="true"><path d="M 0 9 L 7.794 -4.5 L -7.794 -4.5 Z" /></svg>
-          <span class="k">{a.key}</span>{a.task?.label ?? a.name}<span class="by">{a.name}</span>
-        </button>
-      {/each}
+    <nav class="strip" aria-label="Squad">
       <button type="button" class="find" onclick={openSearch}>Search <span class="k">/</span></button>
       <a class="app" href="./">BigBrain</a>
     </nav>
@@ -223,7 +193,7 @@
 
   {#if hud}
     <header class="hud" bind:this={hudEl}>
-      <span class="eyebrow" class:hot={hud.hot}>{hud.eyebrow}</span>
+      <span class="eyebrow">{hud.eyebrow}</span>
       <h1>{hud.name}</h1>
       {#if hud.status}<p>{hud.status}</p>{/if}
     </header>
@@ -255,9 +225,9 @@
     <div class="feed" bind:this={feedEl} aria-label="Latest assertions">
       {#each rows as r (r.id)}
         <div class="row" role="presentation"
-          onmouseenter={() => scene?.hover(r.entities.map((id) => field!.byId.get(id)).filter((x): x is number => x != null), agentIndex(r.agent) >= 0 ? agentIndex(r.agent) : null)}
-          onmouseleave={() => scene?.hover(null, null)}>
-          <span class="w">{when(r.at)}</span><span class="a">{agentName(r.agent)}</span><span class="x">{r.text}</span>
+          onmouseenter={() => scene?.hover(r.entities.map((id) => field!.byId.get(id)).filter((x): x is number => x != null))}
+          onmouseleave={() => scene?.hover(null)}>
+          <span class="w">{when(r.at)}</span><span class="a">{authorName(r.author)}</span><span class="x">{r.text}</span>
         </div>
       {/each}
     </div>
@@ -287,21 +257,12 @@
   .stage :global(.sq-node.full .q) { display: block; white-space: normal; width: max-content; max-width: 32ch;
     font: 400 13px/1.45 var(--font-app); color: color-mix(in srgb, var(--fg) 82%, var(--bg)); }
   .stage :global(.sq-node .q b) { font-weight: 600; color: var(--fg); }
-  .stage :global(.sq-agent) { display: flex; gap: 6px; align-items: baseline; font: 500 11px/1 var(--font-mono); color: var(--sq-muted); }
-  .stage :global(.sq-agent .k) { font-size: 9.5px; }
-  .stage :global(.sq-agent.working) { color: color-mix(in srgb, var(--activity) 80%, var(--fg)); }
 
   .strip { position: absolute; top: 18px; left: var(--app-gutter, 34px); right: var(--app-gutter, 34px); display: flex; flex-wrap: wrap; gap: 4px; }
-  .tok, .find { display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 11px; border: 0; border-radius: 999px;
+  .find { display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 11px; border: 0; border-radius: 999px;
     background: color-mix(in srgb, var(--bg) 70%, transparent); color: var(--fg); font: 500 13px/1 var(--font-app); cursor: pointer; }
-  .tok svg { fill: currentColor; }
-  .tok.working svg { fill: none; stroke: var(--activity); stroke-width: 2.4; }
-  .tok:hover, .find:hover { background: color-mix(in srgb, var(--fg) 7%, var(--bg)); }
-  .tok.on { background: var(--fg); color: var(--bg); }
-  .tok .by { font: 400 11px/1 var(--font-mono); color: var(--sq-faint); }
-  .tok.on .by { color: color-mix(in srgb, var(--bg) 65%, var(--fg)); }
+  .find:hover { background: color-mix(in srgb, var(--fg) 7%, var(--bg)); }
   .k { font: 500 10px/1 var(--font-mono); color: var(--sq-faint); }
-  .tok.on .k { color: color-mix(in srgb, var(--bg) 65%, var(--fg)); }
   .find { margin-left: auto; color: var(--sq-muted); }
   .app { display: inline-flex; align-items: center; height: 30px; padding: 0 11px; border-radius: 999px; color: var(--sq-muted); font: 500 13px/1 var(--font-app); text-decoration: none; }
   .app:hover { color: var(--fg); background: color-mix(in srgb, var(--fg) 7%, var(--bg)); }
@@ -309,7 +270,6 @@
   .hud { position: absolute; top: 72px; left: var(--app-gutter, 34px); width: min(460px, calc(100% - 32px)); display: flex; flex-direction: column; gap: 9px;
     pointer-events: none; text-shadow: 0 0 8px var(--bg), 0 0 18px var(--bg); }
   .eyebrow { font: 600 10px/1 var(--font-app); letter-spacing: 0.24em; text-transform: uppercase; color: var(--sq-muted); }
-  .eyebrow.hot { color: color-mix(in srgb, var(--activity) 80%, var(--fg)); }
   h1 { margin: 0; font: 500 clamp(28px, 2.5vw, 36px)/1.05 var(--font-app); letter-spacing: -0.03em; }
   .hud p { margin: 0; max-width: 44ch; font: 400 14.5px/1.5 var(--font-app); color: color-mix(in srgb, var(--fg) 80%, var(--bg)); }
 
@@ -338,6 +298,6 @@
   .error { position: absolute; top: 80px; left: var(--app-gutter, 34px); font: 400 13px/1.5 var(--font-app); color: var(--sq-muted); }
   @media (max-width: 700px) {
     .row { grid-template-columns: 72px minmax(0, 1fr); } .row .w { display: none; }
-    .tok .by { display: none; }
+
   }
 </style>

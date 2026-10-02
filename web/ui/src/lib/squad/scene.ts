@@ -1,14 +1,12 @@
-// The squad view's canvas: the vault's entities as a field of points, memory
-// topics as small glass octahedra, and the agents as glass tetrahedra over
-// what they're writing. Imperative three.js behind a small API; the view
-// (SquadView.svelte) owns every word of chrome and tells this what is in
-// play — a selected agent, an opened entity, search matches, a hovered feed
-// row. Loaded on demand, so the rest of the app never pays for three.js.
+// The squad view's canvas: the vault's entities as a field of points and its
+// memory topics as small glass octahedra. Imperative three.js behind a small
+// API; the view (SquadView.svelte) owns every word of chrome and tells this
+// what is in play — an opened entity, search matches, a hovered feed row.
+// Loaded on demand, so the rest of the app never pays for three.js.
 //
 // Look (settled in the prototype, 2026-10-02): a long lens and no lens
 // effects — a plan, not a cutscene; points not balls; hairline edges; glass
-// only for agents and memory; a selected agent fills in as a matte solid in
-// its own colour; labels appear where attention is and give way to chrome.
+// only for memory; labels appear where attention is and give way to chrome.
 
 import * as THREE from "three";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
@@ -17,18 +15,18 @@ import type { Field } from "./model";
 export interface SceneHooks {
   /** Screen rects labels must stay out of (the view's panels). */
   blockers(): DOMRect[];
-  onPickAgent(i: number): void;
 }
 export interface SquadScene {
-  selectAgent(i: number | null): void;
+  /** Back to the whole field. */
+  overview(): void;
   /** Open an entity: it and its ties come forward. `text` is its latest word. */
   openEntity(i: number | null, ties?: number[], text?: string): void;
   /** Search state: null closes it; matches light up; `active` is in hand.
    * `move`: frame every match (a new query), glide to the active one (an
    * arrow key), or hold the camera (its text arriving). */
   search(state: { matches: number[]; active: number | null; text?: string; move: "frame" | "glide" | "none" } | null): void;
-  /** A hovered feed row: what it mentions, and who wrote it. */
-  hover(entities: number[] | null, agent: number | null): void;
+  /** A hovered feed row: what it mentions. */
+  hover(entities: number[] | null): void;
   /** Pixels to slide the scene's centre right, clear of a left panel. */
   shift(px: number): void;
   dispose(): void;
@@ -37,7 +35,7 @@ export interface SquadScene {
 const LENS = Math.tan(THREE.MathUtils.degToRad(17)) / Math.tan(THREE.MathUtils.degToRad(10));
 const OVERVIEW_AT = { az: 0.05, el: 0.55, dist: 30, target: new THREE.Vector3(0, 3, -4) };
 
-export function createSquadScene(host: HTMLElement, field: Field, agentSets: Set<number>[], hooks: SceneHooks): SquadScene {
+export function createSquadScene(host: HTMLElement, field: Field, hooks: SceneHooks): SquadScene {
   const OVERVIEW = { ...OVERVIEW_AT, target: OVERVIEW_AT.target.clone() };
   const reducedMQ = matchMedia("(prefers-reduced-motion: reduce)");
   const canvas = document.createElement("canvas");
@@ -132,23 +130,9 @@ export function createSquadScene(host: HTMLElement, field: Field, agentSets: Set
   };
   const ties = dynamic(64);
 
-  // ── glass: agents and memory topics ─────────────────────────────────────
-  const tetra = (() => {
-    const v = [[0, -1, 0], [0, 1 / 3, -0.9428], [0.8165, 1 / 3, 0.4714], [-0.8165, 1 / 3, 0.4714]].map((a) => new THREE.Vector3(...(a as [number, number, number])));
-    const pos: number[] = [];
-    for (const f of [[1, 2, 3], [0, 3, 2], [0, 2, 1], [0, 1, 3]]) {
-      let [a, b, d] = f.map((i) => v[i]!) as [THREE.Vector3, THREE.Vector3, THREE.Vector3];
-      const nrm = new THREE.Vector3().crossVectors(b.clone().sub(a), d.clone().sub(a));
-      if (nrm.dot(a.clone().add(b).add(d)) < 0) [b, d] = [d, b];
-      pos.push(...a.toArray(), ...b.toArray(), ...d.toArray());
-    }
-    const g = new THREE.BufferGeometry();
-    g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
-    g.computeVertexNormals();
-    return g;
-  })();
+  // ── glass: memory topics ─────────────────────────────────────────────────
   const octa = new THREE.OctahedronGeometry(1, 0);
-  interface Glass { mesh: THREE.Mesh; mat: THREE.MeshPhysicalMaterial; edges: THREE.LineSegments; tint: THREE.Color; base: number; surf: number }
+  interface Glass { mesh: THREE.Mesh; mat: THREE.MeshPhysicalMaterial; edges: THREE.LineSegments; vis: number }
   const glass = (geo: THREE.BufferGeometry): Glass => {
     const mat = new THREE.MeshPhysicalMaterial({ color: 0xffffff, roughness: 0.06, metalness: 0, transmission: 1, thickness: 1.1, ior: 1.45,
       dispersion: 4, iridescence: 0.15, iridescenceIOR: 1.3, attenuationDistance: 3, flatShading: true });
@@ -157,14 +141,8 @@ export function createSquadScene(host: HTMLElement, field: Field, agentSets: Set
     const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo), new THREE.LineBasicMaterial({ transparent: true, opacity: 0.14 }));
     mesh.add(edges);
     scene.add(mesh);
-    return { mesh, mat, edges, tint: new THREE.Color(), base: 0.14, surf: 0 };
+    return { mesh, mat, edges, vis: 1 };
   };
-  const agents = field.agents.map((a) => {
-    const g = glass(tetra);
-    g.mesh.position.set(...a.p);
-    g.mesh.userData["agent"] = a.i;
-    return { ...g, a, scale: 0.95, label: makeAgentLabel(a.key, a.task?.label ?? a.name, a.working) };
-  });
   const memory = field.nodes.filter((n) => n.memory).map((n) => {
     const g = glass(octa);
     g.mesh.position.set(...n.p);
@@ -172,13 +150,11 @@ export function createSquadScene(host: HTMLElement, field: Field, agentSets: Set
     g.mesh.rotation.y = 0.4;
     return { ...g, i: n.i };
   });
-  const agentLinks = lineSet(field.agents.flatMap((a) => a.touchIdx.map((t) => [new THREE.Vector3(...a.p), P[t]!] as [THREE.Vector3, THREE.Vector3])), 0.3);
 
   // ── state ────────────────────────────────────────────────────────────────
-  let sel: number | null = null;
   let ent: { i: number; ties: number[]; text?: string } | null = null;
   let srch: { matches: Set<number>; active: number | null; text?: string } | null = null;
-  let hot: { entities: number[]; agent: number | null } | null = null;
+  let hot: Set<number> | null = null;
   let shiftGoal = 0, shiftNow = 0;
   const rel = new Float32Array(N), heat = new Float32Array(N), match = new Float32Array(N);
   let dim = 0, searchDim = 1;
@@ -201,14 +177,6 @@ export function createSquadScene(host: HTMLElement, field: Field, agentSets: Set
   };
 
   // ── labels: DOM, placed per frame, culled where they'd collide ──────────
-  function makeAgentLabel(key: string, name: string, working: boolean): HTMLDivElement {
-    const L = document.createElement("div");
-    L.className = "sq-lab sq-agent" + (working ? " working" : "");
-    L.innerHTML = `<span class="k">${key}</span><span class="n"></span>`;
-    L.querySelector(".n")!.textContent = name;
-    labelLayer.append(L);
-    return L;
-  }
   const labels = new Map<number, HTMLDivElement & { w?: number; h?: number; full?: boolean; op?: number }>();
   const labelOf = (i: number) => {
     let L = labels.get(i);
@@ -235,8 +203,8 @@ export function createSquadScene(host: HTMLElement, field: Field, agentSets: Set
     if (at >= 0) { b.textContent = text.slice(at, at + name.length); q.append(text.slice(0, at), b, text.slice(at + name.length)); }
     else { b.textContent = name; q.append(b, " · " + text); }
   };
-  const place = (L: HTMLElement & { op?: number }, x: number, y: number, op: number, above = false) => {
-    L.style.transform = `translate3d(${x.toFixed(1)}px,${y.toFixed(1)}px,0) ${above ? "translate(-50%,-100%)" : "translate(0,-50%)"}`;
+  const place = (L: HTMLElement & { op?: number }, x: number, y: number, op: number) => {
+    L.style.transform = `translate3d(${x.toFixed(1)}px,${y.toFixed(1)}px,0) translate(0,-50%)`;
     const o = Math.round(op * 40) / 40;
     if (o !== L.op) { L.style.opacity = String(o); L.style.visibility = o <= 0 ? "hidden" : "visible"; L.op = o; }
   };
@@ -248,7 +216,6 @@ export function createSquadScene(host: HTMLElement, field: Field, agentSets: Set
 
   // ── input ────────────────────────────────────────────────────────────────
   let W = 1, H = 1, drag: { x: number; y: number; moved: number } | null = null;
-  const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
   const onDown = (e: PointerEvent) => { drag = { x: e.clientX, y: e.clientY, moved: 0 }; canvas.setPointerCapture(e.pointerId); };
   const onMove = (e: PointerEvent) => {
     if (!drag) return;
@@ -256,16 +223,7 @@ export function createSquadScene(host: HTMLElement, field: Field, agentSets: Set
     drag.moved += Math.abs(dx) + Math.abs(dy); drag.x = e.clientX; drag.y = e.clientY;
     goal.az -= dx * 0.005; goal.el = THREE.MathUtils.clamp(goal.el + dy * 0.004, 0.08, 1.35);
   };
-  const onUp = (e: PointerEvent) => {
-    if (drag && drag.moved < 4) {
-      const r = canvas.getBoundingClientRect();
-      ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
-      ray.setFromCamera(ndc, camera);
-      const hit = ray.intersectObjects(agents.map((a) => a.mesh), false)[0];
-      if (hit) hooks.onPickAgent(hit.object.userData["agent"] as number);
-    }
-    drag = null;
-  };
+  const onUp = () => { drag = null; };
   const onWheel = (e: WheelEvent) => { e.preventDefault(); goal.dist = THREE.MathUtils.clamp(goal.dist * Math.exp(e.deltaY * 0.0012), 4, 40); };
   canvas.addEventListener("pointerdown", onDown);
   canvas.addEventListener("pointermove", onMove);
@@ -280,7 +238,7 @@ export function createSquadScene(host: HTMLElement, field: Field, agentSets: Set
     camera.updateProjectionMatrix();
     // the overview fits the field's width (radius 15, plus room) to the window
     const fit = THREE.MathUtils.clamp(17 / (LENS * Math.tan(THREE.MathUtils.degToRad(10)) * camera.aspect), 22, 46);
-    const atRest = sel == null && !ent && !srch;
+    const atRest = !ent && !srch;
     OVERVIEW.dist = fit;
     if (atRest) goal.dist = fit;
     if (!sized) { rig.dist = fit; sized = true; }
@@ -296,8 +254,13 @@ export function createSquadScene(host: HTMLElement, field: Field, agentSets: Set
     col.fg.set(cs.getPropertyValue("--fg").trim() || "#211a18");
     col.act.set(cs.getPropertyValue("--activity").trim() || "#cc4a3e");
     scene.background = col.bg.clone();
-    for (const l of [strong, agentLinks]) (l.material as THREE.LineBasicMaterial).color.copy(l === agentLinks ? col.act : col.fg);
-    for (const g of [...agents, ...memory]) (g.edges.material as THREE.LineBasicMaterial).color.copy(col.fg);
+    (strong.material as THREE.LineBasicMaterial).color.copy(col.fg);
+    for (const g of memory) {
+      (g.edges.material as THREE.LineBasicMaterial).color.copy(col.fg);
+      // faintly ink-tinted glass, never tinted by state
+      g.mat.color.setRGB(1, 1, 1).lerp(col.fg, 0.03);
+      g.mat.attenuationColor.copy(col.fg);
+    }
   };
   theme();
   const mo = new MutationObserver(theme);
@@ -307,8 +270,8 @@ export function createSquadScene(host: HTMLElement, field: Field, agentSets: Set
 
   // ── frame ────────────────────────────────────────────────────────────────
   const clock = new THREE.Clock();
-  const tA = new THREE.Vector3(), tB = new THREE.Vector3(), c1 = new THREE.Color(), c2 = new THREE.Color(), dust = new THREE.Color();
-  const s1 = { x: 0, y: 0, ok: false }, s2 = { x: 0, y: 0, ok: false };
+  const c1 = new THREE.Color(), c2 = new THREE.Color(), dust = new THREE.Color();
+  const s1 = { x: 0, y: 0, ok: false };
   let raf = 0;
   const frame = () => {
     raf = requestAnimationFrame(frame);
@@ -332,17 +295,16 @@ export function createSquadScene(host: HTMLElement, field: Field, agentSets: Set
     pMat.uniforms["uPx"]!.value = renderer.getPixelRatio();
 
     // what is in play
-    const inPlay: Set<number> | null = srch ? null : ent ? new Set([ent.i, ...ent.ties]) : sel != null ? agentSets[sel] ?? null : null;
+    const inPlay: Set<number> | null = srch ? null : ent ? new Set([ent.i, ...ent.ties]) : null;
     const k = ease(9);
     dim += ((inPlay ? 1 : 0) - dim) * k;
     searchDim += ((srch && srch.matches.size ? 0.12 : srch ? 0.5 : 1) - searchDim) * ease(10);
     dust.copy(col.fg).lerp(col.bg, 0.42);
     const sizes = aSize.array as Float32Array, colors = aColor.array as Float32Array, alphas = aAlpha.array as Float32Array;
-    const hotSet = hot ? new Set(hot.entities) : null;
     for (let i = 0; i < N; i++) {
       const n = field.nodes[i]!;
       rel[i]! += ((inPlay?.has(i) ? 1 : 0) - rel[i]!) * k;
-      heat[i]! += ((hotSet?.has(i) ? 1 : 0) - heat[i]!) * ease(hotSet?.has(i) ? 18 : 10);
+      heat[i]! += ((hot?.has(i) ? 1 : 0) - heat[i]!) * ease(hot?.has(i) ? 18 : 10);
       match[i]! += ((srch?.matches.has(i) ? 1 : 0) - match[i]!) * ease(12);
       if (n.memory) { alphas[i] = 0; continue; }
       const h = Math.max(heat[i]!, match[i]!);
@@ -354,48 +316,20 @@ export function createSquadScene(host: HTMLElement, field: Field, agentSets: Set
     }
     aSize.needsUpdate = true; aColor.needsUpdate = true; aAlpha.needsUpdate = true;
     (strong.material as THREE.LineBasicMaterial).opacity = 0.14 * searchDim * (1 - 0.5 * dim);
-    (agentLinks.material as THREE.LineBasicMaterial).opacity = 0.3 * searchDim * (sel != null ? 0.6 : 1);
 
-    // glass
-    const look = (g: Glass, tint: THREE.Color, base: number, surf: number, vis: number) => {
-      g.tint.lerp(tint, k); g.base += (base - g.base) * k; g.surf += (surf - g.surf) * ease(9);
-      const m = g.mat, f = g.surf;
-      m.attenuationColor.copy(g.tint);
-      m.color.setRGB(1, 1, 1).lerp(g.tint, Math.min(1, g.base * 0.9)).lerp(g.tint, f);
-      m.attenuationDistance = THREE.MathUtils.lerp(9, 1.6, Math.min(1, g.base * 2.2));
-      m.emissive.copy(g.tint);
-      m.emissiveIntensity = THREE.MathUtils.lerp(THREE.MathUtils.clamp((g.base - 0.15) * 2.6, 0, 0.75), 0.55, f);
-      // once filled it stops being glass: no transmission, so it sorts after the lines and hides them
-      const solid = f > 0.98;
-      m.transmission = solid ? 0 : Math.max(0.001, 1 - f);
-      m.roughness = THREE.MathUtils.lerp(0.06, 0.9, f);
-      m.iridescence = 0.15 * (1 - f);
-      m.specularIntensity = 1 - 0.85 * f;
-      const tr = vis < 0.99 || solid;
-      if (m.transparent !== tr || m.depthWrite !== (!tr || solid)) { m.transparent = tr; m.depthWrite = !tr || solid; m.needsUpdate = true; }
-      m.opacity = vis;
-      (g.edges.material as THREE.LineBasicMaterial).opacity = 0.14 * vis;
-    };
-    for (const g of agents) {
-      const on = sel === g.a.i;
-      const target = (on ? 1.2 : sel != null ? 0.82 : 0.95) * (hot?.agent === g.a.i ? 1.1 : 1);
-      g.scale += (target - g.scale) * ease(12);
-      g.mesh.scale.setScalar(g.scale);
-      if (!reduced && g.a.working) g.mesh.rotation.y += dt * 0.06;
-      look(g, g.a.working ? col.act : col.fg, g.a.working ? 0.22 : 0.14, on ? 1 : 0, searchDim < 0.99 ? THREE.MathUtils.lerp(0.35, 1, searchDim) : 1);
-    }
+    // memory glass recedes with everything else when something is in play
     for (const g of memory) {
       const linked = inPlay ? field.edges.some(([a, b]) => (a === g.i && inPlay.has(b)) || (b === g.i && inPlay.has(a))) : true;
-      look(g, col.fg, 0.03, 0, THREE.MathUtils.lerp(1, linked ? 1 : 0.3, dim) * THREE.MathUtils.lerp(searchDim, 1, match[g.i]!));
+      g.vis += (THREE.MathUtils.lerp(1, linked ? 1 : 0.3, dim) * THREE.MathUtils.lerp(searchDim, 1, match[g.i]!) - g.vis) * k;
+      const tr = g.vis < 0.99;
+      if (g.mat.transparent !== tr) { g.mat.transparent = tr; g.mat.depthWrite = !tr; g.mat.needsUpdate = true; }
+      g.mat.opacity = g.vis;
+      (g.edges.material as THREE.LineBasicMaterial).opacity = 0.14 * g.vis;
     }
 
-    // ties of an opened entity; beams from a hovered row's author
+    // the ties of an opened entity
     ties.begin();
     if (ent) for (const j of ent.ties) ties.add(P[ent.i]!, P[j]!, c1.copy(col.bg).lerp(col.fg, 0.55), c2.copy(col.bg).lerp(col.fg, 0.4));
-    if (hot && hot.agent != null) {
-      const from = agents[hot.agent]?.mesh.position;
-      if (from) for (const j of hot.entities.slice(0, 12)) ties.add(from, P[j]!, c1.copy(col.bg).lerp(col.act, 0.85), c2.copy(col.bg).lerp(col.act, 0.5));
-    }
     ties.end();
 
     renderer.render(scene, camera);
@@ -407,35 +341,12 @@ export function createSquadScene(host: HTMLElement, field: Field, agentSets: Set
   const placeLabels = () => {
     placed.length = 0;
     for (const r of hooks.blockers()) placed.push([r.left - 8, r.top - 8, r.right + 16, r.bottom + 8]);
-    // agent names first: they are the cast
-    for (const g of agents) {
-      tA.copy(g.mesh.position); tA.y += g.scale * 0.55 + 0.28;
-      toScreen(tA, s1);
-      const op = (sel === g.a.i || !s1.ok ? 0 : 1) * THREE.MathUtils.lerp(0.4, 1, searchDim);
-      place(g.label, s1.x, s1.y, op, true);
-      if (op > 0) {
-        // measured once: reading layout every frame after writing transforms forces a reflow per agent
-        const L = g.label as HTMLDivElement & { w?: number; h?: number };
-        if (L.w == null) { L.w = L.offsetWidth; L.h = L.offsetHeight; }
-        placed.push([s1.x - L.w / 2 - 6, s1.y - L.h! - 4, s1.x + L.w / 2 + 6, s1.y + 4]);
-      }
-    }
-    // the selected agent's solid: labels give way to it
-    if (sel != null) {
-      const g = agents[sel]!;
-      toScreen(g.mesh.position, s1);
-      tB.setFromMatrixColumn(camera.matrixWorld, 0);
-      toScreen(tA.copy(g.mesh.position).addScaledVector(tB, g.scale * 0.9), s2);
-      const R = Math.abs(s2.x - s1.x);
-      if (s1.ok) placed.push([s1.x - R, s1.y - R, s1.x + R, s1.y + R]);
-    }
     const cand: Cand[] = [];
     const inHand = srch ? srch.active : ent ? ent.i : null;
     const handText = srch ? srch.text : ent?.text;
-    const selAgent = sel != null ? field.agents[sel] : null;
     for (let i = 0; i < N; i++) {
       const n = field.nodes[i]!;
-      const full = i === inHand ? !!handText : !!(selAgent && !srch && !ent && selAgent.touchIdx.includes(i) && selAgent.say[n.id]);
+      const full = i === inHand && !!handText;
       const restOp = n.named && (field.hubs.has(i) || n.memory) ? 1 : 0;
       let op = srch && srch.matches.size ? match[i]! : Math.max(heat[i]!, THREE.MathUtils.lerp(restOp, rel[i]!, dim)) * (srch ? searchDim : 1);
       if (i === inHand) op = 1;
@@ -445,7 +356,7 @@ export function createSquadScene(host: HTMLElement, field: Field, agentSets: Set
       if (lab.full !== full) {
         lab.full = full;
         lab.classList.toggle("full", full);
-        say(lab, n.label, full ? (i === inHand ? handText : selAgent?.say[n.id]) : undefined);
+        say(lab, n.label, full ? handText : undefined);
         lab.w = undefined;
       }
       toScreen(P[i]!, s1);
@@ -466,16 +377,9 @@ export function createSquadScene(host: HTMLElement, field: Field, agentSets: Set
   void document.fonts?.ready.then(() => { for (const L of labels.values()) L.w = undefined; });
 
   return {
-    selectAgent(i) {
-      sel = i; ent = null;
-      if (i == null) return setGoal({ ...OVERVIEW, az: rig.az });
-      const a = field.agents[i]!;
-      const pts = [new THREE.Vector3(...a.p), ...a.touchIdx.map((t) => P[t]!)];
-      frameAround(pts, 0.5, 2.6, 9, 18);
-    },
+    overview() { ent = null; setGoal({ ...OVERVIEW, az: rig.az }); },
     openEntity(i, tiesTo = [], text) {
       if (i == null) { ent = null; return; }
-      sel = null;
       ent = { i, ties: tiesTo, text };
       const lab = labels.get(i);
       if (lab) lab.full = undefined;
@@ -489,7 +393,7 @@ export function createSquadScene(host: HTMLElement, field: Field, agentSets: Set
       if (state.move === "glide" && state.active != null) setGoal({ el: 0.5, dist: 9, target: P[state.active]!.clone() });
       else if (state.move === "frame") frameAround(state.matches.map((m) => P[m]!), 0.55, 3.2, 7, OVERVIEW.dist);
     },
-    hover(entities, agent) { hot = entities ? { entities, agent } : null; },
+    hover(entities) { hot = entities ? new Set(entities) : null; },
     shift(px) { shiftGoal = px; },
     dispose() {
       cancelAnimationFrame(raf);
