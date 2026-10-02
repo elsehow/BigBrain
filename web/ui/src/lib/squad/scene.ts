@@ -144,32 +144,12 @@ export function createSquadScene(host: HTMLElement, field: Field, hooks: SceneHo
   // ── glass: memory topics ─────────────────────────────────────────────────
   const octa = new THREE.OctahedronGeometry(1, 0);
   interface Glass { mesh: THREE.Mesh; mat: THREE.MeshPhysicalMaterial; vis: number }
-  // Clear glass, not frost: smooth and nearly colourless, crisp clear-coat
-  // highlights, a faint dispersion fringe, no outline. The one imperfection is
-  // a low, gentle waviness in the surface (no grain), and each topic sits at
-  // its own slight tilt, so no two catch the light the same way.
-  const wave = (() => {
-    const S = 128, data = new Uint8Array(new ArrayBuffer(S * S * 4)), F = 3;
-    const rnd = (x: number, y: number) => { const h = Math.sin(x * 127.1 + y * 311.7) * 43758.5453; return h - Math.floor(h); };
-    const height = (x: number, y: number) => {
-      const fx = (x / S) * F, fy = (y / S) * F, ix = Math.floor(fx), iy = Math.floor(fy), tx = fx - ix, ty = fy - iy;
-      const w = (k: number) => k * k * (3 - 2 * k), at = (a: number, b: number) => rnd(((a % F) + F) % F, ((b % F) + F) % F);
-      return THREE.MathUtils.lerp(THREE.MathUtils.lerp(at(ix, iy), at(ix + 1, iy), w(tx)), THREE.MathUtils.lerp(at(ix, iy + 1), at(ix + 1, iy + 1), w(tx)), w(ty));
-    };
-    const n = new THREE.Vector3();
-    for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
-      n.set(-(height(x + 1, y) - height(x - 1, y)) * 8, -(height(x, y + 1) - height(x, y - 1)) * 8, 1).normalize();
-      const k = (y * S + x) * 4;
-      data[k] = Math.round((n.x * 0.5 + 0.5) * 255); data[k + 1] = Math.round((n.y * 0.5 + 0.5) * 255); data[k + 2] = Math.round((n.z * 0.5 + 0.5) * 255); data[k + 3] = 255;
-    }
-    const t = new THREE.DataTexture(data, S, S);
-    t.wrapS = t.wrapT = THREE.RepeatWrapping;
-    t.needsUpdate = true;
-    return t;
-  })();
+  // Smooth glass that diffuses a little from within (rough transmission), nearly
+  // colourless, crisp clear-coat highlights, no outline, no surface texture.
+  // Each topic sits at its own slight tilt, so no two catch the light alike.
   const glass = (geo: THREE.BufferGeometry): Glass => {
     const mat = new THREE.MeshPhysicalMaterial({ color: 0xffffff, metalness: 0, flatShading: true,
-      roughness: 0.1, normalMap: wave, normalScale: new THREE.Vector2(0.07, 0.07),
+      roughness: 0.22,
       transmission: 1, thickness: 1, ior: 1.42, dispersion: 2.5, attenuationDistance: 5,
       clearcoat: 1, clearcoatRoughness: 0.04, specularIntensity: 0.85, iridescence: 0.08, iridescenceIOR: 1.3,
       transparent: true, opacity: GLASS_OPACITY, depthWrite: false });
@@ -179,13 +159,13 @@ export function createSquadScene(host: HTMLElement, field: Field, hooks: SceneHo
     return { mesh, mat, vis: 1 };
   };
   // ── pilots: crystal tetrahedra over what they're working on ───────────────
-  // The triangle, in crystal: its faces carry a fine cellular facet texture
-  // (a Voronoi normal map — tiny flat facets, each tilted its own way), so
-  // light breaks across each face like cut glass or ice, restrained in
-  // dispersion. Selected, it glows from within in the activity colour: the
+  // The triangle, in glass that diffuses from within: no surface texture
+  // (textures read cheap) — smooth faces over a body that scatters what passes
+  // through it (rough transmission), lightly tinted, a crisp clear coat on top.
+  // Selected, it glows from within in the activity colour: the
   // glass itself lit in that colour, and a soft glow at its heart. (An opaque
-  // core seen through the facets broke into blocky shards; the glass glowing
-  // reads as light, not as an object inside.)
+  // core seen through the glass broke into shards; the glass glowing reads as
+  // light, not as an object inside.)
   const tetra = (() => {
     const v = [[0, -1, 0], [0, 1 / 3, -0.9428], [0.8165, 1 / 3, 0.4714], [-0.8165, 1 / 3, 0.4714]].map((a) => new THREE.Vector3(...(a as [number, number, number])));
     const pos: number[] = [], uv: number[] = [];
@@ -201,33 +181,6 @@ export function createSquadScene(host: HTMLElement, field: Field, hooks: SceneHo
     g.computeVertexNormals();
     return g;
   })();
-  const facets = (() => {
-    const S = 256, CELLS = 46, data = new Uint8Array(new ArrayBuffer(S * S * 4));
-    let r = 7;
-    const rnd = () => { r = (r * 16807) % 2147483647; return r / 2147483647; };
-    const cells = Array.from({ length: CELLS }, () => {
-      const t = rnd() * Math.PI * 2, tilt = 0.12 + rnd() * 0.3;
-      const n = new THREE.Vector3(Math.cos(t) * tilt, Math.sin(t) * tilt, 1).normalize();
-      return { x: rnd() * S, y: rnd() * S, n };
-    });
-    for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
-      let best = cells[0]!, bd = Infinity;
-      for (const c of cells) for (const ox of [-S, 0, S]) for (const oy of [-S, 0, S]) {
-        const d = (c.x + ox - x) ** 2 + (c.y + oy - y) ** 2;
-        if (d < bd) { bd = d; best = c; }
-      }
-      const k = (y * S + x) * 4;
-      data[k] = Math.round((best.n.x * 0.5 + 0.5) * 255); data[k + 1] = Math.round((best.n.y * 0.5 + 0.5) * 255); data[k + 2] = Math.round((best.n.z * 0.5 + 0.5) * 255); data[k + 3] = 255;
-    }
-    const t = new THREE.DataTexture(data, S, S);
-    t.wrapS = t.wrapT = THREE.RepeatWrapping;
-    // filtered and mipmapped: facet borders stay crisp lines, not pixel stairs
-    t.magFilter = THREE.LinearFilter;
-    t.minFilter = THREE.LinearMipmapLinearFilter;
-    t.generateMipmaps = true;
-    t.needsUpdate = true;
-    return t;
-  })();
   const glowTex = (() => {
     const c = document.createElement("canvas");
     c.width = c.height = 128;
@@ -237,9 +190,8 @@ export function createSquadScene(host: HTMLElement, field: Field, hooks: SceneHo
     return new THREE.CanvasTexture(c);
   })();
   const crystalMat = () => new THREE.MeshPhysicalMaterial({ color: 0xffffff, metalness: 0, flatShading: true,
-    roughness: 0.05, normalMap: facets, normalScale: new THREE.Vector2(0.36, 0.36),
-    transmission: 1, thickness: 1.2, ior: 1.6, dispersion: 2.5, attenuationDistance: 4,
-    iridescence: 0.12, iridescenceIOR: 1.4, clearcoat: 0.6, clearcoatRoughness: 0.05, specularIntensity: 1,
+    roughness: 0.32, transmission: 1, thickness: 1.5, ior: 1.5, dispersion: 1.5, attenuationDistance: 2.6,
+    clearcoat: 1, clearcoatRoughness: 0.04, specularIntensity: 0.9,
     transparent: true, opacity: 0.96, depthWrite: false });
   interface Pilot { d: FieldPilot; glass: Glass; core: THREE.Mesh; halo: THREE.Sprite; label: HTMLDivElement & { w?: number; h?: number; op?: number }; scale: number; fill: number; at: THREE.Vector3 }
   const pilots = new Map<string, Pilot>();
@@ -637,7 +589,7 @@ export function createSquadScene(host: HTMLElement, field: Field, hooks: SceneHo
       canvas.removeEventListener("pointerup", onUp); canvas.removeEventListener("wheel", onWheel);
       labelLayer.removeEventListener("click", onLabel);
       scene.traverse((o) => { const m = o as THREE.Mesh; m.geometry?.dispose(); const mat = m.material as THREE.Material | THREE.Material[] | undefined; if (Array.isArray(mat)) mat.forEach((x) => x.dispose()); else mat?.dispose(); });
-      wave.dispose(); facets.dispose(); glowTex.dispose();
+      glowTex.dispose();
     scene.environment?.dispose(); pmrem.dispose(); renderer.dispose();
       canvas.remove(); labelLayer.remove();
     },

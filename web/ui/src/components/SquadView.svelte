@@ -188,7 +188,7 @@
   }
   /** Slide the field's centre clear of the panels: right of a left column, left of the sidebar. */
   const shiftFor = () => {
-    const left = searching ? Math.min(600, innerWidth * 0.4) : openPilot ? Math.min(760, Math.max(420, innerWidth * 0.34)) + 34 : ent != null ? Math.min(380, innerWidth * 0.26) : 0;
+    const left = searching ? Math.min(600, innerWidth * 0.4) : openPilot ? Math.min(1400, Math.max(560, innerWidth * 0.48)) + 34 : ent != null ? Math.min(380, innerWidth * 0.26) : 0;
     const right = sidebarOpen ? Math.min(640, innerWidth * 0.38) + 34 : 0;
     return (left - right) / 2;
   };
@@ -480,7 +480,7 @@
         {#if !detail.messages.length && detail.phase === "draft"}<p class="activity">Ask it anything — it can read your vault.</p>{/if}
       </div>
       <div class="composer">
-        <textarea bind:this={composerEl} bind:value={draftText} rows="2" placeholder={`Message ${detail.title}…`} aria-label="Message"></textarea>
+        <textarea bind:this={composerEl} bind:value={draftText} rows="3" placeholder={`Message ${detail.title}…`} aria-label="Message"></textarea>
         <div class="row">
           <span class="k">↵ Send · ⇧↵ New line · Esc Back</span>
           {#if detail.phase === "working"}<button type="button" class="find" onclick={() => void stopPilot()}>Stop</button>{/if}
@@ -547,36 +547,38 @@
   .new { color: var(--sq-muted); }
   .find.lit { color: var(--fg); }
   /* the chat sits on the ground itself: opaque, fading into the field at its right edge */
-  /* sized to the window: a wider column and larger type on big screens, the
-     message text held to a readable measure */
-  .chat { --chat-w: clamp(420px, 34vw, 760px); --chat-fs: clamp(14px, 0.42vw + 8.6px, 17.5px);
+  /* dense, like a working terminal: half the window, small type, long lines,
+     tight rhythm — these are serious conversations */
+  .chat { --chat-w: clamp(560px, 48vw, 1400px); --chat-fs: 13.5px;
     position: absolute; top: 0; bottom: 0; left: 0; width: calc(var(--chat-w) + var(--app-gutter, 34px)); padding: 72px 0 26px var(--app-gutter, 34px); box-sizing: border-box;
-    display: flex; flex-direction: column; gap: 14px; background: var(--bg); z-index: 1; }
+    display: flex; flex-direction: column; gap: 10px; background: var(--bg); z-index: 1; }
   .chat::after { content: ""; position: absolute; top: 0; bottom: 0; right: -96px; width: 96px; pointer-events: none;
     background: linear-gradient(to right, var(--bg), color-mix(in srgb, var(--bg) 0%, transparent)); }
   .chat .top { display: flex; align-items: flex-start; gap: 12px; }
   .chat .top h2 { flex: 1; min-width: 0; }
   .chat .top .find { flex: none; margin-top: 4px; height: 24px; }
   .chat header { display: flex; flex-direction: column; gap: 8px; }
-  .chat h2 { margin: 0; font: 500 clamp(22px, 1.7vw, 34px)/1.15 var(--font-app); letter-spacing: -0.025em; }
+  .chat h2 { margin: 0; font: 600 17px/1.25 var(--font-app); letter-spacing: -0.01em; }
   .chat .ctx { margin: 0; font: 400 11px/1.4 var(--font-mono); color: var(--sq-faint); }
-  .msgs { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; gap: 16px; padding-right: 8px;
+  .msgs { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; gap: 10px; padding-right: 8px;
     scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--fg) 22%, transparent) transparent; }
   .msg .body :global(pre) { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0 0 8px; }
-  .msg { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 12px; }
-  .msg .who { font: 500 10.5px/1.7 var(--font-mono); color: var(--sq-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .msg { display: grid; grid-template-columns: 104px minmax(0, 1fr); gap: 14px; }
+  .msg .who { font: 500 11px/1.45 var(--font-mono); color: var(--sq-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-top: 1px; }
   .msg.user .who { color: var(--sq-muted); }
-  .msg .body { max-width: 68ch; font: 400 var(--chat-fs)/1.6 var(--font-app); color: color-mix(in srgb, var(--fg) 88%, var(--bg)); overflow-wrap: anywhere; }
+  .msg .body { font: 400 var(--chat-fs)/1.45 var(--font-app); color: color-mix(in srgb, var(--fg) 90%, var(--bg)); overflow-wrap: anywhere; }
   .msg.user .body { color: var(--fg); font-weight: 500; }
-  .msg .body :global(p) { margin: 0 0 8px; } .msg .body :global(p:last-child) { margin: 0; }
-  .msg .body :global(ul), .msg .body :global(ol) { margin: 0 0 8px; padding-left: 18px; }
+  .msg .body :global(p) { margin: 0 0 6px; } .msg .body :global(p:last-child) { margin: 0; }
+  .msg .body :global(ul), .msg .body :global(ol) { margin: 0 0 6px; padding-left: 16px; }
+  .msg .body :global(li) { margin: 0; }
+  .msg .body :global(h1), .msg .body :global(h2), .msg .body :global(h3), .msg .body :global(h4) { margin: 10px 0 4px; font: 600 var(--chat-fs)/1.4 var(--font-app); }
   .msg .body :global(code) { font: 400 12.5px/1.4 var(--font-mono); }
   .msg.live .body { color: var(--sq-muted); }
-  .activity { margin: 0 0 0 108px; font: 400 12.5px/1.4 var(--font-mono); color: var(--sq-faint); }
+  .activity { margin: 0 0 0 118px; font: 400 12px/1.4 var(--font-mono); color: var(--sq-faint); }
   .activity.err { color: color-mix(in srgb, var(--activity) 80%, var(--fg)); }
   .composer { display: flex; flex-direction: column; gap: 8px; }
-  .composer textarea { resize: none; border: 0; border-radius: 10px; padding: 12px 14px; background: color-mix(in srgb, var(--fg) 7%, var(--bg)); color: var(--fg);
-    font: 400 calc(var(--chat-fs) + 1px)/1.45 var(--font-app); outline: none; }
+  .composer textarea { resize: none; border: 0; border-radius: 8px; padding: 9px 12px; background: color-mix(in srgb, var(--fg) 7%, var(--bg)); color: var(--fg);
+    font: 400 var(--chat-fs)/1.45 var(--font-app); outline: none; }
   .composer textarea::placeholder { color: color-mix(in srgb, var(--fg) 55%, transparent); opacity: 1; }
   .composer .row { display: flex; align-items: center; gap: 8px; }
   .composer .row .k { margin-right: auto; }
