@@ -134,3 +134,16 @@ export const sharedConnectionsStore = (): string | undefined => str("BIGBRAIN_SH
 /** Bearer token for a hosted intake-firewall endpoint (lib/firewall.ts).
  * A localhost endpoint needs none. */
 export const firewallToken = (): string | undefined => str("BIGBRAIN_FIREWALL_TOKEN");
+
+/** The local firewall model server (bin/firewall.ts), loopback only. Never
+ * the bare `PORT` fallback: that is the api's or the viewer's own port in
+ * the very processes that call the firewall. */
+export const firewallPort = (): number => Number(str("BIGBRAIN_FIREWALL_PORT") ?? 4750);
+
+/** Where the local model server's binary is, when not beside bun in the app
+ * bundle (a checkout: a llama-server built by desktop/build-llama-server.sh). */
+export const llamaServerOverride = (): string | undefined => str("BIGBRAIN_LLAMA_SERVER");
+
+/** Where downloaded firewall model weights live (lib/firewallModel.ts).
+ * Default ~/.local/share/bigbrain/models — one copy per machine. */
+export const firewallModelsDir = (): string | undefined => str("BIGBRAIN_MODELS_DIR");

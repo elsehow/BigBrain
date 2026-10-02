@@ -47,9 +47,11 @@ export function parseCuration(raw: unknown): CurationConfig | undefined {
 export const curationAgent = (manifest: Manifest): AgentId => manifest.curation?.agent ?? "claude";
 
 /** The intake firewall (lib/firewall.ts): a Jev/SystemOne `/v1/systemone`
- * endpoint that every arrival is screened against. Absent means off — an
- * older vault keeps landing exactly as it did (design-principles §5). */
-export interface FirewallConfig { url: string; model: string; thresholds: { credential: number; malicious: number } }
+ * endpoint that every arrival is screened against. No `url` means the app's
+ * own local model (lib/firewallModel.ts), served by `bin/firewall.ts`.
+ * Absent means off — an older vault keeps landing exactly as it did
+ * (design-principles §5). */
+export interface FirewallConfig { url?: string; model: string; thresholds: { credential: number; malicious: number } }
 /** Tuned on deploy/firewall/eval with local Clef-flash: the credential
  * question separates cleanly, so it is held low (a reset link is the threat
  * this exists for); the malicious one flags marketing too, so it is held high. */
@@ -58,7 +60,8 @@ export function parseFirewall(raw: unknown): FirewallConfig | undefined {
   if (raw === undefined || raw === null) return undefined;
   if (typeof raw !== "object" || Array.isArray(raw)) throw new Error("firewall must be a mapping");
   const f = raw as Record<string, unknown>;
-  if (typeof f.url !== "string" || !/^https?:\/\/\S+$/.test(f.url.trim())) throw new Error("firewall needs a url (http:// or https://)");
+  if (f.url !== undefined && (typeof f.url !== "string" || !/^https?:\/\/\S+$/.test(f.url.trim())))
+    throw new Error("firewall url must be http:// or https://");
   const t = f.thresholds ?? {};
   if (typeof t !== "object" || Array.isArray(t)) throw new Error("firewall thresholds must be a mapping");
   const thresholds = { ...FIREWALL_THRESHOLDS };
@@ -69,7 +72,7 @@ export function parseFirewall(raw: unknown): FirewallConfig | undefined {
   }
   const model = f.model === undefined ? "clef-flash" : String(f.model).trim();
   if (!model) throw new Error("firewall model must not be empty");
-  return { url: f.url.trim(), model, thresholds };
+  return { ...(typeof f.url === "string" ? { url: f.url.trim() } : {}), model, thresholds };
 }
 
 export type Auth = "max" | "api";
