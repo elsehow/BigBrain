@@ -200,8 +200,19 @@
     if (!openPilot) return;
     try { await pilotReq("/stop", { id: openPilot }); await loadDetail(); } catch (e) { flash(errText(e)); }
   }
-  /** Chat text: markdown, with [[path|title]] links read as their titles. */
-  const render = (t: string) => sanitizeHtml(md(t.replace(/\[\[[^|\]]*\|([^\]]*)\]\]/g, "**$1**").replace(/\[\[([^\]]*)\]\]/g, "**$1**")));
+  /** Chat text: markdown, with [[path|title]] citations as quiet links (as the app draws them). */
+  const CITE = "#/vault/";
+  const render = (t: string) => sanitizeHtml(md(t.replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_, path: string, label?: string) =>
+    `[${(label ?? path.split("/").pop()!.replace(/\.md$/, "")).replace(/[[\]]/g, "")}](${CITE}${encodeURIComponent(path)})`)));
+  /** A citation opens its entity in the field beside the chat, or the note in the app when it isn't drawn. */
+  function citation(e: MouseEvent): void {
+    const href = (e.target as Element).closest("a")?.getAttribute("href");
+    if (!href?.startsWith(CITE)) return;
+    e.preventDefault();
+    const path = decodeURIComponent(href.slice(CITE.length));
+    const i = field?.nodes.find((n) => n.path === path || n.id === path)?.i;
+    if (i != null) void openEntity(i); else window.open(`${APP}${href}`, "_blank", "noopener");
+  }
 
   const authorName = (id: string | null) => (id ? squad?.authors.find((a) => a.id === id)?.name ?? id : "You");
   const when = (iso: string) => {
@@ -575,7 +586,8 @@
         </div>
         {#if detail.contextNodes?.length}<p class="ctx">{detail.contextNodes.map((n) => n.title ?? n.id).join(" · ")}</p>{/if}
       </header>
-      <div class="msgs" bind:this={msgsEl}>
+      <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+      <div class="msgs" bind:this={msgsEl} onclick={citation}><div class="col">
         {#each detail.messages as m (m.id)}
           <div class="msg {m.role}"><div class="body">{@html render(m.text)}</div></div>
         {/each}
@@ -583,8 +595,8 @@
         {#if detail.phase === "working" && !detail.live}<p class="activity">{detail.activity || "Working…"}</p>{/if}
         {#if detail.error}<p class="activity err">{detail.error}</p>{/if}
         {#if !detail.messages.length && detail.phase === "draft"}<p class="activity">Ask it anything — it can read your vault.</p>{/if}
-      </div>
-      <div class="composer">
+      </div></div>
+      <div class="composer col">
         <textarea bind:this={composerEl} bind:value={draftText} rows="3" placeholder={`Message ${detail.title}…`} aria-label="Message"></textarea>
         <div class="row">
           <span class="k">↵ Send · ⇧↵ New line · Esc Back</span>
@@ -697,20 +709,37 @@
   .chat header { display: flex; flex-direction: column; gap: 8px; }
   .chat h2 { margin: 0; font: 600 17px/1.25 var(--font-app); letter-spacing: -0.01em; }
   .chat .ctx { margin: 0; font: 400 11px/1.4 var(--font-mono); color: var(--sq-faint); }
-  /* like iA Writer: the measure holds (~72 characters) and the type grows with the column */
-  .msgs { --chat-fs: clamp(14px, 2.55cqi, 18.5px); flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; gap: 16px; padding-right: 10px;
+  /* one reading column, like Claude or iA Writer: the measure holds near 68
+     characters, the type grows a little with the panel, and your messages sit
+     in a bubble at the column's right edge; the composer shares the column */
+  .msgs, .composer { --chat-fs: clamp(15px, 2.25cqi, 17px); } /* cqi: the .chat panel's width */
+  .chat .col { width: 100%; max-width: calc(68 * 0.56 * var(--chat-fs) + 28px); margin-inline: auto; box-sizing: border-box; }
+  /* the gutter is kept on both sides, so the column centres exactly over the composer's */
+  .msgs { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable both-edges;
     scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--fg) 22%, transparent) transparent; }
-  .msg .body :global(pre) { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0 0 8px; }
-  .msg { display: flex; max-width: 72ch; }
-  .msg.user { align-self: flex-end; max-width: min(56ch, 82%); }
-  .msg.user .body { padding: 9px 14px; border-radius: 14px; background: color-mix(in srgb, var(--fg) 9%, var(--bg)); }
-  .msg .body { font: 400 var(--chat-fs)/1.58 var(--font-app); color: color-mix(in srgb, var(--fg) 90%, var(--bg)); overflow-wrap: anywhere; }
-  .msg.user .body { color: var(--fg); }
-  .msg .body :global(p) { margin: 0 0 10px; } .msg .body :global(p:last-child) { margin: 0; }
-  .msg .body :global(ul), .msg .body :global(ol) { margin: 0 0 10px; padding-left: 20px; }
-  .msg .body :global(li) { margin: 0 0 3px; }
-  .msg .body :global(h1), .msg .body :global(h2), .msg .body :global(h3), .msg .body :global(h4) { margin: 10px 0 4px; font: 600 var(--chat-fs)/1.4 var(--font-app); }
-  .msg .body :global(code) { font: 400 12.5px/1.4 var(--font-mono); }
+  .msgs .col { display: flex; flex-direction: column; gap: 24px; padding-bottom: 8px; }
+  .msg { display: flex; }
+  .msg.user { align-self: flex-end; max-width: 85%; }
+  .msg .body { min-width: 0; font: 400 var(--chat-fs)/1.65 var(--font-app); color: color-mix(in srgb, var(--fg) 92%, var(--bg)); overflow-wrap: anywhere; }
+  .msg.user .body { padding: 10px 16px; border-radius: 16px; background: color-mix(in srgb, var(--fg) 9%, var(--bg)); color: var(--fg); }
+  .msg .body :global(> :first-child) { margin-top: 0; } .msg .body :global(> :last-child) { margin-bottom: 0; }
+  .msg .body :global(p) { margin: 0 0 0.85em; }
+  .msg .body :global(ul), .msg .body :global(ol) { margin: 0 0 0.85em; padding-left: 1.5em; }
+  .msg .body :global(li) { margin: 0; padding-left: 0.2em; } .msg .body :global(li + li) { margin-top: 0.4em; }
+  .msg .body :global(li > p) { margin: 0; } .msg .body :global(li > ul), .msg .body :global(li > ol) { margin: 0.4em 0 0; }
+  .msg .body :global(li::marker) { color: var(--sq-muted); }
+  .msg .body :global(h1), .msg .body :global(h2), .msg .body :global(h3), .msg .body :global(h4) { margin: 1.3em 0 0.5em; font: 600 calc(var(--chat-fs) * 1.06)/1.35 var(--font-app); letter-spacing: -0.005em; }
+  .msg .body :global(strong) { font-weight: 600; color: var(--fg); }
+  .msg .body :global(a) { color: inherit; text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--fg) 35%, transparent); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+  .msg .body :global(a[href^="#/vault/"]) { font-size: 0.9em; color: var(--sq-muted); }
+  .msg .body :global(a:hover) { color: var(--fg); text-decoration-color: currentColor; }
+  .msg .body :global(blockquote) { margin: 0 0 0.85em; padding-left: 1em; border-left: 2px solid var(--rule); color: var(--sq-muted); }
+  .msg .body :global(hr) { border: 0; border-top: 1px solid var(--rule); margin: 1.4em 0; }
+  .msg .body :global(code) { font: 400 0.86em/1.4 var(--font-mono); padding: 0.1em 0.3em; border-radius: 4px; background: color-mix(in srgb, var(--fg) 8%, transparent); }
+  .msg .body :global(pre) { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0 0 0.85em; padding: 12px 14px; border-radius: 8px; background: color-mix(in srgb, var(--fg) 7%, var(--bg)); }
+  .msg .body :global(pre code) { padding: 0; background: none; }
+  .msg .body :global(table) { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; margin: 0 0 0.85em; font-size: 0.92em; }
+  .msg .body :global(th), .msg .body :global(td) { border: 1px solid var(--rule); padding: 0.4em 0.65em; vertical-align: top; text-align: left; }
   .msg.live .body { color: var(--sq-muted); }
   .activity { margin: 0; font: 400 12px/1.4 var(--font-mono); color: var(--sq-faint); }
   .activity.err { color: color-mix(in srgb, var(--activity) 80%, var(--fg)); }
