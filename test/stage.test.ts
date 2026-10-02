@@ -20,13 +20,13 @@ import {
   openStaged,
   passStaged,
   STAGE_INLINE_CHARS,
-  stage,
   stageDir,
   stagedCount,
   stagedHeads,
   stagedIds,
   type StagedItem,
 } from "../lib/stage";
+import { stage } from "../lib/stageStorage";
 import { tendDue } from "../lib/tend";
 import { readEmailState } from "../lib/emailState";
 import { dueWork, nextWork, submitWire, type StagedJob } from "../lib/work";

@@ -1,3 +1,4 @@
+import { namingMoment, type TaskNamer } from "./pilotTaskName";
 import { readHistoryIndex } from "./applicationHistoryIndex";
 import { pilotChatSummary, matchesPilotQuery, type PilotChatSummary } from "./pilotChatSummary";
 import { ApplicationActions, ActionRefusal, canonicalAction, actionFailure, actionReceiptView, type ActionHistoryQuery, type ActionReceipt, type ActionRequest } from "./applicationActions";
@@ -37,17 +38,29 @@ import { readEnvValues, writeEnvValues } from "./envFile";
 import { PILOT_NOTIFICATION_TOOLS, type PilotNotification } from "./pilotNotifications";
 
 const READERS = new Set(["load_memory", "search_vault", "read_note", "recent", "email_search", "email_read", "inbox_list", "inbox_read", "granola_tools", "granola_read", "source_read_state", "integration_capabilities"]);
+const UNTITLED = ["New session", "Draft session"];
+/** The stopgap name: the first user message, clipped. */
+function firstLineTitle(s: PilotChatSession): string | null {
+  const first = s.messages.find(m => m.role === "user");
+  if (!first) return null;
+  const title = mentionText(parseMentions(first.text || first.images?.[0]?.name || "Image conversation")).replace(/\s+/g, " ").trim();
+  if (!title) return null;
+  const chars = Array.from(title);
+  return chars.length <= 80 ? title : chars.slice(0, 79).join("").replace(/\s+\S*$/, "") + "…";
+}
 /** A completed conversation always has a usable title, even without tool calls. */
 function nameUntitledSession(s: PilotChatSession): boolean {
-  if (!["New session", "Draft session"].includes(s.title)) return false;
-  const first = s.messages.find(m => m.role === "user");
-  if (!first) return false;
-  const title = mentionText(parseMentions(first.text || first.images?.[0]?.name || "Image conversation")).replace(/\s+/g, " ").trim();
+  if (!UNTITLED.includes(s.title)) return false;
+  const title = firstLineTitle(s);
   if (!title) return false;
-  const chars = Array.from(title);
-  s.title = chars.length <= 80 ? title : chars.slice(0, 79).join("").replace(/\s+\S*$/, "") + "…";
-  s.viewRevision++;
+  s.title = title; s.viewRevision++;
   return true;
+}
+/** A title from before titleSource was recorded counts as the engine's only
+ * when it visibly is: blank, the first-line stopgap, or a "Re: …" seed. Any
+ * other may be a name someone typed, and is left alone. */
+function engineTitled(s: PilotChatSession): boolean {
+  return UNTITLED.includes(s.title) || s.title === firstLineTitle(s) || s.title.startsWith("Re: ");
 }
 const SHARED_TOOLS = new Set([...READERS, "inbox_set_unread", "drop", "directive", "status", "capabilities"]);
 export const pilotChatTools = () => [
@@ -86,6 +99,9 @@ type Options = {
   land?: (content: string) => Promise<IntakeReceipt>;
   graph?: () => readonly GraphIdentity[];
   tool?: (name: string, args: Record<string, unknown>, signal: AbortSignal) => Promise<unknown>;
+  /** Names sessions as tasks (lib/pilotTaskName.ts's nameTask). Opt-in: the
+   * app passes it; tests and tools that don't stay off the Quick model. */
+  nameTask?: TaskNamer;
 };
 
 export class PilotChats {
@@ -174,6 +190,8 @@ export class PilotChats {
   private timer?: ReturnType<typeof setInterval>;
   private sweeping?: Promise<void>;
   private deactivatedClients = new Set<string>();
+  /** The user-message count each session was last sent to Quick for a name at. */
+  private naming = new Map<string, number>();
   private composers = new Map<string, { id: string; until: number }>();
   private now(): number { return this.options.now?.() ?? Date.now(); }
   constructor(private root: string, private options: Options = {}) {
@@ -431,6 +449,29 @@ export class PilotChats {
     this.options.changes?.changed("pilot", s.id, s.revision + 1);
     this.release(s.id); this.conversations.delete(s.id); rmSync(conversationPath(this.root, s.id), { force: true });
   }
+  /** A person's name for the session: it stands, and Quick stops re-naming it. */
+  rename(id: unknown, title: unknown): PilotChatSession {
+    const s = this.get(id);
+    if (typeof title !== "string" || !title.trim() || title.length > 100) throw new PilotError("Choose a title under 100 characters.");
+    s.title = title.trim(); s.titleSource = "human"; s.viewRevision++;
+    this.save(s); return s;
+  }
+  /** As the conversation develops, Quick names the task (lib/pilotTaskName.ts) —
+   * never over a person's name, at most once per naming moment. A session
+   * Quick hasn't named yet is named on its next reply, whatever the count. */
+  private retitle(s: PilotChatSession): void {
+    const namer = this.options.nameTask;
+    const asked = s.messages.filter((m) => m.role === "user").length;
+    const due = s.titleSource === "auto" ? namingMoment(asked) : !s.titleSource && engineTitled(s);
+    if (!namer || !due || (this.naming.get(s.id) ?? 0) >= asked) return;
+    this.naming.set(s.id, asked);
+    void namer(this.root, s.messages.map((m) => ({ role: m.role, text: m.text })), s.title).then((name) => {
+      const live = this.sessions.get(s.id);
+      if (!name || !live || live.titleSource === "human" || live.title === name) return;
+      live.title = name; live.titleSource = "auto"; live.viewRevision++;
+      this.save(live);
+    });
+  }
   setContext(id: unknown, nodes: unknown, title: unknown, expectedRevision: unknown): PilotChatSession {
     const s = this.get(id);
     if (expectedRevision !== s.viewRevision) throw new PilotError("The context changed. Refresh before editing it again.", 409);
@@ -586,6 +627,7 @@ export class PilotChats {
       const saved = s.messages.find(m => m.id === lastProviderMessage && m.text === text);
       if (!saved) this.change(s, { kind: "message", turn: turn.id, message: { id: crypto.randomUUID(), role: "assistant", text, at: new Date(this.now()).toISOString(), ...(replyTo ? { replyTo } : {}) } });
       nameUntitledSession(s);
+      this.retitle(s);
     };
     // Bound concurrent host reads.
     const reads = new Set<Promise<unknown>>();

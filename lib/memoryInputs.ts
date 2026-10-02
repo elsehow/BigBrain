@@ -8,6 +8,7 @@ import { readEntityAliasLog } from "./entityAliasLog";
 import { isVoiceKind } from "./voiceFacts";
 import { memoryReadModel } from "./vaultReadModel";
 import { assertionSuperseded, supersededInsertionIds } from "./sourceSupersede";
+import type { SharedCheckpoint } from "./sharedMemory";
 
 export interface LogCursor { at: string; id: string }
 
@@ -16,6 +17,8 @@ export interface MemoryCheckpoint {
   insertions: string[];
   revocations: string[];
   aliases: string[];
+  /** Per joined shared vault (lib/sharedMemory.ts); absent before any. */
+  shared?: Record<string, SharedCheckpoint>;
 }
 
 export interface MemoryPosition {

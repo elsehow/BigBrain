@@ -9,6 +9,7 @@ import {accountPolicy,writeAccountPolicy,integrationAccounts,MANAGED_INTEGRATION
 import {sharedRuleScope,integrationRuleScope,type InclusionSource} from './inclusionPolicy';
 import {getReview,startReview,reviewState,rateReview,editReview,retryReview,finishReview,type ReviewContext} from './inclusionReview';
 import {ruleCandidateFilter,searchRuleEntities} from './sharedRuleMentions';
+import {ruleQueries} from './inclusionQueries';
 export async function inclusionReviewApi(req:IncomingMessage,res:ServerResponse,root:string){
  const url=new URL(req.url??'/','http://localhost');if(!url.pathname.startsWith('/api/inclusion-review'))return false;
  if(!allowVaultRequest(req,res,vaultIdentity(root)))return true;
@@ -36,6 +37,7 @@ export async function inclusionReviewApi(req:IncomingMessage,res:ServerResponse,
     context={root,store,scope:integrationRuleScope(name,account),text:body.text??prior.remembering.rule,sources:stageItemsForReview(root,name,account),select:()=>stageItemsForReview(root,name,account),check,save:text=>{const p=accountPolicy(root,name,account);writeAccountPolicy(root,name,account,{...p,remembering:{...p.remembering,rule:text}});}};
    }else throw Error('Choose a shared vault or integration.');
    if(typeof context.text!=='string'||!context.text.trim()||context.text.length>8000)throw Error('Write an inclusion rule first.');
+   context.queries=(text,entities)=>ruleQueries(root,store,text,entities);
    json(res,202,startReview(context));return true;
   }
   const s=getReview(root,body.id);

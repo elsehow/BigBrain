@@ -23,7 +23,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import { basename } from "node:path";
 import { VAULT_ROOT } from "../lib/vaultRoot";
-import { ensureItemId, IntakeError, looksBinary, receive, type Attachment } from "../lib/intake";
+import { FirewallUnavailable, land } from "../lib/door";
+import { ensureItemId, IntakeError, looksBinary, type Attachment } from "../lib/intake";
 import { discussablePdf } from "../lib/pdfText";
 import { flagValues, positionals } from "../lib/cliflags";
 import { fmBody, fmRaw, fmSerialize } from "../lib/wire";
@@ -98,7 +99,7 @@ try {
   // (lib/pdfText.ts, lib/landItem.ts) — before the id stamp, and the
   // composed payload is the dedup identity, as there.
   const discussable = await discussablePdf(content, attachments);
-  const receipt = receive({
+  const receipt = await land({
     root: VAULT_ROOT,
     content: ensureItemId(discussable),
     raw: discussable, // pre-stamp payload — the landing dedup identity
@@ -110,7 +111,7 @@ try {
   );
   process.exit(0);
 } catch (e) {
-  if (e instanceof IntakeError) {
+  if (e instanceof IntakeError || e instanceof FirewallUnavailable) {
     console.error(`drop: ${e.message}`);
     process.exit(2);
   }

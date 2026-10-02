@@ -42,7 +42,7 @@ import { loadManifest } from "../../lib/manifest";
 import { ownerLabelsFor } from "../../lib/assertionAgent";
 import { friendlyImapError as friendly } from "../../lib/imapProbe";
 import { skipMatches } from "../../lib/skipRules";
-import { stage } from "../../lib/stage";
+import { hold } from "../../lib/door";
 import { emailConfig, passwordEnvKey, type EmailConfig, type Inbox } from "../../lib/emailConfig";
 import { readEmailState, writeEmailState, type EmailState } from "../../lib/emailState";
 import { emailItem, emailScopes, headLine, type EmailBody, type Head } from "../../lib/emailItem";
@@ -310,7 +310,7 @@ async function pollInbox(
             const item = emailItem(h, toBody(parsed), now);
             if(discovered(h,item.id,item.content)){got.add(msg.uid);settled.add(msg.uid);skipped++;continue;}
             if (
-              stage(root, {
+              await hold(root, {
                 id: item.id,
                 source: "email",
                 account: inbox.address,

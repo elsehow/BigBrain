@@ -17,6 +17,10 @@ both the local UI and inclusion worker. The remote service persists independentl
 
 The owner opens Settings → the shared vault → Members to create an invitation.
 The name is an owner-assigned display label, not a verified email identity.
+When the server signs members in with Google (docs/shared-vault-connector.md),
+the dialog asks for an email instead, adds a pending member, and shows the
+vault's constant join link; the member then creates app links from their
+personal page, and the app refuses the join link itself.
 Invitations grant read-only or contributor access and create a distinct member
 on redemption. The operator CLI can still bootstrap an existing member with
 `bin/shared-invite.ts`. Connect vault accepts only that invite link; the server
@@ -63,7 +67,26 @@ Each upload creates an independent immutable shared source, with an opaque stabl
 origin key. Private local receipts connect its shared ID to the original source
 and revision. Combined reads use this mapping to avoid displaying one's own copy
 twice. Later personal edits do not automatically update an existing contribution.
-Personal assertions are not automatically published with sources.
+
+A contributor's claims follow their sources. Each contribution tick also
+publishes the contributor's live assertions whose every cited source is an
+active contribution of exactly the cited revision, with citations remapped to
+the shared copies (`lib/sharedAssertionPublish.ts`). They are posted by the
+member's agent credential, minted on first use; a server without that route
+leaves them unpublished rather than speaking as the member. An entity keeps
+its label only when the cited sources contain it, so the personal vault's
+resolution of a name is never published. A claim is retracted when one of its
+sources is withdrawn or it is revoked or superseded at home, and it stays
+retracted if the source is later restored. Writes stay within 25 per tick,
+under the server's per-credential rate limit; receipts sit beside the
+connection credentials.
+
+Memory covers every vault the user can read. Each tend refreshes
+`.state/shared-memory.json` from the joined vaults (one feed request each when
+nothing moved), and the memory pass folds their claims with the personal
+record, citing them as `[[shared:<connection>:ast_…]]` (`lib/sharedMemory.ts`).
+A member who has only joined a shared vault therefore gets memory too, once
+the vault holds claims.
 
 Added by you lists active authenticated contributions; withdrawn rows disappear
 from this tab and recent contributions. Only their contributing member

@@ -37,8 +37,21 @@ reasoning to the selected model's recommended level.
 
 `lib/model-defaults.yaml` owns recommendations. With both subscriptions, the
 current defaults are Astra/medium for Gardener and Pilot, Opus/default for Memory,
-and Haiku/default for Quick. Only Gardener's provider preference comes from a
-comparative evaluation; the other rankings are product defaults.
+and Haiku/default for Quick. With Claude alone, Gardener uses the newest Sonnet
+(Sonnet 5.5, bundled from Pi 0.99.2) and Pilot uses Opus. Gardener's provider
+preference and its Claude model come from comparative evaluations; the other
+rankings are product defaults.
+
+Claude Gardener evaluation, 2026-10-01: an offline replay re-filed about 500
+insertions per model through the production gardener (`runTend`, Pi, the tend/v3
+prompt). On 52 agent name-lookup searches judged blind by an LLM, results built
+from Sonnet 5.5's assertions scored -0.06 against the existing assertions (95% CI
+-0.33 to +0.21); Haiku 4.5 scored -0.25 (-0.45 to -0.04) and was rejected.
+API-equivalent cost per insertion: Sonnet 5.5 about $0.066, Opus 5 on the current
+prompt about $0.37, Haiku 4.5 about $0.025. Sonnet 5.5 writes about 1.5 assertions
+per insertion where the existing record has 4.5. Only search results were judged,
+not full-dossier reading. Astra and Sonnet 5.5 were not compared, so the provider
+order is unchanged.
 
 ## Eligibility and execution
 

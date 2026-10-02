@@ -1,7 +1,7 @@
 <script lang="ts">
   import BlockScrollbar from "./BlockScrollbar.svelte";
   import SharedAssertions from "./SharedAssertions.svelte";
-  import { selectedWorkspace } from "../lib/vaultScope";
+  import { isSharedRecord, selectedWorkspace } from "../lib/vaultScope";
   import { inspectActions } from "../lib/actionHistory.svelte";
   import KeyboardModifier from "./KeyboardModifier.svelte";
   import { SIDEBAR_LAYOUT, type SidebarLayout } from "../lib/sidebarLayout";
@@ -106,9 +106,12 @@
   let briefingLoading = $state(false);
   let briefingAttempt = $state(0);
   let briefingFor = "";
+  // Briefings read this vault's own graph, which a shared vault's records
+  // are not part of: those open on their text instead.
+  const sharedRecord = $derived([notePath ?? "", ...noteSelection.selected].some(isSharedRecord));
   $effect(() => {
     if (selectedWorkspace) return;
-    const path = notePath;
+    const path = sharedRecord ? null : notePath;
     const request = briefingRequest;
     void app.rev; void briefingAttempt;
     const controller = new AbortController();
@@ -169,9 +172,10 @@
     return sanitizeHtml(
       md(body).replace(/\[\[([^\]|]+)(?:\|((?:[^\]]|\](?!\]))+))?\]\]/g, (_m, target: string, label?: string) => {
         const t = target.trim();
-        // a citation of the record (memory's `[[ast_…]]`): a mark, not a
-        // link — there is no note behind an assertion id to open
-        if (/^ast_[a-f0-9]+$/.test(t)) return `<sup class="cite">°</sup>`;
+        // a citation of the record (memory's `[[ast_…]]`, or a joined shared
+        // vault's `[[shared:<vault>:ast_…]]`): a mark, not a link — there is
+        // no note behind an assertion id to open
+        if (/^(?:shared:[A-Za-z0-9-]+:)?ast_[a-f0-9]+$/.test(t)) return `<sup class="cite">°</sup>`;
         const lbl = (label ?? target).trim();
         if (isUserNote(t)) return lbl;
         return `<a class="wl" role="link" tabindex="0" data-note="${t.replace(/"/g, "&quot;")}">${lbl}</a>`;
@@ -457,7 +461,7 @@
             </div>
           {/if}
           {#if body && !multiple}
-            <details class="original-note" open={!!selectedWorkspace}>
+            <details class="original-note" class:shared-record={sharedRecord} open={!!selectedWorkspace || sharedRecord}>
               <summary>Read note</summary>
               <div class="note-body body"><div class="body-cell">
                 <div class="body-text md-body prose" use:wikilinks>{@html renderBody(body)}</div>

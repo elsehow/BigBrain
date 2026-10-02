@@ -13,7 +13,7 @@ import { RETIRED_INTEGRATIONS } from "./personas";
  * loads vault.yaml fresh — so an applied change takes effect on the next run.
  */
 
-import { loadManifest, parseCuration, type CurationConfig, type AgentId } from "./manifest";
+import { loadManifest, parseCuration, parseFirewall, type CurationConfig, type AgentId } from "./manifest";
 import { modelPreference, type ModelPreference, MODEL_ID, readModelChoice, validateModelChoice, type ModelChoice } from "./modelChoice";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -97,10 +97,13 @@ export interface ConfigPatch {
   memory?: ModelChoicePatch;
   quick?: ModelChoicePatch;
   integrations?: IntegrationOp[];
+  /** The intake firewall block (lib/manifest.ts parseFirewall); null turns
+   * it off. */
+  firewall?: { model?: string; url?: string } | null;
 }
 
 /** ConfigPatch's own field list, for the unknown-key refusal above. */
-const PATCH_KEYS = new Set(["curation", "gardener", "memory", "quick", "integrations"]);
+const PATCH_KEYS = new Set(["curation", "gardener", "memory", "quick", "integrations", "firewall"]);
 
 export interface ConfigResult {
   changed: string[]; // vault-relative paths actually modified (empty = no-op)
@@ -307,6 +310,7 @@ export function applyConfig(patch: ConfigPatch, root: string): ConfigResult {
     );
 
   const curation = parseCuration(patch.curation);
+  if (patch.firewall) parseFirewall(patch.firewall);
   // validate the pure parts first — no partial writes on a bad patch
   const models: [string, string | undefined, string[]][] = [
     ["gardener", patch.gardener?.model, ["gardener", "queue"]],
@@ -336,7 +340,7 @@ export function applyConfig(patch: ConfigPatch, root: string): ConfigResult {
 
   const integrationOps = patch.integrations ?? [];
   const touchesYaml =
-    !!curation || models.some(([, raw]) => raw !== undefined && raw.trim()) || integrationOps.length > 0;
+    !!curation || models.some(([, raw]) => raw !== undefined && raw.trim()) || integrationOps.length > 0 || patch.firewall !== undefined;
   const yamlPath = join(root, "vault.yaml");
   const doc = touchesYaml ? parseDocument(readFileSync(yamlPath, "utf8")) : null;
   if (integrationOps.length) validateIntegrationOps(integrationOps, doc!);
@@ -348,6 +352,12 @@ export function applyConfig(patch: ConfigPatch, root: string): ConfigResult {
     doc!.set("curation", curation);
     yamlDirty = true;
     summary.push(`curation → ${curation.agent}/${curation.model}`);
+  }
+  if (patch.firewall !== undefined && JSON.stringify(doc!.toJS().firewall ?? null) !== JSON.stringify(patch.firewall)) {
+    if (patch.firewall === null) doc!.delete("firewall");
+    else doc!.set("firewall", patch.firewall);
+    yamlDirty = true;
+    summary.push(patch.firewall === null ? "firewall off" : `firewall → ${patch.firewall.url ?? `local ${patch.firewall.model ?? "clef-flash"}`}`);
   }
   for (const [label, role, blocks] of [["gardener", patch.gardener, ["gardener", "queue"]], ["memory", patch.memory, ["memory"]], ["quick", patch.quick, ["quick"]]] as const) {
     if (!role?.model.trim()) continue;

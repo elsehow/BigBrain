@@ -92,6 +92,15 @@ export const clientTokenStore = (): string | undefined => str("BIGBRAIN_CLIENT_T
  * members and their credentials live OUTSIDE the vault, like drop tokens. */
 export const sharedMemberStore = (): string | undefined => str("BIGBRAIN_SHARED_MEMBERS");
 
+/** The shared door's public origin (`https://vault.example.com`). Setting it
+ * — or `serve --public-url` — is what turns on the Claude connector
+ * (docs/shared-vault-connector.md); unset, the door has no public surface. */
+export const sharedPublicUrl = (): string | undefined => str("BIGBRAIN_SHARED_PUBLIC_URL");
+
+/** The connector's "Sign in with Google" OAuth client. Both or neither. */
+export const sharedGoogleClientId = (): string | undefined => str("BIGBRAIN_SHARED_GOOGLE_CLIENT_ID");
+export const sharedGoogleClientSecret = (): string | undefined => str("BIGBRAIN_SHARED_GOOGLE_CLIENT_SECRET");
+
 // ── test and diagnostic hooks ────────────────────────────────────────────────
 
 /** Point the assertion projection at another SQLite file — how a bench or a
@@ -121,3 +130,20 @@ export const mcpIntegrationToken = (): string | undefined => str("BIGBRAIN_MCP_T
 
 /** Local remote-vault credentials. This store must live outside vault content. */
 export const sharedConnectionsStore = (): string | undefined => str("BIGBRAIN_SHARED_CONNECTIONS");
+
+/** Bearer token for a hosted intake-firewall endpoint (lib/firewall.ts).
+ * A localhost endpoint needs none. */
+export const firewallToken = (): string | undefined => str("BIGBRAIN_FIREWALL_TOKEN");
+
+/** The local firewall model server (bin/firewall.ts), loopback only. Never
+ * the bare `PORT` fallback: that is the api's or the viewer's own port in
+ * the very processes that call the firewall. */
+export const firewallPort = (): number => Number(str("BIGBRAIN_FIREWALL_PORT") ?? 4750);
+
+/** Where the local model server's binary is, when not beside bun in the app
+ * bundle (a checkout: a llama-server built by desktop/build-llama-server.sh). */
+export const llamaServerOverride = (): string | undefined => str("BIGBRAIN_LLAMA_SERVER");
+
+/** Where downloaded firewall model weights live (lib/firewallModel.ts).
+ * Default ~/.local/share/bigbrain/models — one copy per machine. */
+export const firewallModelsDir = (): string | undefined => str("BIGBRAIN_MODELS_DIR");

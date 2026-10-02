@@ -358,6 +358,27 @@ describe("shared vault — forged authorship and delegation", () => {
     expect(ev2.envelope.origin).toMatchObject({ author: "alice", author_verified: false });
     expect(ev2.envelope.submitted_by).toBe("bob");
   });
+
+  test("a person credential mints its own agent delegate; agents and read-only credentials cannot", async () => {
+    const w = world();
+    const res = await call(w.handler, "POST", "/v1/credentials/agent", w.alice, {});
+    expect(res.status).toBe(201);
+    const minted = await asJson(res);
+    expect(minted.credential).toMatchObject({ name: "BigBrain agent", kind: "agent" });
+    const who = await asJson(await call(w.handler, "GET", "/v1/whoami", minted.token));
+    expect(who).toMatchObject({ handle: "alice", kind: "agent", permissions: ["read", "write"] });
+    const e = await dropEvidence(w, w.alice, "Alice's note", "the probe ships on Friday.");
+    const a = await assertClaim(w, minted.token, "[[Alice]] ships the probe on Friday.", [e.id]);
+    expect((await asJson(await call(w.handler, "GET", `/v1/assertions/${a.id}`, w.bob))).assertion.author).toEqual({ kind: "agent", id: "alice" });
+    expect((await call(w.handler, "POST", "/v1/credentials/agent", w.aliceAgent, {})).status).toBe(403);
+    expect((await call(w.handler, "POST", "/v1/credentials/agent", w.carol, {})).status).toBe(403);
+    expect((await call(w.handler, "POST", "/v1/credentials/agent", w.aliceReadOnly, {})).status).toBe(403);
+    // A delegate stands only while the credential that minted it does.
+    const laptop = listCredentials(w.store, "alice").find(c => c.name === "laptop")!;
+    revokeCredential(w.store, laptop.id);
+    expect((await call(w.handler, "GET", "/v1/whoami", minted.token)).status).toBe(401);
+    expect((await call(w.handler, "GET", "/v1/whoami", w.aliceAgent)).status).toBe(200);
+  });
 });
 
 describe("shared vault — citations, ids and paths", () => {
@@ -420,7 +441,7 @@ describe("shared vault — citations, ids and paths", () => {
       expect([route.method, path, res.status]).not.toEqual([route.method, path, 404]);
       expect((await call(w.handler, route.method, path)).status).toBe(401);
     }
-    for (const [method, path] of [["DELETE", "/v1/evidence"], ["PUT", "/v1/assertions"], ["GET", "/v1/unknown-admin"], ["POST", "/v1/members"], ["GET", "/api/vault"], ["GET", "/v1/memory"], ["GET", "/v1/note?path=vault.yaml"]]) {
+    for (const [method, path] of [["DELETE", "/v1/evidence"], ["PUT", "/v1/assertions"], ["GET", "/v1/unknown-admin"], ["DELETE", "/v1/members"], ["GET", "/api/vault"], ["GET", "/v1/memory"], ["GET", "/v1/note?path=vault.yaml"]]) {
       expect((await call(w.handler, method!, path!, w.owner)).status).toBe(404);
     }
   });

@@ -8,6 +8,7 @@ import {SharedConnectionError,connectionStorePath,readConnections,publicConnecti
 import {serializeMentions,type MentionPart} from './pilotMentions';
 import {searchRuleEntities} from './sharedRuleMentions';
 import {contributions,getRule,setRule,startTest,testView,importTest} from './sharedRules';
+import {tickPublishing} from './sharedAssertionPublish';
 export async function sharedSettingsApi(req:IncomingMessage,res:ServerResponse,root:string) {
  const url=new URL(req.url??'/','http://localhost');if(!url.pathname.startsWith('/api/shared-settings'))return false;
  if(!allowVaultRequest(req,res,vaultIdentity(root)))return true;
@@ -30,6 +31,7 @@ export async function sharedSettingsApi(req:IncomingMessage,res:ServerResponse,r
   else if(req.method==='POST') {
    const body=JSON.parse(await readBody(req,100000));
    if(action==='member-invite')json(res,201,await sharedRequest(c,'/v1/invites',{name:body.name,permission:body.permission}));
+   else if(action==='member-add')json(res,201,await sharedRequest(c,'/v1/members',{email:body.email,permission:body.permission}));
    else if(['member-access','member-remove','invite-cancel'].includes(action??'')) {
     if(typeof body.id!=='string'||! /^(mem_[a-f0-9]{8}|[a-f0-9]{24})$/.test(body.id))throw Error('Invalid member or invitation.');
     const path=action==='invite-cancel'?`/v1/invites/${body.id}/cancel`:`/v1/members/${body.id}/${action==='member-access'?'access':'remove'}`;
@@ -48,6 +50,7 @@ export async function sharedSettingsApi(req:IncomingMessage,res:ServerResponse,r
    else if(action==='withdraw'||action==='restore') {
     if(typeof body.id!=='string'||!/^sc_[a-f0-9]{24}$/.test(body.id))throw Error('Invalid contribution');
     json(res,200,await sharedRequest(c,`/v1/contributions/${body.id}/${action}`,{request_id:body.request_id,version:body.version}));
+    void tickPublishing(root,store,c.id); // retract claims that cited a withdrawn source now, not on the next tick
    }else json(res,404,{error:'Not found'});
   }else json(res,405,{error:'Method not allowed'});
  }catch(e){json(res,e instanceof SharedConnectionError?e.status:400,{error:e instanceof Error?e.message:'Shared vault request failed'});}
