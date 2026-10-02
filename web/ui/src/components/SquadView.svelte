@@ -29,6 +29,31 @@
   let searchEl: HTMLElement | undefined = $state();
   let qEl: HTMLInputElement | undefined = $state();
   let sidebarEl: HTMLElement | undefined = $state();
+  /** The chat's width, when you've dragged the split (null: the default
+   * clamp). Yours, not the agent's — remembered on this machine. */
+  const GUTTER = 34;
+  let chatWidth: number | null = $state(storedWidth());
+  function storedWidth(): number | null {
+    try { const w = Number(localStorage.getItem("squad.chatWidth")); return w > 0 ? w : null; } catch { return null; }
+  }
+  function rememberWidth(w: number | null): void {
+    try { if (w) localStorage.setItem("squad.chatWidth", String(w)); else localStorage.removeItem("squad.chatWidth"); } catch { /* a per-viewer nicety only */ }
+  }
+  function dragSplit(e: PointerEvent): void {
+    const handle = e.currentTarget as HTMLElement;
+    handle.setPointerCapture(e.pointerId);
+    const move = (m: PointerEvent) => {
+      chatWidth = Math.round(Math.min(innerWidth - 2 * GUTTER - 320, Math.max(380, m.clientX - 2 * GUTTER)));
+      scene?.shift(shiftFor());
+    };
+    const up = () => { handle.removeEventListener("pointermove", move); rememberWidth(chatWidth); };
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", up, { once: true });
+  }
+  function resetSplit(): void {
+    chatWidth = null; rememberWidth(null);
+    scene?.shift(shiftFor());
+  }
   let field: Field | null = $state(null);
   let squad: SquadData | null = $state(null);
   let error = $state("");
@@ -275,9 +300,9 @@
   }
   /** Slide the field's centre clear of the panels: right of a left column, left of the sidebar. */
   const shiftFor = () => {
-    const chatW = Math.min(1000, Math.max(520, innerWidth * 0.44)) + 34; // .squad's --chat-w, plus a gutter
+    const chatW = (chatWidth ?? Math.min(1000, Math.max(520, innerWidth * 0.44))) + GUTTER; // .squad's --chat-w, plus a gutter
     const left = searching ? Math.min(600, innerWidth * 0.4) : openPilot ? chatW : ent != null ? Math.min(380, innerWidth * 0.26) : 0;
-    const right = sidebarOpen ? (sideWidth ?? innerWidth - chatW - 68) + 34 : 0;
+    const right = sidebarOpen ? (sideWidth ?? innerWidth - chatW - 2 * GUTTER) + GUTTER : 0;
     return (left - right) / 2;
   };
   function toggleSidebar(): void {
@@ -499,7 +524,7 @@
 </svelte:head>
 <svelte:window onkeydown={onKey} />
 
-<div class="squad">
+<div class="squad" style:--chat-w={chatWidth ? `${chatWidth}px` : null}>
   <div class="stage" bind:this={host}></div>
 
   {#if field}
@@ -596,14 +621,14 @@
         {#if detail.error}<p class="activity err">{detail.error}</p>{/if}
         {#if !detail.messages.length && detail.phase === "draft"}<p class="activity">Ask it anything — it can read your vault.</p>{/if}
       </div></div>
-      <div class="composer col">
+      <div class="dock"><div class="composer col">
         <textarea bind:this={composerEl} bind:value={draftText} rows="3" placeholder={`Message ${detail.title}…`} aria-label="Message"></textarea>
         <div class="row">
           <span class="k">↵ Send · ⇧↵ New line · Esc Back</span>
           {#if detail.phase === "working"}<button type="button" class="find" onclick={() => void stopPilot()}>Stop</button>{/if}
           <a class="find" href={`${APP}#/session/${detail.id}`}>Open in app</a>
         </div>
-      </div>
+      </div></div>
     </section>
   {/if}
   {#if pickerOpen && detail}
@@ -621,6 +646,10 @@
       {/each}
       <p class="k">Esc to close · the next reply comes from the one you pick</p>
     </div>
+  {/if}
+  {#if openPilot && detail}
+    <div class="split" role="separator" aria-orientation="vertical" aria-label="Resize the chat" title="Drag to resize · double-click to reset"
+      onpointerdown={dragSplit} ondblclick={resetSplit}></div>
   {/if}
   {#if sidebarOpen}
     <aside class="side" bind:this={sidebarEl} aria-label="Workspace" style:width={sideWidth ? `${sideWidth}px` : null} style:left={sideWidth ? "auto" : null}>
@@ -712,11 +741,15 @@
   /* one reading column, like Claude or iA Writer: the measure holds near 68
      characters, the type grows a little with the panel, and your messages sit
      in a bubble at the column's right edge; the composer shares the column */
-  .msgs, .composer { --chat-fs: clamp(15px, 2.25cqi, 17px); } /* cqi: the .chat panel's width */
-  .chat .col { width: 100%; max-width: calc(68 * 0.56 * var(--chat-fs) + 28px); margin-inline: auto; box-sizing: border-box; }
-  /* the gutter is kept on both sides, so the column centres exactly over the composer's */
-  .msgs { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable both-edges;
-    scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--fg) 22%, transparent) transparent; }
+  .msgs, .dock { --chat-fs: clamp(15px, 2.25cqi, 17px); } /* cqi: the .chat panel's width */
+  .chat .col { width: calc(100% - 24px); max-width: calc(68 * 0.56 * var(--chat-fs) + 28px); margin-inline: auto; box-sizing: border-box; }
+  /* the scrollbar's gutter is kept on both sides of the messages and, empty, of
+     the composer's dock: the two columns centre in the same width and line up;
+     the column leaves 12px a side for the composer box to reach into */
+  .msgs, .dock { scrollbar-gutter: stable both-edges; scrollbar-width: thin; }
+  .msgs { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden;
+    scrollbar-color: color-mix(in srgb, var(--fg) 22%, transparent) transparent; }
+  .dock { flex: none; overflow: hidden; }
   .msgs .col { display: flex; flex-direction: column; gap: 24px; padding-bottom: 8px; }
   .msg { display: flex; }
   .msg.user { align-self: flex-end; max-width: 85%; }
@@ -744,13 +777,17 @@
   .activity { margin: 0; font: 400 12px/1.4 var(--font-mono); color: var(--sq-faint); }
   .activity.err { color: color-mix(in srgb, var(--activity) 80%, var(--fg)); }
   .composer { display: flex; flex-direction: column; gap: 8px; }
-  .composer textarea { resize: none; border: 0; border-radius: 8px; padding: 9px 12px; background: color-mix(in srgb, var(--fg) 7%, var(--bg)); color: var(--fg);
+  /* the box reaches past the column by its padding, so typed text lines up with the messages' */
+  .composer textarea { margin-inline: -12px; resize: none; border: 0; border-radius: 8px; padding: 9px 12px; background: color-mix(in srgb, var(--fg) 7%, var(--bg)); color: var(--fg);
     font: 400 var(--chat-fs)/1.45 var(--font-app); outline: none; }
   .composer textarea::placeholder { color: color-mix(in srgb, var(--fg) 55%, transparent); opacity: 1; }
   .composer .row { display: flex; align-items: center; gap: 8px; }
   .composer .row .k { margin-right: auto; }
   .composer a.find { text-decoration: none; }
   /* the workspace takes every pixel the chat doesn't, unless the agent asks for less */
+  .split { position: absolute; z-index: 2; top: 62px; bottom: 26px; left: calc(var(--chat-w) + 2 * var(--app-gutter, 34px)); width: 14px; transform: translateX(-50%); cursor: col-resize; touch-action: none; }
+  .split::after { content: ""; position: absolute; top: 0; bottom: 0; left: 6px; width: 2px; border-radius: 1px; background: var(--fg); opacity: 0; transition: opacity .15s; }
+  .split:hover::after, .split:active::after { opacity: .35; }
   .side { position: absolute; top: 62px; bottom: 26px; right: var(--app-gutter, 34px); left: calc(var(--chat-w) + 3 * var(--app-gutter, 34px)); z-index: 1;
     display: flex; flex-direction: column; gap: 8px; }
   .side header { display: flex; align-items: center; gap: 10px; height: 30px; }
