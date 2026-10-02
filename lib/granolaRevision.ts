@@ -8,7 +8,8 @@ import {sha256hex} from './hash';
 import {openAssertionProjectionReadonly,syncAssertionProjection} from './assertionProjection';
 import {insertionEventOnDisk,type SourceInsertion} from './insertionLog';
 import {withProjectionWrite} from './projectionWriteLock';
-import {receive,type IntakeReceipt} from './intake';
+import {admit} from './door';
+import type {IntakeReceipt} from './intake';
 
 export interface GranolaRevision {stream:string;key:string;hash:string;seq:number;id:string}
 export function isGranolaMcpContent(content:string):boolean {
@@ -51,7 +52,7 @@ export function receiveStagedGranola(root:string,content:string):Pick<IntakeRece
   const {supersedes:_prior,...meta}=envelope;
   // Preserve the existing source identity for legacy MCP insertions. Never rewrite history.
   const id=head?.event.source_id??r.stream+':'+r.key;
-  return receive({root,raw:r.stream+'\n'+r.key+'\n'+r.hash,content:serializeEnvelope({...meta,id,...(head?{supersedes:head.event.id}:{})},body)});
+  return admit({root,raw:r.stream+'\n'+r.key+'\n'+r.hash,content:serializeEnvelope({...meta,id,...(head?{supersedes:head.event.id}:{})},body)});
  });
 }
 

@@ -5,7 +5,8 @@ import {nativeVault,gitVault} from './support/vault';
 import {readEnvValues} from '../lib/envFile';
 import {IntegrationAccounts} from '../lib/integrationAccounts';
 import {accountPolicy,integrationActive,readableIntegrationAccounts,requireIntegrationWrite} from '../lib/integrationAccess';
-import {stage,stagedHeads,admitStaged} from '../lib/stage';
+import {stagedHeads,admitStaged} from '../lib/stage';
+import {stage} from '../lib/stageStorage';
 import {nextWork} from '../lib/work';
 const roots:string[]=[];afterEach(()=>roots.splice(0).forEach(r=>rmSync(r,{recursive:true,force:true})));
 function fixture(){const root=nativeVault({files:{'vault.yaml':'integrations:\n  email:\n    inboxes:\n      - address: personal@example.com\n        host: imap.example.com\n      - address: work@example.com\n        host: imap.example.com\n','.env':'BIGBRAIN_IMAP_PASSWORD__PERSONAL_EXAMPLE_COM=one\nBIGBRAIN_IMAP_PASSWORD__WORK_EXAMPLE_COM=two\n'}});roots.push(root);const calls:string[]=[];return {root,calls,accounts:new IntegrationAccounts(root,{email:async i=>{calls.push(i.address);}})};}

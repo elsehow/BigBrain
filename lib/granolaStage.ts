@@ -2,12 +2,16 @@
  * insertion log. The cursor is only a polling optimization. */
 import {parseEnvelope,serializeEnvelope} from './envelope';
 import {granolaHistory,granolaRevision,isGranolaMcpContent,granolaPasses} from './granolaRevision';
-import {stage,stagedItems} from './stage';
+import {stagedItems} from './stage';
+import {clear,holdCleared} from './door';
 import {integrationActive} from './integrationAccess';
 import {withProjectionWrite} from './projectionWriteLock';
 import {sha256hex} from './hash';
 
-export function stageGranolaContent(root:string,account:string,content:string):boolean {
+export async function stageGranolaContent(root:string,account:string,content:string):Promise<boolean> {
+ // Screened before the lock: a network call cannot happen under it.
+ const cleared=await clear(root,'granola',content);
+ if(!cleared)return false;
  return withProjectionWrite(root,()=>{
   if(!integrationActive(root,'granola',account))throw Error('Granola remembering is off.');
   const r=granolaRevision(content),history=granolaHistory(root,r);
@@ -23,7 +27,7 @@ export function stageGranolaContent(root:string,account:string,content:string):b
   const {envelope,body}=parseEnvelope(content);
   const id='granola-'+sha256hex(account+'\n'+r.stream+'\n'+r.key+'\n'+r.hash).slice(0,32);
   if(passed.some(p=>p.id===id||p.id===legacyId))return false;
-  return stage(root,{id,source:'granola',account,at:String(envelope.date),line:String(envelope.title??r.key).slice(0,1000),scopes:{},name:id+'.md',
+  return holdCleared(cleared,root,{id,source:'granola',account,at:String(envelope.date),line:String(envelope.title??r.key).slice(0,1000),scopes:{},name:id+'.md',
    content:serializeEnvelope({...envelope,id:r.stream+':'+r.key,seq},body)});
  });
 }

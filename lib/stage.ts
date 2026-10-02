@@ -18,7 +18,7 @@ import { integrationActive, MANAGED_INTEGRATIONS } from "./integrationAccess";
 
 import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { receive } from "./intake";
+import { admit } from "./door";
 import { appendSkipRules, ruleScope, type SkipRule } from "./skipRules";
 
 /** How many staged heads one `next` shows. A head is ~30 tokens, so the
@@ -82,9 +82,9 @@ export interface AdmitResult {
   error?: string;
 }
 
-/** Land staged items through the intake waist — the same `receive` every
- * front door runs — and unstage them. From here on each is an ordinary due
- * arrival: `next` packs it, assertions cite its insertion id. */
+/** Land staged items through the door's `admit` — the firewall screened
+ * them when the door staged them — and unstage them. From here on each is
+ * an ordinary due arrival: `next` packs it, assertions cite its insertion id. */
 export function admitStaged(root: string, ids: readonly string[]): AdmitResult[] {
   return withProjectionWrite(root, () => admitLocked(root, ids));
 }
@@ -95,7 +95,7 @@ function admitLocked(root: string, ids: readonly string[]): AdmitResult[] {
     try {
       if (MANAGED_INTEGRATIONS.has(hit.item.source) && !stagedRememberingEnabled(root,hit.item)) throw new Error("Integration is inactive; pending data is retained.");
       enforceReview(root,hit.item,true);
-      const receipt = hit.item.source === "that-tracks" ? receiveStagedTracks(root, hit.item.content) : hit.item.source === "granola" && isGranolaMcpContent(hit.item.content) ? receiveStagedGranola(root, hit.item.content) : receive({
+      const receipt = hit.item.source === "that-tracks" ? receiveStagedTracks(root, hit.item.content) : hit.item.source === "granola" && isGranolaMcpContent(hit.item.content) ? receiveStagedGranola(root, hit.item.content) : admit({
         root, content: hit.item.content,
         ...(hit.item.attachments?.length ? { attachments: hit.item.attachments } : {}),
       });
@@ -213,7 +213,7 @@ function stagedRememberingEnabled(root:string,item:StagedHead):boolean {
 
 
 // Preserve maintenance entry points while low-level consumers import storage directly.
-export { stage, stageDir, preserveStaged, stagedCount, stagedItems, type StagedHead, type StagedItem } from "./stageStorage";
+export { stageDir, preserveStaged, stagedCount, stagedItems, type StagedHead, type StagedItem } from "./stageStorage";
 
 function reviewOwnsStage(root:string,item:StagedHead){const account=stagedAccount(root,item);return !!account&&(includesEverything(rememberingRule(root,item.source,account))||!!readInclusionPolicy(root,connectionStorePath(),integrationRuleScope(item.source,account)));}
 function enforceReview(root:string,item:import('./stageStorage').StagedItem,include:boolean){const account=stagedAccount(root,item);if(account&&!inclusionPermit(root,connectionStorePath(),integrationRuleScope(item.source,account),rememberingRule(root,item.source,account),item,include))throw Error('This item is awaiting its reviewed inclusion rule.');}

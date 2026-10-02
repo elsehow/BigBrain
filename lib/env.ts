@@ -130,3 +130,7 @@ export const mcpIntegrationToken = (): string | undefined => str("BIGBRAIN_MCP_T
 
 /** Local remote-vault credentials. This store must live outside vault content. */
 export const sharedConnectionsStore = (): string | undefined => str("BIGBRAIN_SHARED_CONNECTIONS");
+
+/** Bearer token for a hosted intake-firewall endpoint (lib/firewall.ts).
+ * A localhost endpoint needs none. */
+export const firewallToken = (): string | undefined => str("BIGBRAIN_FIREWALL_TOKEN");
