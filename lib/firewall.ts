@@ -13,7 +13,8 @@
  * nothing and admits nothing; the caller retries (a poller leaves the item
  * at its source) or refuses (a drop says so).
  *
- * Only lib/door.ts calls this. No firewall block in vault.yaml means off. */
+ * Only lib/door.ts calls this. No firewall block in vault.yaml means off; a
+ * block without a `url` means the app's local model (lib/firewallModel.ts). */
 
 import { appendFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
@@ -21,6 +22,7 @@ import { parseEnvelope } from "./envelope";
 import { firewallToken } from "./env";
 import { ensureDir } from "./fsx";
 import { looksBinary, type Attachment } from "./intake";
+import { localFirewallUrl } from "./firewallModel";
 import { loadManifest, type FirewallConfig } from "./manifest";
 import { ensureSpool, spoolDir } from "./spool";
 
@@ -50,11 +52,18 @@ export type Verdict =
 
 /** The endpoint could not give an answer. Nothing may pass on it. */
 export class FirewallUnavailable extends Error {}
+class TooLarge extends Error {}
 
-/** Clef reads at most 16k tokens of state and silently drops the rest, so a
- * long item goes in overlapping windows and its score is the worst window. */
-const WINDOW = 24_000;
-const OVERLAP = 2_000;
+/** A decision model reads a bounded prompt — Clef's reference code silently
+ * drops what is past 16k tokens, llama.cpp refuses what exceeds its batch
+ * (8192, bin/firewall-server.ts) — so a long item goes in overlapping windows
+ * and its score is the worst window. Windows are characters, the limit is
+ * tokens: base64 runs ~0.75 tokens a character, so 8000 characters stays
+ * under the batch with room for the schema. A window the server still calls
+ * too large is halved and asked again (`askWindow`). */
+const WINDOW = 8_000;
+const OVERLAP = 800;
+const MIN_WINDOW = 500;
 const TIMEOUT_MS = 180_000;
 
 export function windows(text: string): string[] {
@@ -80,19 +89,24 @@ export function screenedText(content: string, attachments: readonly Attachment[]
 }
 
 async function ask(cfg: FirewallConfig, state: string, fetchImpl: typeof fetch): Promise<Scores> {
+  const url = cfg.url ?? localFirewallUrl();
   const token = firewallToken();
   let res: Response;
   try {
-    res = await fetchImpl(cfg.url, {
+    res = await fetchImpl(url, {
       method: "POST",
       headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
       body: JSON.stringify({ model: cfg.model, state, questions: QUESTIONS }),
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
   } catch (e) {
-    throw new FirewallUnavailable(`firewall unreachable at ${cfg.url}: ${e instanceof Error ? e.message : String(e)}`);
+    throw new FirewallUnavailable(`firewall unreachable at ${url}: ${e instanceof Error ? e.message : String(e)}`);
   }
-  if (!res.ok) throw new FirewallUnavailable(`firewall answered ${res.status} at ${cfg.url}`);
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    if (/too large/i.test(detail)) throw new TooLarge();
+    throw new FirewallUnavailable(`firewall answered ${res.status} at ${url}`);
+  }
   const body = (await res.json().catch(() => undefined)) as { answers?: Record<string, { noul?: unknown }> } | undefined;
   const score = (q: Question): number => {
     const p = body?.answers?.[q]?.noul;
@@ -100,6 +114,21 @@ async function ask(cfg: FirewallConfig, state: string, fetchImpl: typeof fetch):
     return p;
   };
   return { credential: score("credential"), malicious: score("malicious") };
+}
+
+/** Ask about one window; one the server refuses as too large is split in
+ * two overlapping halves, each asked, the worst score kept. */
+async function askWindow(cfg: FirewallConfig, state: string, fetchImpl: typeof fetch): Promise<Scores> {
+  try {
+    return await ask(cfg, state, fetchImpl);
+  } catch (e) {
+    if (!(e instanceof TooLarge)) throw e;
+    if (state.length <= MIN_WINDOW) throw new FirewallUnavailable(`firewall refused even a ${state.length}-character window as too large`);
+    const half = Math.ceil(state.length / 2);
+    const a = await askWindow(cfg, state.slice(0, half + OVERLAP / 2), fetchImpl);
+    const b = await askWindow(cfg, state.slice(half - OVERLAP / 2), fetchImpl);
+    return { credential: Math.max(a.credential, b.credential), malicious: Math.max(a.malicious, b.malicious) };
+  }
 }
 
 /** Screen one arrival. `pass: true` with no scores means the firewall is
@@ -116,7 +145,7 @@ export async function screen(
   if (!cfg) return { pass: true };
   const scores: Scores = { credential: 0, malicious: 0 };
   for (const state of windows(screenedText(content, attachments))) {
-    const s = await ask(cfg, state, fetchImpl);
+    const s = await askWindow(cfg, state, fetchImpl);
     scores.credential = Math.max(scores.credential, s.credential);
     scores.malicious = Math.max(scores.malicious, s.malicious);
   }

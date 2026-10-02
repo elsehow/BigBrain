@@ -22,10 +22,12 @@
       "app"
     ],
     "externalBin": [
-      "binaries/bun"
+      "binaries/bun",
+      "binaries/llama-server"
     ],
     "resources": [
-      "resources/engine"
+      "resources/engine",
+      "resources/licenses"
     ],
     "icon": [
       "icons/32x32.png",

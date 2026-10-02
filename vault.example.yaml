@@ -134,10 +134,10 @@ quick:
 # arrival is screened by a decision model before anything stores it. A
 # password-reset link, sign-in code, key or password — or a phishing mail —
 # is withheld: never landed, never staged, never read by an agent. Off unless
-# this block is present; once on it fails CLOSED (an unreachable endpoint
-# lets nothing in, and pollers retry).
+# this block is present; once on it fails CLOSED (if the model cannot answer,
+# nothing gets in, and pollers retry). `bigbrain firewall install` downloads
+# the local model and writes this block.
 #
 # firewall:
-#   url: http://127.0.0.1:4750/v1/systemone # local Clef-flash (deploy/firewall)
-#   # model: clef-flash
+#   model: clef-flash # local, run by the app; or url: <a /v1/systemone endpoint>
 #   # thresholds: { credential: 0.25, malicious: 0.85 }
