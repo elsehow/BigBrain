@@ -90,3 +90,9 @@ test('rule queries come from one Quick call, are cached, and fall back on failur
   expect(await ruleQueries(c.root,c.store,'another rule',[],(async()=>{throw Error('offline');}) as never)).toBeUndefined();
  }finally{rmSync(c.root,{recursive:true,force:true});}
 });
+test('a long transcript that mentions the topic in passing does not outrank a note about it',()=>{
+ const source=(id:string,title:string,body:string)=>({id,title,body,origin:'Fixture'});
+ const filler=Array.from({length:400},(_,i)=>`line ${i} about tooling and builds`).join('\n');
+ const rows=[source('t','Session log',`${filler}\nwe talked about the baby and childcare once\n${filler}`),source('n','Daycare','Childcare waitlist for the baby.'),source('x','Note','Unrelated short note.'),source('y','Note','Another short note.')];
+ expect(rankCandidates(rows,'family concerns',[],['baby','childcare'])[0]!.id).toBe('n');
+});
