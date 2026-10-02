@@ -90,7 +90,8 @@ async function main() {
     if (!ready) throw new Error('Preview server did not become ready; see server.log');
     const results = await runTests(names.map(name => ({ name, file: join(root, 'test/support', `${name}.browser.cjs`) })), {
       env: { ...process.env, ...(process.platform === 'linux' ? { CI_BROWSER_REDUCED_MOTION: 'reduce' } : {}), SIDEBAR_PREVIEW_URL: base, VIEWER_URL: base },
-      totalTimeout: (process.platform === 'linux' ? 18 : 7) * 60_000,
+      // macOS ran 304-418s of 420s by 2026-09-29; the budget is a ceiling, not a target.
+      totalTimeout: (process.platform === 'linux' ? 18 : 10) * 60_000,
       annotate: true,
       onResult: results => writeFileSync(join(artifacts, 'results.json'), JSON.stringify(results, null, 2)),
     });

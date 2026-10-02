@@ -1,6 +1,7 @@
 import { anthropicQuota, type AnthropicQuota } from "./anthropicQuota";
 /** Pi supplies the agent loop and provider auth. BigBrain supplies every tool,
  * including sandboxed execution; Pi's unrestricted built-ins never run here. */
+import { createCatalogRuntime, exactCatalogModel } from "./modelCatalogRefresh";
 import { configureVaultModelAuth } from "./piModelRuntime";
 import { connectionProblem, resolveModel, type ModelExecution } from "../modelResolution";
 import { existsSync } from "node:fs";
@@ -14,6 +15,15 @@ import { chatgptAccount, chatgptAccountHash, readChatgptQuota, type QuotaReader 
 
 export type PiSDK = typeof import("@earendil-works/pi-coding-agent");
 export const loadPi = () => import("@earendil-works/pi-coding-agent");
+/** The selected model and nothing else: a record's `compat.allowedFallbackModels` makes the
+ * adapter send a server-side fallback list, letting the provider answer with another model at
+ * another price. Exact selection strips it from every request. */
+export function exactModel<T extends { compat?: unknown }>(model: T): T {
+  const compat = model.compat as Record<string, unknown> | undefined;
+  if (!compat || !("allowedFallbackModels" in compat)) return model;
+  const { allowedFallbackModels: _fallbacks, ...rest } = compat;
+  return { ...model, compat: rest };
+}
 export class PiSession implements ModelSession {
   transport: "subscription" | "api" = "api";
   execution?: ModelExecution;
@@ -37,9 +47,8 @@ export class PiSession implements ModelSession {
     if (this.broken) return false;
     const provider = this.setup.config.provider!;
     const signal = AbortSignal.any([this.controller.signal, AbortSignal.timeout(10_000)]);
-    const runtime = await sdk.ModelRuntime.create({ allowModelNetwork: false, signal });
-    await configureVaultModelAuth(runtime, this.setup.root);
-    const model = runtime.getModel(provider, this.setup.config.model);
+    const runtime = await createCatalogRuntime(sdk, signal, this.setup.root);
+    const model = await exactCatalogModel(runtime, provider, this.setup.config.model, signal);
     if (!model) throw new Error(runtime.getProvider(provider) ? "Choose an available model from Settings > Models." : connectionProblem(this.setup.config));
     this.transport = runtime.isUsingSubscription(provider) ? "subscription" : "api";
     if (provider === "anthropic" && this.transport !== "subscription")
@@ -55,7 +64,9 @@ export class PiSession implements ModelSession {
     if (this.setup.output?.maxTokens && model.api === "openai-codex-responses")
       throw new Error("ChatGPT subscription transport cannot enforce a hard output-token limit. Use maxCharacters for a host-enforced output bound.");
     const cwd = sessionRuntimeDirectory(this.setup);
-    const settingsManager = sdk.SettingsManager.inMemory({ retry: { enabled: false }, enableAnalytics: false, enableInstallTelemetry: false });
+    // Pi's cache warming re-sends requests on its own timer, outside this wrapper's
+    // accounting, subscription checks and output bounds: no unrequested inference.
+    const settingsManager = sdk.SettingsManager.inMemory({ retry: { enabled: false }, enableAnalytics: false, enableInstallTelemetry: false, cacheWarming: "off" });
     const resourceLoader = new sdk.DefaultResourceLoader({ cwd, agentDir: cwd, settingsManager,
       noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
       systemPrompt: this.setup.instructions });
@@ -110,7 +121,7 @@ export class PiSession implements ModelSession {
       }
       const accountId = this.accountId ?? null;
       const id = crypto.randomUUID();
-      const response = await stream(model, context, { ...options, ...(token ? { apiKey: token } : {}),
+      const response = await stream(exactModel(model), context, { ...options, ...(token ? { apiKey: token } : {}),
         ...(maxTokens !== undefined ? { maxTokens } : {}) });
       // The stream result resolves once per request, including errors/aborts
       // and SDK compaction requests. Message events can repeat or omit those.
@@ -135,6 +146,8 @@ export class PiSession implements ModelSession {
       const session = this.session;
       this.unsubscribe = session.subscribe(event => {
         if (!args.signal.aborted && event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") args.delta(event.assistantMessageEvent.delta);
+        // Delivery is observed here: Pi appends queued steering to the context just before the next model request.
+        if (event.type === "message_end" && event.message.role === "user") { const c = event.message.content; args.event?.("userMessage", typeof c === "string" ? c : c.filter(b => b.type === "text").map(b => b.text).join("")); }
         if (event.type === "message_end" && event.message.role === "assistant") {
           this.saveSession();
           const message = event.message;
@@ -166,6 +179,12 @@ export class PiSession implements ModelSession {
       args.signal.removeEventListener("abort", abort);
     }
   }
+  steer(text: string): boolean {
+    if (!this.active || !this.session || this.broken || this.active.signal.aborted) return false;
+    void this.session.steer(text).catch(() => {}); // Enqueues synchronously; delivery is observed as a user message.
+    return true;
+  }
+  clearSteering(): void { this.session?.clearQueue(); }
   private saveSession(): void {
     const file = this.session?.sessionFile;
     if (file && existsSync(file)) { this.setup.state.piSession = file; this.fresh = false; this.setup.save(); }

@@ -1,6 +1,35 @@
 /** One document belongs to one vault. A switch replaces the document, so old
  * closures, component state, and queued writes cannot become the new vault's work. */
 type BrowserFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+const params = typeof location === "undefined" ? new URLSearchParams() : new URL(location.href).searchParams;
+export const selectedVaults = [...new Set((params.get("vaults") ?? params.get("workspace") ?? "").split(",").filter(Boolean))];
+export const personalIncluded = !selectedVaults.length || selectedVaults.includes('personal');
+export const personalOnly = selectedVaults.length === 1 && personalIncluded;
+// New vault tags filter the unified local app. Only legacy direct-workspace
+// links enter the isolated remote workspace adapter.
+export const selectedWorkspace = !params.has('vaults') && params.get('workspace') !== 'personal' ? params.get('workspace') : null;
+export const workspaceURL = (path: string) => selectedWorkspace ? `${path}${path.includes("?") ? "&" : "?"}workspace=${encodeURIComponent(selectedWorkspace)}` : path;
+/** A record a connected shared vault serves (lib/sharedReadUnion.ts paths
+ * them shared/<connection>/… and ids them shared:<connection>:…). */
+export const isSharedRecord = (ref: string): boolean => ref.startsWith("shared/") || ref.startsWith("shared:");
+export function switchVaults(ids: string[]): void {
+  const url = new URL(location.href);
+  url.searchParams.delete("workspace");
+  if (ids.length) url.searchParams.set("vaults", [...new Set(ids)].sort().join(',')); else url.searchParams.delete("vaults");
+  url.searchParams.set("vaultMenu","1");
+  url.hash = "#/home";
+  // A new query replaces the document even when the hash route is unchanged.
+  location.replace(url.href);
+}
+export function switchWorkspace(id: string | null): void { switchVaults(id ? [id] : []); }
+export function sharedUnavailable(): void {
+  if (!selectedWorkspace) return;
+  // Drop persisted response caches before restarting the document's auth gate.
+  try {
+    for (const key of Object.keys(sessionStorage)) if (key.startsWith(`bb:vault:shared:${selectedWorkspace}:`)) sessionStorage.removeItem(key);
+  } catch { /* Storage may be disabled; the authentication gate still closes. */ }
+  window.dispatchEvent(new Event("shared-unavailable"));
+}
 const HEADER = "x-bigbrain-vault";
 export class VaultScope {
   private identity: string | undefined;
@@ -49,12 +78,18 @@ export class VaultScope {
     return response;
   }
 }
-const scope = new VaultScope((input, init) => globalThis.fetch(input, init), () => {
+const scope = new VaultScope(async (input, init) => {
+  const headers = new Headers(init?.headers);
+  if(selectedVaults.length)headers.set("x-bigbrain-vault-filter",selectedVaults.join(","));
+  if (selectedWorkspace) headers.set("x-bigbrain-workspace", selectedWorkspace);
+  const response = await globalThis.fetch(input, { ...init, headers });
+  return response;
+}, () => {
   // Hide A immediately, including when the new document cannot reach B.
   document.documentElement.style.visibility = "hidden";
   location.reload();
 });
-export const vaultStorageKey = (key: string) => scope.key(key);
+export const vaultStorageKey = (key: string) => scope.key((selectedVaults.length?selectedVaults.slice().sort().join(",")+":":"")+key);
 export const vaultReady = () => scope.ready();
 export const onVaultSwitch = (fn: () => void) => scope.onSwitch(fn);
 export const observeVault = (identity: string | null) => scope.observe(identity);

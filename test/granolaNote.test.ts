@@ -112,8 +112,8 @@ describe("granolaItem — the item both the poll and the relabel pass land", () 
     expect(body).not.toContain("microphone:");
     expect(body).toContain('"Nick" for the account owner\'s microphone');
     expect(granolaBodyHasNames(body)).toBe(true);
-    // the informative part stays above the transcript
-    expect(body.indexOf("> # Dashboard")).toBeLessThan(body.indexOf("--- VERBATIM TRANSCRIPT"));
+    // Vendor summaries never become source evidence.
+    expect(body).not.toContain("# Dashboard");
     expect(envelope.id).toBe("granola-not_1");
     expect(envelope.key).toBe("not_1");
     expect(envelope.seq).toBe("2026-08-31T21:00:00.000Z");

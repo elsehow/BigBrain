@@ -211,16 +211,24 @@ interface Run {
 
 async function run(root: string): Promise<Run> {
   process.env["BIGBRAIN_VAULT"] = root;
+  // Offline snapshot first; public data refresh never delays engine startup.
+  void import("../lib/subscriptionConnection").then(m => m.subscriptionRuntime(root)).catch(() => {});
   // Lazy on purpose (see the header): these bind VAULT_ROOT at import.
   const { loadManifest } = await import("../lib/manifest");
 
   const { integrationActive, MANAGED_INTEGRATIONS } = await import("../lib/integrationAccess");
+  const { firewallModel, modelInstalled } = await import("../lib/firewallModel");
   function plan(): Job[] {
     const manifest = loadManifest(root);
     const jobs: Job[] = [
       { name: "api", script: "bin/api.ts", interval: null, atStart: true, env: { PORT: apiPort } },
       { name: "web", script: "web/server.ts", interval: null, atStart: true, env: { PORT: webPort } },
     ];
+    // The intake firewall's local model server — only once it is wanted and
+    // downloaded. Wanted but missing, intake fails closed and waits for it.
+    const fw = manifest.firewall;
+    if (fw && !fw.url && modelInstalled(firewallModel(fw.model)))
+      jobs.push({ name: "firewall", script: "bin/firewall-server.ts", interval: null, atStart: true });
     for (const name of ["tend", "publish"])
       jobs.push({ name, script: `bin/${name}.ts`, interval: cadence(name), atStart: false });
     for (const name of new Set([...Object.keys(manifest.integrations), ...MANAGED_INTEGRATIONS])) {
@@ -255,6 +263,8 @@ async function run(root: string): Promise<Run> {
 
   const running = new Map<string, ChildProcess>();
   const restarts = new Map<string, number>();
+  /** Long-lived jobs that left the plan: stopped, and not brought back. */
+  const retired = new Set<string>();
   const scheduler = new Scheduler(
     jobs.flatMap((j) => (j.interval === null ? [] : [{ name: j.name, interval: j.interval, atStart: j.atStart }])),
     Date.now()
@@ -282,6 +292,7 @@ async function run(root: string): Promise<Run> {
     child.once("exit", (code, signal) => {
       running.delete(job.name);
       if (stopping) return;
+      if (retired.delete(job.name)) return say(`${job.name} stopped (it left the plan)`);
       if (job.interval === null) {
         // A long-lived job died: back off and bring it back, like KeepAlive.
         const n = restarts.get(job.name) ?? 0;
@@ -297,7 +308,7 @@ async function run(root: string): Promise<Run> {
           if (held) say(`:${port} is held by ${held} — ${job.name} cannot start until that stops`);
         }
         setTimeout(() => {
-          if (!stopping) start(job);
+          if (!stopping && byName.get(job.name) === job) start(job);
         }, delay);
       } else if (code !== 0) {
         say(`${job.name} exited ${signal ?? code} — see .state/logs/${job.name}.log`);
@@ -337,8 +348,10 @@ async function run(root: string): Promise<Run> {
   // #749), and until it re-read the plan the new poller never fired. So a
   // stat of vault.yaml on every beat, and when its mtime moves the plan is
   // read again and any integration it gained joins the rotation, first
-  // fire on the next beat. Nothing is ever removed: a disabled
+  // fire on the next beat. No integration is ever removed: a disabled
   // integration's own run.ts exits at its gate (requireIntegrationEnabled).
+  // A long-lived job is different — the firewall's model server holds
+  // gigabytes — so one that leaves the plan is stopped.
   const manifestPath = join(root, "vault.yaml");
   const mtime = (): string => {
     let manifestTime=0, accounts='';
@@ -358,6 +371,21 @@ async function run(root: string): Promise<Run> {
       say(`Integration settings changed but could not be read — plan unchanged (${e instanceof Error ? e.message : e})`);
       return;
     }
+    // A long-lived job may come and go with the settings (the firewall's
+    // model server): one that appears starts now, one that leaves is stopped.
+    const wanted = new Set(fresh.map((j) => j.name));
+    for (const j of fresh)
+      if (j.interval === null && !byName.has(j.name)) {
+        byName.set(j.name, j);
+        start(j);
+        say(`${j.name} joined the plan (settings changed)`);
+      }
+    for (const [name, j] of byName)
+      if (j.interval === null && !wanted.has(name)) {
+        byName.delete(name);
+        const child = running.get(name);
+        if (child) { retired.add(name); child.kill("SIGTERM"); }
+      }
     let joined = false;
     for (const j of fresh) {
       if (j.interval === null || byName.has(j.name)) continue;

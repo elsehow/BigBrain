@@ -1,4 +1,17 @@
 <script lang="ts">
+  import { selectedWorkspace, switchWorkspace } from '../lib/vaultScope';
+  import { sharedWorkspace, checkSharedWorkspace } from '../lib/sharedWorkspace.svelte';
+  import VaultSwitcher from './VaultSwitcher.svelte';
+  onMount(() => {
+    const unavailable = () => {
+      sharedWorkspace.ready = false;
+      sharedWorkspace.error = 'The shared vault is unavailable. Reconnecting…';
+    };
+    window.addEventListener('shared-unavailable', unavailable);
+    void checkSharedWorkspace();
+    const timer = selectedWorkspace ? setInterval(() => void checkSharedWorkspace(), 3000) : undefined;
+    return () => { clearInterval(timer); window.removeEventListener('shared-unavailable', unavailable); };
+  });
   import { onMount, setContext, tick, untrack } from 'svelte';
   import App from '../App.svelte';
   import ActionHistory from './ActionHistory.svelte';
@@ -20,6 +33,8 @@
   import { editable, popupOpen } from '../lib/dom';
   import { SIDEBAR_LAYOUT, type SidebarLayout } from '../lib/sidebarLayout';
   import '../design/sidebar.css';
+  import '../design/neighborhood.css';
+  import { quietSidebar } from '../lib/graphPresentation';
   import { searchPresentation } from '../lib/floatingSearch.svelte';
 
   const options: { baseline?: boolean; debug?: boolean } = $props();
@@ -27,13 +42,15 @@
   const baseline = untrack(() => options.baseline ?? false);
   const debug = untrack(() => options.debug ?? false);
   let feedbackOpen = $state(false);
-  let feedback: { key: (event: KeyboardEvent) => void };
+  let feedback = $state<{ key: (event: KeyboardEvent) => void }>();
   searchPresentation.includeAgents = baseline;
   const sidebar = $state<SidebarLayout>({ open: false, agents: false, searchVisible: false, expanded: false, hoverId: null });
   if (!baseline) setContext(SIDEBAR_LAYOUT, sidebar);
   sidebar.goHome = () => { void home(); };
   sidebar.openRecents = () => { void recents(); };
   sidebar.openSearch = () => { void search(); };
+  // The deferred re-focus below must never undo a dismissal that happened first.
+  let searchFocusFrame = 0;
   async function search(seed = '') {
     sidebar.tab = 'search';
     if (!['home', 'vault', 'search', 'graph', 'top'].includes(app.view)) goto('home');
@@ -41,7 +58,7 @@
     app.query = seed; searchOverlay.open = true;
     await tick();
     const focus = () => { if (sidebar.open && searchOverlay.open) document.querySelector<HTMLInputElement>('#topbar input')?.focus(); };
-    focus(); requestAnimationFrame(focus);
+    focus(); cancelAnimationFrame(searchFocusFrame); searchFocusFrame = requestAnimationFrame(focus);
   }
   async function recents() {
     sidebar.tab = 'recents'; sidebar.unreadOnly = false;
@@ -51,6 +68,7 @@
     if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
   }
   function close() {
+    cancelAnimationFrame(searchFocusFrame);
     sidebar.open = false; sidebar.searchVisible = false; sidebar.agents = false; sidebar.expanded = false;
     searchOverlay.open = false; stage.pilotsOpen = false;
     if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
@@ -105,13 +123,14 @@
     await home();
   }
   function key(e: KeyboardEvent) {
+    if ((e.target as Element | null)?.closest?.(".shared-compose, .vault-menu")) return;
     if (actionHistory.open) {
       // The modal owns keys; underlying conversation/list handlers must not act.
       e.stopImmediatePropagation();
       if (e.key === 'Escape') { e.preventDefault(); actionHistory.open = false; }
       return;
     }
-    if (feedbackOpen) { feedback.key(e); return; }
+    if (feedbackOpen) { feedback?.key(e); return; }
     if (notificationKeyboard.handle(e)) return;
     wakeToolbar();
     if (sidebar.homeMenuKey?.(e)) return;
@@ -130,10 +149,17 @@
     if (e.key === 'Escape' && e.shiftKey && sidebar.agents) return;
     if (e.key === 'Escape' && sidebar.tab === 'search' && sidebar.searchVisible
         && e.target instanceof HTMLInputElement && e.target.closest('#topbar')) {
-      e.preventDefault(); e.stopImmediatePropagation(); e.target.blur(); return;
+      e.preventDefault(); e.stopImmediatePropagation(); cancelAnimationFrame(searchFocusFrame); e.target.blur(); return;
     }
     if (e.key === 'Escape') {
       e.preventDefault(); e.stopImmediatePropagation();
+      if (!sidebar.open && !chat.open && !app.activeNote && !app.graphView.selected.length) {
+        sidebar.homePreview = null; sidebar.homeMenuResume = undefined;
+        app.graphView = { selected: [], excluded: [] };
+        goto('home');
+        void tick().then(() => sidebar.resetGraph?.());
+        return;
+      }
       const hideAfterDismiss = !!returningHome || !sidebar.open || chat.open;
       void dismissPanel().then(() => { if (hideAfterDismiss) { clearTimeout(toolbarTimer); toolbarAwake = false; uiHidden = true; } });
       return;
@@ -190,6 +216,7 @@
   });
   $effect(() => {
     if (!baseline) {
+      document.documentElement.dataset.sidebarTone = quietSidebar ? 'calm' : 'original';
       document.documentElement.dataset.sidebarWorkbench = sidebar.open ? 'open' : 'closed';
       sidebar.fullscreenChat = chat.open && !sidebar.agents && !searchOverlay.open && !stage.pilotsOpen;
       document.documentElement.dataset.fullscreenChat = String(sidebar.fullscreenChat);
@@ -227,10 +254,11 @@
     const connect = new MutationObserver(reconnect);
     connect.observe(document.body, { childList: true, subtree: true });
     reconnect();
-    return () => { cancelAnimationFrame(measureFrame); clearTimeout(toolbarTimer); window.removeEventListener('pointermove', wakeToolbar); delete document.documentElement.dataset.sidebarToolbar; delete document.documentElement.dataset.sidebarHidden; delete document.documentElement.dataset.sidebarTab; delete document.documentElement.dataset.sidebarSettings; observe.disconnect(); connect.disconnect(); window.removeEventListener('keydown', key, true); window.removeEventListener('sidebar:camera', reportCamera); delete document.documentElement.dataset.sidebarWorkbench; delete document.documentElement.dataset.sidebarExpanded; delete document.documentElement.dataset.fullscreenChat; delete document.documentElement.dataset.sidebarAgents; delete document.documentElement.dataset.sidebarSearch; };
+    return () => { cancelAnimationFrame(measureFrame); clearTimeout(toolbarTimer); window.removeEventListener('pointermove', wakeToolbar); delete document.documentElement.dataset.sidebarToolbar; delete document.documentElement.dataset.sidebarHidden; delete document.documentElement.dataset.sidebarTab; delete document.documentElement.dataset.sidebarSettings; observe.disconnect(); connect.disconnect(); window.removeEventListener('keydown', key, true); window.removeEventListener('sidebar:camera', reportCamera); delete document.documentElement.dataset.sidebarWorkbench; delete document.documentElement.dataset.sidebarTone; delete document.documentElement.dataset.sidebarExpanded; delete document.documentElement.dataset.fullscreenChat; delete document.documentElement.dataset.sidebarAgents; delete document.documentElement.dataset.sidebarSearch; };
   });
 </script>
 
+{#if sharedWorkspace.ready}
 <App />
 {#if actionHistory.open}<ActionHistory />{/if}
 <Feedback bind:this={feedback} bind:open={feedbackOpen} visible={baseline || (!uiHidden && (sidebar.open || toolbarAwake))}
@@ -248,4 +276,12 @@
     </button>
   {/if}
 
+{/if}
+
+{:else}
+  <div style="padding: 32px; color: var(--text); font: var(--type-meta)">
+    <VaultSwitcher />
+    <p role="status">{sharedWorkspace.error || 'Connecting to shared vault…'}</p>
+    {#if sharedWorkspace.error}<button onclick={() => void checkSharedWorkspace()}>Retry</button> <button onclick={() => switchWorkspace(null)}>Personal vault</button>{/if}
+  </div>
 {/if}

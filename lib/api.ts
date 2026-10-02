@@ -44,6 +44,7 @@ import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { hasScope, touchLastUsed, verifyToken, type TokenRecord } from "./auth";
 import { ensureDir, writeAtomic } from "./fsx";
+import { dropErrorStatus, FirewallUnavailable } from "./door";
 import { IntakeError } from "./intake";
 import { landDirective, landDrop } from "./landItem";
 import { jailMemoryPath, noteMarkdownText, notePayload } from "./noteRead";
@@ -538,8 +539,7 @@ async function dropHandler({
       attachments,
     });
   } catch (e) {
-    if (e instanceof IntakeError)
-      return json(e.code === "too-large" ? 413 : 400, { error: e.message });
+    if (e instanceof IntakeError || e instanceof FirewallUnavailable) return json(dropErrorStatus(e), { error: e.message });
     throw e;
   }
 

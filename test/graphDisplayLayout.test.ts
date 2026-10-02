@@ -54,10 +54,13 @@ test("real graph changes and layout controls still invalidate the display cache"
 test("sessions sharing identical context and offsets get separate stable positions", () => {
   const solve = mock(() => [{ x: 10, y: 20 }, { x: 80, y: 90 }]);
   const layout = createDisplayLayout(solve);
-  const first = newPilotChatSession(["a"], `pilot-${"f".repeat(28)}abcd`);
+  // The overlay emits in creation order, so the conversation that is already
+  // sitting there is the one created first; the rest arrive minutes later.
+  const first = newPilotChatSession(["a"], `pilot-${"f".repeat(28)}abcd`, "2026-01-01T00:00:00.000Z");
   const opened = withPilotChats(graph, [first], first.id)!;
   const original = layout(opened, GRAPH_FOCUS)[2]!;
-  const sessions = [first, ...Array.from({ length: 19 }, (_, i) => newPilotChatSession(["a"], `pilot-${i.toString(16).padStart(28, "0")}abcd`))];
+  const sessions = [first, ...Array.from({ length: 19 }, (_, i) => newPilotChatSession(["a"],
+    `pilot-${i.toString(16).padStart(28, "0")}abcd`, new Date(Date.parse(first.created) + (i + 1) * 60_000).toISOString()))];
   const view = withPilotChats(graph, sessions, sessions[1]!.id)!;
   const positions = layout(view, GRAPH_FOCUS);
   expect(positions[2]).toEqual(original);

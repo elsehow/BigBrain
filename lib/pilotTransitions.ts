@@ -1,5 +1,4 @@
 import { isEmptyPilotDraft, type PilotChatSession, type PilotChatMessage, type PilotInput, type PilotTurn } from "./pilotChatTypes";
-import type { HistoricalWorkerReport } from "./workHistory";
 import type { PilotNotification } from "./pilotNotifications";
 import { PILOT_LIFECYCLE } from "./pilotLifecycleConfig";
 import { pilotChatChapter } from "./pilotChatIngestion";
@@ -11,15 +10,13 @@ type Chapter = NonNullable<PilotChatSession["pendingIngestion"]>;
 export type PilotEffect =
   | { kind: "start"; turn: PilotTurn }
   | { kind: "abort"; turn: string }
-  | { kind: "release" | "advance" | "schedule-reports" | "discard" }
+  | { kind: "release" | "advance" | "discard" }
   | { kind: "publish"; id: string; chapter: Chapter; activity?: string };
 export type PilotEvent =
   | { kind: "restart" }
   | { kind: "activity"; at: string }
   | { kind: "input"; input: PilotInput; message: string; turn: string; at: string; queue: boolean }
   | { kind: "resume"; message: string; turn: string; at: string }
-  | { kind: "reports"; turn: string; at: string }
-  | { kind: "worker-report"; report: HistoricalWorkerReport; notification?: PilotNotification; detail?: string }
   | { kind: "delta"; turn: string; text: string }
   | { kind: "message"; turn: string; message: PilotChatMessage }
   | { kind: "settled"; turn: string; outcome: "answered" | "interrupted" | "failed"; error?: string; at: string; advance: boolean }
@@ -75,10 +72,12 @@ export function transitionPilot(current: PilotChatSession, event: PilotEvent): {
       if (s.turn?.status === "stopping") throw new PilotTransitionError("Pilot is stopping. Wait before resuming it.");
       if (event.input.notificationId !== undefined && !s.notifications?.some(n => n.id === event.input.notificationId && n.kind === "question" && !n.resolved))
         throw new PilotTransitionError("This question is no longer awaiting an answer. Refresh the conversation.");
-      if (s.turn) {
-        if (!event.queue) throw new PilotTransitionError("Pilot is already working in this session.");
+      if (s.turn || s.pendingInputs?.length) {
+        if (!event.queue) throw new PilotTransitionError(s.turn ? "Pilot is already working in this session." : "Messages are queued in this session. Resume them first.");
         if ((s.pendingInputs?.length ?? 0) >= 8) throw new PilotTransitionError("Wait for Pilot to process the queued messages.");
-        s.pendingInputs = [...(s.pendingInputs ?? []), event.input]; activity(event.at);
+        s.pendingInputs = [...(s.pendingInputs ?? []), event.input];
+        // Appending is not permission to resume an explicitly stopped queue.
+        if (s.turn) activity(event.at);
       } else accept(event.input, event.message, event.turn, event.at);
       acknowledge(event.input);
       break;
@@ -91,22 +90,6 @@ export function transitionPilot(current: PilotChatSession, event: PilotEvent): {
       accept(next, event.message, event.turn, event.at);
       break;
     }
-    case "reports":
-      if (s.turn || s.deactivatedAt || s.phase === "interrupted" || s.phase === "failed" || s.pendingInputs?.length || !s.pendingAgentSessionReports?.length) return unchanged();
-      begin({ id: event.turn, status: "running", reports: [...s.pendingAgentSessionReports] });
-      break;
-    case "worker-report":
-      if (s.workEvents?.some(r => r.key === event.report.key)) return unchanged();
-      s.workEvents = [...(s.workEvents ?? []), event.report];
-      if (event.notification) {
-        const n = event.notification;
-        s.messages = [...s.messages, { id: n.messageId, role: "assistant", text: event.detail ?? n.text, at: n.at }];
-        s.notifications = [...(s.notifications ?? []), n];
-      } else {
-        s.pendingAgentSessionReports = [...(s.pendingAgentSessionReports ?? []), event.report.key];
-        if (!s.deactivatedAt) effects.push({ kind: "schedule-reports" });
-      }
-      break;
     case "delta": s.live += event.text; break;
     case "message":
       if (s.messages.some(m => m.id === event.message.id)) return unchanged();
@@ -119,7 +102,6 @@ export function transitionPilot(current: PilotChatSession, event: PilotEvent): {
       s.error = s.phase === "failed" ? event.error ?? "Pilot could not complete the request." : "";
       if (s.phase === "answered") {
         s.live = "";
-        s.pendingAgentSessionReports = s.pendingAgentSessionReports?.filter(key => !turn.reports?.includes(key));
       }
       if (!s.deactivatedAt) activity(event.at);
       delete s.turn;

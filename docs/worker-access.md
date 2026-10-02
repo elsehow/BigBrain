@@ -1,3 +1,7 @@
+> Historical reference: app-owned agent execution has been removed. These grants
+> no longer launch or authorize workers. See [retired project workers](project-workers.md)
+> and [current model roles](pilot-providers.md).
+
 # Worker access
 
 BigBrain owns permission decisions. Codex and Claude receive the same effective

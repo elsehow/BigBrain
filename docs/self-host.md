@@ -119,15 +119,16 @@ HTTP tokens or upload conversations automatically. See [agent connections](agent
 for setup and [provider runtimes](pilot-providers.md) for the models that run
 BigBrain's own jobs.
 
-## Project workers
+## Conversation and execution
 
-Use **Settings → Agent Orchestration** to authorize projects for embedded Pi
-workers. Choose read/propose or project editing, reference folders, exact network
-destinations, and optional read-only source accounts. Only the user can expand
-access. BigBrain enforces these permissions and requires an OS sandbox for file
-and command tools. Pilot provides context and delegates; it has no general shell
-or project editor. See [project workers](project-workers.md) for checkout behavior,
-revocation, and restart recovery.
+Pilot reads your knowledge, answers questions, and prepares context. It cannot
+launch agents or execute project tasks. Use your own external agent application
+for commands, project edits, browsing, and remote work; connect it through
+**Settings → Connected Clients** for BigBrain knowledge access.
+
+The former Connected Agents / Agent Orchestration settings and approval cards
+have been removed. Existing worker transcripts and operation history remain
+readable, with no resume or follow-up controls. See [retired project workers](project-workers.md).
 
 ## Connect the browser extension
 
@@ -288,7 +289,7 @@ its cursor. Granola's first poll still starts at now. Disabling an integration
 stops new polling and live tool access and prevents admission of its pending
 material. It preserves the rule and evidence; reactivation checks access again.
 
-Pilot and authorized workers use host-mediated live source tools. Gardener
+Pilot uses host-mediated live source tools. Gardener
 curates staged and landed material and has no live-account access. Public MCP
 uses its own external-client grants. Email is the first live adapter. See [agent connections](agent-memory.md)
 for external-client credentials and grants. These grants govern BB's source

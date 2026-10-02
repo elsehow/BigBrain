@@ -2,6 +2,7 @@
   import { vaultFetch as fetch } from "../lib/vaultScope";
 
   import { onMount } from "svelte";
+  import JevSettings from "./JevSettings.svelte";
   import ModelControls from "./ModelControls.svelte";
   import { api } from "../lib/api";
   import { choiceKey, type ModelAgent, type ModelChoice } from "../lib/modelSettings";
@@ -26,10 +27,13 @@
     try {
       const models = await fetch("/api/agents/models");
       const [config, backend] = await Promise.all([api.config(), fetch("/api/pilot/chat/backend")]);
-      if (!models.ok || !backend.ok) throw new Error("Could not load model settings. Reload to try again.");
+      if (!models.ok) throw new Error("Could not load model settings. Reload to try again.");
       const catalog = await models.json();
       agents = catalog.agents; preferences = catalog.preferences ?? {}; recommendations = catalog.recommendations ?? {};
-      const pilot: PilotBackendConfig = await backend.json();
+      const pilot: PilotBackendConfig | undefined = backend.ok ? await backend.json() : undefined;
+      preferenceErrors.pilot = backend.ok ? "" : backend.status === 404
+        ? "Pilot model settings are available in the desktop app."
+        : "Could not load Pilot model settings.";
       choices = { gardener: config.gardener, memory: config.memory, quick: config.quick,
         pilot };
     } catch (e) { problem = "Could not load models."; }
@@ -81,11 +85,12 @@
         </label>
         <p class="hint">{preferences[role.id] === "recommended" ? "Updates with available subscription recommendations. Choosing a model keeps that selection." : "Kept until you choose another model or follow recommendations."}</p>
         {#if !recommendations[role.id] && preferences[role.id] === "recommended"}<p class="hint">No eligible subscription recommendation is currently available. Your last selection is retained.</p>{/if}
-        {#if preferenceErrors[role.id]}<p role="alert">{preferenceErrors[role.id]}</p>{/if}
       {/if}
+      {#if preferenceErrors[role.id]}<p class="hint" role={choices[role.id] ? "alert" : "status"}>{preferenceErrors[role.id]}</p>{/if}
     </div></div>
   {/each}
   {/if}
+  <JevSettings />
   {#if loading}<p role="status">Loading models…</p>{/if}
   {#each agents.filter(a => a.problem) as agent}<p role="alert">{agent.label}: {agent.problem}</p>{/each}
   {#if problem}<p role="alert">{problem} <button class="recommended" onclick={load}>Retry</button></p>{/if}

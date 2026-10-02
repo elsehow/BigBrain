@@ -10,6 +10,7 @@ import { acquire, held, release } from "./pidLock";
 import type { SourceInsertion } from "./insertionLog";
 import { loadManifest } from "./manifest";
 import { memoryInputDelta, readMemoryInputs, type MemoryCheckpoint, type LogCursor } from "./memoryInputs";
+import { readSharedMemory, sharedMemoryDelta } from "./sharedMemory";
 export { pastCursor, type LogCursor } from "./memoryInputs";
 
 /** The memory pass's BIGBRAIN_ROLE value — the ONE machine role allowed to
@@ -74,6 +75,14 @@ function isMemoryStamp(value: unknown): value is MemoryStamp {
       const ids = checkpoint[key];
       if (!Array.isArray(ids) || !ids.every((id) => typeof id === "string")) return false;
     }
+    const shared = checkpoint["shared"];
+    if (shared !== undefined) {
+      if (!shared || typeof shared !== "object" || Array.isArray(shared)) return false;
+      for (const vault of Object.values(shared as Record<string, unknown>)) {
+        const v = vault as { head?: unknown; assertions?: unknown } | null;
+        if (!v || !Number.isSafeInteger(v.head) || !Array.isArray(v.assertions) || !v.assertions.every((id) => typeof id === "string")) return false;
+      }
+    }
   }
   return true;
 }
@@ -125,6 +134,8 @@ export function writeMemoryStamp(root: string, stamp: MemoryStamp): void {
 export interface MemoryWork {
   voice: SourceInsertion[];
   record: number;
+  /** New assertions in joined shared vaults (lib/sharedMemory.ts). */
+  shared?: number;
   recordChanged?: boolean;
 }
 
@@ -136,17 +147,20 @@ export function memoryNeedsRebuild(root: string, stamp: MemoryStamp = readMemory
 
 export function memoryWork(root: string, stamp: MemoryStamp = readMemoryStamp(root)): MemoryWork {
   const delta = memoryInputDelta(readMemoryInputs(root), stamp);
+  const shared = sharedMemoryDelta(readSharedMemory(root), stamp.checkpoint?.shared);
   return { voice: delta.voiceNotes, record: delta.astDelta.length,
-    ...(delta.recordChanged ? { recordChanged: true } : {}) };
+    ...(shared.fresh.length ? { shared: shared.fresh.length } : {}),
+    ...(delta.recordChanged || shared.recordChanged ? { recordChanged: true } : {}) };
 }
 
-export const hasMemoryWork = (w: MemoryWork): boolean => w.voice.length > 0 || w.record > 0 || Boolean(w.recordChanged);
+export const hasMemoryWork = (w: MemoryWork): boolean => w.voice.length > 0 || w.record > 0 || Boolean(w.shared) || Boolean(w.recordChanged);
 
 /** "2 voice note(s) + 3 new assertion(s)" — the reason strings' shared half. */
 export function describeMemoryWork(w: MemoryWork): string {
   return [
     ...(w.voice.length ? [`${w.voice.length} voice note(s)`] : []),
     ...(w.record ? [`${w.record} new assertion(s)`] : []),
+    ...(w.shared ? [`${w.shared} new shared-vault assertion(s)`] : []),
     ...(w.recordChanged ? ["record corrections or identity changes"] : []),
   ].join(" + ");
 }

@@ -6,7 +6,7 @@ const base = process.env.SIDEBAR_PREVIEW_URL || 'http://127.0.0.1:5200';
  try {
   const page = await browser.newPage({viewport:{width:1440,height:1000}}), errors=[];
   page.on('pageerror', e => errors.push(e.message));
-  for (const scenario of ['cancel-queued','restart-pending','resume-after-cancel','archived-report','completion-before-stop']) {
+  for (const scenario of ['cancel-queued','restart-pending','resume-after-cancel','archived-turn','completion-before-stop']) {
    await page.goto(`${base}/sidebar-workbench.html?scenario=${scenario}&seed=41`);
    await page.locator('.pilot-panel').waitFor();
    const state = await page.evaluate(async () => {
@@ -23,7 +23,7 @@ const base = process.env.SIDEBAR_PREVIEW_URL || 'http://127.0.0.1:5200';
     assert.equal(state.phase,'interrupted'); assert.equal(state.pendingInputs.length,1);
     assert.match(await panel.innerText(),/Question 2/);
    }
-   if (scenario === 'archived-report') assert.equal(state.lifecycle,'dormant');
+   if (scenario === 'archived-turn') assert.equal(state.lifecycle,'dormant');
    assert.equal(await page.getByLabel('Application scenario').inputValue(),scenario);
   }
   assert.deepEqual(errors,[]);

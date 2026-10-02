@@ -1,20 +1,23 @@
 <script lang="ts">
+  import VaultSwitcher from "./VaultSwitcher.svelte";
+  import {selectedWorkspace,personalIncluded} from "../lib/vaultScope";
   import ArchiveIcon from "./ArchiveIcon.svelte";
   import { onMount, tick } from 'svelte';
   import type { GraphNode } from '../lib/types';
   import type { SidebarLayout } from '../lib/sidebarLayout';
   import { archiveChat, chatSessions, openChat, startChat, chat } from '../lib/pilotChat.svelte';
   import { GENERAL_WORKSPACE, workspaceMembershipIndex } from '../lib/workspaceMembership';
-  import { pilotRoster, type PilotRosterEntry } from '../lib/pilotAttention';
+  import { pilotRoster, rosterStatusView, type PilotRosterEntry } from '../lib/pilotAttention';
   import { navDelta, stepped, createListJump } from '../lib/listNav';
+  import { kbdTakes } from '../lib/cursor.svelte';
   import { editable } from '../lib/dom';
   import { searchOverlay } from '../lib/omnibox.svelte';
   import { gotoNote } from '../lib/store.svelte';
   import { stage } from '../lib/stage.svelte';
   import ListNavigationHint from '../components/ListNavigationHint.svelte';
   import PilotAttentionGlyph from '../components/PilotAttentionGlyph.svelte';
-  let { memories, sidebar }: { memories: GraphNode[]; sidebar: SidebarLayout } = $props();
-  let open = $state(false);
+  let { memories, sources = [], loading = false, sidebar }: { memories: GraphNode[]; sources?: GraphNode[]; loading?: boolean; sidebar: SidebarLayout } = $props();
+  let open = $state(!!selectedWorkspace||new URL(location.href).searchParams.has("vaultMenu"));
   let index = $state(0);
   let selectedId = $state<string | null>(null);
   const general: GraphNode = { id: GENERAL_WORKSPACE, title: 'Uncategorized agents', group: 'memory', degree: 0 };
@@ -36,7 +39,7 @@
   const jump = createListJump();
   let pointer = { x: -1, y: -1 };
   function trackPointer(e: PointerEvent) { pointer = { x: e.clientX, y: e.clientY }; }
-  const roster = $derived(pilotRoster(chatSessions().map(session => ({ ...session, draft: chat.drafts[session.id] ?? session.draft }))));
+  const roster = $derived(pilotRoster((personalIncluded?chatSessions():[]).map(session => ({ ...session, draft: chat.drafts[session.id] ?? session.draft }))));
   const membershipIndex = $derived(workspaceMembershipIndex(memories));
   const agentsByWorkspace = $derived.by(() => {
     const active = new Set(roster.map(agent => agent.id));
@@ -49,7 +52,7 @@
     }
     return grouped;
   });
-  const workspaces = $derived([...memories, ...(agentsByWorkspace.get(GENERAL_WORKSPACE)?.length ? [general] : [])]);
+  const workspaces = $derived([...(memories.length ? memories : sources), ...(agentsByWorkspace.get(GENERAL_WORKSPACE)?.length ? [general] : [])]);
   const needsAttention = $derived(new Set(
     [...agentsByWorkspace].filter(([, agents]) => agents.some(agent => agent.unread || agent.state === 'waiting')).map(([id]) => id)
   ));
@@ -126,11 +129,12 @@
     } catch (e) { error = (e as Error).message; }
   }
   function key(e: KeyboardEvent): boolean {
-    if (e.defaultPrevented || e.isComposing || e.metaKey || e.ctrlKey || e.altKey || editable(e.target)
+    if ((e.target instanceof Element&&e.target.closest('nav[aria-label="Vaults"]')) || e.defaultPrevented || e.isComposing || e.metaKey || e.ctrlKey || e.altKey || editable(e.target)
       || sidebar.open || chat.open || searchOverlay.open || stage.pilotsOpen) return false;
     if (!open) {
       if (e.shiftKey || !['j', 'k'].includes(e.key) || !count) return false;
       e.preventDefault(); e.stopImmediatePropagation();
+      kbdTakes();
       open = true; selectIndex(e.key === 'j' ? 0 : count - 1);
       void focusRow(); return true;
     }
@@ -155,6 +159,7 @@
     if (!endpoint && !delta && !enter) return false;
     if (e.shiftKey && e.key !== 'G') return false;
     e.preventDefault(); e.stopImmediatePropagation();
+    kbdTakes();
     if (enter) { if (!e.repeat) choose(index); }
     else if (endpoint) { if (endpoint !== 'pending') { selectIndex(endpoint === 'first' ? 0 : Math.max(0,count - 1)); void focusRow(); } }
     else if (delta) { selectIndex(stepped(index, delta, count)); void focusRow(); }
@@ -183,10 +188,10 @@
         class:archived={archivedId === row.id} class:current={index === i} aria-current={index === i ? 'true' : undefined}
         onfocus={() => selectIndex(i)} onpointerenter={e => hover(e, i)} onpointermove={e => hover(e, i)} onclick={() => choose(i)}>
         {#if row.agent}
-          <PilotAttentionGlyph phase={row.agent.phase} state={row.agent.state} size={20} />
+          <PilotAttentionGlyph phase={row.agent.phase} state={row.agent.state} size={20} tip={rosterStatusView(row.agent).description} />
           <span class="title">{row.agent.title}</span>
           {#if row.agent.unread || row.agent.state === 'waiting'}<span class="attention" aria-label="Needs attention"></span>{/if}
-          <span class="meta" class:hide-status={index === i}>{row.agent.phase === 'draft' ? 'Draft' : row.agent.state === 'running' ? 'Working' : row.agent.state === 'waiting' ? 'Needs you' : 'Ready'}</span>
+          <span class="meta" class:hide-status={index === i}>{rosterStatusView(row.agent).label}</span>
         {:else}
           <span class="title">{row.memory.title}</span>
           {#if needsAttention.has(row.memory.id)}<span class="attention" aria-label="Needs attention"></span>{/if}
@@ -202,21 +207,24 @@
         {/if}
       </button>
     {/each}
+    {#if !rows.length}<p class="empty" role="status">{loading?'Loading…':'No items'}</p>{/if}
   </div>
   {#if error}<p role="alert">{error}</p>{/if}
   <footer>
-    <ListNavigationHint />
+    {#if rows.length}<ListNavigationHint />{/if}
     <span class="archive-status" role="status">{announcement}</span>
   </footer>
+  <VaultSwitcher />
 </section>
-{:else}
+{:else if rows.length}
   <div class="workspace-menu-hint"><ListNavigationHint /></div>
 {/if}
 <style>
   .workspace-menu-hint { position:fixed; left:32px; top:calc(88px + var(--sidebar-update-height,0px)); z-index:3; pointer-events:none; }
   .workspace-menu-hint :global(.list-navigation-hint) { padding:0; font-size:12px; }
   .workspace-menu { position:fixed; z-index:3; left:20px; top:96px; width:min(460px,calc(100vw - 40px)); max-height:calc(100dvh - 160px); display:flex; flex-direction:column; background:var(--panel-bg); backdrop-filter:var(--panel-blur); -webkit-backdrop-filter:var(--panel-blur); color:var(--text-strong); }
-  .menu-rows { overflow:auto; min-height:0; }
+  .menu-rows { overflow:auto; min-height:39px; }
+  .empty {margin:0;padding:9px 16px;font:500 15px/1.4 var(--font-app);color:var(--text-muted)}
   .menu-row { box-sizing:border-box; display:flex; align-items:center; gap:10px; width:100%; height:39px; text-align:left; border:0; padding:9px 16px; background:transparent; color:inherit; font:500 15px/1.4 var(--font-app); cursor:pointer; }
   .agent-row { font-weight:400; }
   /* The triangle is inset within its 20px status canvas. Align its visible edge. */

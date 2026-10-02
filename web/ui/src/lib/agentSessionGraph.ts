@@ -1,11 +1,13 @@
 import type { WorkSummary } from "../../../../lib/workViews";
 import { sessionPath } from "../../../../lib/workSessionIdentity";
 import { agentVisualState } from "./agentAppearance";
+import { inSessionOrder } from "./sessionOrder";
 import type { GraphData } from "./types";
 
-export function withAgentOrchestrator(graph: GraphData | null, sessions: WorkSummary[]): GraphData | null {
+export function withAgentHistory(graph: GraphData | null, sessions: WorkSummary[]): GraphData | null {
   if (!graph) return graph;
-  const agents = sessions.filter(s => s.worker || s.external);
+  // Retained conversations have stable placement beside their original Pilot.
+  const agents = inSessionOrder(sessions.filter(s => s.worker || s.external));
   if (!agents.length) return graph;
   const nodes = [...graph.nodes], edges = [...graph.edges];
   for (const s of agents) {

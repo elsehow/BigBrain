@@ -1,4 +1,7 @@
 <script lang="ts">
+ import {includesEverything,INCLUDE_EVERYTHING} from '../../../../lib/inclusionMode';
+ import InclusionRuleEditor from "./InclusionRuleEditor.svelte";
+ let reviewing=$state<string|null>(null);
   import { vaultFetch as fetch } from "../lib/vaultScope";
 
  /** Every integration's account settings, one component, one contract:
@@ -13,7 +16,7 @@
  import {openExternal} from "../lib/native";
  import {onMount} from 'svelte';
  const {source,openFirst=false}:{source:string;openFirst?:boolean}=$props();
-  type Account={gmail?:boolean;google?:boolean;host?:string;removable?:boolean;email?:{startAt:string;attachments:boolean;backfill?:{since:string}};sync?:{ok:boolean;error?:string};auth?:{phase:string;url?:string;error?:string};identity?:unknown;label:string;name:string;account:string;connected:boolean;remembering:{enabled:boolean;rule:string};liveAccess?:boolean;capabilities:{read:string|null;write:string|null}};
+  type Account={inclusion?:{error?:string};gmail?:boolean;google?:boolean;host?:string;removable?:boolean;email?:{startAt:string;attachments:boolean;backfill?:{since:string}};sync?:{ok:boolean;error?:string};auth?:{phase:string;url?:string;error?:string};identity?:unknown;label:string;name:string;account:string;connected:boolean;remembering:{enabled:boolean;rule:string;inactiveRule?:string};liveAccess?:boolean;capabilities:{read:string|null;write:string|null}};
  let newLabel=$state(''),newKey=$state(''),adding=$state(false),destination=$state('this vault');
  let history=$state<Record<string,string>>({});
  let includeHistory=$state<Record<string,boolean>>({});
@@ -27,12 +30,17 @@
  function say(where:Where,account:string|null,text:string,error=false){feedback={where,account,error,text};}
  const placeOf=(action:string):Where=>action==='save'?'save':action==='remove'?'list':'connection';
  async function request(body?:unknown){const r=await fetch('/api/integration-accounts',body?{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)}:undefined);const v=await r.json();if(!r.ok)throw Error(v.error||'Could not load account settings.');return v;}
+ function hasRule(account:Account){return !includesEverything(account.remembering.rule)||reviewing===account.account;}
+ function toggleRule(account:Account,on:boolean){
+  if(on){if(account.remembering.inactiveRule){account.remembering.rule=account.remembering.inactiveRule;}else reviewing=account.account;}
+  else {if(!includesEverything(account.remembering.rule))account.remembering.inactiveRule=account.remembering.rule;account.remembering.rule=INCLUDE_EVERYTHING;reviewing=null;}
+ }
  function accountLabel(account:Account){
    if(account.label!==source)return account.label;
    const identity=account.identity as {email?:unknown}|undefined;
    return typeof identity?.email==='string'?identity.email:'Account';
  }
- function accept(v:{accounts:Account[];destination?:string}){destination=v.destination??"this vault";accounts=v.accounts.filter(a=>a.name===source);accounts.forEach((a,index)=>{expanded[a.account]??=openFirst&&index===0;});}
+ function accept(v:{accounts:Account[];destination?:string}){destination=v.destination??"this vault";accounts=v.accounts.filter(a=>a.name===source);accounts.forEach((a,index)=>{if(!a.remembering.rule.trim())a.remembering.rule=INCLUDE_EVERYTHING;expanded[a.account]??=openFirst&&index===0;});}
  onMount(()=>{
    void request().then(accept).catch(e=>say('list',null,e.message,true));
    const timer=setInterval(()=>{if(!busy&&accounts.some(a=>a.auth?.phase==='browser'||a.auth?.phase==='starting'))void request().then(accept).catch(e=>say('list',null,e.message,true));},1500);
@@ -75,8 +83,14 @@
   {#if account.removable}{#if removing[account.account]}<div class="actions"><p>Remove {accountLabel(account)} from {destination}? {source==='email'?'Its saved password and choices go with it; remembered mail stays.':'Its saved credentials and choices go with it; remembered material stays.'}</p><button disabled={busy} onclick={()=>{removing[account.account]=false;void act(account,'remove');}}>Remove</button><button disabled={busy} onclick={()=>removing[account.account]=false}>Keep</button></div>
   {:else}<button disabled={busy} onclick={()=>removing[account.account]=true}>Remove…</button>{/if}{/if}
   <fieldset disabled={busy||!account.connected}>
+   {#if account.inclusion?.error}<p role="alert">{account.inclusion.error}</p>{/if}
    <label class="toggle"><input type="checkbox" bind:checked={account.remembering.enabled}/> Automatic remembering</label>
-   {#if account.remembering.enabled}<label class="remembering-rule">What should BigBrain remember?<textarea rows="4" maxlength="8000" bind:value={account.remembering.rule} placeholder="Remember project decisions; skip routine notifications."></textarea></label>
+   {#if account.remembering.enabled}<div class="remembering-rule">
+    <label class="toggle"><input type="checkbox" checked={hasRule(account)} onchange={e=>toggleRule(account,e.currentTarget.checked)}/> Inclusion rule</label>
+    {#if reviewing===account.account}<InclusionRuleEditor target={{kind:'integration',name:source,account:account.account}} value={includesEverything(account.remembering.rule)?'':account.remembering.rule} onsave={text=>{account.remembering.rule=text;reviewing=null}} oncancel={()=>reviewing=null}/>
+    {:else if hasRule(account)}<p>{account.remembering.rule}</p><button onclick={()=>reviewing=account.account}>Edit inclusion rule</button>
+    {:else}<p>Include everything.</p>{/if}
+   </div>
    {#if source==='email'}<div class="remembering-rule"><p>{account.email?.backfill ? `Mail since ${account.email.backfill.since.slice(0,10)}` : "New mail from connection"} is staged locally for review, then remembered in {destination} when it matches your rule.</p>
    <details><summary>History and attachments</summary>
     <label class="toggle"><input type="checkbox" bind:checked={includeHistory[account.account]}/> Import earlier mail</label>
@@ -118,5 +132,5 @@
  .remembering-rule{margin-left:28px}
  @media(max-width:700px){.account-list{padding-left:12px}.account-list .account-settings{padding:16px}.remembering-rule{margin-left:0}}
 
- section,.account-settings,fieldset,label,form{display:grid;gap:12px;min-width:0}fieldset{border:0;padding:12px 0;margin:0}pre{white-space:pre-wrap;overflow-wrap:anywhere;font:var(--type-meta)}.actions{display:flex;gap:12px;align-items:center;flex-wrap:wrap}p{margin:0}p{font:var(--type-meta);color:var(--text-muted)}label{font:var(--type-body)}textarea,input[type=email],input[type=password],input:not([type]){box-sizing:border-box;width:100%;padding:10px;background:var(--well);color:var(--text);font:inherit;border:1px solid var(--rule)}.toggle{display:flex;align-items:center}button{justify-self:start;font:var(--type-body);padding:8px 12px;border:1px solid var(--rule);background:transparent;color:var(--text-strong);cursor:pointer}button:disabled{opacity:.5;cursor:default}button:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid var(--activity);outline-offset:3px}[role=alert]{color:var(--err)}
+ section,.account-settings,fieldset,label,form{display:grid;gap:12px;min-width:0}fieldset{border:0;padding:12px 0;margin:0}pre{white-space:pre-wrap;overflow-wrap:anywhere;font:var(--type-meta)}.actions{display:flex;gap:12px;align-items:center;flex-wrap:wrap}p{margin:0}p{font:var(--type-meta);color:var(--text-muted)}label{font:var(--type-body)}input[type=email],input[type=password],input:not([type]){box-sizing:border-box;width:100%;padding:10px;background:var(--well);color:var(--text);font:inherit;border:1px solid var(--rule)}.toggle{display:flex;align-items:center}button{justify-self:start;font:var(--type-body);padding:8px 12px;border:1px solid var(--rule);background:transparent;color:var(--text-strong);cursor:pointer}button:disabled{opacity:.5;cursor:default}button:focus-visible,input:focus-visible{outline:2px solid var(--activity);outline-offset:3px}[role=alert]{color:var(--err)}
 </style>

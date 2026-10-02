@@ -7,7 +7,15 @@ const assert = require('node:assert/strict');
     const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
     const errors = []; page.on('pageerror', e => errors.push(e.message));
     await page.goto(`${process.env.SIDEBAR_PREVIEW_URL || 'http://127.0.0.1:5246'}/sidebar-workbench.html`);
-    await page.getByRole('button', { name: 'Agents', exact: true }).click();
+    // The toolbar hides after 2.5s idle, and a slow CI start can outlast that: exercise
+    // the idle state, then reveal it as a user does (pointer input) before clicking.
+    const agents = page.getByRole('button', { name: 'Agents', exact: true });
+    await page.waitForFunction(() => document.documentElement.dataset.sidebarToolbar === 'false');
+    const box = await agents.boundingBox();
+    assert(box, 'Agents trigger is laid out');
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await agents.focus();
+    await agents.click();
     const rows = page.locator('.pilot-row');
     await rows.first().waitFor();
     const count = await rows.count();

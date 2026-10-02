@@ -9,7 +9,7 @@ import type { ModelChoice } from "./modelChoice";
  * remain host-owned. No whole-vault quarantine or rollback occurs. */
 import { cpSync, existsSync, mkdirSync, readFileSync, renameSync } from "node:fs";
 import { join } from "node:path";
-import { AST_CITE } from "./ids";
+import { AST_CITE, SHARED_AST_CITE } from "./ids";
 import type { Manifest } from "./manifest";
 import { hasAssertionEvents } from "./assertionLog";
 import { assertionIdsExist, syncAssertionProjection } from "./assertionProjection";
@@ -24,6 +24,7 @@ import { sha256hex } from "./hash";
 import { clip } from "./text";
 import { proposeEntityFolds, readEntityFolds } from "./entityFolds";
 import { readMemorySnapshot, renderMemoryContext, type MemorySnapshot } from "./memoryContext";
+import { unknownSharedCitations, type SharedMemory } from "./sharedMemory";
 import {
   describeBudget,
   measureTree,
@@ -230,15 +231,23 @@ async function enforceBudget(args: {
  * Runs AFTER the rewriters so it sees the committed bytes (the
  * canonicalizer leaves an unresolvable ast link exactly as written).
  * Returns the failure, or undefined when the tree is clean. */
-function citationFailure(root: string, foldedAssertions: number): string | undefined {
+function citationFailure(root: string, foldedAssertions: number, shared: SharedMemory): string | undefined {
   const citedAsts = new Set<string>();
-  for (const f of memoryTreeFiles(root))
-    for (const m of readFileSync(join(root, "memory", f), "utf8").matchAll(AST_CITE))
-      citedAsts.add(m[1]!);
-  if (!citedAsts.size)
+  const citedShared: [string, string][] = [];
+  for (const f of memoryTreeFiles(root)) {
+    const text = readFileSync(join(root, "memory", f), "utf8");
+    for (const m of text.matchAll(AST_CITE)) citedAsts.add(m[1]!);
+    for (const m of text.matchAll(SHARED_AST_CITE)) citedShared.push([m[1]!, m[2]!]);
+  }
+  if (!citedAsts.size && !citedShared.length)
     return foldedAssertions
-      ? `uncited tree: ${foldedAssertions} new assertion(s) folded and no memory line cites any [[ast_…]]`
+      ? `uncited tree: ${foldedAssertions} new assertion(s) folded and no memory line cites any [[ast_…]] or [[shared:…:ast_…]]`
       : undefined;
+  // A joined vault's claims resolve against its last-read view; one this
+  // machine no longer joins resolves nowhere (lib/sharedMemory.ts).
+  const unknownShared = unknownSharedCitations(shared, citedShared);
+  if (unknownShared.length) return `unknown shared-vault citation(s): ${unknownShared.join(", ")}`;
+  if (!citedAsts.size) return undefined;
   try {
     // .state/ is gitignored, so a fresh clone has no projection; the gate
     // must not fail a valid run over missing derived state. Sync is
@@ -331,15 +340,16 @@ export async function runMemory(opts: MemoryRunOpts): Promise<MemoryRunResult> {
     // the SAME listing, so an event landing mid-run stays past the cursor
     // for the next run instead of being silently skipped.
     const snapshot: MemorySnapshot = readMemorySnapshot(root, cursors);
-    const { asts, inss, astDelta, unasserted, voiceNotes, firstRun, bootstrap } = snapshot;
+    const { asts, inss, astDelta, unasserted, voiceNotes, firstRun, bootstrap, sharedFresh } = snapshot;
     const prompt = template + renderMemoryContext(root, snapshot, cursors);
     const deltaDesc = bootstrap
       ? fromScratch
         ? "from scratch"
         : "first run"
       : `${astDelta.length} assertion event(s)`;
+    const sharedDesc = sharedFresh.length ? `, ${sharedFresh.length} shared-vault assertion(s)` : "";
     console.log(
-      `${MEMORY_ROLE}: run ${runId} — ${verdict.reason}; ${deltaDesc}, ${voiceNotes.length} voice, model ${manifest.memory.model}`
+      `${MEMORY_ROLE}: run ${runId} — ${verdict.reason}; ${deltaDesc}${sharedDesc}, ${voiceNotes.length} voice, model ${manifest.memory.model}`
     );
 
     let error: string | undefined;
@@ -412,7 +422,7 @@ export async function runMemory(opts: MemoryRunOpts): Promise<MemoryRunResult> {
     // Enforced like the budget: revert, journal, loud — the spool stays
     // pending and the next due tick retries.
     if (!error) {
-      const failure = citationFailure(root, astDelta.length);
+      const failure = citationFailure(root, astDelta.length + sharedFresh.length, { vaults: snapshot.sharedVaults });
       if (failure) {
         error = `${failure} — run reverted`;
         edits.rollback();
@@ -520,7 +530,7 @@ export async function runMemory(opts: MemoryRunOpts): Promise<MemoryRunResult> {
       // told what killed this one (previousRunFailure). Before this, the
       // stamp was untouched on failure, nextRunAt stayed in the past, and
       // the next five-minute tick was due again: a run that died at the
-      // 20-minute timeout, or a tree still over budget after its trims,
+      // background-job timeout, or a tree still over budget after its trims,
       // re-ran and re-paid every tick until something changed (#598
       // measured $1–4 a revert). Silent by design — the stamp and the
       // journal say so, and diagnostics reads both (lib/diagnostics.ts).

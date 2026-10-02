@@ -1,3 +1,4 @@
+import { workspaceURL, selectedWorkspace } from "./vaultScope";
 import { vaultStorageKey, vaultReady, assertVaultCurrent } from "./vaultScope";
 import { vaultFetch as fetch } from "./vaultScope";
 import type {
@@ -40,7 +41,7 @@ const U = {
 const mem = new Map<string, unknown>();
 const cachePrefix = () => vaultStorageKey("cache:");
 function cachedOf<T>(url: string): T | undefined {
-  if (!vaultReady()) return undefined;
+  if (selectedWorkspace || !vaultReady()) return undefined;
   if (mem.has(url)) return mem.get(url) as T;
   try {
     const raw = sessionStorage.getItem(cachePrefix() + url);
@@ -76,7 +77,7 @@ async function get<T>(url: string, signal?: AbortSignal): Promise<T> {
   assertVaultCurrent();
   mem.set(url, data);
   try {
-    sessionStorage.setItem(cachePrefix() + url, JSON.stringify(data));
+    if (!selectedWorkspace) sessionStorage.setItem(cachePrefix() + url, JSON.stringify(data));
   } catch {
     /* quota — memory holds it */
   }
@@ -199,6 +200,10 @@ export const api = {
     get<{ hits: import("./omnibox.svelte").SearchHit[]; nextOffset: number | null }>(
       `/api/search?q=${encodeURIComponent(q)}&limit=${limit}&offset=${offset}${mention ? "&purpose=mention" : ""}`, signal),
   graph: () => get<GraphData>(U.graph()),
+  /** The v2 view's who and what (lib/v2Feed.ts): agents and the latest assertions. */
+  v2: () => get<import("./v2/model").V2Feed>("/api/v2"),
+  /** One entity's latest assertions, dated by when each claim was first recorded. */
+  v2Entity: (id: string) => get<{ rows: import("./v2/model").V2FeedRow[] }>(`/api/v2/entity?id=${encodeURIComponent(id)}`),
   folds: () => get<FoldsView>(U.folds()),
   /** ACCEPT a fold: every member's label becomes an alias of the canonical. */
   acceptFold: (canonical: string, members: string[]) =>
@@ -264,7 +269,7 @@ export const api = {
     const { status, text } = await new Promise<{ status: number; text: string }>(
       (resolve, reject) => {
         const xhr = new XMLHttpRequest();
-        xhr.open("POST", "/api/drop");
+        xhr.open("POST", workspaceURL("/api/drop"));
         xhr.setRequestHeader("content-type", "application/json");
         if (onProgress)
           xhr.upload.onprogress = (e) => {

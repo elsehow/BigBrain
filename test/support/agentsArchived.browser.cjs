@@ -56,6 +56,22 @@ const assert = require('node:assert/strict');
     assert.equal(await count(), '4');
     assert.deepEqual(await titles(), ['Agent 0', 'Agent 1', 'Agent 2', 'Agent 3']);
     assert.equal(await page.locator('.pilot-panel').count(), 0, 'Enter on the filter does not open the selected agent');
+    // Archived rows carry their status in the accessible name, the glyph tip and the
+    // --mark (white) icon; the visible row text no longer repeats the word.
+    const archivedRows = await page.evaluate(() => {
+      const probe = document.createElement('span'); probe.style.color = 'var(--mark)'; document.body.append(probe);
+      const mark = getComputedStyle(probe).color; probe.remove();
+      return [...document.querySelectorAll('.pilot-row')].map(row => ({
+        title: row.querySelector('.row-heading strong')?.textContent, label: row.getAttribute('aria-label'),
+        text: row.innerText, glyph: getComputedStyle(row.querySelector('.glyph')).color, mark,
+      }));
+    });
+    for (const row of archivedRows.filter(r => ['Agent 1', 'Agent 3'].includes(r.title))) {
+      assert.match(row.label, /, Archived$/, 'archived status stays in the accessible name');
+      assert.doesNotMatch(row.text, /Archived/, 'no redundant visible Archived label');
+      assert.equal(row.glyph, row.mark, 'archived icon keeps the --mark colour');
+    }
+    for (const row of archivedRows.filter(r => ['Agent 0', 'Agent 2'].includes(r.title))) assert.doesNotMatch(row.label, /Archived/);
     await rows.first().focus();
     await page.keyboard.press('End');
     assert.equal(await page.locator('.pilot-row.selected strong').innerText(), 'Agent 3');

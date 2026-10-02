@@ -69,7 +69,7 @@ test("image-only Pilot turns survive retries and reload and reach Pi as images",
   const sessions = new PilotChats(root, { graph: () => [], fetch: (async (_url, init) => {
     requests.push(JSON.parse(String(init?.body))); return stream([done([text("An image.")])]);
   }) as typeof fetch });
-  const image = sessions.uploadImage("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jBfcAAAAASUVORK5CYII=", "Screenshot.png"), s = sessions.create([]);
+  const image = sessions.uploadImage("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNo+A8AAgIBgG5WixMAAAAASUVORK5CYII=", "Screenshot.png"), s = sessions.create([]);
   sessions.draft(s.id, "", [image]);
   expect(() => sessions.discard(s.id)).toThrow("empty draft");
   const input = { id: "image-input-001", mode: "text" as const, images: [image] };
@@ -113,8 +113,30 @@ describe("text Pilot sessions", () => {
   expect(reopened.get(named.id).title).toBe("Chosen title");
   reopened.close();
  });
+ test("Quick names engine-titled tasks as they develop and never over a person's name", async () => {
+  const root = vault();
+  const asked: string[] = [];
+  const nameTask = async (_: string, messages: readonly { role: string }[], current?: string) => { asked.push(current ?? ""); return `Task at ${messages.filter(m => m.role === "user").length}`; };
+  const sessions = new PilotChats(root, { graph: () => [], nameTask, fetch: (async () => stream([done([text("Noted.")])])) as typeof fetch });
+  const turn = async (id: string, text: string) => { sessions.send(id, text); await sessions.settled(id); await Bun.sleep(0); };
+  const s = sessions.create([]);
+  await turn(s.id, "how long should sourdough proof overnight");
+  expect(s.title).toBe("Task at 1"); expect(s.titleSource).toBe("auto");
+  await turn(s.id, "and last year?"); expect(s.title).toBe("Task at 2");
+  await turn(s.id, "thanks"); expect(s.title).toBe("Task at 2"); // 3 is not a naming moment
+  await turn(s.id, "one more"); expect(s.title).toBe("Task at 4");
+  sessions.rename(s.id, "Sourdough timing");
+  await turn(s.id, "five"); await turn(s.id, "six"); await turn(s.id, "seven"); await turn(s.id, "eight");
+  expect(s.title).toBe("Sourdough timing"); expect(s.titleSource).toBe("human");
+  // a title from before titleSource: a "Re: …" seed is the engine's, a chosen one is not
+  const seeded = sessions.create([]); sessions.setContext(seeded.id, [], "Re: Arbor", seeded.viewRevision);
+  const chosen = sessions.create([]); sessions.setContext(chosen.id, [], "Chosen title", chosen.viewRevision);
+  await turn(seeded.id, "what is Arbor?"); await turn(chosen.id, "what is Arbor?");
+  expect(seeded.title).toBe("Task at 1"); expect(chosen.title).toBe("Chosen title");
+  sessions.close();
+ });
  test("shared tools include readers, vault submissions and agent sessions", () => {
-  expect(pilotChatTools().map(t=>t.name).sort()).toEqual(["inspect_agent_environment","revise_agent_environment","list_agent_models","launch_agent","reply_agent","read_agent","message_agent","list_directories","list_files","read_file","write_scratch","notify_user","resolve_notification","integration_capabilities","email_search", "email_read", "inbox_set_unread","inbox_list","inbox_read","granola_tools","granola_read","source_read_state","load_memory","read_note","recent","search_vault","set_context","capabilities","drop","directive","status"].sort());
+  expect(pilotChatTools().map(t=>t.name).sort()).toEqual(["read_action","list_directories","list_files","read_file","write_scratch","notify_user","resolve_notification","integration_capabilities","email_search", "email_read", "inbox_set_unread","inbox_list","inbox_read","granola_tools","granola_read","source_read_state","load_memory","read_note","recent","search_vault","set_context","capabilities","drop","directive","status"].sort());
  });
  test("canonical seed, replacement, stale revisions, and durable draft", () => {
   const root=vault(), sessions=new PilotChats(root,{graph:()=>nodes,fetch:fetch});

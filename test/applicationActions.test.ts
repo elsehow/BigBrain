@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, rmSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ApplicationActions, type ActionRequest } from "../lib/applicationActions";
+import { ActionRefusal, ApplicationActions, actionFailure, actionReceiptView, type ActionRequest } from "../lib/applicationActions";
 import { writeAtomic } from "../lib/fsx";
 import { deliverAction } from "../web/ui/src/lib/actionDelivery";
 const request: ActionRequest = { actor: { kind: "pilot", id: "pilot-fixture" }, request: "input-action", operation: "drop", scope: ["vault"], payload: { content: "Invented source" } };
@@ -55,6 +55,36 @@ test("revocation before dispatch is a known failure; cancellation during an exte
     const controller = new AbortController();
     await expect(actions.execute({ ...request, request: "cancelled" }, { signal: controller.signal, authorize() {}, execute() { calls++; controller.abort(); throw new Error("Lost response"); } })).rejects.toThrow("confirmed outcome");
     expect(actions.list(request.actor).receipts.find(r => r.request === "cancelled")?.status).toBe("uncertain");
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("a proven refusal fails safely and may run again; an observed effect stays uncertain until durable evidence settles it", async () => {
+  const root = scratch();
+  try {
+    const actions = new ApplicationActions(root); let calls = 0;
+    const refused = { ...request, request: "refused" };
+    await expect(actions.execute(refused, { authorize() {}, execute() { calls++; throw new ActionRefusal("Invented capacity refusal"); } })).rejects.toThrow("Invented capacity refusal");
+    const failed = actions.receipt(refused)!;
+    expect(failed).toMatchObject({ status: "failed", stage: "execute", cause: "Invented capacity refusal", error: "Invented capacity refusal" });
+    expect(actionFailure("drop", new Error("Invented capacity refusal"), failed)).toEqual({ error: "Invented capacity refusal", request: failed.id, operation: "drop", status: "failed", stage: "execute", retry: "safe" });
+    expect(await actions.execute(refused, { authorize() {}, execute() { calls++; return "ran"; } })).toBe("ran"); expect(calls).toBe(2);
+    expect(actions.receipt(refused)).toMatchObject({ status: "completed", result: "ran" });
+    expect(actions.receipt(refused)?.cause).toBeUndefined();
+
+    const agent = `work-${"c".repeat(32)}`, lost = { ...request, operation: "launch_agent", request: "lost" };
+    // An observed identity outranks a refusal: something may exist.
+    await expect(actions.execute(lost, { authorize() {}, execute({ observe }) { calls++; observe({ agent }); throw new ActionRefusal("Invented late refusal"); } })).rejects.toThrow("confirmed outcome");
+    const uncertain = actions.receipt(lost)!;
+    expect(uncertain).toMatchObject({ status: "uncertain", stage: "execute", cause: "Invented late refusal", observed: { agent } });
+    expect(actionReceiptView(uncertain).observations).toEqual([{ kind: "agent", target: agent, confirmed: false }]);
+    expect(actionFailure("launch_agent", new Error("x"), uncertain)).toMatchObject({ status: "unknown", retry: "blocked", agent, cause: "Invented late refusal" });
+    expect(actionFailure("launch_agent", new Error("Unreadable"), null)).toMatchObject({ status: "unknown", retry: "blocked" });
+    const restarted = new ApplicationActions(root);
+    await expect(restarted.execute(lost, { authorize() {}, execute() { calls++; }, recover: () => undefined })).rejects.toThrow("confirmed outcome");
+    expect(await restarted.execute(lost, { authorize() {}, execute() { calls++; }, recover: r => ({ id: r.observed?.agent }) })).toEqual({ id: agent });
+    expect(calls).toBe(3);
+    expect(restarted.receipt(lost)).toMatchObject({ status: "completed", result: { id: agent }, cause: "Invented late refusal" });
+    expect(restarted.owned({ kind: "pilot", id: "another-pilot" }, uncertain.id)).toBeUndefined();
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 

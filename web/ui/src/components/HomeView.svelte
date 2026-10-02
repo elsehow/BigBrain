@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { personalIncluded } from "../lib/vaultScope";
   import PilotQuickLook from "./PilotQuickLook.svelte";
   import WorkspaceMenu from "./WorkspaceMenu.svelte";
   import { getContext, onMount, untrack, tick } from "svelte";
@@ -6,7 +7,7 @@
   import { findNode } from "../../../../lib/graphIdentity";
   import { canonicalGraphView } from "../../../../lib/graphView";
   import { SIDEBAR_LAYOUT, type SidebarLayout } from "../lib/sidebarLayout";
-  import { withAgentOrchestrator } from "../lib/agentSessionGraph";
+  import { withAgentHistory } from "../lib/agentSessionGraph";
   import { work } from "../lib/workSessions.svelte";
   import WorkSessionPanel from "./WorkSessionPanel.svelte";
   import Pilot from "./Pilot.svelte";
@@ -18,6 +19,7 @@
   import { searchOverlay } from "../lib/omnibox.svelte";
   import { floatingResults as results } from "../lib/floatingSearch.svelte";
   import HomeFolds from "./HomeFolds.svelte";
+  import EmptyVault from "./EmptyVault.svelte";
   import NoteTab from "./NoteTab.svelte";
   import SystemGraph from "./SystemGraph.svelte";
   import { withSourceReadStates } from "../lib/sourceReadGraph";
@@ -39,10 +41,11 @@
   // Graph responses are replaced as snapshots; deep proxies make every
   // graph traversal pay reactive lookup costs without enabling useful updates.
   let graph = $state.raw<GraphData | null>(null);
+  let graphError = $state('');
   liveResource(() => "graph", () => swr.graph(), g => {
-    graph = g;
+    graph = g; graphError = '';
     reconcileArrivals(g);
-  });
+  }, {onError: (error) => {graphError = error instanceof Error ? error.message : 'Could not load this vault.';}});
 
   // Session activity belongs to the same sources as the rest of the vault.
   // Wait for the cached vault graph before adding sessions. On a remount,
@@ -53,9 +56,11 @@
   const viewSession = $derived(session ?? chatSessions().find(s => s.id === selectedWork?.origin?.pilot));
   $effect(() => { if (sourceAttention.selection && !isUnreadSelection()) sourceAttention.selection = ""; });
   const arrivalGraph = $derived(withArrivals(graph, arrivals.nodes));
+  // Nothing has landed yet: at most the gardener's memory notes, no arrival on its way.
+  const vaultEmpty = $derived(!!arrivalGraph && arrivalGraph.nodes.every(n => n.group === "memory" && !n.pending));
   const readGraph = $derived(withSourceReadStates(arrivalGraph, sourceAttention.rows));
-  const pilotGraph = $derived(preparePilotChats(readGraph, chatSessions()));
-  const visibleGraph = $derived(withAgentOrchestrator(readGraph ? pilotGraph(sidebar ? null : viewSession?.id ?? null) : null, work.sessions));
+  const pilotGraph = $derived(preparePilotChats(readGraph, personalIncluded ? chatSessions() : []));
+  const visibleGraph = $derived(withAgentHistory(readGraph ? pilotGraph(sidebar ? null : viewSession?.id ?? null) : null, personalIncluded ? work.sessions : []));
   const overviewRoot = $derived(visibleGraph?.nodes.find(n => n.group === "memory" && /(^|\/)MEMORY\.md$/.test(n.path ?? n.id)));
   const studyGraph = $derived.by(() => {
     if (!visibleGraph || !sidebar || !overviewRoot) return visibleGraph;
@@ -232,10 +237,11 @@
 <svelte:window bind:innerWidth={viewportWidth} bind:innerHeight={viewportHeight} onpointermove={edges} onpointerdown={ground} />
 
 {#if sidebar && !sidebar.open && !chat.open}
-  <WorkspaceMenu {memories} {sidebar} />
+  <WorkspaceMenu memories={memories} sources={(visibleGraph?.nodes??[]).filter(n=>n.group==='source'&&n.path)} loading={!graph&&!graphError} {sidebar} />
 {/if}
 
 <section class="view">
+  {#if !graph && graphError}<div class="graph-error" role="alert">{graphError} <button onclick={()=>{graphError='';app.rev++;}}>Retry</button></div>{/if}
   <div class="pane" class:side-expanded={sideExpanded}>
     <!-- the memory pass's fold proposals (#728), above everything (Nick,
          2026-09-03) so they get triaged: labels that look like one thing,
@@ -250,6 +256,7 @@
         if (chat.sessions.some(s => s.id === id)) openChat(id);
         else { const node = visibleGraph?.nodes.find(n => n.id === id); if (node?.path) gotoNote(node.path); }
       }} />
+    {#if vaultEmpty && !drawerUp && !sidebar?.open}<EmptyVault />{/if}
     {#if viewSession}<div class="pilot-view"><strong>Pilot view</strong><span>{viewSession.title}</span></div>{/if}
     {#if chat.error && !chat.open}<p class="pilot-error" role="alert">{chat.error}</p>{/if}
     {#if chat.toast}<div class="pilot-toast" role="alert">{chat.toast}<button aria-label="Dismiss Pilot error" onclick={() => chat.toast = ""}>×</button></div>{/if}
@@ -283,6 +290,7 @@
 <Pilot />
 
 <style>
+  .graph-error{position:absolute;top:90px;left:32px;z-index:5;color:var(--text-muted);font:var(--type-meta)}
   /* the app's one frame — see app.css's --app-pad-*: every view pads with
      these two numbers, so no screen invents its own margin */
   /* The column holds the rail (and fold proposals, when there are any).

@@ -1,9 +1,12 @@
 <script lang="ts">
   import NodeIndicator from "./NodeIndicator.svelte";
   import type { PilotVisualPhase } from "../lib/pilotAppearance";
-  let { phase, state = "idle", size = 32, pulse = true }: { phase?: PilotVisualPhase; state?: "waiting" | "running" | "idle"; size?: number; pulse?: boolean } = $props();
+  import { tooltip } from "../lib/tooltip";
+  // `tip` describes the status the glyph draws; the row that owns the glyph
+  // still names it, so the shape is never the only carrier of the meaning.
+  let { phase, state = "idle", size = 32, pulse = true, tip }: { phase?: PilotVisualPhase; state?: "waiting" | "running" | "idle"; size?: number; pulse?: boolean; tip?: string } = $props();
 </script>
-<span class="glyph" style:width={`${size}px`} style:height={`${size}px`} aria-hidden="true">
+<span class="glyph" style:width={`${size}px`} style:height={`${size}px`} aria-hidden="true" use:tooltip={tip}>
   <NodeIndicator state={phase ?? (state === "running" ? "working" : state === "idle" ? "idle" : "active")} {size} />
   {#if state === "waiting"}<svg class="attention-ring" class:breathe={pulse} viewBox="-24 -24 48 48"><path d="M-20 -10v-10h10 M10 -20h10v10 M20 10v10h-10 M-10 20h-10v-10" /></svg>{/if}
 </span>

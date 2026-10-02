@@ -36,6 +36,12 @@ export const ENTITY_ID_LINK = /\[\[(ent_[a-f0-9]{20})\|([^\]\n]+)\]\]/gu;
  * for. */
 export const AST_CITE = /\[\[(ast_[a-f0-9]{24})(?:\|[^\]\n]*)?\]\]/gu;
 
+/** A memory topic's citation of an assertion held by a joined shared vault —
+ * `[[shared:<connection>:ast_…]]`, the connection being this machine's id
+ * for it (lib/sharedConnections.ts). Never matches `AST_CITE`, and the
+ * reverse, so each gate checks its own kind (lib/sharedMemory.ts). */
+export const SHARED_AST_CITE = /\[\[shared:([A-Za-z0-9-]+):(ast_[a-f0-9]{24})(?:\|[^\]\n]*)?\]\]/gu;
+
 /** An entity label's canonical form: trimmed, lowercased, inner whitespace
  * collapsed. */
 export const norm = (value: string): string =>

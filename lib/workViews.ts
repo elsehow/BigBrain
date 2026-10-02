@@ -14,7 +14,10 @@ export function workSummary(job: WorkSession) {
     external: job.external && { adapter: job.external.adapter, connected: false, archivedAt: job.external.archivedAt, capabilities: { open: "resume" as const, interrupt: false, followUp: false } },
     worker: w && { ...fields(w, ["projectId", "archivedAt", "isolation"]), grant: w.grant && grantView(w.grant),
       request: request && (request.kind === "access" ? { ...fields(request, ["id", "kind", "text", "initial", "label"]), grant: grantView(request.grant) } : fields(request, ["id", "kind", "text"])),
-      operations: w.operations.map(o => fields(o, ["id", "tool", "status", "at"])) },
+      operations: w.operations.map(o => fields(o, ["id", "tool", "status", "at"])),
+      // Every Pilot turn carries this summary: all waiting instructions, only recent settled ones, bounded text.
+      steering: w.steering?.filter((s, i, all) => s.status === "queued" || all.slice(i + 1).filter(n => n.status !== "queued").length < 5)
+        .map(s => ({ ...fields(s, ["id", "at", "status", "delivery", "deliveredAt", "withdrawnAt", "reason"]), text: s.text.length > 2000 ? `${s.text.slice(0, 2000)}…` : s.text })) },
     lastMessageAt: lastMessageAt(job), pending: !!request, attention: workAttention(job) };
 }
 export type WorkDetail = ReturnType<typeof workDetail>;

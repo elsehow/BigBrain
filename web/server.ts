@@ -1,3 +1,15 @@
+import {integrationAccountRoutes} from '../lib/integrationAccountRoutes';
+import {IntegrationAccounts} from '../lib/integrationAccounts';
+import {inclusionReviewApi} from '../lib/inclusionReviewApi';
+import {inclusionBackfillApi} from '../lib/inclusionBackfillApi';
+import {tickIntegrationInclusion} from '../lib/inclusionStages';
+import { unionGraph, unionRecent, unionSearch, unionNote, vaultFilter, includesPersonal } from '../lib/sharedReadUnion';
+import { jevSettingsApi } from '../lib/jevSettingsApi';
+import { sharedSettingsApi } from '../lib/sharedSettingsApi';
+import { tickRules } from '../lib/sharedRules';
+import { tickPublishing } from '../lib/sharedAssertionPublish';
+import { connectionStorePath } from '../lib/sharedConnections';
+import { sharedWorkspace } from "../lib/sharedWorkspace";
 import { allowVaultRequest, vaultIdentity } from "../lib/vaultBoundary";
 import { ApplicationChanges } from "../lib/applicationChanges";
 import { ApplicationActions } from "../lib/applicationActions";
@@ -28,7 +40,7 @@ import { ENGINE_ROOT, engineIdentity } from "../lib/engine";
 import { dieWithSupervisor } from "../lib/parentWatch";
 import { configSave, integrationsInfo } from "../lib/configWrite";
 import { allowLoopbackRequest, armor, dispatch, json, readBody, send, type Ctx, type Route } from "../lib/httpx";
-import { IntakeError } from "../lib/intake";
+import { dropErrorStatus } from "../lib/door";
 import { landDirective, landDrop } from "../lib/landItem";
 import { voiceMessagesFor } from "../lib/voice";
 import { createLive } from "../lib/liveEvents";
@@ -43,6 +55,9 @@ import { walkMarkdown } from "../lib/vaultRead";
 import { parseBlobRef, readBlob } from "../lib/blobs";
 import { recentSourcePageAsync } from "../lib/sourceFeed";
 import { primaryGraphWithLayoutAsync, primaryGraphAsync } from "../lib/graphCache";
+import { buildEntityFeed, buildV2Feed, type V2Source } from "../lib/v2Feed";
+import { readV2Source } from "../lib/v2Read";
+import { withVaultSnapshot } from "../lib/vaultReadModel";
 import { frozenMessagesForRefs, sortFrozenDesc } from "../lib/frozenQueue";
 import { queueHead } from "../lib/queueHead";
 import { noteLog } from "../lib/noteLog";
@@ -237,6 +252,13 @@ function serveIndex({ res }: Ctx): void {
   );
 }
 
+// The v2 view is its own page (web/ui/v2.html), not a route in the app
+// shell: it owns the whole window and keyboard.
+function serveV2({ res }: Ctx): void {
+  if (serveStatic(res, join(UI_DIST, "v2.html"))) return;
+  send(res, 404, "No v2 view in this build — run `bun run web:build`.", "text/plain");
+}
+
 function serveAsset({ res, url }: Ctx): void {
   const rel = url.pathname.slice(1).replace(/\.\.+/g, "");
   if (serveStatic(res, join(UI_DIST, rel))) return;
@@ -280,8 +302,9 @@ function noteList({ res, url }: Ctx): void {
   json(res, 200, { dir, notes: listNotes(dir) });
 }
 
-function noteRead({ res, url }: Ctx): void {
+async function noteRead({ res, url }: Ctx): Promise<void> {
   const rel = url.searchParams.get("path") ?? "";
+  if(rel.startsWith('shared/')){try{const note=await unionNote(rel);json(res,note?200:404,note??{error:'Shared source unavailable'});}catch{json(res,404,{error:'Shared source unavailable'});}return;}
   const resolved = resolveNote(ROOT, rel, { markdown: path => {
     const file = noteFile(path);
     return file ? readNoteFile(ROOT, file) : undefined;
@@ -388,10 +411,10 @@ function fileRead({ res, url }: Ctx): void {
 // The home feed: the source insertion log, newest first — the one arm
 // since #495 (the references/ + git-log reconstruction served vaults that
 // predate the assertion-native substrate; none remain).
-async function recentFeed({ res, url }: Ctx): Promise<void> {
+async function recentFeed({ req, res, url }: Ctx): Promise<void> {
   const limit = clampLimit(url.searchParams.get("limit"), 40, 200);
   const offset = Math.trunc(Math.min(Math.max(Number(url.searchParams.get("offset")) || 0, 0), 1_000_000));
-  try { json(res, 200, await recentSourcePageAsync(ROOT, offset, limit)); }
+  try { if(req.headers?.["x-bigbrain-vault-filter"]==="personal"){json(res,200,await recentSourcePageAsync(ROOT,offset,limit));return;} const personal=await recentSourcePageAsync(ROOT,0,offset+limit);json(res,200,await unionRecent(ROOT,personal.recent,offset,limit,personal.total,vaultFilter(req.headers?.["x-bigbrain-vault-filter"]))); }
   catch (error) { json(res, 500, { error: errText(error) }); }
 }
 
@@ -478,7 +501,7 @@ function search({ req, res, url }: Ctx): void {
         };
       });
       const seen = new Set<string>();
-      const ranked = rankNavigationSearch(hits, q, graph, url.searchParams.get("purpose") === "mention").filter(h => {
+      const ranked = rankNavigationSearch([...(includesPersonal(vaultFilter(req.headers?.["x-bigbrain-vault-filter"]))?hits:[]),...(req.headers?.["x-bigbrain-vault-filter"]==="personal"?[]:await unionSearch(ROOT,q,vaultFilter(req.headers?.["x-bigbrain-vault-filter"])))], q, graph, url.searchParams.get("purpose") === "mention").filter(h => {
         if (seen.has(h.note.path)) return false;
         seen.add(h.note.path); return true;
       });
@@ -487,6 +510,32 @@ function search({ req, res, url }: Ctx): void {
       if (!req.destroyed) json(res, 500, { error: errText(error) });
     }
   });
+}
+
+// The v2 view's read (lib/v2Feed.ts): the agents writing this vault,
+// what each centres on lately, and the latest assertions as a feed. The
+// graph itself comes from /api/graph; this adds only who and what.
+let v2Held: { revision: string; src: V2Source } | undefined;
+const v2Source = (): V2Source => withVaultSnapshot(ROOT, (db, revision) => {
+  if (v2Held?.revision !== revision) v2Held = { revision, src: readV2Source(db) };
+  return v2Held.src;
+});
+function v2({ res }: Ctx): void {
+  try {
+    json(res, 200, buildV2Feed(v2Source()));
+  } catch (error) {
+    json(res, 500, { error: errText(error) });
+  }
+}
+// One entity's latest assertions, dated as the feed is (first recorded).
+function v2Entity({ res, url }: Ctx): void {
+  const id = url.searchParams.get("id") ?? "";
+  if (!id) return json(res, 400, { error: "Which entity? Pass ?id=." });
+  try {
+    json(res, 200, { rows: buildEntityFeed(v2Source(), id) });
+  } catch (error) {
+    json(res, 500, { error: errText(error) });
+  }
 }
 
 // Serve the graph as a FINISHED PICTURE: structure plus settled positions,
@@ -498,9 +547,10 @@ function search({ req, res, url }: Ctx): void {
 // assertion, the graph is the ontology-free projection over assertions and
 // cited source insertions. An assertion-empty legacy vault tolerantly keeps
 // its link graph until that additive substrate exists.
-async function graph({ res }: Ctx): Promise<void> {
+async function graph({ req, res }: Ctx): Promise<void> {
   try {
-    json(res, 200, graphWithReadState(ROOT, await primaryGraphWithLayoutAsync(ROOT)));
+    const personal=graphWithReadState(ROOT, await primaryGraphWithLayoutAsync(ROOT));
+    json(res, 200, req.headers?.["x-bigbrain-vault-filter"]==="personal"?personal:await unionGraph(ROOT,personal,vaultFilter(req.headers?.["x-bigbrain-vault-filter"])));
   } catch (error) {
     json(res, 500, { error: errText(error) });
   }
@@ -614,8 +664,7 @@ function drop(ctx: Ctx): void {
       // are uncapped by design — the CAS is add-only disk, not git
       // history. The item TEXT stays capped inside lib/intake.ts (413).
       cap: Infinity,
-      onError: (e) =>
-        json(ctx.res, e instanceof IntakeError && e.code === "too-large" ? 413 : 400, { error: errText(e) }),
+      onError: (e) => json(ctx.res, dropErrorStatus(e), { error: errText(e) }),
     }
   );
 }
@@ -677,6 +726,7 @@ function events({ req, res }: Ctx): void {
 }
 
 export const ROUTES: readonly Route[] = [
+  ...(!DESKTOP&&!isDev()&&process.env.NODE_ENV!=='test'?integrationAccountRoutes(new IntegrationAccounts(ROOT)):[]),
   { method: "GET", path: "/", handler: serveIndex },
   { method: "GET", path: "/assets/*", handler: serveAsset },
   { method: "GET", path: "/api/vault", handler: vaultIndex },
@@ -688,6 +738,9 @@ export const ROUTES: readonly Route[] = [
   { method: "GET", path: "/api/recent", handler: recentFeed },
   { method: "GET", path: "/api/search", handler: search },
   { method: "GET", path: "/api/graph", handler: graph },
+  { method: "GET", path: "/api/v2", handler: v2 },
+  { method: "GET", path: "/api/v2/entity", handler: v2Entity },
+  { method: "GET", path: "/v2", handler: serveV2 },
   { method: "GET", path: "/api/note-log", handler: noteLogRoute },
   { method: "GET", path: "/api/note-messages", handler: noteMessages },
   // Under the desktop app (bin/desktop.ts sets BIGBRAIN_DESKTOP) the
@@ -779,9 +832,15 @@ export function start(): void {
   // server's death.
   const metrics = isDesktop() ? telemetry(ROOT) : undefined;
   metrics?.start();
-  const server = createServer((req, res) => {
+  const sharedRuleTimer=setInterval(()=>{void tickRules(ROOT,connectionStorePath()).then(()=>tickPublishing(ROOT,connectionStorePath()));void tickIntegrationInclusion(ROOT).catch(()=>{});},30000);sharedRuleTimer.unref();
+  const server = createServer(async (req, res) => {
     armor(res);
     if (!allowLoopbackRequest(req, res)) return;
+    if (await inclusionReviewApi(req,res,ROOT)) return;
+    if (await inclusionBackfillApi(req,res,ROOT)) return;
+    if (await jevSettingsApi(req,res,ROOT)) return;
+    if (await sharedSettingsApi(req,res,ROOT)) return;
+    if (await sharedWorkspace(req, res)) return;
     if (!allowVaultRequest(req, res, vaultIdentity(ROOT))) return;
     const path = (req.url ?? "").split("?")[0] ?? "";
     const reads: Partial<Record<string, Operation>> = { "/api/search": "search", "/api/graph": "graph", "/api/note": "note" };

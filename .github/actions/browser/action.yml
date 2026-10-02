@@ -8,16 +8,9 @@ runs:
         bun-version: 1.3.9
     - run: bun install --frozen-lockfile
       shell: bash
-    - run: PLAYWRIGHT_BROWSERS_PATH=0 node node_modules/playwright-core/cli.js install --with-deps chromium --no-shell
+    - run: PLAYWRIGHT_BROWSERS_PATH=0 node node_modules/playwright-core/cli.js install --with-deps chromium webkit --no-shell
       shell: bash
-    - name: Install Linux worker sandbox prerequisites
-      if: runner.os == 'Linux'
-      shell: bash
-      run: |
-        sudo apt-get update -qq
-        sudo apt-get install -y bubblewrap socat
-        sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-    - run: bun test test/workerSandbox.test.ts test/agentOrchestrator.test.ts test/workerProjects.test.ts
+    - run: bun test test/pilotExecutionRetired.test.ts test/pilotOnly.test.ts
       shell: bash
     - run: bun run ci:browser
       shell: bash

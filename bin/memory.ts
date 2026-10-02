@@ -17,6 +17,10 @@
 import { loadManifest } from "../lib/manifest";
 import { VAULT_ROOT } from "../lib/vaultRoot";
 import { runMemory } from "../lib/memoryRun";
+import { refreshSharedMemory } from "../lib/sharedMemory";
+
+// The joined shared vaults, read once so the run sees what the gate sees.
+await refreshSharedMemory(VAULT_ROOT).catch(() => {});
 
 const res = await runMemory({
   root: VAULT_ROOT,

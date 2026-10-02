@@ -80,6 +80,14 @@ anywhere any more. **No vault or engine code deploys anywhere. App assets publis
 belongs to `elsehow/bigbrain.cool` and `/srv/website`; never publish to the
 retired `/srv/site` or upload this repo over the website.**
 
+**The one exception is the shared-vault server** (`bin/shared.ts serve`). A
+shared vault is several people's, so it has to run somewhere they can all
+reach: its operator compiles `bin/shared.ts` (`bun build --compile`) and runs
+it as a service on a machine of their own, one vault per server, behind TLS
+(`deploy/shared-vault/`, `docs/shared-vault-connector.md`). That is an
+operator's deployment of one vault, not a BigBrain host: nothing here deploys
+it, and no other engine code runs there.
+
 The multi-tenant hosted product — the `control/` control plane,
 `bigbrain.cool` / `staging.bigbrain.cool`, per-tenant systemd units,
 `deploy.sh` / `bootstrap.sh`, the `bb-*` operator shims — was retired
@@ -181,6 +189,11 @@ Two linters, each only where it is competent. Keep it that way.
 - `integrations/` — inbound/outbound integrations, each ticked by the
   supervisor on its `CADENCE` interval (`lib/desktopSchedule.ts`)
 - `web/` — the read-only web viewer (:4747)
+- `bin/shared.ts` + `lib/shared*.ts` — the SHARED vault door (:4749,
+  `docs/shared-vault.md`): one vault several authenticated members write
+  to, named explicitly by `--vault` and never discovered. `--public-url`
+  opts it into a read-only Claude connector (OAuth + `/mcp`,
+  `docs/shared-vault-connector.md`)
 - `desktop/` — the Tauri app: a shell around the same engine
   (`desktop/README.md`)
 - `test/` — the bun test suite; fixtures and helpers under `test/support/`

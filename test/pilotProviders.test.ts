@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
 import { join } from "node:path";
 import * as pi from "@earendil-works/pi-coding-agent";
-import { createAssistantMessageEventStream, InMemoryCredentialStore, type AssistantMessage } from "@earendil-works/pi-ai";
+import { createAssistantMessageEventStream, getCurrentTools, InMemoryCredentialStore, type AssistantMessage } from "@earendil-works/pi-ai";
 import { PiSession, type PiSDK } from "../lib/run/piSession";
 import { monitoredSession, readModelRuns } from "../lib/run/monitor";
 import type { PilotBackendSetup } from "../lib/pilotBackend";
@@ -57,7 +57,7 @@ test("Pi executes only application tools and resumes its actual SDK transcript w
   expect(await f.client.turn(turn({ tool: async (name, args) => { expect(name).toBe("run_command"); expect(args).toEqual({ command: "pwd" }); executions++; return { stdout: "allowed" }; } }))).toBe("Finished");
   expect(executions).toBe(1);
   expect(f.s.state.piSession).toBeString();
-  expect(f.contexts[0].tools.map((t: any) => t.name)).toEqual(["run_command"]);
+  expect(getCurrentTools(f.contexts[0].messages).map((t: any) => t.name)).toEqual(["run_command"]);
   f.client.close();
   const resumed = new PiSession(f.s, f.load); cleanup.push(() => resumed.close());
   let freshValue: boolean | undefined;
@@ -104,7 +104,8 @@ test("provider identity round-trips through the UI and permits Anthropic subscri
 
 test("Pi sends image blocks to the model and persists its transcript before executing a side effect", async () => {
   const f = await piFixture();
-  const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==";
+  // A decodable PNG: Pi decodes and resizes prompt images to the model's input limits.
+  const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNo+A8AAgIBgG5WixMAAAAASUVORK5CYII=";
   await f.client.turn(turn({ images: () => [{ type: "image", url: `data:image/png;base64,${png}` }],
     tool: async () => { expect(f.s.state.piSession).toBeString(); return { ok: true }; } }));
   const user = f.contexts[0].messages.find((m: any) => m.role === "user");
@@ -167,4 +168,13 @@ test("Pi Claude rejects API authentication before starting a session", async () 
   await f.runtime.setRuntimeApiKey("anthropic", "fixture-api-key");
   await expect(f.client.prepare()).rejects.toThrow("Claude subscription");
   expect(f.contexts).toHaveLength(0);
+});
+
+test("Pi never warms a prompt cache: no request leaves outside the session's accounting and bounds", async () => {
+  const f = await piFixture("anthropic");
+  const cached = f.runtime.getAvailableSnapshot().find(m => m.provider === "anthropic" && m.promptCache?.short)!;
+  f.s.config.model = cached.id;
+  let status: unknown;
+  await f.client.turn(turn({ tool: async () => { status = (f.client as unknown as { session: pi.AgentSession }).session.cacheWarmingStatus; return { ok: true }; } }));
+  expect(status).toEqual({ state: "inactive", reason: "cache warming disabled" });
 });

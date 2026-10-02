@@ -1,11 +1,10 @@
+import { nameTask } from "../lib/pilotTaskName";
 import { ApplicationActions, actionReceiptView, actionHistoryQuery } from "../lib/applicationActions";
 import { json } from "../lib/httpx";
 import { IntegrationAccounts } from "../lib/integrationAccounts";
 import { integrationAccountRoutes } from "../lib/integrationAccountRoutes";
 import { ConnectedClients } from "../lib/connectedClients";
 import { connectedClientRoutes } from "../lib/connectedClientRoutes";
-import { agentOrchestrationRoutes } from "../lib/agentOrchestrationRoutes";
-import { AgentOrchestrator } from "../lib/agentOrchestrator";
 import { telemetry, telemetryRoutes } from "../lib/telemetry";
 import { feedbackRoutes } from "../lib/feedback";
 /** Machine-local routes exposed by the desktop shell.
@@ -27,8 +26,7 @@ import { WorkHistory } from "../lib/workHistory";
 export function desktopRouteManifest(root: string, options: { includeSupport?: boolean; actions?: ApplicationActions; changes?: import("../lib/applicationChanges").ApplicationChanges } = {}): Route[] {
   const actions = options.actions ?? new ApplicationActions(root);
   const work = new WorkHistory(root);
-  const external = new AgentOrchestrator(root, { changes: options.changes });
-  const chats = new PilotChats(root, { work, external, actions, changes: options.changes });
+  const chats = new PilotChats(root, { work, actions, changes: options.changes, nameTask });
   process.once("exit", () => chats.close());
   // Finish only already-spooled legacy speech; no endpoint accepts new turns.
   void sweepPilotSpool(root, new Date(), 0).catch(error => console.error("Legacy speech recovery:", error));
@@ -49,8 +47,7 @@ export function desktopRouteManifest(root: string, options: { includeSupport?: b
     } },
     ...pilotRoutes(root, { setPermissions: value => chats.setPermissions(value) }),
     ...pilotChatRoutes(chats),
-    ...workHistoryRoutes(work, external, actions),
-    ...agentOrchestrationRoutes(external.projects),
+    ...workHistoryRoutes(work),
     ...connectedClientRoutes(new ConnectedClients(root)),
     ...integrationAccountRoutes(new IntegrationAccounts(root)),
   ];

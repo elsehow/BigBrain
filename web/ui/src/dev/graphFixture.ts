@@ -57,6 +57,21 @@ export async function installGraphFixture() {
     for (const memory of workspaces.slice(0, 2)) scene.graph.edges.push({ source: sharedNote, target: memory.id });
     scene.notes![sharedNote] = { path: sharedNote, content: "# Shared design review\n\nDesign decisions shared by Atlas planning and Design system." };
   }
+  const titleView = new URLSearchParams(location.search).get('titleView');
+  if (titleView) {
+    const path = BRIEFINGS.source.hash!.replace('/vault/', '');
+    const title = 'How neighborhood workshops are making room for a new generation of independent makers';
+    scene.graph.nodes.find(node => node.path === path)!.title = title;
+    scene.notes![path] = { ...scene.notes![path]!, content: `# ${title}\n`, modified: Date.parse('2026-09-28T17:12:00Z') };
+    if (titleView === 'loading') scene.briefing = 'loading';
+    location.hash = `/vault/${path}`;
+  }
+  if (new URLSearchParams(location.search).has('annotations')) {
+    const clip = { id: 'sample-clip', path: 'sources/sample-clip.md', title: 'Workshop report', modified: Date.now() - 2000, band: 'person' as const, author: 'Sample', action: 'added', type: 'source' };
+    const note = { ...clip, id: 'sample-note', path: 'sources/sample-note.md', title: 'Recommended by a colleague', modified: Date.now(), about: clip.id };
+    scene.recent = [note, clip, ...scene.recent!];
+    for (const row of [clip, note]) scene.notes![row.path] = { path: row.path, content: `# ${row.title}\n\nSample annotation preview.` };
+  }
   setVaultState(scene);
   const integrationScene = new URLSearchParams(location.search).get("integration-activation");
   installIntegrationAccessScene(integrationScene === "fail");
@@ -106,46 +121,14 @@ export async function installGraphFixture() {
       key: 'atlas-opening-date', text, kind: 'question', at, seen: false }];
     sample.revision++; sample.updated = at;
   });
-  const connected: WorkSession | undefined = new URLSearchParams(location.search).has('connected-agent') ? {
+  const archivedWorker: WorkSession | undefined = new URLSearchParams(location.search).has('archived-worker') ? {
     id: 'work-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', title: 'Atlas implementation', provider: 'pi', cwd: '/sample/project',
-    created: sample.created, updated: sample.updated, status: 'needs-input',
+    created: sample.created, updated: sample.updated, status: 'interrupted',
     origin: { pilot: sample.id, message: 'sample-question' }, context: { nodes: [...sample.context] }, receipts: [],
-    worker: { grant: {path:'/sample/project',mode:'read',references:[],domains:[],accounts:[]}, operations: [], request: {id:'access-fixture',kind:'access',text:'Allow edits for the implementation?',grant:{path:'/sample/project',mode:'work',references:[],domains:[],accounts:[]}} },
-    messages: [{ id: 'connected-task', role: 'user', text: 'Implement the Atlas plan using the supplied project notes.', at: sample.created },
-      { id: 'connected-answer', role: 'agent', text: 'The plan is ready. Please approve project editing in this task card.', at: sample.created }],
+    worker: { archivedAt: sample.updated, operations: [{ id: 'operation', tool: 'write', status: 'uncertain', at: sample.updated }] },
+    messages: [{ id: 'historical-task', role: 'user', text: 'Implement the Atlas plan using the supplied project notes.', at: sample.created },
+      { id: 'historical-answer', role: 'agent', text: 'The project notes are saved for review.', at: sample.created }],
   } : undefined;
-  const environmentSetup = new URLSearchParams(location.search).get('connected-agent') === 'setup';
-  if (connected && environmentSetup) {
-    connected.choice = {adapter:'pi',provider:'anthropic',model:'claude-sonnet-5'}; connected.model=connected.choice.model;
-    delete connected.worker!.grant;
-    if (connected.worker!.request?.kind==='access') { connected.worker!.request.initial=true;connected.worker!.request.text='Set up this project environment before launching.'; }
-  }
-  const environmentChat = new URLSearchParams(location.search).has('environment-chat');
-  function environmentNotice(text: string) {
-    if (!connected?.worker?.request) return;
-    const key = `${connected.id}:${connected.worker.request.id}`, id = crypto.randomUUID(), at = new Date().toISOString();
-    sample.messages.push({id,role:'assistant',text,at});
-    sample.notifications = [...sample.notifications ?? [],{id,pilotId:sample.id,pilotTitle:sample.title,messageId:id,key,workerRequest:key,text,kind:'update',at,seen:false}];
-    sample.revision++;
-  }
-  if(environmentChat && connected?.worker?.request?.kind==='access') {
-    connected.worker.request.label='Atlas'; connected.worker.request.grant.domains=['api.example.com'];
-    if(new URLSearchParams(location.search).has('needs-token'))connected.worker.request.grant.credentials=['EXAMPLE_TOKEN'];
-    sample.messages=[{id:'environment-task',role:'user',text:'Set up Atlas so an agent can check the project and its issue service.',at:sample.created}];
-    environmentNotice('I can use a separate checkout of Atlas and connect to its issue service. You can change the access here in chat before launching.');
-  }
-  const credentialNames = new Set<string>();
-  if (connected && new URLSearchParams(location.search).has('pilot-status')) {
-    connected.status = 'working'; delete connected.worker!.request;
-    sample.phase = 'failed'; sample.error = 'Pilot completed without an answer.';
-    for (let i = 0; i < 18; i++) sample.messages.push({ id: `status-history-${i}`, role: 'assistant', text: 'Earlier discussion of the implementation and its verification.', at: sample.created });
-    window.addEventListener('workbench-agent-status', event => {
-      connected.revision = (connected.revision ?? 0) + 1;
-      connected.status = (event as CustomEvent<WorkSession['status']>).detail;
-      connected.updated = new Date().toISOString();
-    });
-  }
-  let projects = JSON.parse(localStorage.getItem('fixture-projects') ?? '[{"id":"project-fixture","label":"Atlas","path":"/sample/project","mode":"read","references":[],"domains":[],"accounts":[],"updated":"2026-09-26T00:00:00Z"}]');
   window.addEventListener('workbench-agent-category', event => {
     const { id, memory } = (event as CustomEvent<{ id: string; memory: string | null }>).detail;
     const session = sessions.find(s => s.id === id);
@@ -159,25 +142,7 @@ export async function installGraphFixture() {
     const url = new URL(input instanceof Request ? input.url : String(input), location.href);
     const path = url.pathname;
     const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status, headers: { 'content-type': 'application/json' } });
-    if (environmentSetup && path === '/api/pilot/chat/models') return json({agents:[{id:'pi/anthropic',label:'Claude',ready:true,models:[{id:'claude-sonnet-5',label:'Sonnet'},{id:'claude-opus-5-5',label:'Opus 5.5'}]}]});
-    if (path === '/api/agent-orchestration') return json({projects,accounts:[{integration:'email',account:'demo@example.com'}]});
-    if (path.startsWith('/api/agent-orchestration/')) {
-      const body = JSON.parse(String(options?.body));
-      if (path.endsWith('/inspect')) return json({path:body.path,workspace:'checkout',tools:[{name:'git',available:true},{name:'bun',available:true},{name:'gh',available:true}],credentials:[...credentialNames]});
-      if (path.endsWith('/credentials')) { for (const [name,value] of Object.entries(body.values)) { if(value===null)credentialNames.delete(name);else credentialNames.add(name); } return json({names:[...credentialNames]}); }
-      if (path.endsWith('/save')) { const record={...body,id:body.id??'project-'+crypto.randomUUID().replaceAll('-',''),updated:new Date().toISOString()}; projects=projects.filter((p:any)=>p.id!==record.id);projects.push(record);localStorage.setItem('fixture-projects',JSON.stringify(projects));return json(record); }
-      if (path.endsWith('/remove')) {projects=projects.filter((p:any)=>p.id!==body.id);localStorage.setItem('fixture-projects',JSON.stringify(projects));return json({ok:true});}
-    }
-    if (connected && path === '/api/pilot/work') return json(url.searchParams.has('id') ? connected : { sessions: [connected], issues: [] });
-    if (connected && path.startsWith('/api/pilot/work/')) {
-      connected.revision = (connected.revision ?? 0) + 1; connected.updated = new Date().toISOString();
-      window.dispatchEvent(new CustomEvent('workbench-connected-action', { detail: path }));
-      const body = JSON.parse(String(options?.body));
-      if (path.endsWith('/approve')) { if (connected.worker!.request?.kind !== 'access' || body.request !== connected.worker!.request.id) return json({error:'That request is stale'},400); if(body.allow) {connected.worker!.grant=body.environment??connected.worker!.request.grant;if(body.environment || body.remember){const p={...(body.environment??connected.worker!.request.grant),label:body.environment?.label??connected.worker!.request.label??connected.title,path:connected.worker!.request.grant.path,id:'project-environment-fixture',updated:new Date().toISOString()};projects=projects.filter((v:any)=>v.path!==p.path);projects.push(p);localStorage.setItem('fixture-projects',JSON.stringify(projects));connected.worker!.projectId=p.id;connected.choice=p.model??connected.choice;connected.model=connected.choice?.model;}} for(const n of sample.notifications??[])if(n.workerRequest===`${connected.id}:${body.request}`)n.resolved=true;sample.revision++;delete connected.worker!.request; connected.status=body.allow?'working':'interrupted';return json(connected); }
-      if (path.endsWith('/send')) {connected.messages.push({id:crypto.randomUUID(),role:'user',text:body.text,at:new Date().toISOString()});connected.status='working';return json(connected); }
-      if (path.endsWith('/stop')) { connected.status = 'interrupted'; delete connected.worker!.request; return json(connected); }
-      return json({ error: 'Unavailable in sample scene' }, 400);
-    }
+    if (archivedWorker && path === '/api/pilot/work') return json(url.searchParams.has('id') ? archivedWorker : { sessions: [archivedWorker], issues: [] });
     if (path === '/api/search') {
       const query = url.searchParams.get('q') ?? '';
       const offset = Number(url.searchParams.get('offset') ?? 0), limit = Number(url.searchParams.get('limit') ?? 50);
@@ -210,26 +175,15 @@ export async function installGraphFixture() {
     if (path.endsWith('/backend')) { s.backend = body.backend; s.model = body.backend.model; }
     else if (path.endsWith('/stop-tree')) {
       s.phase = 'interrupted'; s.lifecycle = 'dormant'; s.deactivatedAt = new Date().toISOString();
-      if (connected?.origin?.pilot === s.id) {
-        connected.revision = (connected.revision ?? 0) + 1;
-        connected.status = 'interrupted'; connected.worker!.archivedAt = s.deactivatedAt;
-        delete connected.worker!.request;
-      }
     }
     else if (path.endsWith('/draft')) s.draft = body.text;
     else if (path.endsWith('/context')) { s.context = body.nodes; s.title = body.title; s.viewRevision++; }
+    else if (path.endsWith('/rename')) { s.title = body.title; s.titleSource = 'human'; s.viewRevision++; }
     else if (path.endsWith('/context-add')) s.context = [...new Set([...s.context, ...body.nodes])];
     else if (path.endsWith('/send')) {
       s.messages.push({ id: crypto.randomUUID(), role: 'user', text: body.text, at: new Date().toISOString() },
         { id: crypto.randomUUID(), role: 'assistant', text: 'This is the sample vault. Your message stayed in this browser; no agent was contacted.', at: new Date().toISOString() });
       for (const n of s.notifications ?? []) { if(!n.workerRequest)n.resolved = true; n.seen = true; }
-      // Simulated model revision for the conversational setup scene; no real agent runs.
-      if(environmentChat && connected?.worker?.request?.kind==='access' && /network off|no network|without network/i.test(body.text)) {
-        for(const n of s.notifications??[])if(n.workerRequest===`${connected.id}:${connected.worker.request.id}`)n.resolved=true;
-        connected.worker.request={...connected.worker.request,id:crypto.randomUUID(),grant:{...connected.worker.request.grant,domains:[],network:undefined}};
-        connected.revision=(connected.revision??0)+1;
-        s.messages.pop();environmentNotice('Network access is now off. Allow this revised setup when you are ready.');
-      }
       s.draft = ''; s.phase = 'answered';
     } else return json({ error: 'This action is unavailable in the sample vault.' }, 409);
     s.revision++; s.updated = new Date().toISOString(); return json(pilotChatDetail(s));

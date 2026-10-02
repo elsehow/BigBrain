@@ -9,7 +9,9 @@ export interface ActionObservation {
 const record = (value: unknown): Record<string, unknown> => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 const sourcePath = (value: unknown): string | undefined => typeof value === "string" && /^(log\/insertions\/|sources\/|source:)/.test(value) && !value.includes("..") ? value : undefined;
 export function actionObservations(receipt: ActionReceipt): ActionObservation[] {
-  if (receipt.status !== "completed") return [];
+  const agent = receipt.observed?.agent;
+  // An identity observed before the outcome was confirmed may exist; it is never reported as confirmed.
+  if (receipt.status !== "completed") return typeof agent === "string" && /^work-[a-f0-9]{32}$/.test(agent) ? [{ kind: "agent", target: agent, confirmed: false }] : [];
   const result = record(receipt.result);
   if (["launch_agent", "message_agent", "reply_agent"].includes(receipt.operation)) {
     const id = result.id ?? receipt.scope.find(id => /^work-[a-f0-9]{32}$/.test(id));

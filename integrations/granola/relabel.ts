@@ -22,7 +22,7 @@
  */
 
 import { VAULT_ROOT } from "../../lib/vaultRoot";
-import { receive } from "../../lib/intake";
+import { land } from "../../lib/door";
 import { readEnvValues } from "../../lib/envFile";
 import { flagValue, hasFlag } from "../../lib/cliflags";
 import { readSourceInsertionLog, type SourceInsertion } from "../../lib/insertionLog";
@@ -94,7 +94,7 @@ async function main(): Promise<void> {
     landed++;
     if (!apply) continue;
     const item = granolaItem(id, note, new Date(), { supersedes: e.id });
-    const receipt = receive({ root, content: item.content });
+    const receipt = await land({ root, content: item.content, source: "granola" });
     console.log(`  → ${receipt.path}${receipt.deduped ? " (deduped — already there)" : ""}`);
   }
   console.log(

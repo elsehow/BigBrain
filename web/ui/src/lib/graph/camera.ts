@@ -70,6 +70,15 @@ export class GraphCameraController {
       y: dy * c.positionRate + this.fromVelocity.y * c.velocityRate,
       zoom: dz * c.positionRate + this.fromVelocity.zoom * c.velocityRate };
   }
+  /** Carry a settled camera into a fresh controller — new geometry rebuilds the
+   * renderer, and the picture the user is looking at must survive that. No
+   * flight is inherited: the frame is already where it belongs. */
+  adopt(camera: GraphCamera, manual: boolean, now: number) {
+    this.value = { ...camera }; this.target = { ...camera }; this.from = { ...camera };
+    this.velocity = { x: 0, y: 0, zoom: 0 }; this.fromVelocity = { x: 0, y: 0, zoom: 0 };
+    this.wheelZoom = null; this.ready = true; this.manual = manual;
+    this.started = now - this.motion.duration;
+  }
   grab(now: number) {
     this.advance(now); this.wheelZoom = null; this.manual = true;
     this.velocity = { x: 0, y: 0, zoom: 0 };

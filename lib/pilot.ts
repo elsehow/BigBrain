@@ -115,7 +115,7 @@ const OWN_TOOLS: OwnTool[] = [
     name: "capabilities",
     description: "Check which live services are connected. Vault search is historical; live integration reads require explicit account access. Native agent sessions own execution.",
     parameters: { type: "object", properties: {} },
-    handler: async root => ({ integrations: integrationCapabilities(root, { kind: "pilot" }), calendar: { available: false }, agents: await pilotModels(root), hint: "Pilot reads context and writes private scratch. Delegate execution with launch_agent." }),
+    handler: async root => ({ integrations: integrationCapabilities(root, { kind: "pilot" }), calendar: { available: false }, agents: await pilotModels(root), hint: "Pilot reads context and writes private scratch. Use your own external agent application for execution." }),
   },
   {
     name: "drop",

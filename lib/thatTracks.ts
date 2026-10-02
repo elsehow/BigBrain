@@ -7,7 +7,8 @@ import { join } from "node:path";
 import { parseEnvelope, serializeEnvelope } from "./envelope";
 import { writeAtomic } from "./fsx";
 import { sha256hex } from "./hash";
-import { receive, type ReceiveItemOpts, type IntakeReceipt } from "./intake";
+import { admit, land } from "./door";
+import type { IntakeReceipt } from "./intake";
 import { readCursorJson } from "./integrationCursor";
 import { PollError } from "./integrationStatus";
 import { openAssertionProjectionReadonly, syncAssertionProjection } from "./assertionProjection";
@@ -145,14 +146,14 @@ export function receiveStagedTracks(root: string, content: string): Pick<IntakeR
   if (head && head.revision > Number(envelope.seq)) throw new Error("A newer revision is already admitted; pass this older pending revision.");
   if (head && head.revision === envelope.seq) return { id: envelope.id, insertionId: head.insertionId };
   const { supersedes: _prior, ...meta } = envelope;
-  return receive({ root, content: serializeEnvelope({ ...meta, ...(head ? {supersedes:head.insertionId} : {}) }, body) });
+  return admit({ root, content: serializeEnvelope({ ...meta, ...(head ? {supersedes:head.insertionId} : {}) }, body) });
 }
 
 export async function pollThatTracks(root: string, key: string, options: {
   accountInstance?: string;
   client?: ThatTracksClient;
-  land?: (opts: ReceiveItemOpts) => IntakeReceipt;
-  stage?: (content: string) => boolean;
+  land?: (opts: Parameters<typeof land>[0]) => Promise<IntakeReceipt>;
+  stage?: (content: string) => Promise<boolean>;
   authorize?: () => void;
   progress?: (state: "checking" | "importing") => void;
   maxPages?: number;
@@ -190,10 +191,10 @@ export async function pollThatTracks(root: string, key: string, options: {
       const sourceId = tracksSourceId(me.id, change);
       if (r.revision > (heads?.get(sourceId)?.revision ?? 0)) {
         if (options.stage) {
-          if (options.stage(content())) arrivals++;
+          if (await options.stage(content())) arrivals++;
           heads!.set(sourceId, { revision: r.revision, insertionId: heads?.get(sourceId)?.insertionId ?? "" });
         } else {
-          const receipt = (options.land ?? receive)({ root, content: content() });
+          const receipt = await (options.land ?? land)({ root, content: content(), source: "that-tracks" });
           heads!.set(sourceId, { revision: r.revision, insertionId: receipt.insertionId });
           if (!receipt.deduped) arrivals++;
         }

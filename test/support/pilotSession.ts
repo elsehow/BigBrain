@@ -4,7 +4,7 @@
 import { PilotChats as ProductionPilotChats } from "../../lib/pilotChat";
 export { pilotChatTools, pilotInstructions, PILOT_INSTRUCTIONS } from "../../lib/pilotChat";
 import * as pi from "@earendil-works/pi-coding-agent";
-import { InMemoryCredentialStore, createAssistantMessageEventStream, type AssistantMessage } from "@earendil-works/pi-ai";
+import { InMemoryCredentialStore, createAssistantMessageEventStream, getCurrentSystemPrompt, getCurrentTools, type AssistantMessage } from "@earendil-works/pi-ai";
 import { PiSession, type PiSDK } from "../../lib/run/piSession";
 import { monitoredSession } from "../../lib/run/monitor";
 import type { PilotBackendFactory } from "../../lib/pilotBackend";
@@ -30,10 +30,11 @@ export function scriptedPilot(script: typeof fetch): PilotBackendFactory {
         void (async () => {
           try {
             if (script === globalThis.fetch) throw new Error("Unscripted test model request");
-            const input = context.messages.map(v => v.role === "toolResult" ? { type: "function_call_output", call_id: v.toolCallId, output: v.content.filter(c => c.type === "text").map(c => c.text).join("\n") } : v);
+            // Pi folds the prompt and tools into system messages; a provider sends them apart from the input.
+            const input = context.messages.filter(v => v.role !== "system").map(v => v.role === "toolResult" ? { type: "function_call_output", call_id: v.toolCallId, output: v.content.filter(c => c.type === "text").map(c => c.text).join("\n") } : v);
             const auth = await runtime.getAuth(m, { signal: options?.signal });
             const response = await script("https://fixture.invalid", { signal: options?.signal, headers: { authorization: `Bearer ${auth?.auth.apiKey}` },
-              body: JSON.stringify({ model: m.id, instructions: context.systemPrompt + "\n" + context.messages.filter(v => v.role === "user").flatMap(v => typeof v.content === "string" ? [v.content] : v.content.filter(c => c.type === "text").map(c => c.text)).join("\n"), input, tools: context.tools, reasoning: { effort: setup.config.reasoning } }) });
+              body: JSON.stringify({ model: m.id, instructions: getCurrentSystemPrompt(context.messages) + "\n" + context.messages.filter(v => v.role === "user").flatMap(v => typeof v.content === "string" ? [v.content] : v.content.filter(c => c.type === "text").map(c => c.text)).join("\n"), input, tools: getCurrentTools(context.messages), reasoning: { effort: setup.config.reasoning } }) });
             if (!response.ok) throw new Error("The model refused the request.");
             const events = (await response.text()).split(/\r?\n/).filter(l => l.startsWith("data:")).map(l => JSON.parse(l.slice(5)));
             const completed = events.find(e => e.type === "response.completed");

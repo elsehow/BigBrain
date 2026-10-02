@@ -1,7 +1,9 @@
+import { workspaceURL, selectedWorkspace } from "./vaultScope";
+import { pilotInputReceipt } from "./pilotInputReceipt";
 import { pilotChatDetail, type PilotChatDetail } from "../../../../lib/pilotChatSummary";
 import { vaultStorageKey, initializeVault } from "./vaultScope";
 import { vaultFetch as fetch } from "./vaultScope";
-import { applicationCursor, applicationResponseCurrent } from "./applicationUpdates";
+import { epochRequest } from "./applicationUpdates";
 import { mergePilotSummary, fullPilotView, acceptsPilotView, type PilotChatView, isEmptyPublicPilotDraft } from "./pilotChatSync";
 import type { PilotChatSummary } from "../../../../lib/pilotChatSummary";
 import { usageAction } from "./telemetry";
@@ -33,16 +35,15 @@ export const chatSessions = (): PilotChatView[] => {
 export const activeChat = (): PilotChatView | undefined => chatSessions().find(s => s.id === chat.activeId);
 const discarded = new Set<string>();
 const deactivating = new Set<string>();
-async function request<T>(path = "", body?: unknown, timeoutMs = 30_000): Promise<T> {
-  const epoch = applicationCursor.epoch;
-  const r = await fetch(`/api/pilot/chat${path}`, { signal: AbortSignal.timeout(timeoutMs), ...(body === undefined ? {} : { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }) });
-  if (!r.ok) {
-    const result = await r.json().catch(() => ({}));
-    throw Object.assign(new Error(result.error ?? "Pilot could not reach the engine."), { status: r.status });
-  }
-  const result = await r.json();
-  if (!applicationResponseCurrent(epoch)) throw new Error("The engine restarted. Refreshing application views.");
-  return result;
+function request<T>(path = "", body?: unknown, timeoutMs = 30_000): Promise<T> {
+  return epochRequest(async () => {
+    const r = await fetch(`/api/pilot/chat${path}`, { signal: AbortSignal.timeout(timeoutMs), ...(body === undefined ? {} : { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }) });
+    if (!r.ok) {
+      const result = await r.json().catch(() => ({}));
+      throw Object.assign(new Error(result.error ?? "Pilot could not reach the engine."), { status: r.status });
+    }
+    return r.json();
+  }, body === undefined);
 }
 /** Retry an uncertain delivery with the same ID, including after a page reload. */
 export async function submitPilotInput(id: string, text: string, input: { id: string; mode: "text" | "voice"; target?: string; notificationId?: string; images?: ChatImage[] }): Promise<PilotChatDetail> {
@@ -63,7 +64,17 @@ export async function submitPilotInput(id: string, text: string, input: { id: st
       usageAction("pilot_input_accepted", input.id);
       try { sessionStorage.removeItem(key); } catch { /* storage unavailable */ }
       return result;
-    } catch (e) { error = e; if (retry < 2) await new Promise(resolve => setTimeout(resolve, 500)); }
+    } catch (e) {
+      // SSE/authoritative refresh can prove delivery while the POST is lost,
+      // including during the backoff; a proven input is never sent again.
+      const delivered = () => {
+        const current = chat.sessions.find(s => s.id === id);
+        return current?.messages && pilotInputReceipt(current, input.id) ? current as PilotChatDetail : undefined;
+      };
+      error = e;
+      if (!delivered() && retry < 2) await new Promise(resolve => setTimeout(resolve, 500));
+      const current = delivered(); if (current) return current;
+    }
   }
   throw error;
 }
@@ -84,7 +95,22 @@ function accept(incoming: PilotChatSummary | PilotChatDetail, detail = true): vo
   else if (chat.interrupting[s.id] && s.phase === "working") s = { ...s, phase: "interrupted" };
   const existing = chat.sessions.find(n => n.id === s.id);
   if (!acceptsPilotView(existing, s, detail)) return;
-  chat.sessions = [...chat.sessions.filter(n => n.id !== s.id), s];
+  chat.sessions = existing ? chat.sessions.map(n => n.id === s.id ? s : n) : [...chat.sessions, s];
+  // Summary carries durable queue receipts; detail carries accepted input->message
+  // mappings. Never match text or an optimistic message envelope UUID.
+  const attempt = sending.get(s.id);
+  let pendingId: string | undefined;
+  const key = vaultStorageKey(`pilot-pending:${s.id}`);
+  try { pendingId = JSON.parse(sessionStorage.getItem(key) ?? "null")?.inputId; } catch { /* unavailable */ }
+  for (const inputId of new Set([attempt?.id, pendingId])) {
+    if (!inputId) continue;
+    const receipt = pilotInputReceipt(s, inputId);
+    if (!receipt) continue;
+    if (attempt?.id === inputId) attempt.accepted = true;
+    if (pendingId === inputId) { try { sessionStorage.removeItem(key); } catch { /* unavailable */ } }
+    delete chat.queued[s.id]; // durable pendingInputs remain rendered as QUEUED
+    setDraftImages(s.id, draftImages(s.id).filter(image => !receipt.images?.some(sent => sent.id === image.id)));
+  }
   if ((s.ingestions?.length ?? 0) !== (existing?.ingestions?.length ?? 0)) pilotCoordination().recordChanged();
   if (existing?.phase === "working" && s.phase !== "working") pilotCoordination().settled();
   if (existing?.phase === "working" && s.phase !== "working" && chat.activeId === s.id && chat.open) chat.focus++;
@@ -143,6 +169,7 @@ export function openChat(id: string, options: { replace?: boolean; focus?: boole
   pilotCoordination().navigate(id, options.replace, options.focus);
 }
 export async function startChat(selection?: string[]): Promise<void> {
+  if (selectedWorkspace) return;
   if (activeChat()) { if (!selection) return; await leaveChat(); }
   chat.error = "";
   const context = (selection ?? pilotCoordination().selection()).filter(id => !chat.sessions.some(s => s.id === id));
@@ -178,13 +205,13 @@ export function holdChatComposer(id: string): () => void {
     void pending.catch(() => {}).then(() => fetch("/api/pilot/chat/presence", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ client, id: null }), keepalive: true })).catch(() => {});
   };
   pulse(); const timer = setInterval(pulse, PILOT_LIFECYCLE.composerHeartbeatMs);
-  const hide = () => { disposed = true; navigator.sendBeacon("/api/pilot/chat/presence", new Blob([JSON.stringify({ client, id: null })], { type: "application/json" })); };
+  const hide = () => { disposed = true; navigator.sendBeacon(workspaceURL("/api/pilot/chat/presence"), new Blob([JSON.stringify({ client, id: null })], { type: "application/json" })); };
   window.addEventListener("pagehide", hide);
   return () => { clearInterval(timer); window.removeEventListener("pagehide", hide); release(); };
 }
 const pendingDrafts = new Map<string, ReturnType<typeof setTimeout>>();
 const draftWrites = new Map<string, Promise<void>>();
-const sending = new Map<string, { cancelled: boolean; dispatched: boolean; accepted: boolean; text: string; done?: Promise<void> }>();
+const sending = new Map<string, { id: string; cancelled: boolean; dispatched: boolean; accepted: boolean; text: string; done?: Promise<void> }>();
 export function editChatDraft(id: string, text: string): void {
   const previous = new Set(mentionIds(chat.drafts[id] ?? chat.sessions.find(s => s.id === id)?.draft ?? ""));
   const added = mentionIds(text).filter(ref => !previous.has(ref));
@@ -269,7 +296,8 @@ export async function sendChat(): Promise<void> {
       const saved = sessionStorage.getItem(vaultStorageKey(`pilot-pending:${s.id}`));
       const pending = saved ? JSON.parse(saved) : undefined;
       if (pending && (pending.text !== text || JSON.stringify(pending.images ?? []) !== JSON.stringify(images))) throw new Error("An earlier message has uncertain delivery. Retry it before sending a different message.");
-      const result = await submitPilotInput(s.id, text, { id: pending?.inputId ?? attempt.id, mode: "text", images, notificationId: pending?.notificationId ?? (chat.replyNotification?.pilotId === s.id ? chat.replyNotification.id : undefined) });
+      attempt.id = pending?.inputId ?? attempt.id;
+      const result = await submitPilotInput(s.id, text, { id: attempt.id, mode: "text", images, notificationId: pending?.notificationId ?? (chat.replyNotification?.pilotId === s.id ? chat.replyNotification.id : undefined) });
       chat.replyNotification = null;
       attempt.accepted = true;
       setDraftImages(s.id, draftImages(s.id).filter(image => !images.some(sent => sent.id === image.id)));
@@ -279,7 +307,7 @@ export async function sendChat(): Promise<void> {
       if (chat.drafts[s.id]) await saveChatDraft(s.id);
       if (chat.activeId === s.id && chat.open) chat.focus++;
     } catch (e) {
-      chat.error = (e as Error).message;
+      if (!attempt.accepted) chat.error = (e as Error).message;
       if (!attempt.accepted && (!attempt.cancelled || attempt.dispatched)) chat.drafts[s.id] = text + (chat.drafts[s.id] ? `\n\n${chat.drafts[s.id]}` : "");
     } finally { delete chat.queued[s.id]; sending.delete(s.id); }
   })();
@@ -336,7 +364,8 @@ export async function renameChat(id: string, title: string): Promise<void> {
   await contextWrites.get(id);
   const latest = chat.sessions.find(s => s.id === id);
   if (!latest) return;
-  accept(await request<PilotChatDetail>("/context", { id, nodes: latest.context, title, expectedRevision: latest.viewRevision }));
+  // a person's name stands: the engine's Quick naming leaves it alone from now on
+  accept(await request<PilotChatDetail>("/rename", { id, title }));
 }
 
 export async function removeChatContext(id: string): Promise<void> {

@@ -66,7 +66,7 @@ describe("the tool listing", () => {
 });
 
 test("public dispatch refuses maintenance tools even for a machine caller", () => {
-  for (const name of ["next", "open", "submit", "read_intake", "write_memory", "delete_memory"])
+  for (const name of ["next", "open", "submit", "read_intake", "write_memory", "edit_memory", "delete_memory"])
     expect(() => handleMcpTool(ctx(vault(), "gardener"), name, {})).toThrow("no such tool");
 });
 

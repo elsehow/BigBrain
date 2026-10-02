@@ -31,6 +31,9 @@ const port = (name: string, fallback: number): number =>
 /** Explicit vault, ahead of the cwd walk-up and the pointer file — see
  * lib/engine.ts's discoverVaultRoot for the full order. */
 export const vaultOverride = (): string | undefined => str("BIGBRAIN_VAULT");
+/** The SHARED vault bin/shared.ts serves — explicit only, never discovered
+ * (docs/shared-vault.md): serving a vault to others is not an accident. */
+export const sharedVaultOverride = (): string | undefined => str("BIGBRAIN_SHARED_VAULT");
 export const pilotDevContextRoot = (): string | undefined => str("BIGBRAIN_PILOT_CONTEXT_ROOT");
 export const pilotDevPort = (): number => Number(str("BIGBRAIN_PILOT_DEV_PORT") ?? 5220);
 export const pilotDevUiPort = (): number => Number(str("BIGBRAIN_PILOT_UI_PORT") ?? 5221);
@@ -44,6 +47,10 @@ export const webPort = (): number => port("BIGBRAIN_WEB_PORT", 4747);
 
 /** The intake API (bin/api.ts) — the door the plugin and extension use. */
 export const apiPort = (): number => port("BIGBRAIN_API_PORT", 4748);
+
+/** The shared-vault server (bin/shared.ts) — a member-authenticated door
+ * over ONE shared vault, loopback by default (docs/shared-vault.md). */
+export const sharedPort = (): number => port("BIGBRAIN_SHARED_PORT", 4749);
 
 // ── who is running ───────────────────────────────────────────────────────────
 
@@ -81,6 +88,19 @@ export const tokenStore = (): string | undefined => str("BIGBRAIN_TOKENS");
 /** Override for the client-token store (lib/auth.ts). */
 export const clientTokenStore = (): string | undefined => str("BIGBRAIN_CLIENT_TOKENS");
 
+/** Override for a shared vault's member store (lib/sharedMembers.ts) —
+ * members and their credentials live OUTSIDE the vault, like drop tokens. */
+export const sharedMemberStore = (): string | undefined => str("BIGBRAIN_SHARED_MEMBERS");
+
+/** The shared door's public origin (`https://vault.example.com`). Setting it
+ * — or `serve --public-url` — is what turns on the Claude connector
+ * (docs/shared-vault-connector.md); unset, the door has no public surface. */
+export const sharedPublicUrl = (): string | undefined => str("BIGBRAIN_SHARED_PUBLIC_URL");
+
+/** The connector's "Sign in with Google" OAuth client. Both or neither. */
+export const sharedGoogleClientId = (): string | undefined => str("BIGBRAIN_SHARED_GOOGLE_CLIENT_ID");
+export const sharedGoogleClientSecret = (): string | undefined => str("BIGBRAIN_SHARED_GOOGLE_CLIENT_SECRET");
+
 // ── test and diagnostic hooks ────────────────────────────────────────────────
 
 /** Point the assertion projection at another SQLite file — how a bench or a
@@ -107,3 +127,23 @@ export const posthogRegion = (): string | undefined => str("BIGBRAIN_POSTHOG_REG
 
 /** Optional authenticated identity for live integration reads over local MCP. */
 export const mcpIntegrationToken = (): string | undefined => str("BIGBRAIN_MCP_TOKEN");
+
+/** Local remote-vault credentials. This store must live outside vault content. */
+export const sharedConnectionsStore = (): string | undefined => str("BIGBRAIN_SHARED_CONNECTIONS");
+
+/** Bearer token for a hosted intake-firewall endpoint (lib/firewall.ts).
+ * A localhost endpoint needs none. */
+export const firewallToken = (): string | undefined => str("BIGBRAIN_FIREWALL_TOKEN");
+
+/** The local firewall model server (bin/firewall.ts), loopback only. Never
+ * the bare `PORT` fallback: that is the api's or the viewer's own port in
+ * the very processes that call the firewall. */
+export const firewallPort = (): number => Number(str("BIGBRAIN_FIREWALL_PORT") ?? 4750);
+
+/** Where the local model server's binary is, when not beside bun in the app
+ * bundle (a checkout: a llama-server built by desktop/build-llama-server.sh). */
+export const llamaServerOverride = (): string | undefined => str("BIGBRAIN_LLAMA_SERVER");
+
+/** Where downloaded firewall model weights live (lib/firewallModel.ts).
+ * Default ~/.local/share/bigbrain/models — one copy per machine. */
+export const firewallModelsDir = (): string | undefined => str("BIGBRAIN_MODELS_DIR");

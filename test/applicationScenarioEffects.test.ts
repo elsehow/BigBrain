@@ -1,60 +1,14 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { AgentOrchestrator } from "../lib/agentOrchestrator";
 import { ApplicationActions } from "../lib/applicationActions";
 import { writeAtomic } from "../lib/fsx";
 import { transitionPilot } from "../lib/pilotTransitions";
-import { workDetail } from "../lib/workViews";
 import { pilotChatDetail } from "../lib/pilotChatSummary";
 import { ApplicationCursor, applicationResponseCurrent } from "../web/ui/src/lib/applicationUpdates";
 import { acceptsPilotView, fullPilotView } from "../web/ui/src/lib/pilotChatSync";
 import { pilotScenarios, runPilotScenario, scenarioClock } from "../web/ui/src/dev/applicationScenarios";
-import { fakePi } from "./support/pi";
-import { nativeVault } from "./support/vault";
-
-function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>(done => { resolve = done; }); return { promise, resolve }; }
-
-const workerTrace = ["launch", "stale-approval", "approve-read", "widen-saved-policy", "revoke", "late-result", "restart"] as const;
-async function workerScenario() {
-  const root = nativeVault(), project = realpathSync(mkdtempSync(join(tmpdir(), "scenario-project-")));
-  const entered = deferred<void>(), completion = deferred<{ result: string }>();
-  let calls = 0;
-  const agents = new AgentOrchestrator(root, { loadPi: fakePi(async () => { calls++; entered.resolve(); return completion.promise; }) });
-  const frames: unknown[] = [];
-  let job!: ReturnType<AgentOrchestrator["launch"]>, restored: AgentOrchestrator | undefined;
-  let approval = "";
-  try {
-    for (const step of workerTrace) {
-      if (step === "launch") { job = agents.launch("pilot-fixture", "input-fixture", { title: "Invented review", task: "Read the sample project", context: "Fabricated context", cwd: project, mode: "read" }, []); approval = job.worker.request!.id; }
-      if (step === "stale-approval") {
-        expect(() => agents.approve(job.id, "stale", true, true)).toThrow("no longer pending");
-        expect(() => agents.answer("pilot-fixture", job.id, approval, "Approved", [])).toThrow("context");
-        expect(job.worker.grant).toBeUndefined(); expect(calls).toBe(0);
-      }
-      if (step === "approve-read") { agents.approve(job.id, approval, true, true); await entered.promise; }
-      if (step === "widen-saved-policy") { const p = agents.projects.get(job.worker.projectId!)!; agents.projects.save({ ...p, mode: "work" }); expect(job.worker.grant?.mode).toBe("read"); }
-      if (step === "revoke") { agents.projects.remove(job.worker.projectId!); expect(job.status).toBe("interrupted"); expect(() => agents.approve(job.id, approval, true, true)).toThrow("no longer pending"); }
-      if (step === "late-result") { completion.resolve({ result: "Stale worker result" }); await agents.settled(job.id); expect(job.messages.some(m => m.text === "Stale worker result")).toBe(false); }
-      if (step === "restart") { agents.close(); restored = new AgentOrchestrator(root, { loadPi: async () => { throw new Error("No restart replay"); } }); job = restored.get(job.id); await expect(restored.message(job.id, "Continue")).rejects.toThrow("revoked"); }
-      const view = workDetail(job);
-      frames.push({ step, status: view.status, mode: view.worker?.grant?.mode ?? null, request: view.worker?.request?.kind ?? null,
-        messages: view.messages.map(m => m.text), calls });
-    }
-    expect(frames).toMatchObject([
-      { status: "needs-input", mode: null, calls: 0 }, { status: "needs-input", mode: null, calls: 0 },
-      { status: "working", mode: "read", calls: 1 }, { status: "working", mode: "read", calls: 1 },
-      { status: "interrupted", mode: "read", calls: 1 }, { status: "interrupted", mode: "read", calls: 1 }, { status: "interrupted", mode: "read", calls: 1 },
-    ]);
-    return frames;
-  } catch (error) { throw new Error(`Worker trace: ${JSON.stringify(workerTrace)}\nFrames: ${JSON.stringify(frames)}\n${error}`); }
-  finally { completion.resolve({ result: "Cleanup" }); agents.close(); restored?.close(); await agents.settled(job?.id); rmSync(root, { recursive: true, force: true }); rmSync(project, { recursive: true, force: true }); }
-}
-
-test("shared worker authority trace is repeatable across real Pi and persistence boundaries", async () => {
-  expect(await workerScenario()).toEqual(await workerScenario());
-}, 20_000);
 
 for (const crash of ["prepared", "completed"] as const) test(`Pilot cancellation → action ${crash} crash → restart has no duplicate effect`, async () => {
   const trace = pilotScenarios(41).find(t => t.id === "cancel-queued")!, pilot = runPilotScenario(trace);

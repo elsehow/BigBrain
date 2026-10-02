@@ -24,6 +24,7 @@
   // exactly one, and pass `undefined` while the answer isn't loaded yet.
   const {
     active,
+    extraSection,
     title,
     count,
     value,
@@ -31,6 +32,7 @@
     children,
   }: {
     active: SettingsTab;
+    extraSection?: { label: string; active: boolean; items: { label: string; selected: boolean; onselect: () => void }[] };
     title: string;
     count?: string | undefined;
     value?: string | undefined;
@@ -40,7 +42,7 @@
 </script>
 
 <div class="settings">
-  <SettingsRail {active} />
+  <SettingsRail {active} {extraSection} />
 
   <div class="content">
     <div class="tabs">

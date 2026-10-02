@@ -16,3 +16,7 @@ import { join } from "node:path";
 const root = mkdtempSync(join(tmpdir(), "bb-test-vault-"));
 writeFileSync(join(root, "vault.yaml"), "integrations: {}\n");
 process.env["BIGBRAIN_VAULT"] = root;
+
+// Catalog refresh is automatic in production; tests must explicitly inject a
+// fabricated transport before opting into model metadata network behavior.
+process.env.PI_OFFLINE = "1";

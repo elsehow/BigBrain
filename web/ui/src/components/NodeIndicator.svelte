@@ -1,11 +1,14 @@
 <script lang="ts">
   import { SELECTOR_RATIO } from "../../../../lib/pilotChatTypes";
-  import { TRIANGLE_PATH, pilotHollow, type PilotVisualPhase } from "../lib/pilotAppearance";
+  import { TRIANGLE_PATH, pilotHollow, pilotMarkPath, type PilotVisualPhase } from "../lib/pilotAppearance";
 
   // The entire r=9 glyph is identity/status, shared by lists and panels.
   // Only the outer r=9*ratio ring means selection (or working motion).
   const { pilot = true, memory = false, shape = "triangle", state = "idle", selected = false, size = 40, ratio = SELECTOR_RATIO }:
     { pilot?: boolean; memory?: boolean; shape?: "triangle" | "circle"; state?: PilotVisualPhase; selected?: boolean; size?: number; ratio?: number } = $props();
+  // The circle has room for a full-height caret; the triangle uses the shared
+  // marks, whose orientation is what survives the sidebar's ~9px glyph.
+  const mark = $derived(shape === "circle" && state === "draft" ? "M 0 -5 L 0 5" : pilotMarkPath(state));
 </script>
 
 <svg width={size} height={size} viewBox="-24 -24 48 48" aria-hidden="true"
@@ -23,9 +26,7 @@
       <circle class="pilot-ring" r="9" />
       {#if !pilotHollow(state)}<circle class="pilot-dot" r="5" />{/if}
     {/if}
-    {#if state === "interrupted"}<path class="status-mark" d="M -1.5 -2 V 2 M 1.5 -2 V 2" />{/if}
-    {#if state === "failed"}<path class="status-mark" d="M 0 -2 V 0 M 0 1.5 V 2.5" />{/if}
-    {#if state === "draft"}<path class="caret" d={shape === "triangle" ? "M 0 -2 L 0 3.5" : "M 0 -5 L 0 5"} />{/if}
+    {#if mark}<path class:status-mark={state !== "draft"} class:caret={state === "draft"} d={mark} />{/if}
   {:else if memory}
     <path class="memory" d="M 0 -9 L 9 0 L 0 9 L -9 0 Z" />
   {:else}

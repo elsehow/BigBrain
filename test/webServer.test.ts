@@ -104,6 +104,9 @@ describe("the route table is the door's whole surface", () => {
       "GET /api/recent",
       "GET /api/search",
       "GET /api/graph",
+      "GET /api/v2",
+      "GET /api/v2/entity",
+      "GET /v2",
       "GET /api/note-log",
       "GET /api/note-messages",
       "GET /api/agents/models",
@@ -136,17 +139,9 @@ describe("the route table is the door's whole surface", () => {
       "POST /api/pilot/chat/stop",
       "POST /api/pilot/chat/resume",
       "POST /api/pilot/chat/context",
+      "POST /api/pilot/chat/rename",
       "POST /api/pilot/chat/context-add",
       "GET /api/pilot/work",
-      "POST /api/pilot/work/approve",
-      "POST /api/pilot/work/answer",
-      "POST /api/pilot/work/stop",
-      "POST /api/pilot/work/send",
-      "GET /api/agent-orchestration",
-      "POST /api/agent-orchestration/inspect",
-      "POST /api/agent-orchestration/credentials",
-      "POST /api/agent-orchestration/save",
-      "POST /api/agent-orchestration/remove",
       "GET /api/connected-clients",
       "POST /api/connected-clients",
       "GET /api/integration-accounts",
@@ -283,7 +278,7 @@ describe("every response is armored (#692)", () => {
     const { readFileSync } = require("node:fs") as typeof import("node:fs");
     for (const f of ["web/server.ts", "bin/desktop.ts"]) {
       const src = readFileSync(join(import.meta.dir, "..", f), "utf8");
-      const at = src.indexOf("createServer((req, res) => {");
+      const at = src.search(/createServer\((?:async )?\(req, res\) => \{/);
       expect(at).toBeGreaterThan(0);
       expect(src.slice(at, at + 80)).toContain("armor(res);");
     }

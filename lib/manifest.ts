@@ -46,13 +46,43 @@ export function parseCuration(raw: unknown): CurationConfig | undefined {
 }
 export const curationAgent = (manifest: Manifest): AgentId => manifest.curation?.agent ?? "claude";
 
+/** The intake firewall (lib/firewall.ts): a Jev/SystemOne `/v1/systemone`
+ * endpoint that every arrival is screened against. No `url` means the app's
+ * own local model (lib/firewallModel.ts), served by `bin/firewall.ts`.
+ * Absent means off — an older vault keeps landing exactly as it did
+ * (design-principles §5). */
+export interface FirewallConfig { url?: string; model: string; thresholds: { credential: number; malicious: number } }
+/** Tuned on deploy/firewall/eval with local Clef-flash: the credential
+ * question separates cleanly, so it is held low (a reset link is the threat
+ * this exists for); the malicious one flags marketing too, so it is held high. */
+export const FIREWALL_THRESHOLDS = { credential: 0.25, malicious: 0.85 };
+export function parseFirewall(raw: unknown): FirewallConfig | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  if (typeof raw !== "object" || Array.isArray(raw)) throw new Error("firewall must be a mapping");
+  const f = raw as Record<string, unknown>;
+  if (f.url !== undefined && (typeof f.url !== "string" || !/^https?:\/\/\S+$/.test(f.url.trim())))
+    throw new Error("firewall url must be http:// or https://");
+  const t = f.thresholds ?? {};
+  if (typeof t !== "object" || Array.isArray(t)) throw new Error("firewall thresholds must be a mapping");
+  const thresholds = { ...FIREWALL_THRESHOLDS };
+  for (const [k, v] of Object.entries(t)) {
+    if (k !== "credential" && k !== "malicious") throw new Error("firewall thresholds accepts credential and malicious only");
+    if (!(Number(v) > 0 && Number(v) < 1)) throw new Error(`firewall ${k} threshold must be between 0 and 1`);
+    thresholds[k] = Number(v);
+  }
+  const model = f.model === undefined ? "clef-flash" : String(f.model).trim();
+  if (!model) throw new Error("firewall model must not be empty");
+  return { ...(typeof f.url === "string" ? { url: f.url.trim() } : {}), model, thresholds };
+}
+
 export type Auth = "max" | "api";
 
 /** The model a vault gets when its vault.yaml names none anywhere. Reached
  * only by a hand-written file: `bigbrain init` always writes one. The most
  * capable default, never the cheapest — economizing the one pass was the
- * discredited move. */
-const DEFAULT_MODEL = MODEL_DEFAULTS.anthropic.gardener.model;
+ * discredited move. Deliberately not the gardener recommendation: memory falls
+ * back to this too, and an existing file must keep resolving as it always has. */
+const DEFAULT_MODEL = "opus";
 
 export interface Manifest {
   /** Absolute path of the vault root (the directory holding vault.yaml). */
@@ -60,6 +90,7 @@ export interface Manifest {
   /** The credential both passes run on. */
   auth: Auth;
   curation?: CurationConfig;
+  firewall?: FirewallConfig;
   integrations: Record<string, Record<string, unknown>>;
   /** The gardener — the one runner (`bigbrain tend`), draining due intake. */
   gardener: PassConfig;
@@ -175,6 +206,7 @@ export function loadManifest(root: string): Manifest {
   >;
 
   const curation = parseCuration(raw["curation"]);
+  const firewall = parseFirewall(raw["firewall"]);
   const fallbackAgent = curation?.agent ?? "claude";
   const gardener = parseGardener(raw, fallbackAgent);
   const memory = parseMemoryConfig(raw["memory"], gardener, fallbackAgent);
@@ -199,6 +231,7 @@ export function loadManifest(root: string): Manifest {
       return [role, modelPreference(block?.preference, explicit ? "pinned" : "recommended")];
     })) as Manifest["modelPreferences"],
     ...(curation ? { curation } : {}),
+    ...(firewall ? { firewall } : {}),
   };
 }
 
