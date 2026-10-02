@@ -12,6 +12,11 @@
   import type { SquadScene } from "../lib/squad/scene";
   import { plainText as plain } from "../../../../lib/squadGraph";
 
+  /** Where the app lives, for settings and pilot conversations: beside this
+   * page in a build; a dev preview can point at the live engine instead
+   * (VITE_SQUAD_APP), since a read-only preview can't hold a conversation. */
+  const APP: string = import.meta.env["VITE_SQUAD_APP"] ?? "./";
+
   /** The workbench hands in fabricated data; the app fetches the vault's. */
   let { data = null }: { data?: { graph: GraphData; squad: SquadData } | null } = $props();
 
@@ -124,7 +129,7 @@
     try {
       const r = await fetch("/api/pilot/chat/create", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, context: [path] }) });
       if (!r.ok) throw new Error(((await r.json().catch(() => ({}))) as { error?: string }).error ?? `The engine said ${r.status}.`);
-      location.href = `./#/session/${id}`;
+      location.href = `${APP}#/session/${id}`;
     } catch (e) {
       flash(`Couldn’t start a pilot: ${e instanceof Error ? e.message : String(e)}`);
     }
@@ -249,7 +254,7 @@
   /** True when this view took the key. */
   function onKey(e: KeyboardEvent): boolean {
     // ⌘, (ctrl+, elsewhere): settings, the same view the app's gear opens
-    if ((e.metaKey || e.ctrlKey) && e.key === ",") { take(e); location.href = "./#/vaultSettings"; return true; }
+    if ((e.metaKey || e.ctrlKey) && e.key === ",") { take(e); location.href = `${APP}#/vaultSettings`; return true; }
     if (e.metaKey || e.ctrlKey || e.altKey || !field) return false;
     if (searching && e.target === qEl) {
       // typing in the search box is ours entirely; the characters still land
@@ -282,7 +287,7 @@
   {#if field}
     <nav class="strip" aria-label="Squad">
       <button type="button" class="find" onclick={openSearch}>Search <span class="k">/</span></button>
-      <a class="gear" href="./#/vaultSettings" title="Settings (⌘,)" aria-label="Settings">
+      <a class="gear" href={`${APP}#/vaultSettings`} title="Settings (⌘,)" aria-label="Settings">
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
           <circle cx="12" cy="12" r="3" />
           <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.08a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.08a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />

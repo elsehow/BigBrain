@@ -14,8 +14,13 @@ export default defineConfig({
     name: "read-only-live-preview", apply: "serve",
     configureServer(server) {
       if (process.env["BIGBRAIN_PREVIEW_READ_ONLY"] !== "1") return;
+      // BIGBRAIN_PREVIEW_ALLOW: exact /api paths a read-only preview may still
+      // write through to the live engine (comma-separated), e.g. the squad
+      // view's pilot start and Quick briefing. Everything else stays refused.
+      const allow = new Set((process.env["BIGBRAIN_PREVIEW_ALLOW"] ?? "").split(",").map((p) => p.trim()).filter(Boolean));
       server.middlewares.use((req, res, next) => {
         if (!req.url?.startsWith("/api/") || ["GET", "HEAD"].includes(req.method ?? "")) return next();
+        if (allow.has(req.url.split("?")[0] ?? "")) return next();
         res.statusCode = 403;
         res.setHeader("Content-Type", "application/json");
         res.end(JSON.stringify({ error: "This workbench is a read-only live preview." }));
