@@ -1,12 +1,11 @@
-// The squad view's model: /api/graph's entities lifted into a shallow 3D
+// The v2 view's model: /api/graph's entities lifted into a shallow 3D
 // field, and the name search. Pure — the scene (scene.ts) draws it, the view
-// (SquadView.svelte) reads it, and neither reshapes it.
+// (V2View.svelte) reads it, and neither reshapes it.
 
-import type { Squad, SquadFeedRow } from "../../../../../lib/squadGraph";
+import type { V2Feed, V2FeedRow } from "../../../../../lib/v2Feed";
 import type { GraphData } from "../types";
 
-export type { SquadFeedRow };
-export type SquadData = Squad;
+export type { V2Feed, V2FeedRow };
 
 export interface FieldNode {
   i: number;

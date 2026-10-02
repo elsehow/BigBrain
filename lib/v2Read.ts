@@ -1,16 +1,16 @@
 /**
- * squadRead.ts — the squad view's one read of the projection (engine side;
- * lib/squadGraph.ts stays pure so the viewer can share it). The route reads
+ * v2Read.ts — the v2 view's one read of the projection (engine side;
+ * lib/v2Feed.ts stays pure so the viewer can share it). The route reads
  * it inside withVaultSnapshot; the dev preview reads a vault's projection
- * opened read-only (bin/squadPreview.ts).
+ * opened read-only (bin/v2Preview.ts).
  */
 import type { Database } from "bun:sqlite";
 import type { AssertionEvent } from "./assertionLog";
 import { entityAliasResolution, type EntityAliasEvent } from "./entityAliasLog";
 import { liveAssertionSql } from "./sourceSupersede";
-import { firstRecordedAt, type ChainLink, type SquadSource } from "./squadGraph";
+import { firstRecordedAt, type ChainLink, type V2Source } from "./v2Feed";
 
-export function readSquadSource(db: Database): SquadSource {
+export function readV2Source(db: Database): V2Source {
   const events = <T>(sql: string): T[] => (db.query(sql).all() as { event_json: string }[]).map((r) => JSON.parse(r.event_json) as T);
   const rows = events<AssertionEvent>(`SELECT a.event_json FROM assertions a WHERE a.revoked_by IS NULL AND ${liveAssertionSql("a")} ORDER BY a.created_at, a.id`);
   const aliases = entityAliasResolution(events<EntityAliasEvent>("SELECT event_json FROM entity_alias_events"));

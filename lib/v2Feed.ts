@@ -1,7 +1,7 @@
 /**
- * squadGraph.ts — who wrote the vault lately, and what they wrote.
+ * v2Feed.ts — who wrote the vault lately, and what they wrote.
  *
- * The squad view (web/ui SquadView) draws /api/graph's entities as a field;
+ * The v2 view (web/ui V2View) draws /api/graph's entities as a field;
  * this is its one extra read: the latest assertions as a feed, each with its
  * author. A pure function of the live assertion rows and the alias table, so
  * the route (web/server.ts) and a read-only dev preview feed it the same way.
@@ -12,13 +12,13 @@
  * guesses at tasks or presents an author as a running agent.
  *
  * Pure, and safe for the browser bundle (the view imports plainText): the
- * projection read lives in lib/squadRead.ts.
+ * projection read lives in lib/v2Read.ts.
  */
 
 import type { AssertionEvent } from "./assertionLog";
 import type { EntityAliasResolution } from "./entityAliasLog";
 
-export interface SquadAuthor {
+export interface V2Author {
   id: string;
   name: string;
   /** Live assertions this author wrote. */
@@ -26,7 +26,7 @@ export interface SquadAuthor {
   lastAt: string;
 }
 
-export interface SquadFeedRow {
+export interface V2FeedRow {
   id: string;
   /** When the claim was first recorded. A rewrite (one assertion standing in
    * for another, `supersedes`) keeps its original's date, so a cleanup pass
@@ -34,7 +34,7 @@ export interface SquadFeedRow {
   at: string;
   /** Present when this row is a rewrite: when the standing version was written. */
   writtenAt?: string;
-  /** SquadAuthor.id, or null for a user or the engine's own bookkeeping. */
+  /** V2Author.id, or null for a user or the engine's own bookkeeping. */
   author: string | null;
   /** Exactly who the record says wrote it: the model id when the record
    * names one (the vault's own passes), else the client or user id. */
@@ -46,15 +46,15 @@ export interface SquadFeedRow {
   entities: string[];
 }
 
-export interface Squad {
-  authors: SquadAuthor[];
+export interface V2Feed {
+  authors: V2Author[];
   /** The latest assertions, oldest first. */
-  feed: SquadFeedRow[];
+  feed: V2FeedRow[];
 }
 
-/** What the squad reads, from one projection snapshot: the live rows, the
+/** What the v2 view reads, from one projection snapshot: the live rows, the
  * alias table, and each live row's first-recorded date. */
-export interface SquadSource {
+export interface V2Source {
   rows: AssertionEvent[];
   aliases: EntityAliasResolution;
   firstAt: ReadonlyMap<string, string>;
@@ -105,7 +105,7 @@ export function plainText(text: string): string {
   return text.replace(/\[\[[^|\]]*\|([^\]]*)\]\]/g, "$1").replace(/\[\[([^\]]*)\]\]/g, "$1").replace(/\s+/g, " ").trim();
 }
 
-const feedRow = (src: SquadSource, row: AssertionEvent): SquadFeedRow => {
+const feedRow = (src: V2Source, row: AssertionEvent): V2FeedRow => {
   const at = src.firstAt.get(row.id) ?? row.created_at;
   return {
     id: row.id, at, ...(at !== row.created_at ? { writtenAt: row.created_at } : {}),
@@ -113,11 +113,11 @@ const feedRow = (src: SquadSource, row: AssertionEvent): SquadFeedRow => {
     entities: [...new Set(row.entities.map((e) => src.aliases.canonical.get(e.id)?.id ?? e.id))],
   };
 };
-const byRecorded = (a: SquadFeedRow, b: SquadFeedRow) => a.at.localeCompare(b.at) || a.id.localeCompare(b.id);
+const byRecorded = (a: V2FeedRow, b: V2FeedRow) => a.at.localeCompare(b.at) || a.id.localeCompare(b.id);
 
-export function buildSquad(src: SquadSource): Squad {
+export function buildV2Feed(src: V2Source): V2Feed {
   const live = [...src.rows].sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id));
-  const authors = new Map<string, SquadAuthor>();
+  const authors = new Map<string, V2Author>();
   for (const row of live) {
     const id = authorOf(row);
     if (!id) continue;
@@ -133,7 +133,7 @@ export function buildSquad(src: SquadSource): Squad {
 }
 
 /** One entity's latest assertions (aliases folded), dated the same way. */
-export function buildEntityFeed(src: SquadSource, entityId: string, limit = 6): SquadFeedRow[] {
+export function buildEntityFeed(src: V2Source, entityId: string, limit = 6): V2FeedRow[] {
   const id = src.aliases.canonical.get(entityId)?.id ?? entityId;
   return src.rows.map((row) => feedRow(src, row)).filter((r) => r.entities.includes(id)).sort(byRecorded).slice(-limit);
 }

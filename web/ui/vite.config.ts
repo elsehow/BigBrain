@@ -2,7 +2,7 @@ import { svelte } from "@sveltejs/vite-plugin-svelte";
 import { defineConfig } from "vite";
 import { devProvenance } from "./devProvenance";
 import { devGraphSnapshot } from "./devGraphSnapshot";
-import { devSquadLive } from "./devSquadLive";
+import { devV2Live } from "./devV2Live";
 
 export default defineConfig({
   // Relative base: ONE build must serve at "/" (web/server.ts) AND from any
@@ -10,12 +10,12 @@ export default defineConfig({
   // app is hash-routed, so the document URL never leaves its mount point and
   // relative asset URLs resolve correctly at either depth.
   base: "./",
-  plugins: [svelte(), devProvenance(), devGraphSnapshot(), devSquadLive(), {
+  plugins: [svelte(), devProvenance(), devGraphSnapshot(), devV2Live(), {
     name: "read-only-live-preview", apply: "serve",
     configureServer(server) {
       if (process.env["BIGBRAIN_PREVIEW_READ_ONLY"] !== "1") return;
       // BIGBRAIN_PREVIEW_ALLOW: exact /api paths a read-only preview may still
-      // write through to the live engine (comma-separated), e.g. the squad
+      // write through to the live engine (comma-separated), e.g. the v2
       // view's pilot start and Quick briefing. Everything else stays refused.
       const allow = new Set((process.env["BIGBRAIN_PREVIEW_ALLOW"] ?? "").split(",").map((p) => p.trim()).filter(Boolean));
       server.middlewares.use((req, res, next) => {
@@ -35,7 +35,7 @@ export default defineConfig({
       "/api": { target: `http://localhost:${process.env["BIGBRAIN_WEB_PORT"] ?? "4747"}`, changeOrigin: false },
     },
   },
-  // Two pages ship: the app, and the squad view on its own (squad.html → /squad).
+  // Two pages ship: the app, and the v2 view on its own (v2.html → /v2).
   // Every other *.html here is a dev workbench and stays out of the build.
-  build: { outDir: "dist", emptyOutDir: true, rollupOptions: { input: { index: "index.html", squad: "squad.html" } } },
+  build: { outDir: "dist", emptyOutDir: true, rollupOptions: { input: { index: "index.html", v2: "v2.html" } } },
 });

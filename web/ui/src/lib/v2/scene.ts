@@ -1,6 +1,6 @@
-// The squad view's canvas: the vault's entities as a field of points and its
+// The v2 view's canvas: the vault's entities as a field of points and its
 // memory topics as small glass octahedra. Imperative three.js behind a small
-// API; the view (SquadView.svelte) owns every word of chrome and tells this
+// API; the view (V2View.svelte) owns every word of chrome and tells this
 // what is in play — an opened entity, search matches, a hovered feed row.
 // Loaded on demand, so the rest of the app never pays for three.js.
 //
@@ -20,7 +20,7 @@ export interface SceneHooks {
   /** A click on a pilot's glass or its name. */
   onPickPilot(id: string): void;
 }
-export interface SquadScene {
+export interface V2Scene {
   /** Back to the whole field. */
   overview(): void;
   /** The pilots to draw (real sessions, placed over their context). */
@@ -46,13 +46,13 @@ const GLASS_OPACITY = 0.95;
 const LENS = Math.tan(THREE.MathUtils.degToRad(17)) / Math.tan(THREE.MathUtils.degToRad(10));
 const OVERVIEW_AT = { az: 0.05, el: 0.55, dist: 30, target: new THREE.Vector3(0, 3, -4) };
 
-export function createSquadScene(host: HTMLElement, field: Field, hooks: SceneHooks): SquadScene {
+export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks): V2Scene {
   const OVERVIEW = { ...OVERVIEW_AT, target: OVERVIEW_AT.target.clone() };
   const reducedMQ = matchMedia("(prefers-reduced-motion: reduce)");
   const canvas = document.createElement("canvas");
-  canvas.className = "sq-canvas";
+  canvas.className = "v2-canvas";
   const labelLayer = document.createElement("div");
-  labelLayer.className = "sq-labels";
+  labelLayer.className = "v2-labels";
   host.append(canvas, labelLayer);
 
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
@@ -210,7 +210,7 @@ export function createSquadScene(host: HTMLElement, field: Field, hooks: SceneHo
     mesh.add(halo);
     scene.add(mesh);
     const label = document.createElement("div") as Pilot["label"];
-    label.className = "sq-lab sq-pilot";
+    label.className = "v2-lab v2-pilot";
     label.dataset["pilot"] = d.id;
     labelLayer.append(label);
     return { d, glass: { mesh, mat, vis: 1 }, core, halo, label, scale: 0, fill: 0, at: new THREE.Vector3(...d.p) };
@@ -258,7 +258,7 @@ export function createSquadScene(host: HTMLElement, field: Field, hooks: SceneHo
     let L = labels.get(i);
     if (!L) {
       L = document.createElement("div") as HTMLDivElement & { w?: number };
-      L.className = "sq-lab sq-node" + (field.nodes[i]!.memory ? " memory" : "");
+      L.className = "v2-lab v2-node" + (field.nodes[i]!.memory ? " memory" : "");
       L.dataset["i"] = String(i);
       const t = document.createElement("span");
       t.className = "t";
@@ -334,9 +334,9 @@ export function createSquadScene(host: HTMLElement, field: Field, hooks: SceneHo
   };
   // labels are clickable too: they name the thing
   const onLabel = (e: MouseEvent) => {
-    const pl = (e.target as HTMLElement).closest<HTMLElement>(".sq-pilot");
+    const pl = (e.target as HTMLElement).closest<HTMLElement>(".v2-pilot");
     if (pl?.dataset["pilot"]) { hooks.onPickPilot(pl.dataset["pilot"]); return; }
-    const L = (e.target as HTMLElement).closest<HTMLElement>(".sq-node");
+    const L = (e.target as HTMLElement).closest<HTMLElement>(".v2-node");
     if (L?.dataset["i"]) hooks.onPick(Number(L.dataset["i"]));
   };
   labelLayer.addEventListener("click", onLabel);
