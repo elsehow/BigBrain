@@ -190,7 +190,10 @@ export const VAULT_TOOLS: VaultToolDef[] = [
   {
     name: "search_vault",
     description:
-      "Search records and memory; OR joins alternatives. Verify citations in agent records.",
+      "Search records and memory. Matches words literally (prefix matching, no synonyms). " +
+      "For topical searches, pass `queries` with 3-5 alternative phrasings: synonyms, related terms, " +
+      "likely exact titles or names, and shorter keyword forms. Alternatives are ORed. For a lookup " +
+      "of a specific named person, project or thing, the name alone is fine. Verify citations in agent records.",
     inputSchema: {
       type: "object",
       properties: {

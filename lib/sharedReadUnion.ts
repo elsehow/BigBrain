@@ -9,6 +9,10 @@ import type {AssertionView} from './sharedVault';
 import type {Graph} from './graph';
 import {sourceInsertionMarkdown} from './sourceFeed';
 import {sha256hex} from './hash';
+import {existsSync,readFileSync} from 'node:fs';
+import {join} from 'node:path';
+import {SHARED_AST_CITE} from './ids';
+import {memoryTreeFiles} from './memoryTree';
 import type {RecentEntry} from './viewTypes';
 const remotePath=(c:SharedConnection,id:string)=>`shared/${c.id}/${id}.md`;
 async function pages<T>(c:SharedConnection,kind:string):Promise<T[]>{const rows:T[]=[];let cursor:string|null=null;do{const p:{items:T[];next_cursor:string|null}=await sharedRequest(c,`/v1/${kind}?limit=200${cursor?'&cursor='+encodeURIComponent(cursor):''}`);rows.push(...p.items);cursor=p.next_cursor;}while(cursor);return rows;}
@@ -16,6 +20,8 @@ export function vaultFilter(header: string | string[] | undefined): string[] { r
 export const includesPersonal = (filter: string[]) => !filter.length || filter.includes("personal");
 async function views(filter: string[] = []){const results=await Promise.allSettled(readConnections(connectionStorePath()).filter(c => !filter.length || filter.includes(c.id)).map(async c=>({c,view:sharedProjection(await pages<SourceInsertion>(c,'evidence'),await pages<AssertionView>(c,'assertions'))})));return results.flatMap(r=>r.status==='fulfilled'?[r.value]:[]);}
 function localSources(root:string){return new Map(readSourceInsertionLog(root,{strict:true}).map(s=>['origin:'+sourceKey(s),s]));}
+/** Each memory topic's citations of joined vaults' claims, by path. */
+function sharedCitations(root:string){const cited=new Map<string,[string,string][]>();if(!existsSync(join(root,'memory')))return cited;for(const f of memoryTreeFiles(root))cited.set(`memory/${f}`,[...readFileSync(join(root,'memory',f),'utf8').matchAll(SHARED_AST_CITE)].map(m=>[m[1]!,m[2]!]));return cited;}
 export async function unionGraph(root:string,graph:Graph,filter:string[] = []):Promise<Graph>{
  const personalGraph=graph;
  const localPaths=new Map(personalGraph.nodes.flatMap(n=>[n.path,...(n.memberPaths??[])].filter((p):p is string=>!!p).map(p=>[p,n])));
@@ -23,7 +29,7 @@ export async function unionGraph(root:string,graph:Graph,filter:string[] = []):P
  if(!includesPersonal(filter)) graph = {...graph,nodes:[],edges:[]};
  if(filter.length===1&&filter[0]==="personal")return graph;
  if(!readConnections(connectionStorePath()).length)return graph;
- const local=localSources(root),paths=new Map(graph.nodes.flatMap(n=>[n.path,...(n.memberPaths??[])].filter((p):p is string=>!!p).map(p=>[p,n])));
+ const local=localSources(root),cites=sharedCitations(root),citing=new Set<string>(),drawn=new Set<string>(),paths=new Map(graph.nodes.flatMap(n=>[n.path,...(n.memberPaths??[])].filter((p):p is string=>!!p).map(p=>[p,n])));
  const nodes=graph.nodes.map(n=>({...n,vaults:['personal']})),byId=new Map(nodes.map(n=>[n.id,n])),edges=[...graph.edges];
  for(const {c,view} of await views(filter)){
  const ids=new Map<string,string>();
@@ -33,6 +39,11 @@ export async function unionGraph(root:string,graph:Graph,filter:string[] = []):P
  const localNode=personal?localPaths.get(insertionEventRel(personal)):undefined;
  if(localNode)remoteCopies.set(localNode.id,[...(remoteCopies.get(localNode.id)??[]),id]);nodes.push({...n,id,path:remotePath(c,source?.id??n.id),vaults:[c.id]});}
  for(const e of view.graph.edges)edges.push({...e,source:ids.get(e.source)!,target:ids.get(e.target)!});
+ // A memory folded from this vault's claims stands beside their entities.
+ for(const m of personalGraph.nodes)if(m.group==='memory'&&m.path)for(const [vault,ast] of cites.get(m.path)??[]){
+  if(vault!==c.id)continue;
+  for(const e of view.assertions.find(a=>a.id===ast)?.entities??[]){const target=ids.get(e.id),key=m.id+'\0'+target;if(target&&!drawn.has(key)){drawn.add(key);edges.push({source:m.id,target});citing.add(m.id);}}
+ }
  }
  if(!includesPersonal(filter)){
   const memories=new Map(personalGraph.nodes.filter(n=>n.group==='memory').map(n=>[n.id,n]));
@@ -43,6 +54,7 @@ export async function unionGraph(root:string,graph:Graph,filter:string[] = []):P
    const other=memory.id===edge.source?edge.target:edge.source;
    for(const remote of remoteCopies.get(other)??[]){connected.add(memory.id);edges.push({...edge,source:memory.id,target:remote});}
   }
+  for(const id of citing)connected.add(id);
   for(const id of connected)nodes.push({...memories.get(id)!,vaults:['personal']});
  }
  return sharedGraphLayout({...graph,nodes,edges,hash:sha256hex(JSON.stringify([graph.hash,nodes.map(n=>[n.id,n.vaults]),edges]))});

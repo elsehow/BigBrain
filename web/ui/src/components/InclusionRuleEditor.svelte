@@ -9,13 +9,15 @@
  type View={id:string;text:string;revision:number;busy:boolean;ready:boolean;remaining:number;overlap:boolean;judged:number;unresolved:number;error?:string;items:RuleExample[];exhausted:boolean};
  let draft=$state(untrack(()=>value)),view=$state<View|null>(null),problem=$state(''),sending=$state(false),editing=$state(false),disposed=false;
  let editTimer:ReturnType<typeof setTimeout>|undefined;
+ // Each sent edit restarts the review (and its Quick call for search phrases): wait for a real pause.
+ const EDIT_PAUSE_MS=1800;
  let generation=0;
  async function request(action:string,body?:unknown){const r=await vaultFetch('/api/inclusion-review/'+action,{method:body===undefined?'GET':'POST',headers:{'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});const data=await r.json();if(!r.ok)throw Error(data.error??'Could not evaluate the rule.');return data;}
  async function follow(result:View,g:number){view=result;while(view?.busy&&!disposed&&g===generation){await new Promise(r=>setTimeout(r,700));if(disposed||g!==generation)return;const next=await request('?id='+encodeURIComponent(result.id));if(g===generation)view=next;}}
  async function start(){if(!draft.trim()||sending)return;const g=++generation;sending=true;problem='';try{await follow(await request('start',{target,text:draft}),g);}catch(e){problem=(e as Error).message;}finally{sending=false;}}
  onMount(()=>{if(draft.trim())void start();});
  onDestroy(()=>{disposed=true;generation++;clearTimeout(editTimer);});
- function changed(text:string){if(text===draft)return;draft=text;editing=true;clearTimeout(editTimer);editTimer=setTimeout(()=>void update(),650);}
+ function changed(text:string){if(text===draft)return;draft=text;editing=true;clearTimeout(editTimer);editTimer=setTimeout(()=>void update(),EDIT_PAUSE_MS);}
  async function update(){if(disposed)return;if(sending){editTimer=setTimeout(()=>void update(),200);return;}if(!draft.trim()){editing=false;return;}if(!view){editing=false;await start();return;}
   const text=draft,g=++generation;sending=true;problem='';try{await follow(await request('edit',{id:view.id,text,revision:view.revision}),g);}catch(e){problem=(e as Error).message;}finally{sending=false;if(text===draft)editing=false;else editTimer=setTimeout(()=>void update(),100);}
  }

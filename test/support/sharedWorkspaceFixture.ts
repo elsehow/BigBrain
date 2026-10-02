@@ -25,9 +25,11 @@ const owner = initMemberStore(members,shared,{handle:'owner',display:'Example Ow
 addMember(members,{handle:'reader',permissions:['read']});
 const reader = mintCredential(members,'reader',{name:'reader',kind:'person',scopes:['read']});
 const vault = new SharedVault(shared);
-const handler = makeSharedApiHandler({root:shared,storePath:members,vault,log:()=>{}});
-const remote = Bun.serve({hostname:'127.0.0.1',port:0,fetch:handler});
+let handler = makeSharedApiHandler({root:shared,storePath:members,vault,log:()=>{}});
+const remote = Bun.serve({hostname:'127.0.0.1',port:0,fetch:request=>handler(request)});
 const endpoint = `http://127.0.0.1:${remote.port}`;
+// BB_FIXTURE_EMAIL_INVITES: the door also runs the Claude connector with a (never-called) Google client, so the app sees email invitations.
+if(process.env.BB_FIXTURE_EMAIL_INVITES)handler=makeSharedApiHandler({root:shared,storePath:members,vault,log:()=>{},connector:{publicUrl:endpoint,google:{clientId:'fixture.apps.example.com',clientSecret:'fixture-secret'}}});
 const post = (path:string,body:unknown) => handler(new Request(endpoint+path,{method:'POST',headers:{authorization:`Bearer ${owner.token}`,'content-type':'application/json'},body:JSON.stringify(body)}));
 const source = await (await post('/v1/evidence',{title:'Shared launch decision',body:'The Example project will launch next week.'})).json() as {id:string};
 await post('/v1/assertions',{text:'[[Example project]] will launch next week.',sources:[source.id]});

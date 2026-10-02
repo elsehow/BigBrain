@@ -33,3 +33,20 @@ test('combined reads link own copies, expose shared-only sources and preserve pe
  writeFileSync(join(dir,'checked.txt'),'original retained');
  }finally{server.stop(true);if(old===undefined)delete process.env.BIGBRAIN_SHARED_CONNECTIONS;else process.env.BIGBRAIN_SHARED_CONNECTIONS=old;}
 });
+test('a memory folded from a joined vault\'s claims stands beside their entities, in the union and in that vault alone',async()=>{
+ const dir=mkdtempSync(join(tmpdir(),'union-memory-')),personal=join(dir,'personal'),shared=join(dir,'shared'),members=join(dir,'members.json'),store=join(dir,'connections.json');for(const root of [personal,shared])mkdirSync(root);
+ const owner=initMemberStore(members,shared,{handle:'owner'}),verified=verifyCredential(members,owner.token);if(!verified.ok)throw Error('auth');const vault=new SharedVault(shared);
+ const evidence=vault.dropEvidence(verified.actor,{title:'Kickoff notes',body:'The Example project kicked off.'}).insertion;
+ const claim=vault.assert(verified.actor,{text:'[[Example project]] kicked off.',sources:[evidence.id]});
+ const server=Bun.serve({hostname:'127.0.0.1',port:0,fetch:makeSharedApiHandler({root:shared,storePath:members,vault,log:()=>{}})});const old=process.env.BIGBRAIN_SHARED_CONNECTIONS;process.env.BIGBRAIN_SHARED_CONNECTIONS=store;
+ try{
+ const c=await saveConnection(store,{name:'Example',endpoint:`http://127.0.0.1:${server.port}`,token:owner.token});
+ mkdirSync(join(personal,'memory'));writeFileSync(join(personal,'memory','project.md'),`# Project\n\n- The Example project kicked off. [[shared:${c.id}:${claim.assertion.id}]]\n`);
+ const graph={nodes:[{id:'project-memory',title:'Project',group:'memory',degree:0,path:'memory/project.md'},{id:'other-memory',title:'Other',group:'memory',degree:0,path:'memory/other.md'}],edges:[],hash:'example'};
+ const entity=`shared:${c.id}:${claim.assertion.entities[0]!.id}`;
+ expect((await unionGraph(personal,graph)).edges).toContainEqual({source:'project-memory',target:entity});
+ const focused=await unionGraph(personal,graph,[c.id]);
+ expect(focused.nodes.map(n=>n.id)).toContain('project-memory');expect(focused.nodes.map(n=>n.id)).not.toContain('other-memory');
+ expect(focused.edges).toContainEqual({source:'project-memory',target:entity});
+ }finally{server.stop(true);if(old===undefined)delete process.env.BIGBRAIN_SHARED_CONNECTIONS;else process.env.BIGBRAIN_SHARED_CONNECTIONS=old;}
+});

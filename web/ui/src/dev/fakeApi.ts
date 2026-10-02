@@ -408,7 +408,7 @@ export const FIRST_RUN: Record<string, VaultState> = {
 
   connectedEmpty: {
     label: "3 · connected, nothing landed",
-    note: "The first screen that is the app. Vault and agent both exist, so the first-run screens are gone and do not come back (setup is two facts, not a dismissed banner). The feed is empty, and home's empty state is now the DOORS: every way to give the gardener something — drop, Claude Code, the extension, Granola — where the old line named one. No countdown: nothing is waiting, so no run is coming, and the foot says the rule instead.",
+    note: "The first screen that is the app. Vault and agent both exist, so the first-run screens are gone and do not come back (setup is two facts, not a dismissed banner). Nothing has landed, so home is one invitation (EmptyVault): drop anything anywhere on the window, or follow the link to Integrations. It leaves the moment a source, entity or arrival exists; the gardener's own memory notes do not count.",
     vault: EMPTY_VAULT,
     recent: [],
     graph: EMPTY_GRAPH,

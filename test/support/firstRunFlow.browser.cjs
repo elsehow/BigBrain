@@ -5,7 +5,7 @@ const assert=require('node:assert/strict');
  const page=await browser.newPage({viewport:{width:1100,height:1000}}),errors=[];
  page.on('pageerror',e=>errors.push(e.message));
  let metrics={configured:true,decided:false,enabled:false,samples:[],operations:{},actions:{},queued:0,delivery:'idle'};const choices=[];
- let rejectVault=true,setupReads=0;
+ let rejectVault=true,setupReads=0;const invites=[];
  let step='vault',fail=false,hasVault=false,identity=null,claude=false,chatgpt=false;
  const local=[{kind:'claude-code',name:'Claude Code',available:true,connected:false},{kind:'codex',name:'Codex',available:true,connected:false}];
  const library=[{id:'browser',name:'Browser extension',description:'Save pages and highlights.',added:false},{id:'granola',name:'Granola',description:'Meeting transcripts.',added:false}];
@@ -27,6 +27,7 @@ const assert=require('node:assert/strict');
   }
   if(path==='/api/connected-clients'){if(body?.action==='local')local.find(c=>c.kind===body.kind).connected=body.enabled;return json({clients:[],local});}
   if(path==='/api/telemetry'){if(typeof body?.enabled==='boolean'){choices.push(body.enabled);metrics={...metrics,enabled:body.enabled,decided:true};}return json(metrics);}
+  if(path==='/api/shared-settings'&&route.request().method()==='POST'){invites.push(body.invite);return route.fulfill({status:201,json:{id:'fixture-team',name:'Example team',endpoint:'https://vault.example.test'}});}
   if(path==='/api/graph')return json({nodes:[],edges:[],hash:'fixture'});
   if(path==='/api/recent')return json({recent:[],total:0,nextOffset:null});
   if(path==='/api/pilot/chat'||path==='/api/work/sessions')return json({sessions:[]});
@@ -58,10 +59,15 @@ const assert=require('node:assert/strict');
  await page.getByRole('region',{name:'granola accounts'}).getByRole('button',{name:'Connect',exact:true}).click();
  assert(await page.getByRole('checkbox',{name:'Automatic remembering',exact:true}).isChecked());assert(await page.getByRole('checkbox',{name:'Live access',exact:true}).isChecked());
  await page.getByRole('checkbox',{name:'Live access',exact:true}).uncheck();await page.getByRole('button',{name:'Save',exact:true}).click();assert.equal(account.liveAccess,false);
+ // A member joining a shared vault redeems the invite here and finishes setup inside it.
+ const sharedInvite=page.getByRole('region',{name:'Shared vault'}),inviteLink='https://vault.example.test/invite#'+'A'.repeat(43);
+ await sharedInvite.getByLabel('Invite link',{exact:true}).fill(inviteLink);await sharedInvite.getByRole('button',{name:'Connect',exact:true}).click();
+ await sharedInvite.getByText('Example team',{exact:true}).waitFor();await sharedInvite.getByText('Connected',{exact:true}).waitFor();assert.deepEqual(invites,[inviteLink]);
  await page.setViewportSize({width:600,height:1000});await page.screenshot({path:'/tmp/bb-first-run-integrations.png'});
  assert.deepEqual(choices,[]);assert.equal(metrics.enabled,false);
  await page.getByRole('button',{name:'Next →',exact:true}).click();await page.getByRole('heading',{name:'Help improve BigBrain',exact:true}).waitFor();assert.equal(step,'analytics');
- await page.getByRole('button',{name:'No thanks',exact:true}).click();await page.waitForFunction(()=>!document.querySelector('[aria-label="Set up BigBrain"]'));assert.equal(step,'complete');assert.deepEqual(choices,[false]);
+ await page.getByRole('button',{name:'No thanks',exact:true}).click();await page.waitForURL(url=>url.searchParams.get('vaults')==='fixture-team'&&url.searchParams.has('vaultMenu')&&url.hash==='#/home');
+ await page.waitForFunction(()=>!document.querySelector('[aria-label="Set up BigBrain"]'));assert.equal(step,'complete');assert.deepEqual(choices,[false]);
  // An existing configured vault has no progress marker and goes straight to its app.
  step=undefined;await page.reload();await page.waitForFunction(()=>!!document.querySelector('#main'));assert.equal(await page.getByRole('dialog',{name:'Set up BigBrain'}).count(),0);assert.equal(account.liveAccess,false);
  assert.deepEqual(errors,[]);console.log('Production wizard: explicit navigation, providers, client configuration, library defaults/save, reload, failure recovery, and existing-vault bypass passed');

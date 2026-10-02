@@ -9,6 +9,7 @@
   import { GENERAL_WORKSPACE, workspaceMembershipIndex } from '../lib/workspaceMembership';
   import { pilotRoster, rosterStatusView, type PilotRosterEntry } from '../lib/pilotAttention';
   import { navDelta, stepped, createListJump } from '../lib/listNav';
+  import { kbdTakes } from '../lib/cursor.svelte';
   import { editable } from '../lib/dom';
   import { searchOverlay } from '../lib/omnibox.svelte';
   import { gotoNote } from '../lib/store.svelte';
@@ -133,6 +134,7 @@
     if (!open) {
       if (e.shiftKey || !['j', 'k'].includes(e.key) || !count) return false;
       e.preventDefault(); e.stopImmediatePropagation();
+      kbdTakes();
       open = true; selectIndex(e.key === 'j' ? 0 : count - 1);
       void focusRow(); return true;
     }
@@ -157,6 +159,7 @@
     if (!endpoint && !delta && !enter) return false;
     if (e.shiftKey && e.key !== 'G') return false;
     e.preventDefault(); e.stopImmediatePropagation();
+    kbdTakes();
     if (enter) { if (!e.repeat) choose(index); }
     else if (endpoint) { if (endpoint !== 'pending') { selectIndex(endpoint === 'first' ? 0 : Math.max(0,count - 1)); void focusRow(); } }
     else if (delta) { selectIndex(stepped(index, delta, count)); void focusRow(); }
@@ -213,7 +216,7 @@
   </footer>
   <VaultSwitcher />
 </section>
-{:else}
+{:else if rows.length}
   <div class="workspace-menu-hint"><ListNavigationHint /></div>
 {/if}
 <style>

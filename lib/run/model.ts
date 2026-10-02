@@ -56,7 +56,7 @@ export async function runModel(opts: RunModelOpts, loadPi?: () => Promise<PiSDK>
     root: opts.root, role: opts.role, auth: opts.auth, prompt: opts.prompt,
     target: opts.target, memoryEdits: opts.memoryEdits,
     capabilities: opts.noTools ? "none" : "memory",
-    timeoutMs: 1_200_000, output: { requireText: true },
+    output: { requireText: true },
   }, loadPi);
   const fields = executionJournalFields(run.execution!);
   return { ...run, engine: fields.engine as QueueEngine, sampling: fields.sampling as string };

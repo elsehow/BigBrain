@@ -1,15 +1,19 @@
 import type { GraphViewState } from '../../../../../lib/graphView';
 import { graphIdentityIndex } from '../../../../../lib/graphIdentity';
+import { graphChoreography, CHOREOGRAPHY_MS } from './choreography';
+import { continueNeighborhood } from './continuity';
+import { composeNeighborhood, neighborhoodLandmarks } from './composition';
+import { selectionEdges } from './selectionEdges';
 import { graphView } from './view';
 import { VERTEX, FRAGMENT } from './shaders';
-import type { GraphData } from '../types';
+import type { GraphData, GraphNode } from '../types';
 import { nodeRadius, seedPosition } from '../../../../../lib/graphGeometry';
 import { createDisplayLayout } from '../graphDisplayLayout';
 import { GRAPH_FOCUS, overviewNodes } from '../graphFocus';
 import { memoryThemeLayout } from '../memoryThemeLayout';
 import { memoryDomain, memoryDomainDepth, memoryDomainEdge } from '../memoryDomain';
 import { importanceScores, FOREGROUND_IMPORTANCE } from '../../../../../lib/graphImportance';
-import { memoryHomeDepth } from '../graphHomeDepth';
+import { anchorHomeDepth, overviewAnchors } from '../graphHomeDepth';
 import { applyOverviewAttention } from '../graphOverviewAttention';
 import { fitCamera, revealCamera } from './framing';
 import { edgeContrast } from '../graphEdgeContrast';
@@ -17,15 +21,20 @@ import { SELECTOR_RATIO } from '../../../../../lib/pilotChatTypes';
 import { animatedStatus, graphGeometryKey, needsAttention, phaseCode } from './status';
 import { activeContextPilot } from '../graphPilotContext';
 
-import { graphSine, GRAPH_SINE_MS, FOCUS_MOTION, EXPLORE_MOTION } from './motion';
+import { graphSine, GRAPH_SINE_MS, FOCUS_MOTION, EXPLORE_MOTION, SELECTION_MOTION } from './motion';
 import { GraphCameraController, projectPoint, unprojectPoint, type Point } from './camera';
 import { placeGraphLabels, type LabelBox, type LabelCandidate } from './labels';
 import { GraphHoverHistory } from '../graphHoverHistory';
 import { graphEffects, type EffectPreset } from './effects';
 
+// Selection replaces geometry on the same canvas. Shader compilation belongs
+// to the context lifetime, not each neighborhood. Restored contexts fail isProgram.
+const programs = new WeakMap<WebGL2RenderingContext, WebGLProgram>();
+
 /** One WebGL context with static geometry. Interaction changes upload targets;
  * shaders animate them without per-frame graph traversal or buffer uploads. */
 export class GraphRenderer {
+  private radius(n: GraphNode) { return this.graph.selectionStyle === 'cloud' ? (n.group === 'memory' ? 5.5 : 3.8 + 1.4 * (n.relevance ?? 0)) : n.group === 'memory' ? 8 : nodeRadius(n.degree); }
   private gl: WebGL2RenderingContext;
   private program: WebGLProgram;
   private uniforms: Record<string, WebGLUniformLocation | null>;
@@ -37,6 +46,17 @@ export class GraphRenderer {
   private reducedMotion = false;
   private homeDepth: Float32Array;
   private homeVisible: Set<number>;
+  /** Overview landmarks: memories, or their stand-ins before the first one. */
+  private anchors: boolean[];
+  /** Anchors, most important first, and how full the overview may get with
+   * them: memories always stand on it, while stand-ins join only up to its
+   * budget — a large memoryless vault (an evidence-only shared vault) must
+   * not be drawn whole, but a small one keeps every landmark in view. */
+  private anchorOrder: number[] = [];
+  private anchorBudget = Infinity;
+  private revealAnchors() {
+    for (const i of this.anchorOrder) { if (this.homeVisible.size >= this.anchorBudget) break; this.homeVisible.add(i); }
+  }
   private overview: Set<number>;
   private geometryKey: string;
   private statusKey = '';
@@ -66,10 +86,19 @@ export class GraphRenderer {
   private selected = -1;
   private view: GraphViewState = { selected: [], excluded: [] };
   private selectedNodes = new Set<number>();
+  selectionSubgraph = false;
+  composedSelection = false;
+  stagedSelection = false;
+  private stagedAt = -Infinity;
+  private landmarks = new Set<number>();
+  private keyboardFocus = -1;
+  private keyboardZoom = 1;
   private excluded = new Set<number>();
   private highlighted = new Set<number>();
   private previous = -1;
   private hovered = -1;
+  private stationaryHover = false;
+  private stationaryHoverDepth = 0;
   private edges: number[][];
   private edgeHome: number[] = [];
   private motion = EXPLORE_MOTION;
@@ -107,16 +136,20 @@ export class GraphRenderer {
     const gl = canvas.getContext('webgl2', { alpha: true, premultipliedAlpha: true, antialias: false, depth: false, stencil: false });
     if (!gl) throw Error('WebGL2 is unavailable');
     this.gl = gl;
-    const program = gl.createProgram()!;
-    try {
-      for (const [type, source] of [[gl.VERTEX_SHADER, VERTEX], [gl.FRAGMENT_SHADER, FRAGMENT]] as const) {
-        const shader = gl.createShader(type)!; gl.shaderSource(shader, source); gl.compileShader(shader);
-        if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) { const message = gl.getShaderInfoLog(shader); gl.deleteShader(shader); throw Error(message ?? 'Shader compilation failed'); }
-        gl.attachShader(program, shader); gl.deleteShader(shader);
-      }
-      gl.linkProgram(program);
-      if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw Error(gl.getProgramInfoLog(program) ?? 'Shader linking failed');
-    } catch (error) { gl.deleteProgram(program); throw error; }
+    let program = programs.get(gl);
+    if (!program || !gl.isProgram(program)) {
+      program = gl.createProgram()!;
+      try {
+        for (const [type, source] of [[gl.VERTEX_SHADER, VERTEX], [gl.FRAGMENT_SHADER, FRAGMENT]] as const) {
+          const shader = gl.createShader(type)!; gl.shaderSource(shader, source); gl.compileShader(shader);
+          if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) { const message = gl.getShaderInfoLog(shader); gl.deleteShader(shader); throw Error(message ?? 'Shader compilation failed'); }
+          gl.attachShader(program, shader); gl.deleteShader(shader);
+        }
+        gl.linkProgram(program);
+        if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw Error(gl.getProgramInfoLog(program) ?? 'Shader linking failed');
+      } catch (error) { gl.deleteProgram(program); throw error; }
+      programs.set(gl, program);
+    }
     this.program = program;
     this.uniforms = Object.fromEntries(['depthSpring', 'nodeCount', 'state', 'stateWidth', 'recordCount', 'spring', 'size', 'camera', 't', 'selected', 'previous', 'hovered', 'pass', 'ink', 'accent', 'bg', 'time', 'reduced', 'labels', 'edges', 'edgeOpacity', 'edgeInk', 'nodeScale', 'oldCamera', 'oldSpring', 'motionScale'].map(n => [n, gl.getUniformLocation(program, `u_${n}`)]));
     this.geometryKey = graphGeometryKey(graph);
@@ -124,16 +157,19 @@ export class GraphRenderer {
     this.adjacency = graph.nodes.map(() => []);
     const edges = this.edges = graph.edges.flatMap(e => { const a = this.ids.get(e.source), b = this.ids.get(e.target); return a === undefined || b === undefined ? [] : [[a, b]]; });
     for (const [a, b] of edges) { this.adjacency[a!]!.push(b!); this.adjacency[b!]!.push(a!); }
-    const importance = importanceScores(this.adjacency, graph.nodes.map(n => n.group === 'memory'), Uint8Array.from(graph.nodes, n => n.live ? 1 : 0), graph.nodes.map(n => n.memorySupport ?? 0));
+    this.anchors = overviewAnchors(graph.nodes.map(n => n.group), this.adjacency);
+    const importance = graph.selectionRelative ? Float32Array.from(graph.nodes, n => n.relevance ?? 0) : importanceScores(this.adjacency, this.anchors, Uint8Array.from(graph.nodes, n => n.live ? 1 : 0), graph.nodes.map(n => n.memorySupport ?? 0));
     const overview = overviewNodes(importance, GRAPH_FOCUS.overviewCount, graph.nodes.map(n => n.id), this.adjacency, GRAPH_FOCUS.preferConnected);
-    this.homeVisible = new Set(graph.nodes.flatMap((_, i) => overview[i] ? [i] : []));
+    this.anchorOrder = graph.nodes.flatMap((_, i) => this.anchors[i] ? [i] : []).sort((a, b) => importance[b]! - importance[a]! || a - b);
+    if (!graph.nodes.some(n => n.group === 'memory')) this.anchorBudget = GRAPH_FOCUS.overviewCount;
+    this.homeVisible = new Set(graph.nodes.flatMap((_, i) => graph.selectionRelative || overview[i] ? [i] : []));
     this.overview = new Set(this.homeVisible);
     applyOverviewAttention(graph.nodes.map(n => ({ ...n, unread: n.readState?.unread === true })), this.homeVisible, new Set(), true);
-    graph.nodes.forEach((n, i) => { if (n.group === 'memory') this.homeVisible.add(i); });
-    this.homeDepth = memoryHomeDepth(graph.nodes.map(n => n.group), this.adjacency);
-    graph.nodes.forEach((n, i) => { if (activeContextPilot(n)) this.homeDepth[i] = 80; });
-    const display = createDisplayLayout()(graph, GRAPH_FOCUS);
-    this.positions = memoryThemeLayout(graph.nodes.map((n, i) => ({ ...n, ...(display[i] ?? { x: seedPosition(i)[0], y: seedPosition(i)[1] }) })), this.adjacency);
+    this.revealAnchors();
+    this.homeDepth = graph.selectionRelative ? Float32Array.from(graph.nodes, n => (graph.selectionStyle === 'cloud' ? -18 + 52 * (n.relevance ?? 0) : -100 + 170 * (n.relevance ?? 0))) : anchorHomeDepth(this.anchors, this.adjacency);
+    graph.nodes.forEach((n, i) => { if (!graph.selectionRelative && activeContextPilot(n)) this.homeDepth[i] = 80; });
+    const display = graph.selectionRelative ? graph.nodes.map(n => ({ x: n.x ?? 0, y: n.y ?? 0 })) : createDisplayLayout()(graph, GRAPH_FOCUS);
+    this.positions = graph.selectionRelative ? display : memoryThemeLayout(graph.nodes.map((n, i) => ({ ...n, ...(display[i] ?? { x: seedPosition(i)[0], y: seedPosition(i)[1] }) })), this.adjacency);
     this.recordCount = graph.nodes.length + edges.length + 1;
     this.states = new Float32Array(this.width * Math.max(1, Math.ceil(this.recordCount * 2 / this.width)) * 4);
     graph.nodes.forEach((_, i) => { this.states[i * 4] = this.states[i * 4 + 1] = this.homeDepth[i]!; this.states[i * 4 + 2] = this.states[i * 4 + 3] = Number(this.homeVisible.has(i)); });
@@ -144,21 +180,22 @@ export class GraphRenderer {
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, this.width, this.states.length / 4 / this.width, 0, gl.RGBA, gl.FLOAT, this.states);
     const row = (i: number) => {
       const n = graph.nodes[i]!;
-      const ink = this.homeDepth[i]! < -18 ? .18 : 1;
+      const ink = graph.selectionRelative ? (graph.selectionStyle === 'cloud' ? .7 + .3 * (n.relevance ?? 0) : .25 + .75 * (n.relevance ?? 0)) : this.homeDepth[i]! < -18 ? .18 : 1;
       // a_node.x / a_other.w hold the previous/next hover-neighborhood emphasis.
-      return [0, this.homeDepth[i]!, (n.group === 'memory' ? 8 : nodeRadius(n.degree)), n.pilotPhase ? (n.group === 'agent' ? 3 : 2) : n.group === 'memory' ? 1 : 0, i, 0, 0, 0, n.degree >= 5 || n.group === 'memory' || n.pilotPhase ? 1 : .55, ink, 0, ink];
+      return [0, this.homeDepth[i]!, this.radius(n), n.pilotPhase ? (n.group === 'agent' ? 3 : 2) : n.group === 'memory' ? 1 : 0, i, 0, 0, 0, graph.selectionStyle === 'cloud' || n.degree >= 5 || this.anchors[i] || n.pilotPhase ? 1 : .55, ink, 0, ink];
     };
+    const sparseEdges = graph.selectionRelative ? selectionEdges(graph) : null;
     let edgeIndex = 0;
     this.passes.push(this.buffer(graph.edges.flatMap(e => {
       const a = this.ids.get(e.source), b = this.ids.get(e.target);
       if (a === undefined || b === undefined) return [];
       const p = this.positions[a]!, q = this.positions[b]!;
-      const band = Math.round(Math.min(1, Math.log2(Math.max(1, e.weight ?? 1)) / 3) * 3);
+      const band = graph.selectionRelative ? 1 : Math.round(Math.min(1, Math.log2(Math.max(1, e.weight ?? 1)) / 3) * 3);
       const presence = (score: number) => { const t = Math.max(0, Math.min(1, (score - FOREGROUND_IMPORTANCE + .18) / .36)); return t * t * (3 - 2 * t); };
       const high = presence(Math.max(importance[a]!, importance[b]!));
       const low = presence(Math.min(importance[a]!, importance[b]!));
       const salience = .035 + .965 * high * (.35 + .65 * low);
-      const homeInk = graph.nodes[a]!.group === 'memory' || graph.nodes[b]!.group === 'memory' ? Math.max(.45, salience) : .06 * salience;
+      const homeInk = graph.selectionRelative ? (sparseEdges!.has(edgeIndex) ? .32 : 0) : this.anchors[a] || this.anchors[b] ? Math.max(.45, salience) : .06 * salience;
       this.edgeHome.push(homeInk);
       const stateIndex = graph.nodes.length + edgeIndex++;
       this.states[stateIndex * 4] = this.states[stateIndex * 4 + 1] = homeInk;
@@ -202,9 +239,9 @@ export class GraphRenderer {
     const activityChanged = activityKey !== this.activityKey;
     if (activityChanged) {
       this.activityKey = activityKey;
-      const natural = memoryHomeDepth(graph.nodes.map(n => n.group), this.adjacency);
+      const natural = graph.selectionRelative ? Float32Array.from(graph.nodes, n => (graph.selectionStyle === 'cloud' ? -18 + 52 * (n.relevance ?? 0) : -100 + 170 * (n.relevance ?? 0))) : anchorHomeDepth(this.anchors, this.adjacency);
       graph.nodes.forEach((n, i) => {
-        const depth = activeContextPilot(n) ? 80 : natural[i]!;
+        const depth = !graph.selectionRelative && activeContextPilot(n) ? 80 : natural[i]!;
         const delta = depth - this.homeDepth[i]!;
         if (!delta) return;
         this.homeDepth[i] = this.nodeData[i * 12 + 1] = depth;
@@ -229,7 +266,7 @@ export class GraphRenderer {
         // All actual connections of active agents stay visible, including
         // endpoints outside the compact overview. This does not recurse.
         this.edges.map(([a, b]) => ({ a: a!, b: b!, pilotContext: true })));
-      graph.nodes.forEach((n, i) => { if (n.group === 'memory') this.homeVisible.add(i); });
+      this.revealAnchors();
       this.cachedBounds = undefined;
       if (this.cameraReady) {
         this.previous = this.selected; this.retarget(performance.now(), this.reducedMotion);
@@ -257,7 +294,7 @@ export class GraphRenderer {
     this.activityMoving = [...this.activityVisible];
     this.hasActivity = this.activityVisible.some(Boolean);
     const data: number[] = []; this.activityEdges = [];
-    const radius = (i: number) => nodes[i]!.pilotPhase ? -nodeRadius(nodes[i]!.degree) - (nodes[i]!.group === 'agent' ? 200 : 0) - (nodes[i]!.pilotPhase === 'working' ? 100 : 0) : nodes[i]!.group === 'memory' ? 108 : nodeRadius(nodes[i]!.degree);
+    const radius = (i: number) => nodes[i]!.pilotPhase ? -this.radius(nodes[i]!) - (nodes[i]!.group === 'agent' ? 200 : 0) - (nodes[i]!.pilotPhase === 'working' ? 100 : 0) : nodes[i]!.group === 'memory' ? 100 + this.radius(nodes[i]!) : this.radius(nodes[i]!);
     this.edges.forEach(([a, b], index) => {
       const agent = nodes[a!]!.pilotPhase ? a! : nodes[b!]!.pilotPhase ? b! : -1;
       if (agent < 0) return;
@@ -273,7 +310,8 @@ export class GraphRenderer {
   }
   private updateLabels() {
     const nodes = this.graph.nodes;
-    const named = new Set(nodes.map((n, i) => ({ n, i })).filter(({ n }) => n.group === 'memory')
+    this.landmarks = this.composedSelection && this.graph.selectionRelative ? neighborhoodLandmarks(nodes, this.selectedNodes) : new Set();
+    const named = this.composedSelection && this.graph.selectionRelative ? new Set(this.landmarks) : new Set(nodes.map((n, i) => ({ n, i })).filter(({ i }) => this.anchors[i])
       .sort((a, b) => b.n.degree - a.n.degree).slice(0, 64).map(({ i }) => i));
     for (const i of [this.selected, this.previous, this.hovered, ...this.selectedNodes, ...this.highlighted]) if (i >= 0) named.add(i);
     const labels = [...named].map(i => ({ i, text: nodes[i]!.title, draft: false }));
@@ -305,14 +343,15 @@ export class GraphRenderer {
     const t = this.reducedMotion ? 1 : this.progress(now), nodes = this.graph.nodes;
     const candidates: LabelCandidate[] = this.labels.map(label => {
       const { i, draft, key, width } = label, n = nodes[i]!, state = this.sample(i, now);
-      const memory = n.group === 'memory', hovered = i === this.hovered || this.highlighted.has(i), selected = this.selectedNodes.has(i);
-      const wanted = (selection: number) => selection === i || memory && selection < 0 ? 1 : 0;
-      const opacity = (draft || hovered || selected ? 1 : wanted(this.previous) * (1 - t) + wanted(this.selected) * t) * state.alpha;
+      const anchor = this.anchors[i], hovered = i === this.hovered || this.highlighted.has(i), selected = this.selectedNodes.has(i);
+      const wanted = (selection: number) => this.landmarks.has(i) || selection === i || !this.composedSelection && anchor && (selection < 0 || this.selectionSubgraph) ? 1 : 0;
+      const labelReveal = this.stagedSelection && !hovered && !selected ? graphChoreography(now - this.stagedAt, this.reducedMotion).labels : 1;
+      const opacity = labelReveal * (draft || hovered || selected ? 1 : wanted(this.previous) * (1 - t) + wanted(this.selected) * t) * state.alpha * (this.landmarks.has(i) && !hovered && !selected ? .78 : 1);
       const point = projectPoint(this.positions[i]!, state.x, this.camera, this.size);
-      const radius = Math.max(n.pilotPhase ? 6 : 3, (memory ? 8 : nodeRadius(n.degree)) * Math.min(1, Math.sqrt(this.camera.zoom)) * 600 / (600 - state.x));
-      return { key, index: i, ...point, width, opacity, above: hovered && !selected && !memory,
+      const radius = Math.max(n.pilotPhase ? 6 : 3, this.radius(n) * Math.min(1, Math.sqrt(this.camera.zoom)) * 600 / (600 - state.x));
+      return { key, index: i, ...point, width, opacity, above: hovered && !selected && !anchor,
         gap: draft ? radius * SELECTOR_RATIO + 25 : radius * (selected || hovered || n.pilotPhase ? SELECTOR_RATIO : 1) + 4,
-        priority: selected && !draft ? 0 : hovered && !draft ? 1 : draft ? 2 : memory ? 3 : 4 };
+        priority: selected && !draft ? 0 : hovered && !draft ? 1 : draft ? 2 : anchor ? 3 : 4 };
     });
     this.labelBoxes = placeGraphLabels(candidates, this.size);
     const byKey = new Map(this.labels.map(label => [label.key, label]));
@@ -358,7 +397,7 @@ export class GraphRenderer {
     this.navigation.zoomAt(pointer, factor, depth, this.size, now);
   }
   refit(now = performance.now()) {
-    this.clearDepthHistory(); this.focusCamera = null;
+    this.clearDepthHistory(); this.focusCamera = null; this.keyboardFocus = -1; this.highlighted.clear();
     this.navigation.resume(now);
     this.previous = this.selected; this.selected = this.hovered = -1;
     this.view = { selected: [], excluded: [] }; this.selectedNodes.clear(); this.excluded.clear();
@@ -366,6 +405,7 @@ export class GraphRenderer {
   }
   beginNodeDrag(id: string, pointer: Point, now = performance.now()) {
     const i = this.ids.get(id); if (i === undefined) return;
+    this.layoutMotion = null; this.cachedBounds = undefined;
     this.navigation.grab(now);
     const depth = this.sample(i, now).x;
     const point = projectPoint(this.positions[i]!, depth, this.camera, this.size);
@@ -406,6 +446,7 @@ export class GraphRenderer {
       && reduced === this.reducedMotion && centerFocus === this.centerFocus
       && (intent === 'background' || !this.navigation.manual) && !this.hoverTargets && !this.hoverReturning && this.hovered < 0) return;
     this.clearDepthHistory();
+    this.keyboardFocus = -1;
     this.view = next.view; this.selectedNodes = next.selected; this.excluded = next.excluded;
     this.reducedMotion = reduced; this.hovered = -1;
     this.centerFocus = centerFocus;
@@ -414,6 +455,15 @@ export class GraphRenderer {
     this.previous = this.selected; this.selected = next.anchor;
     this.retarget(now, reduced);
   }
+  inspectKeyboard(id: string | null, now = performance.now()) {
+    const i = id ? this.ids.get(id) ?? -1 : -1;
+    if (i === this.keyboardFocus) return;
+    this.keyboardFocus = i;
+    this.keyboardZoom = this.camera.zoom;
+    this.highlighted = new Set(i >= 0 ? [i] : []);
+    this.navigation.resume(now);
+    this.retarget(now, this.reducedMotion);
+  }
   highlight(ids: readonly (string | null)[], now = performance.now()) {
     const next = new Set(ids.flatMap(id => id && this.ids.has(id) ? [this.ids.get(id)!] : []).filter(i => !this.excluded.has(i)));
     if (next.size === this.highlighted.size && [...next].every(i => this.highlighted.has(i))) return;
@@ -421,7 +471,17 @@ export class GraphRenderer {
     // App-driven inspection is a light only: no hover history or camera flight.
     this.previous = this.selected; this.retarget(now, this.reducedMotion);
   }
-  hover(id: string | null, now = performance.now()) {
+  hover(id: string | null, now = performance.now(), stationary = false) {
+    this.stationaryHover = stationary || this.selectionSubgraph;
+    if (this.stationaryHover) {
+      const i = id ? this.ids.get(id) ?? -1 : -1;
+      const hovered = i >= 0 && !this.excluded.has(i) && this.states[i * 4 + 3]! > 0 ? i : -1;
+      if (hovered === this.hovered) return;
+      this.stationaryHoverDepth = hovered >= 0 ? this.sample(hovered, now).x : 0;
+      this.hovered = hovered;
+      this.retarget(now, this.reducedMotion);
+      return;
+    }
     const candidate = id ? this.ids.get(id) ?? -1 : -1;
     const hovered = this.excluded.has(candidate) ? -1 : candidate;
     if (hovered === this.hovered) return;
@@ -455,7 +515,7 @@ export class GraphRenderer {
     this.lastEffectsFrame = null;
     const selected = this.selected, hovered = this.hovered, inkProgress = this.progress(now);
     const hoverNeighborhood = new Set(hovered >= 0 ? [hovered, ...this.adjacency[hovered]!] : []);
-    const root = selected >= 0 ? selected : hovered;
+    const root = selected >= 0 ? selected : this.stationaryHover ? -1 : hovered;
     const domain = root >= 0 ? memoryDomain(this.adjacency, root, this.excluded) : null;
     const domains = [...this.selectedNodes].filter(i => i !== root).map(i => memoryDomain(this.adjacency, i, this.excluded));
     const held = new Set([...this.selectedNodes, ...domains.flatMap(d => [...d.direct])]);
@@ -476,7 +536,7 @@ export class GraphRenderer {
       if ((i === hovered && this.hoverTargets) || reduced) {
         this.states[(this.recordCount + i) * 4] = 0;
       }
-      const inkIndex = i * 12, baseline = this.homeDepth[i]! < -18 ? .18 : 1;
+      const inkIndex = i * 12, baseline = this.graph.selectionRelative ? (this.graph.selectionStyle === 'cloud' ? .7 + .3 * (n.relevance ?? 0) : .25 + .75 * (n.relevance ?? 0)) : this.homeDepth[i]! < -18 ? .18 : 1;
       this.nodeData[inkIndex + 10] = Number(this.selectedNodes.has(i));
       this.nodeData[inkIndex] += (this.nodeData[inkIndex + 7]! - this.nodeData[inkIndex]!) * inkProgress;
       this.nodeData[inkIndex + 7] = Number(emphasized.has(i));
@@ -490,11 +550,28 @@ export class GraphRenderer {
       const member = emphasized.has(i) || held.has(i) || domains.some(d => this.graph.nodes[d.root]!.group === 'memory' && d.second.has(i)) || hoverNeighborhood.has(i) || this.homeVisible.has(i) || !!this.hoverTargets && this.hoverVisitHeights.has(i) || !!domain && (i === root || domain.direct.has(i) || memory && domain.second.has(i));
       const opacityOffset = active || emphasized.has(i) || held.has(i) ? 0 : this.hoverTargets ? this.hoverVisitHeights.has(i) ? 0 : selected < 0 ? -80 : offset * (100 / 240) : offset * (100 / 240);
       this.states[k + 3] = Number(member && !this.excluded.has(i)) * (1 - .92 * Math.max(0, Math.min(1, (-opacityOffset - 24) / 216)));
+      if (this.selectionSubgraph) {
+        this.states[k + 1] = reduced ? 0 : this.keyboardFocus < 0 ? this.homeDepth[i]!
+          : i === this.keyboardFocus ? 90 : this.adjacency[this.keyboardFocus]!.includes(i) ? 45 : this.homeDepth[i]! - 45;
+        this.states[k + 3] = Number((this.homeVisible.has(i) || this.selectedNodes.has(i) || emphasized.has(i)) && !this.excluded.has(i));
+        this.nodeData[inkIndex + 11] = this.selectedNodes.has(i) || emphasized.has(i) || active ? 1 : baseline;
+      }
+      if (this.stationaryHover && i === hovered) {
+        // Hold the node under the pointer, including its velocity. Changing
+        // depth also changes its projected position and can break the hit target.
+        this.states[k] = this.states[k + 1] = this.stationaryHoverDepth;
+        this.states[(this.recordCount + i) * 4] = 0;
+      }
     });
-    const density = 1 / Math.sqrt(Math.max(1, domain ? this.adjacency[root]!.length / 30 : 0, hovered >= 0 ? this.adjacency[hovered]!.length / 30 : 0));
+    const density = this.selectionSubgraph ? 1 : 1 / Math.sqrt(Math.max(1, domain ? this.adjacency[root]!.length / 30 : 0, hovered >= 0 ? this.adjacency[hovered]!.length / 30 : 0));
     this.updateActivity();
     this.retain(this.recordCount - 1, now);
     this.states[(this.recordCount - 1) * 4 + 1] = density;
+    const inspected = this.hovered >= 0 ? this.hovered : this.keyboardFocus;
+    const inspectedEdges = new Set(this.graph.selectionRelative && inspected >= 0 ? this.edges
+      .map(([a, b], i) => ({ i, other: a === inspected ? b! : b === inspected ? a! : -1 }))
+      .filter(e => e.other >= 0).sort((a, b) => (this.graph.nodes[b.other]!.relevance ?? 0) - (this.graph.nodes[a.other]!.relevance ?? 0))
+      .slice(0, 8).map(e => e.i) : []);
     this.edges.forEach(([a, b], index) => {
       const k = (this.graph.nodes.length + index) * 4;
       this.retain(this.graph.nodes.length + index, now);
@@ -506,11 +583,13 @@ export class GraphRenderer {
         : Number((a === root || domain.direct.has(a!)) && (b === root || domain.direct.has(b!))
           || (a === hovered || b === hovered) && (domain.direct.has(a!) || domain.direct.has(b!)))
           * (a === root || b === root || a === hovered || b === hovered ? 1 : this.edgeHome[index]!);
+      if (this.selectionSubgraph) this.states[k + 1] = inspectedEdges.has(index) ? .65 : this.edgeHome[index]!;
+      if (this.graph.selectionRelative && !inspectedEdges.has(index) && !this.edgeHome[index]) this.states[k + 3] = 0;
     });
     this.depthDuration = reduced ? 0 : depthDuration ?? (this.hoverTargets ? GRAPH_SINE_MS : this.hoverReturning ? Math.max(0, this.depthStarted + this.depthDuration - now) : 0);
     this.depthStarted = now;
     // Sample the previous curve before changing its duration on an interruption.
-    this.motion = this.hoverTargets || this.hoverReturning || hovered >= 0 ? EXPLORE_MOTION : FOCUS_MOTION;
+    this.motion = this.selectionSubgraph ? SELECTION_MOTION : this.hoverTargets || this.hoverReturning || hovered >= 0 ? EXPLORE_MOTION : FOCUS_MOTION;
     this.started = reduced ? now - this.duration : now;
     const gl = this.gl; gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.stateTexture);
     gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, this.width, this.states.length / 4 / this.width, gl.RGBA, gl.FLOAT, this.states); this.stats.uploads++;
@@ -523,6 +602,28 @@ export class GraphRenderer {
     if (this.navigation.manual) { this.navigation.advance(now, this.size); return; }
     const { width: w, height: h } = this.size;
     const xs = this.bounds;
+    if (this.selectionSubgraph && xs.every(Number.isFinite)) {
+      const left = Math.min(this.coveredLeft, w - 80);
+      if (this.keyboardFocus >= 0) {
+        const p = this.positions[this.keyboardFocus]!, z = this.states[this.keyboardFocus * 4 + 1]!, m = 600 / (600 - z);
+        const cx = (left + w) / 2, cy = this.inset.top + (h - this.inset.top - this.inset.bottom) / 2;
+        this.navigation.follow({ x: p.x - (cx - w / 2) / (this.keyboardZoom * m), y: p.y - (cy - h / 2 + z * .6) / (this.keyboardZoom * m), zoom: this.keyboardZoom }, now, this.reducedMotion, SELECTION_MOTION);
+      } else {
+        const box = { minX: xs[0]!, minY: xs[1]!, maxX: xs[2]!, maxY: xs[3]! }, room = { w: w - left, h, ...this.inset };
+        const fit = this.composedSelection ? composeNeighborhood(box, room, this.graph.nodes) : fitCamera(box, room);
+        if (this.continuityCamera) {
+          const zoom = Math.max(.01, Math.min(this.continuityCamera.zoom, fit.scale, (w - left - 64) / Math.max(1, xs[2]! - xs[0]!), (h - this.inset.top - this.inset.bottom - 64) / Math.max(1, xs[3]! - xs[1]!)));
+          const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+          const x = clamp(this.continuityCamera.x, xs[2]! - (w / 2 - 32) / zoom, xs[0]! - (left + 32 - w / 2) / zoom);
+          const y = clamp(this.continuityCamera.y, xs[3]! - (h / 2 - this.inset.bottom - 32) / zoom, xs[1]! - (this.inset.top + 32 - h / 2) / zoom);
+          this.navigation.follow({ x, y, zoom }, now, this.reducedMotion, SELECTION_MOTION);
+        } else {
+          this.navigation.follow({ x: (w / 2 - fit.tx - left) / fit.scale, y: (h / 2 - fit.ty) / fit.scale, zoom: fit.scale }, now, this.reducedMotion, SELECTION_MOTION);
+        }
+      }
+      this.cameraReady = true;
+      return;
+    }
     let fit = fitCamera({ minX: xs[0]!, minY: xs[1]!, maxX: xs[2]!, maxY: xs[3]! }, { w, h, ...this.inset });
     if (this.selected >= 0) {
       if (this.focusCamera) fit = { scale: this.focusCamera.zoom, tx: w / 2 - this.focusCamera.x * this.focusCamera.zoom, ty: h / 2 - this.focusCamera.y * this.focusCamera.zoom };
@@ -540,7 +641,48 @@ export class GraphRenderer {
     this.navigation.follow(target, now, this.reducedMotion, this.selected >= 0 ? FOCUS_MOTION : EXPLORE_MOTION);
     this.cameraReady = true;
   }
+  private continuityCamera: { x: number; y: number; zoom: number } | null = null;
+  private layoutMotion: { from: Point[]; to: Point[]; started: number } | null = null;
+  getDepartingNodes(keep: ReadonlySet<string>, now = performance.now()) {
+    return this.graph.nodes.flatMap((n, i) => {
+      if (keep.has(n.id)) return [];
+      const state = this.sample(i, now);
+      if (state.alpha < .02) return [];
+      const t = this.progress(now), ink = this.nodeData[i * 12 + 9]! * (1-t) + this.nodeData[i * 12 + 11]! * t;
+      const emphasis = this.nodeData[i * 12]! * (1-t) + this.nodeData[i * 12 + 7]! * t;
+      const base = ink * this.nodeData[i * 12 + 8]! * Math.exp(Math.min(0, state.x - this.homeDepth[i]!) / 95);
+      return [{ ...projectPoint(this.positions[i]!, state.x, this.camera, this.size), group: n.group, radius: Math.max(1, this.radius(n) * Math.min(1, Math.sqrt(this.camera.zoom)) * 600 / (600 - state.x)), alpha: i === this.hovered ? 1 : state.alpha * (base * (1-emphasis) + emphasis) }];
+    });
+  }
+  getLayoutPositions() { return new Map(this.graph.nodes.map((n, i) => [n.id, { ...this.positions[i]! }])); }
+  animateLayoutFrom(previous: ReadonlyMap<string, Point>, reduced: boolean, now = performance.now(), continuous = false) {
+    this.stagedAt = reduced || !this.stagedSelection ? -Infinity : now;
+    let to = this.positions.map(p => ({ ...p }));
+    let from = this.graph.nodes.map((n, i) => previous.get(n.id) ?? to[i]!);
+    if (continuous) {
+      ({ from, to } = continueNeighborhood(this.graph, previous, new Set(this.view.selected)));
+      this.positions = to;
+      this.cachedBounds = undefined;
+      this.continuityCamera = { ...this.camera };
+    }
+    // Cache the destination bounds so fitting does not chase the animation.
+    void this.bounds;
+    this.layoutMotion = { from, to, started: reduced ? now - SELECTION_MOTION.duration : now };
+    this.advanceLayout(now);
+  }
+  private advanceLayout(now: number) {
+    if (!this.layoutMotion) return;
+    const { from, to, started } = this.layoutMotion;
+    const t = Math.min(1, Math.max(0, (now - started) / SELECTION_MOTION.duration)), eased = 1 - SELECTION_MOTION.sample(now - started).position;
+    this.positions = to.map((p, i) => ({ x: from[i]!.x + (p.x - from[i]!.x) * eased, y: from[i]!.y + (p.y - from[i]!.y) * eased }));
+    this.positions.forEach((p, i) => { const k = (this.recordCount + i) * 4; this.states[k + 2] = p.x; this.states[k + 3] = p.y; });
+    const gl = this.gl; gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.stateTexture);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, this.width, this.states.length / 4 / this.width, gl.RGBA, gl.FLOAT, this.states);
+    this.stats.positionUploads++;
+    if (t === 1) this.layoutMotion = null;
+  }
   draw(now: number) {
+    this.advanceLayout(now);
     if (this.hoverReturning && now >= this.depthStarted + this.depthDuration) this.clearDepthHistory();
     if (this.hoverReturnAt !== null && now >= this.hoverReturnAt) {
       this.hoverReturnAt = null; this.hoverTargets = null; this.hoverReturning = true;
@@ -579,7 +721,7 @@ export class GraphRenderer {
       gl.uniform1f(u.motionScale!, Math.min(8, 100 / (now - old.time)));
     }
     gl.uniform1f(u.nodeScale!, Math.min(1, Math.sqrt(this.camera.zoom)));
-    gl.uniform3fv(u.edgeInk!, this.edgeInk); gl.uniform1f(u.edgeOpacity!, this.edgeOpacity);
+    gl.uniform3fv(u.edgeInk!, this.edgeInk); gl.uniform1f(u.edgeOpacity!, this.edgeOpacity * (this.stagedSelection ? graphChoreography(now - this.stagedAt, this.reducedMotion).edges : 1));
     gl.uniform3fv(u.ink!, this.ink); gl.uniform3fv(u.accent!, this.accent);
     gl.uniform3fv(u.bg!, this.bg); gl.uniform1f(u.time!, now / 1000); gl.uniform1f(u.reduced!, Number(this.reducedMotion));
     const draw = (i: number, buffer = i) => { const p = this.passes[buffer]!; gl.uniform1i(u.pass!, i); gl.bindVertexArray(p.vao); gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, p.count); };
@@ -597,7 +739,7 @@ export class GraphRenderer {
     if (this.passes[3]!.count && (this.hasActivity || now - this.started < this.duration)) { draw(4, 3); this.stats.drawCalls++; this.stats.activityDrawCalls++; }
     draw(1); draw(2);
     this.stats.frames++; this.stats.drawCalls += 4;
-    return trails || now - this.depthStarted < this.depthDuration || now - this.started < this.duration || this.navigation.animating(now) || this.animatingStatus && !this.reducedMotion;
+    return this.stagedSelection && now - this.stagedAt < CHOREOGRAPHY_MS || !!this.layoutMotion || trails || now - this.depthStarted < this.depthDuration || now - this.started < this.duration || this.navigation.animating(now) || this.animatingStatus && !this.reducedMotion;
   }
   private cachedBounds?: number[];
   private get bounds() { return this.cachedBounds ??= this.positions.reduce((b, p, i) => !this.homeVisible.has(i) ? b : [Math.min(b[0]!, p.x), Math.min(b[1]!, p.y), Math.max(b[2]!, p.x), Math.max(b[3]!, p.y)], [Infinity, Infinity, -Infinity, -Infinity]); }
@@ -619,7 +761,7 @@ export class GraphRenderer {
   }
   getPresentation(now = performance.now()) {
     const w = this.canvas.clientWidth, h = this.canvas.clientHeight;
-    return { view: { selected: [...this.view.selected], excluded: [...this.view.excluded] }, highlighted: [...this.highlighted].map(i => this.graph.nodes[i]!.id), effects: this.effects, labels: this.labelBoxes.map(b => ({ ...b, id: this.graph.nodes[b.index]!.id })), camera: { ...this.getCamera(), manual: this.navigation.manual }, hovered: this.hovered >= 0 ? this.graph.nodes[this.hovered]!.id : null,
+    return { choreography: this.stagedSelection ? graphChoreography(now - this.stagedAt, this.reducedMotion) : graphChoreography(0, true), keyboardFocus: this.graph.nodes[this.keyboardFocus]?.id ?? null, view: { selected: [...this.view.selected], excluded: [...this.view.excluded] }, highlighted: [...this.highlighted].map(i => this.graph.nodes[i]!.id), effects: this.effects, labels: this.labelBoxes.map(b => ({ ...b, id: this.graph.nodes[b.index]!.id })), camera: { ...this.getCamera(), manual: this.navigation.manual }, hovered: this.hovered >= 0 ? this.graph.nodes[this.hovered]!.id : null,
       edges: this.edges.map(([a, b], i) => ({ source: this.graph.nodes[a!]!.id, target: this.graph.nodes[b!]!.id,
         ink: Math.max(0, Math.min(1, this.sample(this.graph.nodes.length + i, now).x)),
         activity: this.activityEdges.includes(i) ? this.sample(this.graph.nodes.length + i, now).alpha : 0,
@@ -631,10 +773,10 @@ export class GraphRenderer {
       const hoverEmphasis = this.nodeData[i * 12]! * (1 - this.progress(now)) + this.nodeData[i * 12 + 7]! * this.progress(now);
       const baseInk = ink * this.nodeData[i * 12 + 8]! * Math.exp(Math.min(0, height - this.homeDepth[i]!) / 95);
       const inkOpacity = i === this.hovered ? 1 : opacity * (baseInk * (1 - hoverEmphasis) + hoverEmphasis);
-      return { id: n.id, group: n.group, selected: this.selectedNodes.has(i), excluded: this.excluded.has(i), visible: opacity > 0, opacity, inkOpacity, height,
+      return { id: n.id, worldX: p.x, worldY: p.y, degree: n.degree, relevance: n.relevance, group: n.group, selected: this.selectedNodes.has(i), excluded: this.excluded.has(i), visible: opacity > 0, opacity, inkOpacity, height,
         phase: n.pilotPhase ?? null, attention: needsAttention(n),
         draft: n.pilotPhase === 'draft' ? (this.draft?.id === n.id ? this.draft.text : n.pilotDraft) ?? '' : '',
-        radius: Math.max(n.pilotPhase ? 6 : 1, (n.group === 'memory' ? 8 : nodeRadius(n.degree)) * Math.min(1, Math.sqrt(this.camera.zoom)) * m),
+        radius: Math.max(n.pilotPhase ? 6 : 1, this.radius(n) * Math.min(1, Math.sqrt(this.camera.zoom)) * m),
         x: w / 2 + (p.x - this.camera.x) * this.camera.zoom * m,
         y: h / 2 + (p.y - this.camera.y) * this.camera.zoom * m - height * .6 };
     }) };
@@ -642,7 +784,7 @@ export class GraphRenderer {
   pick(x: number, y: number) {
     const now = performance.now(), w = this.canvas.clientWidth, h = this.canvas.clientHeight;
     for (const box of this.labelBoxes) {
-      if (!this.excluded.has(box.index) && this.graph.nodes[box.index]!.group === 'memory' && box.opacity > .5 && x >= box.left && x <= box.left + box.width && y >= box.top && y <= box.top + box.height)
+      if (!this.excluded.has(box.index) && this.anchors[box.index] && box.opacity > .5 && x >= box.left && x <= box.left + box.width && y >= box.top && y <= box.top + box.height)
         return this.graph.nodes[box.index]!.id;
     }
     let hit = -1, distance = 18;
@@ -653,5 +795,5 @@ export class GraphRenderer {
     });
     return hit >= 0 ? this.graph.nodes[hit]!.id : null;
   }
-  dispose() { const gl = this.gl; this.passes.forEach(p => { gl.deleteBuffer(p.buffer); gl.deleteVertexArray(p.vao); }); gl.deleteFramebuffer(this.edgeFramebuffer); gl.deleteTexture(this.edgeTexture); gl.deleteTexture(this.stateTexture); gl.deleteTexture(this.labelTexture); gl.deleteProgram(this.program); }
+  dispose() { const gl = this.gl; this.passes.forEach(p => { gl.deleteBuffer(p.buffer); gl.deleteVertexArray(p.vao); }); gl.deleteFramebuffer(this.edgeFramebuffer); gl.deleteTexture(this.edgeTexture); gl.deleteTexture(this.stateTexture); gl.deleteTexture(this.labelTexture); }
 }

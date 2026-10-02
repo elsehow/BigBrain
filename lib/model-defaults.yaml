@@ -1,7 +1,9 @@
 # Role defaults. Model identities and labels live in modelRegistry.ts;
 # connected runtimes remain authoritative about account availability.
 anthropic:
-  gardener: { model: opus }
+  # Newest connected Sonnet (claude-sonnet-5-5 from Pi 0.99.2); replay of 2026-10-01
+  # in docs/model-preferences.md.
+  gardener: { model: sonnet }
   memory: { model: opus }
   quick: { model: haiku }
   pilot: { model: opus }

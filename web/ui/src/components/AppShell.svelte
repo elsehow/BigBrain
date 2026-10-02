@@ -33,6 +33,8 @@
   import { editable, popupOpen } from '../lib/dom';
   import { SIDEBAR_LAYOUT, type SidebarLayout } from '../lib/sidebarLayout';
   import '../design/sidebar.css';
+  import '../design/neighborhood.css';
+  import { quietSidebar } from '../lib/graphPresentation';
   import { searchPresentation } from '../lib/floatingSearch.svelte';
 
   const options: { baseline?: boolean; debug?: boolean } = $props();
@@ -151,6 +153,13 @@
     }
     if (e.key === 'Escape') {
       e.preventDefault(); e.stopImmediatePropagation();
+      if (!sidebar.open && !chat.open && !app.activeNote && !app.graphView.selected.length) {
+        sidebar.homePreview = null; sidebar.homeMenuResume = undefined;
+        app.graphView = { selected: [], excluded: [] };
+        goto('home');
+        void tick().then(() => sidebar.resetGraph?.());
+        return;
+      }
       const hideAfterDismiss = !!returningHome || !sidebar.open || chat.open;
       void dismissPanel().then(() => { if (hideAfterDismiss) { clearTimeout(toolbarTimer); toolbarAwake = false; uiHidden = true; } });
       return;
@@ -207,6 +216,7 @@
   });
   $effect(() => {
     if (!baseline) {
+      document.documentElement.dataset.sidebarTone = quietSidebar ? 'calm' : 'original';
       document.documentElement.dataset.sidebarWorkbench = sidebar.open ? 'open' : 'closed';
       sidebar.fullscreenChat = chat.open && !sidebar.agents && !searchOverlay.open && !stage.pilotsOpen;
       document.documentElement.dataset.fullscreenChat = String(sidebar.fullscreenChat);
@@ -244,7 +254,7 @@
     const connect = new MutationObserver(reconnect);
     connect.observe(document.body, { childList: true, subtree: true });
     reconnect();
-    return () => { cancelAnimationFrame(measureFrame); clearTimeout(toolbarTimer); window.removeEventListener('pointermove', wakeToolbar); delete document.documentElement.dataset.sidebarToolbar; delete document.documentElement.dataset.sidebarHidden; delete document.documentElement.dataset.sidebarTab; delete document.documentElement.dataset.sidebarSettings; observe.disconnect(); connect.disconnect(); window.removeEventListener('keydown', key, true); window.removeEventListener('sidebar:camera', reportCamera); delete document.documentElement.dataset.sidebarWorkbench; delete document.documentElement.dataset.sidebarExpanded; delete document.documentElement.dataset.fullscreenChat; delete document.documentElement.dataset.sidebarAgents; delete document.documentElement.dataset.sidebarSearch; };
+    return () => { cancelAnimationFrame(measureFrame); clearTimeout(toolbarTimer); window.removeEventListener('pointermove', wakeToolbar); delete document.documentElement.dataset.sidebarToolbar; delete document.documentElement.dataset.sidebarHidden; delete document.documentElement.dataset.sidebarTab; delete document.documentElement.dataset.sidebarSettings; observe.disconnect(); connect.disconnect(); window.removeEventListener('keydown', key, true); window.removeEventListener('sidebar:camera', reportCamera); delete document.documentElement.dataset.sidebarWorkbench; delete document.documentElement.dataset.sidebarTone; delete document.documentElement.dataset.sidebarExpanded; delete document.documentElement.dataset.fullscreenChat; delete document.documentElement.dataset.sidebarAgents; delete document.documentElement.dataset.sidebarSearch; };
   });
 </script>
 

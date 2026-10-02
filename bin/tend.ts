@@ -15,6 +15,7 @@ import { flagValue, hasFlag } from "../lib/cliflags";
 import { loadManifest } from "../lib/manifest";
 import { VAULT_ROOT } from "../lib/vaultRoot";
 import { runTend, tendDue, tendHasWork } from "../lib/tend";
+import { refreshSharedMemory } from "../lib/sharedMemory";
 
 const argv = process.argv.slice(2);
 const force = hasFlag(argv, "force");
@@ -35,6 +36,12 @@ if (hasFlag(argv, "rounds")) {
 
 const root = VAULT_ROOT;
 const manifest = loadManifest(root);
+
+// Memory folds every vault the user can read. The shared ones answer over
+// HTTP, so read them once, here, into the cache the due check, the queue
+// view and the run all share (lib/sharedMemory.ts). Unreachable is not an
+// error: their last view stands.
+await refreshSharedMemory(root).catch(() => {});
 
 const due = tendDue(root);
 if (!tendHasWork(due) && !force) {

@@ -178,6 +178,7 @@ export async function installGraphFixture() {
     }
     else if (path.endsWith('/draft')) s.draft = body.text;
     else if (path.endsWith('/context')) { s.context = body.nodes; s.title = body.title; s.viewRevision++; }
+    else if (path.endsWith('/rename')) { s.title = body.title; s.titleSource = 'human'; s.viewRevision++; }
     else if (path.endsWith('/context-add')) s.context = [...new Set([...s.context, ...body.nodes])];
     else if (path.endsWith('/send')) {
       s.messages.push({ id: crypto.randomUUID(), role: 'user', text: body.text, at: new Date().toISOString() },

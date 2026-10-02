@@ -7,6 +7,7 @@
   import type { GraphData } from "../lib/types";
   import { canonicalGraphView, changeGraphView } from "../../../../lib/graphView";
   import { findNode } from "../../../../lib/graphIdentity";
+  import { cursor } from "../lib/cursor.svelte";
   import { stage } from "../lib/stage.svelte";
   import { app } from "../lib/store.svelte";
   import { uiDiagnostics } from "../lib/uiDiagnostics";
@@ -29,15 +30,26 @@
     inset?: { top: number; bottom: number };
   } = $props();
 
+  import { neighborhoodEnabled } from '../lib/graphPresentation';
   let viewportWidth = $state(window.innerWidth);
   let renderer = $state<LinkGraph>();
-  $effect(() => { if (sidebar) { sidebar.resetGraph = () => renderer?.resetOverview(); sidebar.camera = () => renderer?.getCamera() ?? null; sidebar.presentation = () => renderer?.getPresentation(); } });
+  $effect(() => { if (sidebar) { sidebar.resetGraph = () => { keyboardPreview = null; renderer?.resetOverview(); }; sidebar.camera = () => renderer?.getCamera() ?? null; sidebar.presentation = () => renderer?.getPresentation(); } });
 
   const pilotView = $derived(pilotViewId ? { selected: [pilotViewId], excluded: [] } : null);
   const agentOverview = $derived(!!sidebar?.open && !!sidebar?.agents);
   const effectivePreview = $derived((!sidebar?.open ? sidebar?.homePreview : null) ?? (agentOverview ? stage.pilotPreviewId : preview));
-  const previewView = $derived(effectivePreview && data ? canonicalGraphView(data.nodes,
-    { selected: findNode(data.nodes, effectivePreview) >= 0 ? [effectivePreview] : [], excluded: [] }) : null);
+  // Keyboard navigation owns the framing until another keyboard choice or an
+  // explicit reset. Pointer ownership only changes the inspection highlight.
+  let keyboardPreview = $state<{ id: string; inset: { top: number; bottom: number }; centered: boolean } | null>(null);
+  $effect(() => {
+    if (!neighborhoodEnabled) return;
+    if (app.graphView.selected.length) keyboardPreview = null;
+    else if (cursor.input === 'kbd') keyboardPreview = effectivePreview ? { id: effectivePreview, inset: { ...inset }, centered: !!sidebar?.homePreview } : null;
+  });
+  const graphPreview = $derived(neighborhoodEnabled ? keyboardPreview?.id ?? null : effectivePreview);
+  const graphInset = $derived(neighborhoodEnabled && keyboardPreview ? keyboardPreview.inset : inset);
+  const previewView = $derived(graphPreview && data ? canonicalGraphView(data.nodes,
+    { selected: findNode(data.nodes, graphPreview) >= 0 ? [graphPreview] : [], excluded: [] }) : null);
 </script>
 
 <svelte:window bind:innerWidth={viewportWidth} />
@@ -45,11 +57,11 @@
 {#if data?.nodes.length && !uiDiagnostics?.graphOff}
   <div class="g-block">
     <div class="g-canvas">
-      <LinkGraph bind:this={renderer} {data} {inset} {pilotDraft} committedView={app.graphView}
+      <LinkGraph bind:this={renderer} {data} inset={graphInset} {pilotDraft} committedView={app.graphView}
         coveredLeft={sidebar?.open && !sidebar.fullscreenChat ? Math.min(560, viewportWidth) : sidebar?.homeMenuRight ?? 0}
-        centerFocus={!!sidebar?.homePreview}
-        selected={effectivePreview ?? pilotViewId ?? (agentOverview ? null : selected)}
-        highlight={sidebar?.homePreview ?? (agentOverview ? stage.pilotPreviewId : highlight)} probe={agentOverview ? null : probe}
+        centerFocus={neighborhoodEnabled ? keyboardPreview?.centered ?? false : !!sidebar?.homePreview}
+        selected={graphPreview ?? pilotViewId ?? (agentOverview ? null : selected)}
+        highlight={sidebar?.homePreview ?? (agentOverview ? stage.pilotPreviewId : highlight)} probe={neighborhoodEnabled && effectivePreview ? effectivePreview : agentOverview ? null : probe}
         bind:viewState={() => previewView ?? (agentOverview ? { selected: [], excluded: app.graphView.excluded } : pilotView ?? app.graphView), value => { if (!effectivePreview) app.graphView = value; }}
         onhover={id => { if (sidebar) sidebar.hoverId = id; }}
         onblank={() => { app.graphView = changeGraphView(app.graphView, { type: 'clear' }); sidebar?.goHome?.(); }}

@@ -1,11 +1,13 @@
 import {integrationAccountRoutes} from '../lib/integrationAccountRoutes';
 import {IntegrationAccounts} from '../lib/integrationAccounts';
 import {inclusionReviewApi} from '../lib/inclusionReviewApi';
+import {inclusionBackfillApi} from '../lib/inclusionBackfillApi';
 import {tickIntegrationInclusion} from '../lib/inclusionStages';
 import { unionGraph, unionRecent, unionSearch, unionNote, vaultFilter, includesPersonal } from '../lib/sharedReadUnion';
 import { jevSettingsApi } from '../lib/jevSettingsApi';
 import { sharedSettingsApi } from '../lib/sharedSettingsApi';
 import { tickRules } from '../lib/sharedRules';
+import { tickPublishing } from '../lib/sharedAssertionPublish';
 import { connectionStorePath } from '../lib/sharedConnections';
 import { sharedWorkspace } from "../lib/sharedWorkspace";
 import { allowVaultRequest, vaultIdentity } from "../lib/vaultBoundary";
@@ -38,7 +40,7 @@ import { ENGINE_ROOT, engineIdentity } from "../lib/engine";
 import { dieWithSupervisor } from "../lib/parentWatch";
 import { configSave, integrationsInfo } from "../lib/configWrite";
 import { allowLoopbackRequest, armor, dispatch, json, readBody, send, type Ctx, type Route } from "../lib/httpx";
-import { IntakeError } from "../lib/intake";
+import { dropErrorStatus } from "../lib/door";
 import { landDirective, landDrop } from "../lib/landItem";
 import { voiceMessagesFor } from "../lib/voice";
 import { createLive } from "../lib/liveEvents";
@@ -53,6 +55,9 @@ import { walkMarkdown } from "../lib/vaultRead";
 import { parseBlobRef, readBlob } from "../lib/blobs";
 import { recentSourcePageAsync } from "../lib/sourceFeed";
 import { primaryGraphWithLayoutAsync, primaryGraphAsync } from "../lib/graphCache";
+import { buildEntityFeed, buildV2Feed, type V2Source } from "../lib/v2Feed";
+import { readV2Source } from "../lib/v2Read";
+import { withVaultSnapshot } from "../lib/vaultReadModel";
 import { frozenMessagesForRefs, sortFrozenDesc } from "../lib/frozenQueue";
 import { queueHead } from "../lib/queueHead";
 import { noteLog } from "../lib/noteLog";
@@ -245,6 +250,13 @@ function serveIndex({ res }: Ctx): void {
     "<h1>BigBrain web</h1><p>No UI build yet — run <code>bun run web:build</code>.</p>",
     "text/html"
   );
+}
+
+// The v2 view is its own page (web/ui/v2.html), not a route in the app
+// shell: it owns the whole window and keyboard.
+function serveV2({ res }: Ctx): void {
+  if (serveStatic(res, join(UI_DIST, "v2.html"))) return;
+  send(res, 404, "No v2 view in this build — run `bun run web:build`.", "text/plain");
 }
 
 function serveAsset({ res, url }: Ctx): void {
@@ -500,6 +512,32 @@ function search({ req, res, url }: Ctx): void {
   });
 }
 
+// The v2 view's read (lib/v2Feed.ts): the agents writing this vault,
+// what each centres on lately, and the latest assertions as a feed. The
+// graph itself comes from /api/graph; this adds only who and what.
+let v2Held: { revision: string; src: V2Source } | undefined;
+const v2Source = (): V2Source => withVaultSnapshot(ROOT, (db, revision) => {
+  if (v2Held?.revision !== revision) v2Held = { revision, src: readV2Source(db) };
+  return v2Held.src;
+});
+function v2({ res }: Ctx): void {
+  try {
+    json(res, 200, buildV2Feed(v2Source()));
+  } catch (error) {
+    json(res, 500, { error: errText(error) });
+  }
+}
+// One entity's latest assertions, dated as the feed is (first recorded).
+function v2Entity({ res, url }: Ctx): void {
+  const id = url.searchParams.get("id") ?? "";
+  if (!id) return json(res, 400, { error: "Which entity? Pass ?id=." });
+  try {
+    json(res, 200, { rows: buildEntityFeed(v2Source(), id) });
+  } catch (error) {
+    json(res, 500, { error: errText(error) });
+  }
+}
+
 // Serve the graph as a FINISHED PICTURE: structure plus settled positions,
 // computed once per structure by lib/graphLayout.ts and cached in .state.
 // The client used to receive only the structure and simulate it itself on
@@ -626,8 +664,7 @@ function drop(ctx: Ctx): void {
       // are uncapped by design — the CAS is add-only disk, not git
       // history. The item TEXT stays capped inside lib/intake.ts (413).
       cap: Infinity,
-      onError: (e) =>
-        json(ctx.res, e instanceof IntakeError && e.code === "too-large" ? 413 : 400, { error: errText(e) }),
+      onError: (e) => json(ctx.res, dropErrorStatus(e), { error: errText(e) }),
     }
   );
 }
@@ -701,6 +738,9 @@ export const ROUTES: readonly Route[] = [
   { method: "GET", path: "/api/recent", handler: recentFeed },
   { method: "GET", path: "/api/search", handler: search },
   { method: "GET", path: "/api/graph", handler: graph },
+  { method: "GET", path: "/api/v2", handler: v2 },
+  { method: "GET", path: "/api/v2/entity", handler: v2Entity },
+  { method: "GET", path: "/v2", handler: serveV2 },
   { method: "GET", path: "/api/note-log", handler: noteLogRoute },
   { method: "GET", path: "/api/note-messages", handler: noteMessages },
   // Under the desktop app (bin/desktop.ts sets BIGBRAIN_DESKTOP) the
@@ -792,11 +832,12 @@ export function start(): void {
   // server's death.
   const metrics = isDesktop() ? telemetry(ROOT) : undefined;
   metrics?.start();
-  const sharedRuleTimer=setInterval(()=>{void tickRules(ROOT,connectionStorePath());void tickIntegrationInclusion(ROOT).catch(()=>{});},30000);sharedRuleTimer.unref();
+  const sharedRuleTimer=setInterval(()=>{void tickRules(ROOT,connectionStorePath()).then(()=>tickPublishing(ROOT,connectionStorePath()));void tickIntegrationInclusion(ROOT).catch(()=>{});},30000);sharedRuleTimer.unref();
   const server = createServer(async (req, res) => {
     armor(res);
     if (!allowLoopbackRequest(req, res)) return;
     if (await inclusionReviewApi(req,res,ROOT)) return;
+    if (await inclusionBackfillApi(req,res,ROOT)) return;
     if (await jevSettingsApi(req,res,ROOT)) return;
     if (await sharedSettingsApi(req,res,ROOT)) return;
     if (await sharedWorkspace(req, res)) return;
