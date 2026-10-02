@@ -16,9 +16,13 @@ export function rankCandidates(sources:InclusionSource[],rule:string,entities:Ca
  const docs=sources.map(s=>{const text=(s.title+'\n'+s.body.slice(0,20000)).toLowerCase();return {s,text,title:words(s.title,true),all:words(text,true)};});
  const df=new Map<string,number>();for(const d of docs)for(const t of terms)if(d.all.has(t))df.set(t,(df.get(t)??0)+1);
  const idf=(t:string)=>Math.log(1+docs.length/(1+(df.get(t)??0)));
+ // A long transcript holds a little of every word: damp lexical fit by length past the typical
+ // source, so a note about the topic outranks a session that mentions it in passing.
+ const lengths=docs.map(d=>d.text.length).sort((a,b)=>a-b),typical=Math.max(1,lengths[Math.floor(lengths.length/2)]??1);
  const scored=docs.map(({s,text,title,all},index)=>{
   let score=0;for(const t of terms)if(all.has(t))score+=idf(t)*(title.has(t)?2:1);
   for(const p of multi)if(text.includes(p))score+=4;
+  score/=1+Math.max(0,Math.log(text.length/typical));
   entities.forEach((e,i)=>{if(e.sourceIds.has(s.id))score+=10;else if(labels[i]!.some(l=>text.includes(l)))score+=6;});
   return {s,score,index};
  });
