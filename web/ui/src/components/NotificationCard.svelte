@@ -1,5 +1,6 @@
 <script lang="ts">
   import NodeIndicator from "./NodeIndicator.svelte";
+  import { mentionText, parseMentions } from "../../../../lib/pilotMentions";
   import type { NotificationItem } from "../lib/notificationTypes";
   import type { PilotVisualPhase } from "../lib/pilotAppearance";
   let { item, phase = "idle", onopen, ondismiss }: {
@@ -11,7 +12,7 @@
 <article class:unseen={!item.seen}>
   <button class="notice-open" onclick={() => { onopen(item); }}>
     <span role="img" aria-label={`Pilot ${phase}`} title={`Pilot ${phase}`}><NodeIndicator size={25} state={phase} /></span>
-    <span class="notice-copy"><span class="notice-meta"><span>{item.pilotTitle}</span><time>{item.at}</time></span><span class="notice-text">{item.text}</span><span class="notice-kind">{#if !item.seen}<i aria-label="New notification"></i>{/if}{item.kind === "question" ? "Needs you" : "Update"}{#if item.seen} <span class="seen">· Seen</span>{/if}</span></span>
+    <span class="notice-copy"><span class="notice-meta"><span>{item.pilotTitle}</span><time>{item.at}</time></span><span class="notice-text">{mentionText(parseMentions(item.text))}</span><span class="notice-kind">{#if !item.seen}<i aria-label="New notification"></i>{/if}{item.kind === "question" ? "Needs you" : "Update"}{#if item.seen} <span class="seen">· Seen</span>{/if}</span></span>
   </button>
   <div class="notice-actions">
     <button class="small-button" onclick={() => ondismiss(item.id)} aria-label={`Dismiss ${item.pilotTitle}`} title="Dismiss">×</button>
