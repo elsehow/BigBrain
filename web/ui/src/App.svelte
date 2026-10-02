@@ -163,7 +163,9 @@
 <div id="main">
   <UpdateNudge />
   <TopBar />
-  {#if sidebar || app.view === "home" || app.view === "top" || app.view === "graph" || app.view === "search" || app.view === "vault"}
+  <!-- the squad view is a ground of its own: home (and its graph) must not
+       keep drawing underneath it -->
+  {#if app.view !== "squad" && (sidebar || app.view === "home" || app.view === "top" || app.view === "graph" || app.view === "search" || app.view === "vault")}
     <!-- THE screen (HomeView): the graph as the ground and the text tab
          over it — the recents, a search's hits, or an open note's
          assertions, by the hash. Search and the note were screens of
