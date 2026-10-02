@@ -134,6 +134,7 @@ export interface PilotSummary {
   /** Set when the session was archived (closed by hand) — the app's rule. */
   deactivatedAt?: string;
   lastActivityAt?: string;
+  created?: string;
   updated?: string;
   live?: string;
   activity?: string;
@@ -150,15 +151,17 @@ export interface FieldPilot {
   p: [number, number, number];
 }
 
-/** The pilots worth a place, newest first: not archived (closed by hand —
- * the app's own rule, `deactivatedAt`) and not filed away (ingested, after a
- * day idle). An idle session ("dormant" after ten quiet minutes) keeps its
- * seat. Plus `keep` (the one open), whatever its state, until it's closed. */
-export function barPilots(sessions: readonly PilotSummary[], keep: string | null, limit = 6): PilotSummary[] {
-  const at = (s: PilotSummary) => s.lastActivityAt ?? s.updated ?? "";
-  const live = sessions.filter((s) => !s.deactivatedAt && s.lifecycle !== "ingested").sort((a, b) => at(b).localeCompare(at(a))).slice(0, limit);
+/** The pilots worth a place, in the order they were started (a new one joins
+ * on the right): not archived (closed by hand, the app's `deactivatedAt`) and
+ * not filed away (ingested, after a day idle). An idle session ("dormant"
+ * after ten quiet minutes) keeps its seat. Plus `keep` (the one open),
+ * whatever its state, until it's closed. */
+export function barPilots(sessions: readonly PilotSummary[], keep: string | null, limit = 9): PilotSummary[] {
+  const born = (s: PilotSummary) => s.created ?? s.lastActivityAt ?? "";
+  const live = sessions.filter((s) => !s.deactivatedAt && s.lifecycle !== "ingested").sort((a, b) => born(a).localeCompare(born(b)) || a.id.localeCompare(b.id));
   const open = keep ? sessions.find((s) => s.id === keep) : undefined;
-  return open && !live.includes(open) ? [open, ...live] : live;
+  const seats = live.slice(-limit);
+  return open && !seats.includes(open) ? [...seats, open] : seats;
 }
 
 /** Each pilot over its context; one with nothing placeable waits above the

@@ -49,9 +49,85 @@
   let openPilot: string | null = $state(null);
   let detail: PilotDetail | null = $state(null);
   let draftText = $state("");
-  /** The workspace belongs to an agent's chat: each remembers its own. */
-  let workspaces: Record<string, boolean> = $state({});
-  let sidebarOpen = $derived(!!openPilot && !!workspaces[openPilot]);
+  /** The workspace belongs to an agent's chat: each remembers its own. It's a
+   * tiling area — as many panes as the agent opens (a page it drives, a note
+   * you write together) — that takes every pixel the chat doesn't. Its width
+   * and arrangement (a split tree: each split a direction and weights) are
+   * the agent's to set once it can project into it; until then the panes
+   * tile themselves (`autoTile`), and placeholders can be added to feel the
+   * proportions. */
+  type Pane = { id: string; title: string };
+  type Tile = { pane: string } | { dir: "row" | "col"; weights: number[]; kids: Tile[] };
+  type Workspace = { open: boolean; width?: number; panes: Pane[]; layout?: Tile };
+  let workspaces: Record<string, Workspace> = $state({});
+  let ws = $derived(openPilot ? workspaces[openPilot] : undefined);
+  let sidebarOpen = $derived(!!ws?.open);
+  let sideWidth = $derived(ws?.width);
+  /** One pane fills; two sit side by side; more go in columns of stacked panes. */
+  function autoTile(panes: Pane[]): Tile {
+    if (panes.length === 1) return { pane: panes[0]!.id };
+    const cols = Math.min(panes.length, Math.ceil(Math.sqrt(panes.length)));
+    const per = Math.ceil(panes.length / cols);
+    const kids: Tile[] = [];
+    for (let c = 0; c < cols; c++) {
+      const col = panes.slice(c * per, c * per + per);
+      if (col.length) kids.push(col.length === 1 ? { pane: col[0]!.id } : { dir: "col", weights: col.map(() => 1), kids: col.map((p) => ({ pane: p.id })) });
+    }
+    return { dir: "row", weights: kids.map(() => 1), kids };
+  }
+  function addPane(): void {
+    if (!openPilot || !ws) return;
+    const panes = [...ws.panes, { id: `pane-${crypto.randomUUID().slice(0, 8)}`, title: `Pane ${ws.panes.length + 1}` }];
+    workspaces[openPilot] = { ...ws, panes, layout: undefined };
+  }
+  function closePane(id: string): void {
+    if (!openPilot || !ws) return;
+    const panes = ws.panes.filter((p) => p.id !== id);
+    workspaces[openPilot] = { ...ws, panes, layout: undefined, open: panes.length > 0 };
+    void tick().then(() => scene?.shift(shiftFor()));
+  }
+
+  // ── the agent a session talks to: its backend, changeable from the chat ──
+  type AgentChoice = { id: string; label: string; ready: boolean; models: Array<{ id: string; label: string; reasoning?: string[] }> };
+  let pickerOpen = $state(false);
+  let agentsList: AgentChoice[] = $state([]);
+  // renaming by hand: the title is an input while you edit it; the name then stands
+  let renaming = $state(false);
+  let renameText = $state("");
+  let renameEl: HTMLInputElement | undefined = $state();
+  function startRename(): void {
+    if (!detail) return;
+    renameText = detail.title; renaming = true;
+    void tick().then(() => { renameEl?.focus(); renameEl?.select(); });
+  }
+  async function saveRename(): Promise<void> {
+    const id = openPilot, title = renameText.trim();
+    renaming = false;
+    if (!id || !title || title === detail?.title) return;
+    try {
+      // the engine's rename marks the name as a person's (Quick stops re-naming);
+      // an older engine without it still takes the title through /context
+      try { await pilotReq("/rename", { id, title }); }
+      catch { await pilotReq("/context", { id, nodes: detail?.context ?? [], title, expectedRevision: detail?.viewRevision ?? 0 }); }
+      await loadDetail(); await refreshPilots();
+    } catch (e) { flash(`Couldn’t rename: ${errText(e)}`); }
+  }
+  async function openPicker(): Promise<void> {
+    pickerOpen = true;
+    if (!agentsList.length) {
+      try { agentsList = (await pilotReq<{ agents: AgentChoice[] }>("/models")).agents.filter((a) => a.ready); } catch (e) { flash(errText(e)); }
+    }
+  }
+  async function chooseModel(agent: AgentChoice, model: { id: string; reasoning?: string[] }): Promise<void> {
+    if (!openPilot) return;
+    const [adapter, provider] = agent.id.split("/");
+    const reasoning = model.reasoning?.includes("medium") ? "medium" : model.reasoning?.[0];
+    try {
+      await pilotReq("/backend", { id: openPilot, backend: { adapter, provider, model: model.id, ...(reasoning ? { reasoning } : {}) } });
+      pickerOpen = false;
+      await loadDetail(); await refreshPilots();
+    } catch (e) { flash(`Couldn’t change the agent: ${errText(e)}`); }
+  }
   let chatEl: HTMLElement | undefined = $state();
   let msgsEl: HTMLElement | undefined = $state();
   let composerEl: HTMLTextAreaElement | undefined = $state();
@@ -72,7 +148,7 @@
     try {
       const d = await pilotReq<PilotDetail>(`/session?id=${encodeURIComponent(id)}`);
       if (openPilot === id) detail = d;
-    } catch (e) { if (openPilot === id) flash(e instanceof Error ? e.message : String(e)); }
+    } catch (e) { if (openPilot === id) flash(errText(e)); }
   }
   // the bar's pilots, placed over their context, are what the field draws
   $effect(() => {
@@ -110,7 +186,7 @@
       await refreshPilots();
       openPilotChat(id);
     } catch (e) {
-      flash(`Couldn’t start a pilot: ${e instanceof Error ? e.message : String(e)}`);
+      flash(`Couldn’t start a pilot: ${errText(e)}`);
     }
   }
   async function sendDraft(): Promise<void> {
@@ -118,11 +194,11 @@
     if (!id || !text) return;
     draftText = "";
     try { await pilotReq("/send", { id, text, inputId: `in-${crypto.randomUUID()}` }); await loadDetail(); }
-    catch (e) { draftText = text; flash(`Couldn’t send: ${e instanceof Error ? e.message : String(e)}`); }
+    catch (e) { draftText = text; flash(`Couldn’t send: ${errText(e)}`); }
   }
   async function stopPilot(): Promise<void> {
     if (!openPilot) return;
-    try { await pilotReq("/stop", { id: openPilot }); await loadDetail(); } catch (e) { flash(e instanceof Error ? e.message : String(e)); }
+    try { await pilotReq("/stop", { id: openPilot }); await loadDetail(); } catch (e) { flash(errText(e)); }
   }
   /** Chat text: markdown, with [[path|title]] links read as their titles. */
   const render = (t: string) => sanitizeHtml(md(t.replace(/\[\[[^|\]]*\|([^\]]*)\]\]/g, "**$1**").replace(/\[\[([^\]]*)\]\]/g, "**$1**")));
@@ -164,7 +240,7 @@
         onPickPilot: (id) => (openPilot === id ? closePilot() : openPilotChat(id)),
       });
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
+      error = errText(e);
     }
   }
   onMount(() => {
@@ -188,13 +264,15 @@
   }
   /** Slide the field's centre clear of the panels: right of a left column, left of the sidebar. */
   const shiftFor = () => {
-    const left = searching ? Math.min(600, innerWidth * 0.4) : openPilot ? Math.min(1400, Math.max(560, innerWidth * 0.48)) + 34 : ent != null ? Math.min(380, innerWidth * 0.26) : 0;
-    const right = sidebarOpen ? Math.min(640, innerWidth * 0.38) + 34 : 0;
+    const chatW = Math.min(1000, Math.max(520, innerWidth * 0.44)) + 34; // .squad's --chat-w, plus a gutter
+    const left = searching ? Math.min(600, innerWidth * 0.4) : openPilot ? chatW : ent != null ? Math.min(380, innerWidth * 0.26) : 0;
+    const right = sidebarOpen ? (sideWidth ?? innerWidth - chatW - 68) + 34 : 0;
     return (left - right) / 2;
   };
   function toggleSidebar(): void {
     if (!openPilot) return;
-    workspaces[openPilot] = !workspaces[openPilot];
+    const w = workspaces[openPilot] ?? { open: false, panes: [] };
+    workspaces[openPilot] = { ...w, open: !w.open, panes: w.panes.length ? w.panes : [{ id: "pane-1", title: "Pane 1" }] };
     void tick().then(() => scene?.shift(shiftFor()));
   }
   function overview(): void {
@@ -235,6 +313,7 @@
     await createPilot([n.path], `Re: ${n.label}`);
   }
   let noticeTimer: ReturnType<typeof setTimeout> | undefined;
+  const errText = (e: unknown): string => (e instanceof Error ? e.message : String(e));
   function flash(text: string): void { notice = text; clearTimeout(noticeTimer); noticeTimer = setTimeout(() => { notice = ""; }, 4200); }
 
   type Said = { text: string; caption: string } | undefined;
@@ -375,6 +454,7 @@
     const t = e.target as HTMLElement | null;
     if (t?.tagName === "INPUT" || t?.tagName === "TEXTAREA" || t?.isContentEditable) return false;
     if (e.key === "/") { take(e); openSearch(); return true; }
+    if (e.key === "Escape" && pickerOpen) { take(e); pickerOpen = false; return true; }
     if (e.key === "Escape" && openPilot) { take(e); closePilot(); return true; }
     if (e.key === "Escape" && ent != null) { take(e); overview(); return true; }
     if (e.key === "n") { take(e); void createPilot([]); return true; }
@@ -387,6 +467,21 @@
   }
   function take(e: KeyboardEvent): void { e.preventDefault(); e.stopPropagation(); }
 </script>
+
+{#snippet tile(t: Tile)}
+  {#if "pane" in t}
+    {@const pane = ws?.panes.find((p) => p.id === t.pane)}
+    <div class="ws-pane">
+      <span class="pt">{pane?.title}</span>
+      <button type="button" class="px" onclick={() => closePane(t.pane)} aria-label="Close pane">×</button>
+      <span class="ph">A page the agent drives, or a note you write together. The agent decides what opens here and how panes tile.</span>
+    </div>
+  {:else}
+    <div class="ws-split ws-{t.dir}">
+      {#each t.kids as kid, k (k)}<div class="ws-cell" style:flex-grow={t.weights[k] ?? 1}>{@render tile(kid)}</div>{/each}
+    </div>
+  {/if}
+{/snippet}
 
 <svelte:head>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" />
@@ -465,16 +560,26 @@
     <section class="chat" bind:this={chatEl} aria-label="Pilot conversation">
       <header>
         <div class="top">
-          <h2>{detail.title}</h2>
+          <div class="who-is">
+            {#if renaming}
+              <input class="rename" bind:this={renameEl} bind:value={renameText} aria-label="Rename this conversation"
+                onkeydown={(e) => { if (e.key === "Enter") { e.preventDefault(); e.stopPropagation(); void saveRename(); } else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); renaming = false; } }}
+                onblur={() => void saveRename()} />
+            {:else}
+              <h2><button type="button" class="title" onclick={startRename} title="Rename">{detail.title}</button></h2>
+            {/if}
+            <button type="button" class="agent" onclick={() => void openPicker()} title="Change the agent for this conversation"
+              disabled={detail.phase === "working"}>{detail.model} <span aria-hidden="true">▾</span></button>
+          </div>
           <button type="button" class="find" class:lit={sidebarOpen} onclick={toggleSidebar} title="This agent's workspace (\)">Workspace <span class="k">\</span></button>
         </div>
         {#if detail.contextNodes?.length}<p class="ctx">{detail.contextNodes.map((n) => n.title ?? n.id).join(" · ")}</p>{/if}
       </header>
       <div class="msgs" bind:this={msgsEl}>
         {#each detail.messages as m (m.id)}
-          <div class="msg {m.role}"><span class="who">{m.role === "user" ? "You" : detail.model}</span><div class="body">{@html render(m.text)}</div></div>
+          <div class="msg {m.role}"><div class="body">{@html render(m.text)}</div></div>
         {/each}
-        {#if detail.live}<div class="msg assistant live"><span class="who">{detail.model}</span><div class="body">{@html render(detail.live)}</div></div>{/if}
+        {#if detail.live}<div class="msg assistant live"><div class="body">{@html render(detail.live)}</div></div>{/if}
         {#if detail.phase === "working" && !detail.live}<p class="activity">{detail.activity || "Working…"}</p>{/if}
         {#if detail.error}<p class="activity err">{detail.error}</p>{/if}
         {#if !detail.messages.length && detail.phase === "draft"}<p class="activity">Ask it anything — it can read your vault.</p>{/if}
@@ -489,10 +594,26 @@
       </div>
     </section>
   {/if}
+  {#if pickerOpen && detail}
+    <div class="scrim" role="presentation" onclick={() => (pickerOpen = false)}></div>
+    <div class="picker" role="dialog" aria-label="Choose the agent">
+      <p class="eyebrow">Talk to</p>
+      {#if !agentsList.length}<p class="none">Loading your agents…</p>{/if}
+      {#each agentsList as a (a.id)}
+        <section>
+          <h3>{a.label}</h3>
+          {#each a.models as m (m.id)}
+            <button type="button" class:on={m.id === detail.model} onclick={() => void chooseModel(a, m)}>{m.label}<span class="k">{m.id}</span></button>
+          {/each}
+        </section>
+      {/each}
+      <p class="k">Esc to close · the next reply comes from the one you pick</p>
+    </div>
+  {/if}
   {#if sidebarOpen}
-    <aside class="side" bind:this={sidebarEl} aria-label="Workspace">
-      <p>Workspace · {detail?.title ?? ""}</p>
-      <span>This agent's browser it can drive, and notes you write together. Not built yet — this shows its proportions.</span>
+    <aside class="side" bind:this={sidebarEl} aria-label="Workspace" style:width={sideWidth ? `${sideWidth}px` : null} style:left={sideWidth ? "auto" : null}>
+      <header><p>Workspace · {detail?.title ?? ""}</p><button type="button" class="find" onclick={addPane} title="Add a placeholder pane">+ Pane</button></header>
+      {#if ws}{@render tile(ws.layout ?? autoTile(ws.panes))}{/if}
     </aside>
   {/if}
 
@@ -502,7 +623,7 @@
 </div>
 
 <style>
-  .squad {
+  .squad { --chat-w: clamp(520px, 44vw, 1000px);
     --font-app: "IBM Plex Sans", system-ui, sans-serif;
     --font-mono: "IBM Plex Mono", ui-monospace, monospace;
     --sq-muted: color-mix(in srgb, var(--fg) 65%, var(--bg));
@@ -547,34 +668,51 @@
   .new { color: var(--sq-muted); }
   .find.lit { color: var(--fg); }
   /* the chat sits on the ground itself: opaque, fading into the field at its right edge */
-  /* dense, like a working terminal: half the window, small type, long lines,
-     tight rhythm — these are serious conversations */
-  .chat { --chat-w: clamp(560px, 48vw, 1400px); --chat-fs: 13.5px;
+  .chat { container-type: inline-size;
     position: absolute; top: 0; bottom: 0; left: 0; width: calc(var(--chat-w) + var(--app-gutter, 34px)); padding: 72px 0 26px var(--app-gutter, 34px); box-sizing: border-box;
     display: flex; flex-direction: column; gap: 10px; background: var(--bg); z-index: 1; }
   .chat::after { content: ""; position: absolute; top: 0; bottom: 0; right: -96px; width: 96px; pointer-events: none;
     background: linear-gradient(to right, var(--bg), color-mix(in srgb, var(--bg) 0%, transparent)); }
   .chat .top { display: flex; align-items: flex-start; gap: 12px; }
-  .chat .top h2 { flex: 1; min-width: 0; }
+  .chat .who-is { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 3px; }
+  .title { all: unset; cursor: text; border-radius: 4px; }
+  .title:hover { box-shadow: 0 0 0 4px color-mix(in srgb, var(--fg) 8%, transparent); background: color-mix(in srgb, var(--fg) 8%, transparent); }
+  .rename { width: 100%; box-sizing: border-box; border: 0; outline: none; border-radius: 4px; padding: 0; background: color-mix(in srgb, var(--fg) 8%, var(--bg));
+    color: var(--fg); font: 600 17px/1.25 var(--font-app); letter-spacing: -0.01em; }
+  .agent { border: 0; padding: 2px 0; background: none; color: var(--sq-muted); font: 500 11.5px/1.3 var(--font-mono); cursor: pointer; }
+  .agent:hover:not(:disabled) { color: var(--fg); }
+  .agent:disabled { cursor: default; opacity: .6; }
+  .scrim { position: absolute; inset: 0; z-index: 5; background: color-mix(in srgb, var(--bg) 40%, transparent); }
+  .picker { position: absolute; z-index: 6; top: 110px; left: var(--app-gutter, 34px); width: min(420px, calc(100% - 68px)); max-height: 70vh; overflow-y: auto; padding: 16px;
+    border-radius: 12px; background: var(--bg); box-shadow: 0 0 0 1px var(--rule), 0 28px 70px -28px color-mix(in srgb, var(--fg) 45%, transparent); }
+  .picker .eyebrow { margin: 0 0 10px; display: block; }
+  .picker h3 { margin: 10px 0 4px; font: 600 12px/1.3 var(--font-app); color: var(--sq-muted); }
+  .picker button { display: flex; width: 100%; justify-content: space-between; align-items: baseline; gap: 12px; padding: 7px 10px; border: 0; border-radius: 7px; background: none;
+    color: var(--fg); font: 400 14px/1.3 var(--font-app); text-align: left; cursor: pointer; }
+  .picker button:hover, .picker button.on { background: color-mix(in srgb, var(--fg) 8%, var(--bg)); }
+  .picker button.on { font-weight: 600; }
+  .picker > .k { display: block; margin-top: 12px; }
+  .picker .none { margin: 0; font: 400 13px/1.4 var(--font-app); color: var(--sq-faint); }
   .chat .top .find { flex: none; margin-top: 4px; height: 24px; }
   .chat header { display: flex; flex-direction: column; gap: 8px; }
   .chat h2 { margin: 0; font: 600 17px/1.25 var(--font-app); letter-spacing: -0.01em; }
   .chat .ctx { margin: 0; font: 400 11px/1.4 var(--font-mono); color: var(--sq-faint); }
-  .msgs { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; gap: 10px; padding-right: 8px;
+  /* like iA Writer: the measure holds (~72 characters) and the type grows with the column */
+  .msgs { --chat-fs: clamp(14px, 2.55cqi, 18.5px); flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; gap: 16px; padding-right: 10px;
     scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--fg) 22%, transparent) transparent; }
   .msg .body :global(pre) { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0 0 8px; }
-  .msg { display: grid; grid-template-columns: 104px minmax(0, 1fr); gap: 14px; }
-  .msg .who { font: 500 11px/1.45 var(--font-mono); color: var(--sq-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-top: 1px; }
-  .msg.user .who { color: var(--sq-muted); }
-  .msg .body { font: 400 var(--chat-fs)/1.45 var(--font-app); color: color-mix(in srgb, var(--fg) 90%, var(--bg)); overflow-wrap: anywhere; }
-  .msg.user .body { color: var(--fg); font-weight: 500; }
-  .msg .body :global(p) { margin: 0 0 6px; } .msg .body :global(p:last-child) { margin: 0; }
-  .msg .body :global(ul), .msg .body :global(ol) { margin: 0 0 6px; padding-left: 16px; }
-  .msg .body :global(li) { margin: 0; }
+  .msg { display: flex; max-width: 72ch; }
+  .msg.user { align-self: flex-end; max-width: min(56ch, 82%); }
+  .msg.user .body { padding: 9px 14px; border-radius: 14px; background: color-mix(in srgb, var(--fg) 9%, var(--bg)); }
+  .msg .body { font: 400 var(--chat-fs)/1.58 var(--font-app); color: color-mix(in srgb, var(--fg) 90%, var(--bg)); overflow-wrap: anywhere; }
+  .msg.user .body { color: var(--fg); }
+  .msg .body :global(p) { margin: 0 0 10px; } .msg .body :global(p:last-child) { margin: 0; }
+  .msg .body :global(ul), .msg .body :global(ol) { margin: 0 0 10px; padding-left: 20px; }
+  .msg .body :global(li) { margin: 0 0 3px; }
   .msg .body :global(h1), .msg .body :global(h2), .msg .body :global(h3), .msg .body :global(h4) { margin: 10px 0 4px; font: 600 var(--chat-fs)/1.4 var(--font-app); }
   .msg .body :global(code) { font: 400 12.5px/1.4 var(--font-mono); }
   .msg.live .body { color: var(--sq-muted); }
-  .activity { margin: 0 0 0 118px; font: 400 12px/1.4 var(--font-mono); color: var(--sq-faint); }
+  .activity { margin: 0; font: 400 12px/1.4 var(--font-mono); color: var(--sq-faint); }
   .activity.err { color: color-mix(in srgb, var(--activity) 80%, var(--fg)); }
   .composer { display: flex; flex-direction: column; gap: 8px; }
   .composer textarea { resize: none; border: 0; border-radius: 8px; padding: 9px 12px; background: color-mix(in srgb, var(--fg) 7%, var(--bg)); color: var(--fg);
@@ -583,10 +721,22 @@
   .composer .row { display: flex; align-items: center; gap: 8px; }
   .composer .row .k { margin-right: auto; }
   .composer a.find { text-decoration: none; }
-  .side { position: absolute; top: 72px; bottom: 26px; right: var(--app-gutter, 34px); width: min(640px, 38vw); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
-    border-radius: 12px; border: 1px dashed color-mix(in srgb, var(--fg) 30%, transparent); background: color-mix(in srgb, var(--bg) 80%, transparent); text-align: center; padding: 24px; }
-  .side p { margin: 0; font: 600 10px/1 var(--font-app); letter-spacing: .24em; text-transform: uppercase; color: var(--sq-muted); }
-  .side span { max-width: 34ch; font: 400 13px/1.5 var(--font-app); color: var(--sq-faint); }
+  /* the workspace takes every pixel the chat doesn't, unless the agent asks for less */
+  .side { position: absolute; top: 62px; bottom: 26px; right: var(--app-gutter, 34px); left: calc(var(--chat-w) + 3 * var(--app-gutter, 34px)); z-index: 1;
+    display: flex; flex-direction: column; gap: 8px; }
+  .side header { display: flex; align-items: center; gap: 10px; height: 30px; }
+  .side header p { margin: 0 auto 0 0; font: 600 10px/1 var(--font-app); letter-spacing: .24em; text-transform: uppercase; color: var(--sq-muted); }
+  .side > .ws-split, .side > .ws-pane { flex: 1; min-height: 0; }
+  .ws-split { display: flex; gap: 8px; min-width: 0; min-height: 0; }
+  .ws-split.ws-row { flex-direction: row; } .ws-split.ws-col { flex-direction: column; }
+  .ws-cell { flex-basis: 0; min-width: 0; min-height: 0; display: flex; }
+  .ws-cell > :global(*) { flex: 1; min-width: 0; min-height: 0; }
+  .ws-pane { position: relative; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 24px; border-radius: 10px; text-align: center;
+    border: 1px dashed color-mix(in srgb, var(--fg) 30%, transparent); background: color-mix(in srgb, var(--bg) 85%, transparent); }
+  .ws-pane .pt { position: absolute; top: 10px; left: 12px; font: 600 10px/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--sq-muted); }
+  .ws-pane .px { position: absolute; top: 4px; right: 6px; border: 0; background: none; color: var(--sq-faint); font: 400 16px/1 var(--font-app); cursor: pointer; padding: 4px 6px; }
+  .ws-pane .px:hover { color: var(--fg); }
+  .ws-pane .ph { max-width: 34ch; font: 400 12.5px/1.5 var(--font-app); color: var(--sq-faint); }
   .gear { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 999px; color: var(--sq-muted); }
   .gear:hover { color: var(--fg); background: color-mix(in srgb, var(--fg) 7%, var(--bg)); }
 

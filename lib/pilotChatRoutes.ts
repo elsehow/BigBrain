@@ -54,6 +54,7 @@ export function pilotChatRoutes(sessions: PilotChats): Route[] {
     post("stop", b => sessions.stop(b.id)),
     post("resume", b => sessions.resumeInputs(b.id)),
     post("context", b => sessions.setContext(b.id, b.nodes, b.title, b.expectedRevision)),
+    post("rename", b => sessions.rename(b.id, b.title)),
     post("context-add", b => sessions.addContext(b.id, b.nodes)),
   ];
 }

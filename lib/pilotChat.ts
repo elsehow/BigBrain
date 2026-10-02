@@ -1,3 +1,4 @@
+import { namingMoment, type TaskNamer } from "./pilotTaskName";
 import { readHistoryIndex } from "./applicationHistoryIndex";
 import { pilotChatSummary, matchesPilotQuery, type PilotChatSummary } from "./pilotChatSummary";
 import { ApplicationActions, ActionRefusal, canonicalAction, actionFailure, actionReceiptView, type ActionHistoryQuery, type ActionReceipt, type ActionRequest } from "./applicationActions";
@@ -86,6 +87,9 @@ type Options = {
   land?: (content: string) => Promise<IntakeReceipt>;
   graph?: () => readonly GraphIdentity[];
   tool?: (name: string, args: Record<string, unknown>, signal: AbortSignal) => Promise<unknown>;
+  /** Names sessions as tasks (lib/pilotTaskName.ts's nameTask). Opt-in: the
+   * app passes it; tests and tools that don't stay off the Quick model. */
+  nameTask?: TaskNamer;
 };
 
 export class PilotChats {
@@ -174,6 +178,8 @@ export class PilotChats {
   private timer?: ReturnType<typeof setInterval>;
   private sweeping?: Promise<void>;
   private deactivatedClients = new Set<string>();
+  /** The user-message count each session was last sent to Quick for a name at. */
+  private naming = new Map<string, number>();
   private composers = new Map<string, { id: string; until: number }>();
   private now(): number { return this.options.now?.() ?? Date.now(); }
   constructor(private root: string, private options: Options = {}) {
@@ -431,6 +437,27 @@ export class PilotChats {
     this.options.changes?.changed("pilot", s.id, s.revision + 1);
     this.release(s.id); this.conversations.delete(s.id); rmSync(conversationPath(this.root, s.id), { force: true });
   }
+  /** A person's name for the session: it stands, and Quick stops re-naming it. */
+  rename(id: unknown, title: unknown): PilotChatSession {
+    const s = this.get(id);
+    if (typeof title !== "string" || !title.trim() || title.length > 100) throw new PilotError("Choose a title under 100 characters.");
+    s.title = title.trim(); s.titleSource = "human"; s.viewRevision++;
+    this.save(s); return s;
+  }
+  /** As the conversation develops, Quick names the task (lib/pilotTaskName.ts) —
+   * never over a person's name, at most once per naming moment. */
+  private retitle(s: PilotChatSession): void {
+    const namer = this.options.nameTask;
+    const asked = s.messages.filter((m) => m.role === "user").length;
+    if (!namer || s.titleSource === "human" || !namingMoment(asked) || (this.naming.get(s.id) ?? 0) >= asked) return;
+    this.naming.set(s.id, asked);
+    void namer(this.root, s.messages.map((m) => ({ role: m.role, text: m.text })), s.title).then((name) => {
+      const live = this.sessions.get(s.id);
+      if (!name || !live || live.titleSource === "human" || live.title === name) return;
+      live.title = name; live.titleSource = "auto"; live.viewRevision++;
+      this.save(live);
+    });
+  }
   setContext(id: unknown, nodes: unknown, title: unknown, expectedRevision: unknown): PilotChatSession {
     const s = this.get(id);
     if (expectedRevision !== s.viewRevision) throw new PilotError("The context changed. Refresh before editing it again.", 409);
@@ -586,6 +613,7 @@ export class PilotChats {
       const saved = s.messages.find(m => m.id === lastProviderMessage && m.text === text);
       if (!saved) this.change(s, { kind: "message", turn: turn.id, message: { id: crypto.randomUUID(), role: "assistant", text, at: new Date(this.now()).toISOString(), ...(replyTo ? { replyTo } : {}) } });
       nameUntitledSession(s);
+      this.retitle(s);
     };
     // Bound concurrent host reads.
     const reads = new Set<Promise<unknown>>();

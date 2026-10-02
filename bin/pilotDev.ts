@@ -1,4 +1,5 @@
 /** Pilots-only experiment: isolated session storage, live graph APIs via :4747. */
+import { nameTask } from "../lib/pilotTaskName";
 import { createServer, request } from "node:http";
 import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -21,7 +22,7 @@ const root = requireVaultRoot();
 const manifestPath = join(root, "vault.yaml");
 if (!existsSync(manifestPath)) writeFileSync(manifestPath, "integrations: {}\n", { flag: "wx" });
 loadManifest(root); // Fail before launching the UI if an existing manifest is invalid.
-const workers = new WorkHistory(root), chats = new PilotChats(root, { work: workers, contextRoot });
+const workers = new WorkHistory(root), chats = new PilotChats(root, { work: workers, contextRoot, nameTask });
 const routes: Route[] = [...pilotChatRoutes(chats), ...pilotRoutes(root, { setPermissions: value => chats.setPermissions(value) }),
   { method: "GET", path: "/api/agents/models", handler: ({ res }) => {
     // Connection controls are proxied to the real vault; use that same consent
