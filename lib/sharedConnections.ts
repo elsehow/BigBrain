@@ -34,9 +34,14 @@ export async function sharedRequest<T>(connection: SharedConnection, path: strin
   }
   return await response.json() as T;
 }
+/** A vault's join link (`/join`) — or any door page without an invite secret —
+ * opens in a browser, where the member signs in and creates an app link. */
+const JOIN_LINK_PATHS=new Set(['/','/join','/join/','/me','/invite']);
 export async function connectInvite(path:string,link:unknown) {
   if(typeof link!=='string')throw new SharedConnectionError(400,'Paste an invite link.');
   let url:URL;try{url=new URL(link)}catch{throw new SharedConnectionError(400,'Invalid invite link.');}
+  // Refused before anything touches the network.
+  if(JOIN_LINK_PATHS.has(url.pathname)&&!url.hash)throw new SharedConnectionError(400,'That is the vault’s join link — open it in your browser, sign in, choose “Create an app link” under Connect the BigBrain app, and paste that link here.');
   const endpoint=endpointURL(url.origin);
   if(url.username||url.password||url.search||url.pathname!=='/invite'||!/^#[A-Za-z0-9_-]{43}$/.test(url.hash))throw new SharedConnectionError(400,'Invalid invite link.');
   const response=await fetch(endpoint+'/v1/invites/redeem',{method:'POST',redirect:'error',headers:{Authorization:`Bearer ${url.hash.slice(1)}`},signal:AbortSignal.timeout(15000)});

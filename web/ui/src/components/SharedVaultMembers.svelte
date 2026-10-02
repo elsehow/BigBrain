@@ -2,17 +2,21 @@
   import {onMount} from 'svelte';
   type Access = 'Can contribute' | 'Read only';
   type Member = {id:string;name:string;access:Access;owner?:boolean};
-  type Invite = Member & {link:string;expires:string};
+  type Invite = Member & {link:string;expires:string;pending?:boolean};
   let {vaultName,endpoint,request}:{vaultName:string;endpoint:string;request:(action:string,body?:unknown)=>Promise<any>}=$props();
   let canManage=$state(false);
   let members=$state<Member[]>([]),invites=$state<Invite[]>([]),busy=$state(false),error=$state(''),loading=$state(true);
   let inviting=$state(false),name=$state(''),access=$state<Access>('Can contribute');
+  // With Google sign-in on the server, an invitation is a pending member and the vault's one join link.
+  let emailInvites=$state(false),joinUrl=$state('');
   let created=$state<Invite|null>(null),removing=$state<Member|null>(null),copied=$state('');
   function open(dialog:HTMLDialogElement){dialog.showModal();}
   function invitation(i:{id:string;display:string;permission:string;secret:string;expires:string}):Invite{return {id:i.id,name:i.display,access:i.permission==='write'?'Can contribute':'Read only',link:endpoint+'/invite#'+i.secret,expires:i.expires};}
-  async function load(){const data=await request('members');canManage=data.can_manage;members=data.members.map((m:{id:string;display:string;role:string;permissions:string[]})=>({id:m.id,name:m.display,owner:m.role==='owner',access:m.permissions.includes('write')?'Can contribute':'Read only'}));invites=data.invites.map(invitation);loading=false;}
+  type Row={id:string;display:string;role:string;permissions:string[];pending?:boolean;email?:string|null};
+  const accessOf=(m:Row):Access=>m.permissions.includes('write')?'Can contribute':'Read only';
+  async function load(){const data=await request('members');canManage=data.can_manage;emailInvites=!!data.email_invites;joinUrl=data.join_url??'';const rows:Row[]=data.members,pending=emailInvites?rows.filter(m=>m.pending):[];members=rows.filter(m=>!pending.includes(m)).map(m=>({id:m.id,name:m.display,owner:m.role==='owner',access:accessOf(m)}));invites=[...data.invites.map(invitation),...pending.map(m=>({id:m.id,name:m.email??m.display,access:accessOf(m),link:joinUrl,expires:'',pending:true}))];loading=false;}
   async function act(fn:()=>Promise<void>){if(busy)return;busy=true;error='';try{await fn();}catch(e){error=(e as Error).message;}finally{busy=false;loading=false;}}
-  async function create(event:SubmitEvent){event.preventDefault();await act(async()=>{created=invitation(await request('member-invite',{name:name.trim(),permission:access==='Can contribute'?'write':'read'}));await load();});}
+  async function create(event:SubmitEvent){event.preventDefault();await act(async()=>{const permission=access==='Can contribute'?'write':'read';if(emailInvites){const m=await request('member-add',{email:name.trim(),permission});created={id:m.id,name:m.email,access,link:joinUrl,expires:'',pending:true};}else created=invitation(await request('member-invite',{name:name.trim(),permission}));await load();});}
   async function copy(link:string){try{await navigator.clipboard.writeText(link);copied=link;}catch{error='Could not copy. Select and copy the invite link.';}}
   function start(){name='';access='Can contribute';created=null;copied='';error='';inviting=true;}
   onMount(()=>{void act(load);});
@@ -31,9 +35,9 @@
   {#if canManage&&invites.length}
     <h3 class="pending-heading">Pending invitations</h3>
     {#each invites as invite (invite.id)}
-      <div class="row"><div>{invite.name}<small>{invite.access} · Expires {new Date(invite.expires).toLocaleString()}</small></div><div class="actions">
+      <div class="row"><div>{invite.name}<small>{invite.access} · {invite.pending?'Not signed in yet':`Expires ${new Date(invite.expires).toLocaleString()}`}</small></div><div class="actions">
         <button onclick={()=>{created=invite;inviting=true;error="";void copy(invite.link);}}>{copied===invite.link?'Copied':'Copy link'}</button>
-        <button disabled={busy} onclick={()=>act(async()=>{await request('invite-cancel',{id:invite.id});await load();})}>Cancel invite</button>
+        <button disabled={busy} onclick={()=>act(async()=>{await request(invite.pending?'member-remove':'invite-cancel',{id:invite.id});await load();})}>Cancel invite</button>
       </div></div>
     {/each}
   {/if}
@@ -43,14 +47,21 @@
   <dialog use:open onclose={()=>inviting=false} aria-labelledby="invite-title">
     {#if created}
       <h2 id="invite-title">Invite {created.name}</h2>
+      {#if created.pending}
+        <p class="muted">{created.access} · Pending until they sign in</p>
+        <label>Join link<input readonly value={created.link} onclick={e=>e.currentTarget.select()}/></label>
+        <p>Send them this link. They’ll sign in with Google as {created.name}.</p>
+      {:else}
       <p class="muted">{created.access} · One use · Expires {new Date(created.expires).toLocaleString()}</p>
       <label>Invite link<input readonly value={created.link} onclick={e=>e.currentTarget.select()}/></label>
       <p>Send this link to {created.name}. They can paste it into “Connect a shared vault” in BigBrain.</p>
+      {/if}
       <div class="footer"><button onclick={()=>inviting=false}>Done</button><button class="primary" onclick={()=>copy(created!.link)}>{copied===created.link?'Copied':'Copy link'}</button></div>
     {:else}
       <form onsubmit={create}>
         <h2 id="invite-title">Invite someone to {vaultName}</h2>
-        <label>Name<input required bind:value={name} placeholder="Their name" autocomplete="off"/></label>
+        {#if emailInvites}<label>Email<input required type="email" bind:value={name} placeholder="Their email address" autocomplete="off"/></label>
+        {:else}<label>Name<input required bind:value={name} placeholder="Their name" autocomplete="off"/></label>{/if}
         <label>Access<select bind:value={access}><option>Can contribute</option><option>Read only</option></select></label>
         <p class="muted">{access==='Can contribute'?'Can read and contribute sources and assertions.':'Can read everything in this vault.'}</p>
         <div class="footer"><button type="button" onclick={()=>inviting=false}>Cancel</button><button class="primary" disabled={busy||!name.trim()}>{busy?'Creating…':'Create invite link'}</button></div>

@@ -5,6 +5,7 @@ import {join} from 'node:path';
 import {startReview,getReview,reviewState,rateReview,editReview,finishReview} from '../lib/inclusionReview';
 import {readInclusionPolicy,sharedRuleScope,integrationRuleScope} from '../lib/inclusionPolicy';
 import {inclusionEvaluator,decideInclusion} from '../lib/inclusionEvaluation';
+import {rankCandidates} from '../lib/inclusionCandidates';
 import {saveJevKey} from '../lib/jevSettings';
 function fixture(){const root=mkdtempSync(join(tmpdir(),'rule-review-')),store=join(root,'connections.json');writeFileSync(join(root,'vault.yaml'),'integrations: {}\n');saveJevKey(store,'fabricated-key');return {root,store,scope:sharedRuleScope('fixture'),text:'Sources about the Example project.',sources:[.95,.9,.85,.1,.2,.3,.65,.45].map((score,i)=>({id:String(i),title:'Example source '+i,origin:'Fixture',body:'Complete source '+score})),check:()=>{},save:(_text:string)=>{}};}
 const factory:typeof inclusionEvaluator=(root,store,text,labels)=>({identity:inclusionEvaluator(root,store,text,labels).identity,score:async(source:{body:string})=>Number(source.body.split(' ').at(-1))});
@@ -43,5 +44,18 @@ test('include everything needs neither ratings nor model calls',async()=>{
   const s=await idle(c.root,initial.id);expect(reviewState(s).ready).toBe(true);expect(reviewState(s).items).toEqual([]);expect(reviewState(s).remaining).toBe(0);
   expect(finishReview(s).saved).toBe(true);expect(calls).toBe(0);
   expect(await decideInclusion(c.root,c.store,c.scope,'Include everything.',c.sources[0]!)).toBe(true);
+ }finally{rmSync(c.root,{recursive:true,force:true});}
+});
+test('candidates are ranked by fit to the rule before any paid scoring',()=>{
+ const source=(id:string,title:string,body:string)=>({id,title,body,origin:'Fixture'});
+ const rows=[source('a','Tide tables','Notes on harbor tides.'),source('b','Bakery visit','Croissant review.'),source('c','Note','Avery asked about the estate plan and our finances.'),source('d','Will and trust draft','Estate planning with counsel.'),source('e','Journal','A quiet morning.')];
+ const ranked=rankCandidates(rows,'Include everything about me and [[projection/entities/a.md|Avery Example]]\'s finances, estate, and family planning.',[{title:'Avery Example',aliases:['Avery'],sourceIds:new Set(['e'])}]).map(r=>r.id);
+ expect(ranked.slice(0,3).sort()).toEqual(['c','d','e']);expect(ranked.slice(3)).toEqual(['a','b']);
+ expect(rankCandidates(rows,'Anything.').map(r=>r.id)).toEqual(['a','b','c','d','e']);
+});
+test('before any include, the likeliest matches are shown first',async()=>{
+ const c=fixture();try{
+  const s=await idle(c.root,startReview(c,factory).id);
+  expect(reviewState(s).items.map(i=>i.body)).toEqual(['Complete source 0.95','Complete source 0.9','Complete source 0.85']);
  }finally{rmSync(c.root,{recursive:true,force:true});}
 });

@@ -31,6 +31,7 @@ export async function sharedSettingsApi(req:IncomingMessage,res:ServerResponse,r
   else if(req.method==='POST') {
    const body=JSON.parse(await readBody(req,100000));
    if(action==='member-invite')json(res,201,await sharedRequest(c,'/v1/invites',{name:body.name,permission:body.permission}));
+   else if(action==='member-add')json(res,201,await sharedRequest(c,'/v1/members',{email:body.email,permission:body.permission}));
    else if(['member-access','member-remove','invite-cancel'].includes(action??'')) {
     if(typeof body.id!=='string'||! /^(mem_[a-f0-9]{8}|[a-f0-9]{24})$/.test(body.id))throw Error('Invalid member or invitation.');
     const path=action==='invite-cancel'?`/v1/invites/${body.id}/cancel`:`/v1/members/${body.id}/${action==='member-access'?'access':'remove'}`;

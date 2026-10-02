@@ -17,15 +17,20 @@
  *
  * Usage:
  *   bigbrain shared init      --vault <dir> --owner <handle> [--display <name>] [--members <file>]
- *   bigbrain shared member add <handle> [--display <name>] [--permissions read,write]
+ *   bigbrain shared member add <handle> [--display <name>] [--permissions read,write] [--email <addr>]
  *   bigbrain shared member list
- *   bigbrain shared member set <handle> --permissions read[,write]
+ *   bigbrain shared member set <handle> [--permissions read[,write]] [--email <addr> | --clear-email]
  *   bigbrain shared member revoke <handle>
  *   bigbrain shared credential mint <handle> --name <label> [--kind person|agent] [--scopes read,write]
  *   bigbrain shared credential list [<handle>]
  *   bigbrain shared credential revoke <id>
  *   bigbrain shared inspect
- *   bigbrain shared serve     [--host 127.0.0.1] [--port 4749]
+ *   bigbrain shared serve     [--host 127.0.0.1] [--port 4749] [--public-url https://vault.example.com]
+ *
+ * `--public-url` (or BIGBRAIN_SHARED_PUBLIC_URL) turns on the Claude
+ * connector — OAuth sign-in and a read-only `/mcp` (docs/shared-vault-connector.md);
+ * BIGBRAIN_SHARED_GOOGLE_CLIENT_ID / _SECRET add "Sign in with Google".
+ * A member's email is what that sign-in matches, once, before binding.
  *
  * A secret is printed ONCE, at mint time; only its sha256 is stored.
  * `--json` on any command prints machine-readable output (the smoke
@@ -37,7 +42,7 @@ import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { flagValue, hasFlag, positionals } from "../lib/cliflags";
 import { ensureDir } from "../lib/fsx";
-import { sharedMemberStore, sharedPort, sharedVaultOverride } from "../lib/env";
+import { sharedGoogleClientId, sharedGoogleClientSecret, sharedMemberStore, sharedPort, sharedPublicUrl, sharedVaultOverride } from "../lib/env";
 import { acquire, release } from "../lib/pidLock";
 import {
   addMember,
@@ -48,15 +53,17 @@ import {
   mintCredential,
   revokeCredential,
   revokeMember,
+  setMemberEmail,
   setMemberPermissions,
   SharedMemberError,
   type SharedCredentialKind,
 } from "../lib/sharedMembers";
 import { SharedVault, SHARED_FEED_DIR } from "../lib/sharedVault";
 import { makeSharedApiHandler, MAX_SHARED_REQUEST_BYTES } from "../lib/sharedVaultApi";
+import { MCP_PATH, parsePublicUrl, type SharedConnectorConfig } from "../lib/sharedOAuth";
 
 const argv = process.argv.slice(2);
-const VALUE_FLAGS = new Set(["vault", "members", "owner", "display", "permissions", "name", "kind", "scopes", "host", "port"]);
+const VALUE_FLAGS = new Set(["vault", "members", "owner", "display", "permissions", "name", "kind", "scopes", "host", "port", "email", "public-url"]);
 const words = positionals(argv, VALUE_FLAGS);
 const [cmd, sub, ...restWords] = words;
 const asJson = hasFlag(argv, "json");
@@ -64,12 +71,13 @@ const asJson = hasFlag(argv, "json");
 function usage(code: number): never {
   console.error(`usage: bigbrain shared <command> --vault <dir> [--members <file>] [--json]
   init --owner <handle> [--display <name>]          (the member store must be OUTSIDE the vault)
-  member add <handle> [--display <name>] [--permissions read,write]
-  member list | member set <handle> --permissions … | member revoke <handle>
+  member add <handle> [--display <name>] [--permissions read,write] [--email <addr>]
+  member list | member set <handle> [--permissions …] [--email <addr> | --clear-email] | member revoke <handle>
   credential mint <handle> --name <label> [--kind person|agent] [--scopes read,write]
   credential list [<handle>] | credential revoke <id>
   inspect
-  serve [--host 127.0.0.1] [--port ${sharedPort()}] [--remote]   (--remote: bind off loopback, TLS in front)`);
+  serve [--host 127.0.0.1] [--port ${sharedPort()}] [--remote]   (--remote: bind off loopback, TLS in front)
+        [--public-url https://vault.example.com]           (turns on the Claude connector)`);
   process.exit(code);
 }
 
@@ -127,19 +135,25 @@ function runMember(store: string): void {
   const handle = restWords[0];
   if (sub === "add") {
     if (!handle) fail("member add: <handle> is required");
-    const m = addMember(store, { handle, display: flagValue(argv, "display"), permissions: splitList(flagValue(argv, "permissions")) });
-    out(`added ${m.handle} (${m.id}) permissions ${m.permissions.join(",")}`, m);
+    const email = flagValue(argv, "email");
+    const m = addMember(store, { handle, display: flagValue(argv, "display"), permissions: splitList(flagValue(argv, "permissions")), ...(email !== undefined ? { email } : {}) });
+    out(`added ${m.handle} (${m.id}) permissions ${m.permissions.join(",")}${m.email ? ` email ${m.email}` : ""}`, m);
   } else if (sub === "list") {
     const rows = listMembers(store);
     out(
-      rows.map((m) => `${m.handle.padEnd(20)} ${m.role.padEnd(7)} ${m.permissions.join(",").padEnd(11)} ${m.revoked ? `revoked ${m.revoked}` : "live"}`).join("\n") || "(no members)",
+      rows.map((m) => `${m.handle.padEnd(20)} ${m.role.padEnd(7)} ${m.permissions.join(",").padEnd(11)} ${m.revoked ? `revoked ${m.revoked}` : "live"}${m.email ? `  ${m.email}${m.identity ? " (signed in)" : m.pending ? " (pending)" : ""}` : ""}`).join("\n") || "(no members)",
       rows
     );
   } else if (sub === "set") {
     const perms = splitList(flagValue(argv, "permissions"));
-    if (!handle || !perms) fail("member set: <handle> --permissions read[,write]");
-    const m = setMemberPermissions(store, handle, perms);
-    out(`${m.handle} permissions ${m.permissions.join(",")}`, m);
+    const email = flagValue(argv, "email");
+    const clear = hasFlag(argv, "clear-email");
+    if (!handle || (!perms && email === undefined && !clear) || (email !== undefined && clear))
+      fail("member set: <handle> [--permissions read[,write]] [--email <addr> | --clear-email]");
+    let m = perms ? setMemberPermissions(store, handle, perms) : undefined;
+    // Changing or clearing an email unbinds the account that signed in with it.
+    if (email !== undefined || clear) m = setMemberEmail(store, handle, clear ? null : email!);
+    out(`${m!.handle} permissions ${m!.permissions.join(",")}${m!.email ? ` email ${m!.email}` : " no email"}`, m);
   } else if (sub === "revoke") {
     if (!handle) fail("member revoke: <handle> is required");
     const m = revokeMember(store, handle);
@@ -170,6 +184,26 @@ function runCredential(store: string): void {
     if (!revokeCredential(store, id)) fail(`credential revoke: no credential ${id}`);
     out(`revoked credential ${id}`, { id, revoked: true });
   } else usage(2);
+}
+
+/** The Claude connector, when the operator asked for it: a public URL from
+ * `--public-url` or the environment, and Google only when BOTH halves of
+ * its client are set — half a client is a mistake to name, not to ignore. */
+function connectorConfig(): SharedConnectorConfig | undefined {
+  const raw = flagValue(argv, "public-url") ?? sharedPublicUrl();
+  const id = sharedGoogleClientId();
+  const secret = sharedGoogleClientSecret();
+  if (!raw) {
+    if (id || secret) console.error("shared: BIGBRAIN_SHARED_GOOGLE_* is set but no public URL — the connector stays off");
+    return undefined;
+  }
+  try {
+    parsePublicUrl(raw);
+  } catch (error) {
+    fail(`serve: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  if (Boolean(id) !== Boolean(secret)) fail("serve: set both BIGBRAIN_SHARED_GOOGLE_CLIENT_ID and BIGBRAIN_SHARED_GOOGLE_CLIENT_SECRET, or neither");
+  return { publicUrl: raw, ...(id && secret ? { google: { clientId: id, clientSecret: secret } } : {}) };
 }
 
 function run(): void {
@@ -233,6 +267,7 @@ function run(): void {
       if (!loopback && !hasFlag(argv, "remote"))
         fail(`serve: refusing to bind ${hostname} without --remote — bearer credentials would cross the network in plaintext; front the door with TLS and pass --remote (docs/shared-vault.md)`);
       if (!loopback) console.error(`shared: binding ${hostname} (--remote) — this is plaintext HTTP; TLS must terminate in front of it`);
+      const connector = connectorConfig();
       // The lock is a directory under .state/ (lib/pidLock.ts: mkdir is
       // atomic); its PARENT must exist first or the mkdir fails for the
       // wrong reason and reads as a live holder.
@@ -241,7 +276,7 @@ function run(): void {
       if (!acquire(lock, "shared")) fail(`serve: another server holds ${lock}`);
       const vault = new SharedVault(root);
       vault.recoverPending();
-      const handler = makeSharedApiHandler({ root, storePath: store, vault });
+      const handler = makeSharedApiHandler({ root, storePath: store, vault, ...(connector ? { connector } : {}) });
       let server: ReturnType<typeof Bun.serve>;
       try {
         server = Bun.serve({ hostname, port, maxRequestBodySize: MAX_SHARED_REQUEST_BYTES, idleTimeout: 30, fetch: handler });
@@ -263,7 +298,8 @@ function run(): void {
       process.on("SIGTERM", stop);
       // One line, machine-readable, so a supervisor or a test learns the
       // bound port (port 0 = ephemeral) without parsing prose.
-      console.log(JSON.stringify({ shared: "listening", hostname, port: server.port, vault: root, members: store, feed_head: vault.head() }));
+      console.log(JSON.stringify({ shared: "listening", hostname, port: server.port, vault: root, members: store, feed_head: vault.head(),
+        ...(connector ? { connector: `${parsePublicUrl(connector.publicUrl)}${MCP_PATH}`, google: Boolean(connector.google) } : {}) }));
       return;
     }
     default:
