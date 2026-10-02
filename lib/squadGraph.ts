@@ -28,6 +28,12 @@ export interface SquadFeedRow {
   at: string;
   /** SquadAuthor.id, or null for a user or the engine's own bookkeeping. */
   author: string | null;
+  /** Exactly who the record says wrote it: the model id when the record
+   * names one (the vault's own passes), else the client or user id. */
+  by: string;
+  /** Whether `by` is a model. Connected clients write over MCP under their
+   * own name (lib/vaultTools.ts, invocation "mcp"): their model isn't recorded. */
+  model: boolean;
   text: string;
   entities: string[];
 }
@@ -52,6 +58,12 @@ export function authorName(id: string): string {
   return NAMES[id] ?? id.split(/[-_]/).filter(Boolean).map((w, i) => (i ? w : w[0]!.toUpperCase() + w.slice(1))).join(" ");
 }
 
+/** A model author names its model, except a connected client writing over MCP,
+ * which records only its own name. */
+export function namesModel(author: AssertionEvent["author"]): boolean {
+  return author.kind === "model" && "invocation_id" in author && author.invocation_id !== "mcp";
+}
+
 /** `[[id|Label]]` and `[[Label]]` read as their labels: the feed is prose. */
 export function plainText(text: string): string {
   return text.replace(/\[\[[^|\]]*\|([^\]]*)\]\]/g, "$1").replace(/\[\[([^\]]*)\]\]/g, "$1").replace(/\s+/g, " ").trim();
@@ -69,7 +81,7 @@ export function buildSquad(rows: readonly AssertionEvent[], aliases: EntityAlias
     authors.set(id, a);
   }
   const feed = live.slice(-FEED).map((row) => ({
-    id: row.id, at: row.created_at, author: authorOf(row), text: plainText(row.text),
+    id: row.id, at: row.created_at, author: authorOf(row), by: row.author.id, model: namesModel(row.author), text: plainText(row.text),
     entities: [...new Set(row.entities.map((e) => aliases.canonical.get(e.id)?.id ?? e.id))],
   }));
   return { authors: [...authors.values()].sort((a, b) => b.lastAt.localeCompare(a.lastAt) || a.id.localeCompare(b.id)), feed };

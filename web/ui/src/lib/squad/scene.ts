@@ -19,12 +19,13 @@ export interface SceneHooks {
 export interface SquadScene {
   /** Back to the whole field. */
   overview(): void;
-  /** Open an entity: it and its ties come forward. `text` is its latest word. */
-  openEntity(i: number | null, ties?: number[], text?: string): void;
+  /** Open an entity: it and its ties come forward. `text` sits beside it,
+   * under `caption` — which says what the text is (a summary, the latest assertion). */
+  openEntity(i: number | null, ties?: number[], text?: string, caption?: string): void;
   /** Search state: null closes it; matches light up; `active` is in hand.
    * `move`: frame every match (a new query), glide to the active one (an
    * arrow key), or hold the camera (its text arriving). */
-  search(state: { matches: number[]; active: number | null; text?: string; move: "frame" | "glide" | "none" } | null): void;
+  search(state: { matches: number[]; active: number | null; text?: string; caption?: string; move: "frame" | "glide" | "none" } | null): void;
   /** A hovered feed row: what it mentions. */
   hover(entities: number[] | null): void;
   /** Pixels to slide the scene's centre right, clear of a left panel. */
@@ -152,8 +153,8 @@ export function createSquadScene(host: HTMLElement, field: Field, hooks: SceneHo
   });
 
   // ── state ────────────────────────────────────────────────────────────────
-  let ent: { i: number; ties: number[]; text?: string } | null = null;
-  let srch: { matches: Set<number>; active: number | null; text?: string } | null = null;
+  let ent: { i: number; ties: number[]; text?: string; caption?: string } | null = null;
+  let srch: { matches: Set<number>; active: number | null; text?: string; caption?: string } | null = null;
   let hot: Set<number> | null = null;
   let shiftGoal = 0, shiftNow = 0;
   const rel = new Float32Array(N), heat = new Float32Array(N), match = new Float32Array(N);
@@ -186,15 +187,18 @@ export function createSquadScene(host: HTMLElement, field: Field, hooks: SceneHo
       const t = document.createElement("span");
       t.className = "t";
       t.textContent = field.nodes[i]!.label;
+      const c = document.createElement("span");
+      c.className = "c";
       const q = document.createElement("span");
       q.className = "q";
-      L.append(t, q);
+      L.append(t, c, q);
       labelLayer.append(L);
       labels.set(i, L);
     }
     return L;
   };
-  const say = (L: HTMLDivElement, name: string, text: string | undefined) => {
+  const say = (L: HTMLDivElement, name: string, text: string | undefined, caption?: string) => {
+    L.querySelector(".c")!.textContent = text ? caption ?? "" : "";
     const q = L.querySelector(".q")!;
     if (!text) { q.textContent = ""; return; }
     const at = text.toLowerCase().indexOf(name.toLowerCase());
@@ -344,6 +348,7 @@ export function createSquadScene(host: HTMLElement, field: Field, hooks: SceneHo
     const cand: Cand[] = [];
     const inHand = srch ? srch.active : ent ? ent.i : null;
     const handText = srch ? srch.text : ent?.text;
+    const handCaption = srch ? srch.caption : ent?.caption;
     for (let i = 0; i < N; i++) {
       const n = field.nodes[i]!;
       const full = i === inHand && !!handText;
@@ -356,7 +361,7 @@ export function createSquadScene(host: HTMLElement, field: Field, hooks: SceneHo
       if (lab.full !== full) {
         lab.full = full;
         lab.classList.toggle("full", full);
-        say(lab, n.label, full ? handText : undefined);
+        say(lab, n.label, full ? handText : undefined, handCaption);
         lab.w = undefined;
       }
       toScreen(P[i]!, s1);
@@ -378,16 +383,18 @@ export function createSquadScene(host: HTMLElement, field: Field, hooks: SceneHo
 
   return {
     overview() { ent = null; setGoal({ ...OVERVIEW, az: rig.az }); },
-    openEntity(i, tiesTo = [], text) {
+    openEntity(i, tiesTo = [], text, caption) {
       if (i == null) { ent = null; return; }
-      ent = { i, ties: tiesTo, text };
+      const same = ent?.i === i;
+      ent = { i, ties: tiesTo, text, caption };
       const lab = labels.get(i);
-      if (lab) lab.full = undefined;
-      frameAround([P[i]!, ...tiesTo.map((t) => P[t]!)], 0.5, 2.6, 7, 16);
+      if (lab) { lab.full = undefined; lab.w = undefined; }
+      // new words for the same entity (a streaming summary) leave the camera be
+      if (!same) frameAround([P[i]!, ...tiesTo.map((t) => P[t]!)], 0.5, 2.6, 7, 16);
     },
     search(state) {
       if (!state) { srch = null; return; }
-      srch = { matches: new Set(state.matches), active: state.active, text: state.text };
+      srch = { matches: new Set(state.matches), active: state.active, text: state.text, caption: state.caption };
       const lab = state.active != null ? labels.get(state.active) : undefined;
       if (lab) lab.full = undefined;
       if (state.move === "glide" && state.active != null) setGoal({ el: 0.5, dist: 9, target: P[state.active]!.clone() });

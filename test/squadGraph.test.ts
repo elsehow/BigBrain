@@ -60,6 +60,15 @@ describe("squad feed", () => {
     expect(only).toMatchObject({ author: "pi", text: "Met Ada about the orrery.", entities: [ada.id] });
   });
 
+  test("a row names its model only when the record does", () => {
+    const [own, client] = buildSquad([
+      row({ kind: "model", id: "model-a", invocation_id: "run-1" }, "intake-assertion-agent", [ada], day(1)),
+      row({ kind: "model", id: "pi", invocation_id: "mcp" }, "bigbrain-mcp", [ada], day(2)),
+    ], noAliases).feed;
+    expect(own).toMatchObject({ author: "gardener", by: "model-a", model: true });
+    expect(client).toMatchObject({ author: "pi", by: "pi", model: false });
+  });
+
   test("plain text reads wikilinks as their labels", () => {
     expect(plainText("Met [[ent_x|Ada]] about [[Atlas]].\n Again.")).toBe("Met Ada about Atlas. Again.");
   });

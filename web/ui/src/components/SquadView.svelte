@@ -2,7 +2,9 @@
   // /squad (its own page, squad.html) — the vault as a field, and the record
   // read as it lands, each assertion with its author. The canvas is
   // lib/squad/scene.ts (three.js, loaded on demand); everything with words
-  // is here. Keys: / search by name, Esc back out.
+  // is here. Keys: / search by name, j/k step through the memory topics,
+  // Shift+Enter starts a pilot on what's in hand (and opens it in the app),
+  // Esc back out.
   import { onMount, tick } from "svelte";
   import { api } from "../lib/api";
   import type { GraphData } from "../lib/types";
@@ -30,6 +32,7 @@
   let query = $state("");
   let matches: number[] = $state([]);
   let active = $state(0);
+  let notice = $state("");
 
   const authorName = (id: string | null) => (id ? squad?.authors.find((a) => a.id === id)?.name ?? id : "You");
   const when = (iso: string) => {
@@ -81,13 +84,84 @@
     scene?.shift(shiftFor());
   }
 
-  /** An entity's latest word: the feed's if it's there, else its own record. */
-  async function latestWord(i: number): Promise<string | undefined> {
+  /** The memory topics, left to right across the field: j/k's order. */
+  let memories: number[] = $derived.by(() => {
+    const f: Field | null = field;
+    return f ? f.nodes.filter((n) => n.memory).sort((a, b) => a.p[0] - b.p[0]).map((n) => n.i) : [];
+  });
+  function stepMemory(dir: 1 | -1): void {
+    if (!memories.length) return;
+    const at = ent == null ? -1 : memories.indexOf(ent);
+    const next = at < 0 ? (dir > 0 ? 0 : memories.length - 1) : (at + dir + memories.length) % memories.length;
+    void openEntity(memories[next]!);
+  }
+  /** A memory topic's own first paragraph: citations dropped, links read as labels. */
+  async function memorySummary(path: string): Promise<string | undefined> {
+    try {
+      const body = (await api.note(path)).content.replace(/^---[\s\S]*?\n---\n/, "");
+      const para = body.split(/\n\s*\n/).map((p) => p.trim()).find((p) => p && !p.startsWith("#"));
+      if (!para) return undefined;
+      const text = plain(para.replace(/\s*\[\[ast_[^\]]*\]\]/g, "")).replace(/[*_`]/g, "");
+      return text.length <= 240 ? text : text.slice(0, 239).replace(/\s+\S*$/, "") + "…";
+    } catch { return undefined; }
+  }
+
+  /** What Shift+Enter starts a pilot on: the active search result, else the opened thing. */
+  const inHand = () => (searching ? matches[active] ?? null : ent);
+  /** A pilot seeded with that note, as the app's own lists start one; then open it there. */
+  async function startPilot(): Promise<void> {
+    const i = inHand();
+    const path = i == null ? null : field?.nodes[i]?.path;
+    if (!path) { flash("Open something first — Shift+Enter starts a pilot on it."); return; }
+    const id = `pilot-${crypto.randomUUID().replaceAll("-", "")}`;
+    try {
+      const r = await fetch("/api/pilot/chat/create", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, context: [path] }) });
+      if (!r.ok) throw new Error(((await r.json().catch(() => ({}))) as { error?: string }).error ?? `The engine said ${r.status}.`);
+      location.href = `./#/session/${id}`;
+    } catch (e) {
+      flash(`Couldn’t start a pilot: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+  let noticeTimer: ReturnType<typeof setTimeout> | undefined;
+  function flash(text: string): void { notice = text; clearTimeout(noticeTimer); noticeTimer = setTimeout(() => { notice = ""; }, 4200); }
+
+  type Said = { text: string; caption: string } | undefined;
+  const day = (iso: string) => new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  /** An entity's latest assertion: the feed's if it's there, else its own record's. */
+  async function latestWord(i: number): Promise<Said> {
     const n = field!.nodes[i]!;
     const inFeed = [...squad!.feed].reverse().find((r) => r.entities.includes(n.id));
-    if (inFeed) return inFeed.text;
+    if (inFeed) return { text: inFeed.text, caption: `Latest assertion · ${day(inFeed.at)}` };
     if (data || !n.path) return undefined;
-    try { return plain((await api.note(n.path, 1)).projectedEntity?.assertions.at(-1)?.text ?? "") || undefined; } catch { return undefined; }
+    try {
+      const last = (await api.note(n.path, 1)).projectedEntity?.assertions.at(-1);
+      return last ? { text: plain(last.text), caption: `Latest assertion · ${day(last.created_at)}` } : undefined;
+    } catch { return undefined; }
+  }
+  /** Quick's briefing on a note — the summary the app shows when you select it.
+   * Cached by the engine per note and evidence; a fresh one streams as it's written. */
+  async function briefing(path: string, onText: (text: string) => void): Promise<boolean> {
+    try {
+      const r = await fetch("/api/note/briefing", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ path, stream: true }) });
+      if (!r.ok || !r.body) return false;
+      const reader = r.body.getReader(), dec = new TextDecoder();
+      let buf = "", done = false;
+      while (!done) {
+        const chunk = await reader.read();
+        done = chunk.done;
+        buf += dec.decode(chunk.value ?? new Uint8Array(), { stream: !done });
+        const lines = buf.split("\n");
+        buf = lines.pop() ?? "";
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          const ev = JSON.parse(line) as { type: string; text?: string; briefing?: { summary: string }; error?: string };
+          if (ev.type === "preview" && ev.text) onText(plain(ev.text));
+          else if (ev.type === "complete" && ev.briefing) { onText(plain(ev.briefing.summary)); return true; }
+          else if (ev.type === "error") return false;
+        }
+      }
+      return false;
+    } catch { return false; }
   }
   async function openEntity(i: number): Promise<void> {
     if (!field || !squad) return;
@@ -95,13 +169,27 @@
     scene?.openEntity(i, neighbours(field, i));
     scene?.shift(shiftFor());
     const n = field.nodes[i]!;
-    const word = await latestWord(i);
-    if (ent === i) scene?.openEntity(i, neighbours(field, i), word);
+    const ties = neighbours(field, i);
+    // beside it, at once: the memory's own opening lines, or the latest assertion;
+    // then Quick's summary as it arrives, if the engine will give one
+    const first: Said = n.memory
+      ? (data || !n.path ? undefined : await memorySummary(n.path).then((t) => (t ? { text: t, caption: "From the memory note" } : undefined)))
+      : await latestWord(i);
+    if (ent !== i) return;
+    scene?.openEntity(i, ties, first?.text, first?.caption);
+    if (!data && n.path) void briefing(n.path, (text) => { if (ent === i) scene?.openEntity(i, ties, text, "Summary · Quick"); });
+    if (n.memory) {
+      // a memory topic is a note, not an entity: its feed is about what it cites
+      const cites = new Set(neighbours(field, i, 24).map((j) => field!.nodes[j]!.id));
+      entRows = squad.feed.filter((r) => r.entities.some((id) => cites.has(id)));
+      return;
+    }
     if (data || !n.path) { entRows = squad.feed.filter((r) => r.entities.includes(n.id)); return; }
     try {
       const view = (await api.note(n.path, 6)).projectedEntity;
       if (ent !== i || !view) return;
-      entRows = view.assertions.map((a) => ({ id: a.id, at: a.created_at, author: squad!.authors.some((g) => g.id === a.author.id) ? a.author.id : null, text: plain(a.text), entities: [n.id] }));
+      entRows = view.assertions.map((a) => ({ id: a.id, at: a.created_at, author: squad!.authors.some((g) => g.id === a.author.id) ? a.author.id : null,
+        by: a.author.id, model: a.author.kind === "model" && a.author.invocation_id !== "mcp", text: plain(a.text), entities: [n.id] }));
     } catch { entRows = squad.feed.filter((r) => r.entities.includes(n.id)); }
   }
 
@@ -135,8 +223,8 @@
   async function sayActive(): Promise<void> {
     const i = matches[active];
     if (i == null) return;
-    const text = await latestWord(i);
-    if (searching && matches[active] === i) scene?.search({ matches, active: i, text, move: "none" });
+    const said = await latestWord(i);
+    if (searching && matches[active] === i) scene?.search({ matches, active: i, text: said?.text, caption: said?.caption, move: "none" });
   }
   function commit(k = active): void {
     const i = matches[k];
@@ -163,6 +251,7 @@
       // typing in the search box is ours entirely; the characters still land
       if (e.key === "ArrowDown") { take(e); void setActive(active + 1); }
       else if (e.key === "ArrowUp") { take(e); void setActive(active - 1); }
+      else if (e.key === "Enter" && e.shiftKey) { take(e); void startPilot(); }
       else if (e.key === "Enter") { take(e); commit(); }
       else if (e.key === "Escape") { take(e); closeSearch(); }
       return true;
@@ -171,6 +260,8 @@
     if (t?.tagName === "INPUT" || t?.tagName === "TEXTAREA" || t?.isContentEditable) return false;
     if (e.key === "/") { take(e); openSearch(); return true; }
     if (e.key === "Escape" && ent != null) { take(e); overview(); return true; }
+    if (e.key === "j" || e.key === "k") { take(e); stepMemory(e.key === "j" ? 1 : -1); return true; }
+    if (e.key === "Enter" && e.shiftKey) { take(e); void startPilot(); return true; }
     return false;
   }
   function take(e: KeyboardEvent): void { e.preventDefault(); e.stopPropagation(); }
@@ -227,12 +318,16 @@
         <div class="row" role="presentation"
           onmouseenter={() => scene?.hover(r.entities.map((id) => field!.byId.get(id)).filter((x): x is number => x != null))}
           onmouseleave={() => scene?.hover(null)}>
-          <span class="w">{when(r.at)}</span><span class="a">{authorName(r.author)}</span><span class="x">{r.text}</span>
+          <span class="w">{when(r.at)}</span>
+          <span class="a" class:client={!r.model} title={r.model ? `Written by ${r.by}` : r.author ? `Written through ${authorName(r.author)}; the model it ran isn’t recorded` : "Written by you"}>{r.by}</span>
+          <span class="x">{r.text}</span>
         </div>
       {/each}
     </div>
   {/if}
 
+  <p class="hints" aria-hidden="true"><span>/ Search</span><span>j k Memories</span><span>⇧↵ Pilot</span>{#if ent != null}<span>Esc Back</span>{/if}</p>
+  {#if notice}<p class="notice" role="status">{notice}</p>{/if}
   {#if error}<p class="error">The squad view couldn’t load: {error}</p>{/if}
 </div>
 
@@ -252,7 +347,8 @@
     text-shadow: 0 0 3px var(--bg), 0 0 8px var(--bg), 0 0 16px var(--bg); }
   .stage :global(.sq-node .t) { font: 400 11px/1.2 var(--font-mono); letter-spacing: -0.01em; color: var(--sq-muted); }
   .stage :global(.sq-node.memory .t) { font: 500 12px/1.2 var(--font-app); color: var(--fg); }
-  .stage :global(.sq-node .q) { display: none; }
+  .stage :global(.sq-node .q), .stage :global(.sq-node .c) { display: none; }
+  .stage :global(.sq-node.full .c:not(:empty)) { display: block; margin-bottom: 6px; font: 600 9px/1 var(--font-mono); letter-spacing: .14em; text-transform: uppercase; color: var(--sq-faint); }
   .stage :global(.sq-node.full .t) { display: none; }
   .stage :global(.sq-node.full .q) { display: block; white-space: normal; width: max-content; max-width: 32ch;
     font: 400 13px/1.45 var(--font-app); color: color-mix(in srgb, var(--fg) 82%, var(--bg)); }
@@ -290,11 +386,16 @@
     font: 400 12.5px/1.35 var(--font-app); text-shadow: 0 0 6px var(--bg), 0 0 14px var(--bg); }
   .row { display: grid; grid-template-columns: 92px 120px minmax(0, 1fr); gap: 12px; align-items: baseline; padding: 2px 0; white-space: nowrap; cursor: default; transition: opacity .12s ease; }
   .row .w { font: 500 9.5px/1 var(--font-mono); letter-spacing: .06em; text-transform: uppercase; color: var(--sq-faint); font-variant-numeric: tabular-nums; }
-  .row .a { font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
+  .row .a { font: 500 11px/1 var(--font-mono); overflow: hidden; text-overflow: ellipsis; }
+  .row .a.client { color: var(--sq-muted); }
   .row .x { overflow: hidden; text-overflow: ellipsis; color: color-mix(in srgb, var(--fg) 82%, var(--bg)); }
   .row:nth-last-child(2) { opacity: .7; } .row:nth-last-child(3) { opacity: .5; } .row:nth-last-child(4) { opacity: .36; }
   .row:nth-last-child(5) { opacity: .25; } .row:nth-last-child(6) { opacity: .16; }
   .feed:hover .row { opacity: .45; } .feed .row:hover { opacity: 1; } .row:hover .x { color: var(--fg); }
+  .hints { position: absolute; right: var(--app-gutter, 34px); bottom: 26px; margin: 0; display: flex; gap: 18px; pointer-events: none;
+    font: 600 10px/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--sq-faint); }
+  .notice { position: absolute; right: var(--app-gutter, 34px); bottom: 50px; max-width: 46ch; margin: 0; padding: 9px 12px; border-radius: 8px;
+    background: color-mix(in srgb, var(--fg) 8%, var(--bg)); font: 400 13px/1.4 var(--font-app); color: var(--fg); }
   .error { position: absolute; top: 80px; left: var(--app-gutter, 34px); font: 400 13px/1.5 var(--font-app); color: var(--sq-muted); }
   @media (max-width: 700px) {
     .row { grid-template-columns: 72px minmax(0, 1fr); } .row .w { display: none; }
