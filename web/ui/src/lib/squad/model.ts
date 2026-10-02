@@ -131,6 +131,8 @@ export interface PilotSummary {
   model: string;
   phase: "draft" | "working" | "answered" | "interrupted" | "failed";
   lifecycle?: "active" | "dormant" | "ingested";
+  /** Set when the session was archived (closed by hand) — the app's rule. */
+  deactivatedAt?: string;
   lastActivityAt?: string;
   updated?: string;
   live?: string;
@@ -148,12 +150,13 @@ export interface FieldPilot {
   p: [number, number, number];
 }
 
-/** The pilots worth a place: active ones only, newest first — archived
- * (dormant) and filed-away (ingested) sessions don't take a seat; plus `keep`
- * (the one open), whatever its state, until it's closed. */
+/** The pilots worth a place, newest first: not archived (closed by hand —
+ * the app's own rule, `deactivatedAt`) and not filed away (ingested, after a
+ * day idle). An idle session ("dormant" after ten quiet minutes) keeps its
+ * seat. Plus `keep` (the one open), whatever its state, until it's closed. */
 export function barPilots(sessions: readonly PilotSummary[], keep: string | null, limit = 6): PilotSummary[] {
   const at = (s: PilotSummary) => s.lastActivityAt ?? s.updated ?? "";
-  const live = sessions.filter((s) => s.lifecycle === "active").sort((a, b) => at(b).localeCompare(at(a))).slice(0, limit);
+  const live = sessions.filter((s) => !s.deactivatedAt && s.lifecycle !== "ingested").sort((a, b) => at(b).localeCompare(at(a))).slice(0, limit);
   const open = keep ? sessions.find((s) => s.id === keep) : undefined;
   return open && !live.includes(open) ? [open, ...live] : live;
 }

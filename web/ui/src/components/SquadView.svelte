@@ -188,7 +188,7 @@
   }
   /** Slide the field's centre clear of the panels: right of a left column, left of the sidebar. */
   const shiftFor = () => {
-    const left = searching ? Math.min(600, innerWidth * 0.4) : openPilot ? Math.min(560, innerWidth * 0.4) + 34 : ent != null ? Math.min(380, innerWidth * 0.26) : 0;
+    const left = searching ? Math.min(600, innerWidth * 0.4) : openPilot ? Math.min(760, Math.max(420, innerWidth * 0.34)) + 34 : ent != null ? Math.min(380, innerWidth * 0.26) : 0;
     const right = sidebarOpen ? Math.min(640, innerWidth * 0.38) + 34 : 0;
     return (left - right) / 2;
   };
@@ -378,6 +378,8 @@
     if (e.key === "Escape" && openPilot) { take(e); closePilot(); return true; }
     if (e.key === "Escape" && ent != null) { take(e); overview(); return true; }
     if (e.key === "n") { take(e); void createPilot([]); return true; }
+    const slot = Number(e.key);
+    if (slot >= 1 && slot <= bar.length) { take(e); const p = bar[slot - 1]!; if (openPilot === p.id) closePilot(); else openPilotChat(p.id); return true; }
     if (e.key === "\\" && openPilot) { take(e); toggleSidebar(); return true; }
     if (e.key === "j" || e.key === "k") { take(e); stepMemory(e.key === "j" ? 1 : -1); return true; }
     if (e.key === "Enter" && e.shiftKey) { take(e); void startPilot(); return true; }
@@ -396,11 +398,12 @@
 
   {#if field}
     <nav class="strip" aria-label="Pilots">
-      {#each bar as p (p.id)}
+      <!-- the task's full name is the token: no model squeezed in beside it -->
+      {#each bar as p, k (p.id)}
         <button type="button" class="tok" class:on={openPilot === p.id} class:working={p.phase === "working"} aria-pressed={openPilot === p.id}
-          title={`${p.title} · ${p.model} · ${PHASE[p.phase]}`} onclick={() => (openPilot === p.id ? closePilot() : openPilotChat(p.id))}>
+          title={`${p.title} · ${p.model} · ${PHASE[p.phase]} (${k + 1})`} onclick={() => (openPilot === p.id ? closePilot() : openPilotChat(p.id))}>
           <svg width="11" height="11" viewBox="-12 -12 24 24" aria-hidden="true"><path d="M 0 9 L 7.794 -4.5 L -7.794 -4.5 Z" /></svg>
-          <span class="t">{p.title}</span><span class="by">{p.model}</span>
+          <span class="k">{k + 1}</span><span class="t">{p.title}</span>
         </button>
       {/each}
       <button type="button" class="new" onclick={() => void createPilot([])} title="New pilot (⌘N)">+ <span class="k">⌘N</span></button>
@@ -462,10 +465,9 @@
     <section class="chat" bind:this={chatEl} aria-label="Pilot conversation">
       <header>
         <div class="top">
-          <span class="eyebrow" class:hot={detail.phase === "working"}>Pilot · {detail.model} · {PHASE[detail.phase]}</span>
+          <h2>{detail.title}</h2>
           <button type="button" class="find" class:lit={sidebarOpen} onclick={toggleSidebar} title="This agent's workspace (\)">Workspace <span class="k">\</span></button>
         </div>
-        <h2>{detail.title}</h2>
         {#if detail.contextNodes?.length}<p class="ctx">{detail.contextNodes.map((n) => n.title ?? n.id).join(" · ")}</p>{/if}
       </header>
       <div class="msgs" bind:this={msgsEl}>
@@ -494,7 +496,7 @@
     </aside>
   {/if}
 
-  <p class="hints" aria-hidden="true"><span>/ Search</span><span>j k Memories</span><span>⇧↵ Pilot</span><span>⌘N New</span>{#if openPilot}<span>\ Workspace</span>{/if}{#if ent != null}<span>Esc Back</span>{/if}</p>
+  <p class="hints" aria-hidden="true"><span>/ Search</span><span>j k Memories</span><span>⇧↵ Pilot</span><span>1–9 Pilots</span><span>⌘N New</span>{#if openPilot}<span>\ Workspace</span>{/if}{#if ent != null}<span>Esc Back</span>{/if}</p>
   {#if notice}<p class="notice" role="status">{notice}</p>{/if}
   {#if error}<p class="error">The squad view couldn’t load: {error}</p>{/if}
 </div>
@@ -534,26 +536,29 @@
   .find:hover { background: color-mix(in srgb, var(--fg) 7%, var(--bg)); }
   .k { font: 500 10px/1 var(--font-mono); color: var(--sq-faint); }
   .find { margin-left: auto; color: var(--sq-muted); }
-  .tok, .new { display: inline-flex; align-items: center; gap: 7px; height: 30px; max-width: 210px; padding: 0 11px; border: 0; border-radius: 999px;
+  .tok, .new { display: inline-flex; align-items: center; gap: 7px; height: 30px; max-width: 40ch; padding: 0 12px; border: 0; border-radius: 999px;
     background: color-mix(in srgb, var(--bg) 70%, transparent); color: var(--fg); font: 500 13px/1 var(--font-app); cursor: pointer; }
   .tok .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .tok svg { flex: none; fill: currentColor; }
   .tok.working svg { fill: none; stroke: var(--activity); stroke-width: 2.4; }
-  .tok .by { flex: none; font: 400 10.5px/1 var(--font-mono); color: var(--sq-faint); }
   .tok:hover, .new:hover { background: color-mix(in srgb, var(--fg) 7%, var(--bg)); }
   .tok.on { background: var(--fg); color: var(--bg); }
-  .tok.on .by { color: color-mix(in srgb, var(--bg) 65%, var(--fg)); }
+  .tok.on .k { color: color-mix(in srgb, var(--bg) 65%, var(--fg)); }
   .new { color: var(--sq-muted); }
   .find.lit { color: var(--fg); }
   /* the chat sits on the ground itself: opaque, fading into the field at its right edge */
-  .chat { position: absolute; top: 0; bottom: 0; left: 0; width: calc(min(560px, 40vw) + var(--app-gutter, 34px)); padding: 72px 0 26px var(--app-gutter, 34px); box-sizing: border-box;
+  /* sized to the window: a wider column and larger type on big screens, the
+     message text held to a readable measure */
+  .chat { --chat-w: clamp(420px, 34vw, 760px); --chat-fs: clamp(14px, 0.42vw + 8.6px, 17.5px);
+    position: absolute; top: 0; bottom: 0; left: 0; width: calc(var(--chat-w) + var(--app-gutter, 34px)); padding: 72px 0 26px var(--app-gutter, 34px); box-sizing: border-box;
     display: flex; flex-direction: column; gap: 14px; background: var(--bg); z-index: 1; }
   .chat::after { content: ""; position: absolute; top: 0; bottom: 0; right: -96px; width: 96px; pointer-events: none;
     background: linear-gradient(to right, var(--bg), color-mix(in srgb, var(--bg) 0%, transparent)); }
-  .chat .top { display: flex; align-items: center; gap: 10px; }
-  .chat .top .find { margin-left: auto; height: 24px; }
+  .chat .top { display: flex; align-items: flex-start; gap: 12px; }
+  .chat .top h2 { flex: 1; min-width: 0; }
+  .chat .top .find { flex: none; margin-top: 4px; height: 24px; }
   .chat header { display: flex; flex-direction: column; gap: 8px; }
-  .chat h2 { margin: 0; font: 500 clamp(22px, 2vw, 28px)/1.15 var(--font-app); letter-spacing: -0.025em; }
+  .chat h2 { margin: 0; font: 500 clamp(22px, 1.7vw, 34px)/1.15 var(--font-app); letter-spacing: -0.025em; }
   .chat .ctx { margin: 0; font: 400 11px/1.4 var(--font-mono); color: var(--sq-faint); }
   .msgs { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; gap: 16px; padding-right: 8px;
     scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--fg) 22%, transparent) transparent; }
@@ -561,7 +566,7 @@
   .msg { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 12px; }
   .msg .who { font: 500 10.5px/1.7 var(--font-mono); color: var(--sq-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .msg.user .who { color: var(--sq-muted); }
-  .msg .body { font: 400 14px/1.55 var(--font-app); color: color-mix(in srgb, var(--fg) 88%, var(--bg)); overflow-wrap: anywhere; }
+  .msg .body { max-width: 68ch; font: 400 var(--chat-fs)/1.6 var(--font-app); color: color-mix(in srgb, var(--fg) 88%, var(--bg)); overflow-wrap: anywhere; }
   .msg.user .body { color: var(--fg); font-weight: 500; }
   .msg .body :global(p) { margin: 0 0 8px; } .msg .body :global(p:last-child) { margin: 0; }
   .msg .body :global(ul), .msg .body :global(ol) { margin: 0 0 8px; padding-left: 18px; }
@@ -571,7 +576,7 @@
   .activity.err { color: color-mix(in srgb, var(--activity) 80%, var(--fg)); }
   .composer { display: flex; flex-direction: column; gap: 8px; }
   .composer textarea { resize: none; border: 0; border-radius: 10px; padding: 12px 14px; background: color-mix(in srgb, var(--fg) 7%, var(--bg)); color: var(--fg);
-    font: 400 15px/1.45 var(--font-app); outline: none; }
+    font: 400 calc(var(--chat-fs) + 1px)/1.45 var(--font-app); outline: none; }
   .composer textarea::placeholder { color: color-mix(in srgb, var(--fg) 55%, transparent); opacity: 1; }
   .composer .row { display: flex; align-items: center; gap: 8px; }
   .composer .row .k { margin-right: auto; }

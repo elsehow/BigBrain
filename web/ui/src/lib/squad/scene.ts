@@ -178,50 +178,90 @@ export function createSquadScene(host: HTMLElement, field: Field, hooks: SceneHo
     scene.add(mesh);
     return { mesh, mat, vis: 1 };
   };
-  // ── pilots: crystals over what they're working on ─────────────────────────
-  // A quartz-like crystal — a six-sided prism with pointed ends, its facets a
-  // little irregular — of dense, dispersive glass. Inside sits a small core you
-  // see THROUGH the crystal, bent by it: the core is opaque, so it's in what the
-  // glass refracts. A working pilot's core glows in the activity colour and
-  // breathes; the open one turns slowly and its core brightens.
-  const crystalShape = (seed: number) => {
-    const g = new THREE.LatheGeometry([new THREE.Vector2(0, -1.15), new THREE.Vector2(0.4, -0.58), new THREE.Vector2(0.43, 0.48), new THREE.Vector2(0, 1.2)], 6);
-    const pos = g.attributes.position!;
-    const jit = (x: number, y: number, z: number, k: number) => {
-      const h = Math.sin((Math.round(x * 100) * 12.9898 + Math.round(y * 100) * 78.233 + Math.round(z * 100) * 37.719 + seed * 0.618 + k * 19.19)) * 43758.5453;
-      return (h - Math.floor(h) - 0.5) * 0.09;
-    };
-    for (let i = 0; i < pos.count; i++) {
-      const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
-      pos.setXYZ(i, x + jit(x, y, z, 1), y + jit(x, y, z, 2), z + jit(x, y, z, 3));
+  // ── pilots: crystal tetrahedra over what they're working on ───────────────
+  // The triangle, in crystal: its faces carry a fine cellular facet texture
+  // (a Voronoi normal map — tiny flat facets, each tilted its own way), so
+  // light breaks across each face like cut glass or ice, restrained in
+  // dispersion. Selected, it glows from within in the activity colour: the
+  // glass itself lit in that colour, and a soft glow at its heart. (An opaque
+  // core seen through the facets broke into blocky shards; the glass glowing
+  // reads as light, not as an object inside.)
+  const tetra = (() => {
+    const v = [[0, -1, 0], [0, 1 / 3, -0.9428], [0.8165, 1 / 3, 0.4714], [-0.8165, 1 / 3, 0.4714]].map((a) => new THREE.Vector3(...(a as [number, number, number])));
+    const pos: number[] = [], uv: number[] = [];
+    for (const f of [[1, 2, 3], [0, 3, 2], [0, 2, 1], [0, 1, 3]]) {
+      let [a, b, d] = f.map((i) => v[i]!) as [THREE.Vector3, THREE.Vector3, THREE.Vector3];
+      if (new THREE.Vector3().crossVectors(b.clone().sub(a), d.clone().sub(a)).dot(a.clone().add(b).add(d)) < 0) [b, d] = [d, b];
+      pos.push(...a.toArray(), ...b.toArray(), ...d.toArray());
+      uv.push(0, 0, 1, 0, 0.5, 0.87);
     }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
     g.computeVertexNormals();
     return g;
-  };
+  })();
+  const facets = (() => {
+    const S = 256, CELLS = 46, data = new Uint8Array(new ArrayBuffer(S * S * 4));
+    let r = 7;
+    const rnd = () => { r = (r * 16807) % 2147483647; return r / 2147483647; };
+    const cells = Array.from({ length: CELLS }, () => {
+      const t = rnd() * Math.PI * 2, tilt = 0.12 + rnd() * 0.3;
+      const n = new THREE.Vector3(Math.cos(t) * tilt, Math.sin(t) * tilt, 1).normalize();
+      return { x: rnd() * S, y: rnd() * S, n };
+    });
+    for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+      let best = cells[0]!, bd = Infinity;
+      for (const c of cells) for (const ox of [-S, 0, S]) for (const oy of [-S, 0, S]) {
+        const d = (c.x + ox - x) ** 2 + (c.y + oy - y) ** 2;
+        if (d < bd) { bd = d; best = c; }
+      }
+      const k = (y * S + x) * 4;
+      data[k] = Math.round((best.n.x * 0.5 + 0.5) * 255); data[k + 1] = Math.round((best.n.y * 0.5 + 0.5) * 255); data[k + 2] = Math.round((best.n.z * 0.5 + 0.5) * 255); data[k + 3] = 255;
+    }
+    const t = new THREE.DataTexture(data, S, S);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    // filtered and mipmapped: facet borders stay crisp lines, not pixel stairs
+    t.magFilter = THREE.LinearFilter;
+    t.minFilter = THREE.LinearMipmapLinearFilter;
+    t.generateMipmaps = true;
+    t.needsUpdate = true;
+    return t;
+  })();
+  const glowTex = (() => {
+    const c = document.createElement("canvas");
+    c.width = c.height = 128;
+    const g = c.getContext("2d")!, grad = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+    grad.addColorStop(0, "rgba(255,255,255,1)"); grad.addColorStop(0.35, "rgba(255,255,255,0.45)"); grad.addColorStop(1, "rgba(255,255,255,0)");
+    g.fillStyle = grad; g.fillRect(0, 0, 128, 128);
+    return new THREE.CanvasTexture(c);
+  })();
   const crystalMat = () => new THREE.MeshPhysicalMaterial({ color: 0xffffff, metalness: 0, flatShading: true,
-    roughness: 0.04, transmission: 1, thickness: 0.9, ior: 1.75, dispersion: 6, attenuationDistance: 4,
-    iridescence: 0.35, iridescenceIOR: 1.5, iridescenceThicknessRange: [200, 600],
-    clearcoat: 1, clearcoatRoughness: 0.02, specularIntensity: 1, transparent: true, opacity: 0.97, depthWrite: false });
-  interface Pilot { d: FieldPilot; glass: Glass; core: THREE.Mesh; label: HTMLDivElement & { w?: number; h?: number; op?: number }; scale: number; fill: number; at: THREE.Vector3 }
+    roughness: 0.05, normalMap: facets, normalScale: new THREE.Vector2(0.36, 0.36),
+    transmission: 1, thickness: 1.2, ior: 1.6, dispersion: 2.5, attenuationDistance: 4,
+    iridescence: 0.12, iridescenceIOR: 1.4, clearcoat: 0.6, clearcoatRoughness: 0.05, specularIntensity: 1,
+    transparent: true, opacity: 0.96, depthWrite: false });
+  interface Pilot { d: FieldPilot; glass: Glass; core: THREE.Mesh; halo: THREE.Sprite; label: HTMLDivElement & { w?: number; h?: number; op?: number }; scale: number; fill: number; at: THREE.Vector3 }
   const pilots = new Map<string, Pilot>();
   let focus: string | null = null;
   const makePilot = (d: FieldPilot): Pilot => {
-    const seed = [...d.id].reduce((acc, c) => (acc * 31 + c.charCodeAt(0)) >>> 0, 7);
-    const shape = crystalShape(seed % 1000);
     const mat = crystalMat();
-    const mesh = new THREE.Mesh(shape, mat);
+    const mesh = new THREE.Mesh(tetra, mat);
     mesh.renderOrder = 4;
-    mesh.rotation.set(((seed % 97) / 97 - 0.5) * 0.3, (seed % 360) * Math.PI / 180, ((seed % 83) / 83 - 0.5) * 0.2);
     mesh.userData["pilot"] = d.id;
-    const core = new THREE.Mesh(shape, new THREE.MeshBasicMaterial());
-    core.scale.setScalar(0.4);
+    const core = new THREE.Mesh(tetra, new THREE.MeshBasicMaterial());
+    core.visible = false;
     mesh.add(core);
+    const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, transparent: true, depthWrite: false, opacity: 0 }));
+    halo.renderOrder = 6;
+    halo.visible = false;
+    mesh.add(halo);
     scene.add(mesh);
     const label = document.createElement("div") as Pilot["label"];
     label.className = "sq-lab sq-pilot";
     label.dataset["pilot"] = d.id;
     labelLayer.append(label);
-    return { d, glass: { mesh, mat, vis: 1 }, core, label, scale: 0, fill: 0, at: new THREE.Vector3(...d.p) };
+    return { d, glass: { mesh, mat, vis: 1 }, core, halo, label, scale: 0, fill: 0, at: new THREE.Vector3(...d.p) };
   };
   const nameOf = (d: FieldPilot) => (d.title.length > 34 ? d.title.slice(0, 33).trimEnd() + "…" : d.title);
 
@@ -449,24 +489,29 @@ export function createSquadScene(host: HTMLElement, field: Field, hooks: SceneHo
       g.mat.opacity = GLASS_OPACITY * g.vis;
     }
 
-    // pilots: glide to their place and grow in; the open one turns slowly and
-    // its core brightens; a working one's core glows in the activity colour
-    // and breathes
+    // pilots: glide to their place and grow in; a working one turns slowly;
+    // the selected one glows from within in the activity colour, breathing
     clockT += dt;
     for (const pl of pilots.values()) {
       const on = focus === pl.d.id, working = pl.d.phase === "working";
       pl.at.set(...pl.d.p);
       pl.glass.mesh.position.lerp(pl.at, ease(6));
-      pl.scale += ((on ? 1.7 : focus ? 1 : 1.25) - pl.scale) * ease(10);
+      pl.scale += ((on ? 1.25 : focus ? 0.8 : 0.95) - pl.scale) * ease(10);
       pl.glass.mesh.scale.setScalar(pl.scale);
-      if (!reduced) pl.glass.mesh.rotation.y += dt * (on ? 0.3 : working ? 0.22 : 0);
-      pl.fill += ((on ? 1 : 0) - pl.fill) * ease(9);
-      const breathe = working && !reduced ? 1 + 0.12 * Math.sin(clockT * 2.4) : 1;
-      pl.core.scale.setScalar((0.34 + 0.12 * pl.fill) * breathe);
-      (pl.core.material as THREE.MeshBasicMaterial).color.copy(working ? col.act : col.fg).lerp(col.bg, working ? 0 : 0.3 * (1 - pl.fill));
-      pl.glass.mat.attenuationColor.copy(working ? col.act : col.fg).lerp(col.bg, working ? 0.45 : 0.78);
+      if (!reduced) pl.glass.mesh.rotation.y += dt * (working ? 0.22 : on ? 0.1 : 0);
+      pl.fill += ((on ? 1 : 0) - pl.fill) * ease(7);
+      const breathe = reduced ? 1 : 1 + 0.08 * Math.sin(clockT * 2.1);
+      pl.core.visible = false;
+      pl.glass.mat.emissive.copy(col.act);
+      pl.glass.mat.emissiveIntensity = 0.2 * pl.fill * breathe;
+      pl.halo.visible = pl.fill > 0.02;
+      pl.halo.scale.setScalar(1.9 * breathe);
+      const hm = pl.halo.material as THREE.SpriteMaterial;
+      hm.color.copy(col.act);
+      hm.opacity = 0.55 * pl.fill;
+      pl.glass.mat.attenuationColor.copy(working || on ? col.act : col.fg).lerp(col.bg, working || on ? 0.5 : 0.78);
       pl.glass.vis += ((srch ? THREE.MathUtils.lerp(0.35, 1, searchDim) : focus && !on ? 0.6 : 1) - pl.glass.vis) * k;
-      pl.glass.mat.opacity = 0.97 * pl.glass.vis;
+      pl.glass.mat.opacity = 0.96 * pl.glass.vis;
     }
 
     // the ties of an opened entity; each pilot's lines to what it's working on
@@ -563,7 +608,7 @@ export function createSquadScene(host: HTMLElement, field: Field, hooks: SceneHo
       if (id == null) return;
       ent = null;
       const pl = pilots.get(id);
-      if (pl) frameAround([new THREE.Vector3(...pl.d.p), ...pl.d.ctx.map((j) => P[j]!)], 0.5, 2.6, 13, 22);
+      if (pl) frameAround([new THREE.Vector3(...pl.d.p), ...pl.d.ctx.map((j) => P[j]!)], 0.5, 2.6, 16, 24);
     },
     openEntity(i, tiesTo = [], text, caption) {
       if (i == null) { ent = null; return; }
@@ -592,7 +637,7 @@ export function createSquadScene(host: HTMLElement, field: Field, hooks: SceneHo
       canvas.removeEventListener("pointerup", onUp); canvas.removeEventListener("wheel", onWheel);
       labelLayer.removeEventListener("click", onLabel);
       scene.traverse((o) => { const m = o as THREE.Mesh; m.geometry?.dispose(); const mat = m.material as THREE.Material | THREE.Material[] | undefined; if (Array.isArray(mat)) mat.forEach((x) => x.dispose()); else mat?.dispose(); });
-      wave.dispose();
+      wave.dispose(); facets.dispose(); glowTex.dispose();
     scene.environment?.dispose(); pmrem.dispose(); renderer.dispose();
       canvas.remove(); labelLayer.remove();
     },
