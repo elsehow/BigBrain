@@ -200,6 +200,10 @@ export const api = {
     get<{ hits: import("./omnibox.svelte").SearchHit[]; nextOffset: number | null }>(
       `/api/search?q=${encodeURIComponent(q)}&limit=${limit}&offset=${offset}${mention ? "&purpose=mention" : ""}`, signal),
   graph: () => get<GraphData>(U.graph()),
+  /** The v2 view's who and what (lib/v2Feed.ts): agents and the latest assertions. */
+  v2: () => get<import("./v2/model").V2Feed>("/api/v2"),
+  /** One entity's latest assertions, dated by when each claim was first recorded. */
+  v2Entity: (id: string) => get<{ rows: import("./v2/model").V2FeedRow[] }>(`/api/v2/entity?id=${encodeURIComponent(id)}`),
   folds: () => get<FoldsView>(U.folds()),
   /** ACCEPT a fold: every member's label becomes an alias of the canonical. */
   acceptFold: (canonical: string, members: string[]) =>

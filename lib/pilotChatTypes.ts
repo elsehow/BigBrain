@@ -26,6 +26,9 @@ export interface PilotChatSession {
   /** Original worker remains on disk; this identity redirects its sources and links. */
   legacyWork?: { archiveStateMigrated?: boolean; id: string; provider: import("./workHistory").WorkProvider; thread?: string; cwd: string; outputs: import("./workOutputs").WorkOutput[] };
   title: string;
+  /** Who named it: the engine (Quick, re-naming as the conversation goes) or a
+   * person, by hand — after which it is never re-named. Absent reads as auto. */
+  titleSource?: "auto" | "human";
   category?: PilotCategory;
   model: string;
   nativeRequests?: import("./pilotNativeRequests").PilotNativeRequest[];
