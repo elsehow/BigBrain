@@ -1,3 +1,4 @@
+import { nameTask } from "../lib/pilotTaskName";
 import { ApplicationActions, actionReceiptView, actionHistoryQuery } from "../lib/applicationActions";
 import { json } from "../lib/httpx";
 import { IntegrationAccounts } from "../lib/integrationAccounts";
@@ -25,7 +26,7 @@ import { WorkHistory } from "../lib/workHistory";
 export function desktopRouteManifest(root: string, options: { includeSupport?: boolean; actions?: ApplicationActions; changes?: import("../lib/applicationChanges").ApplicationChanges } = {}): Route[] {
   const actions = options.actions ?? new ApplicationActions(root);
   const work = new WorkHistory(root);
-  const chats = new PilotChats(root, { work, actions, changes: options.changes });
+  const chats = new PilotChats(root, { work, actions, changes: options.changes, nameTask });
   process.once("exit", () => chats.close());
   // Finish only already-spooled legacy speech; no endpoint accepts new turns.
   void sweepPilotSpool(root, new Date(), 0).catch(error => console.error("Legacy speech recovery:", error));

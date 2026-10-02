@@ -15,11 +15,13 @@
     "dompurify": "^3.4.14",
     "marked": "^18.0.5",
     "pdfjs-dist": "^6.1.200",
+    "three": "0.169.0",
     "tippy.js": "^6.3.7"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^6.0.0",
     "@tsconfig/svelte": "^5.0.0",
+    "@types/three": "0.169.0",
     "svelte": "^5.0.0",
     "svelte-check": "^4.0.0",
     "typescript": "^5.6.3",

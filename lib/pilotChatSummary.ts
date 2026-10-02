@@ -2,7 +2,7 @@ import { lastMessageAt } from "./messageTime";
 import type { PilotChatSession } from "./pilotChatTypes";
 
 import { fields, imageView, notificationView, outputView } from "./publicViews";
-const summaryFields = ["id", "title", "model", "transport", "phase", "lifecycle", "lastActivityAt", "deactivatedAt", "ingestedMessages", "ingestionError", "seed", "context", "viewRevision", "revision", "draft", "live", "activity", "error", "created", "updated"] as const;
+const summaryFields = ["id", "title", "titleSource", "model", "transport", "phase", "lifecycle", "lastActivityAt", "deactivatedAt", "ingestedMessages", "ingestionError", "seed", "context", "viewRevision", "revision", "draft", "live", "activity", "error", "created", "updated"] as const;
 const inputView = (v: NonNullable<PilotChatSession["pendingInputs"]>[number]) => ({ ...fields(v, ["id", "text", "mode", "target", "notificationId"]), images: v.images?.map(imageView) });
 /** Navigation/status and graph activity, independent of the storage schema. */
 export type PilotChatSummary = ReturnType<typeof pilotChatSummary>;
