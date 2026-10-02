@@ -10,6 +10,9 @@
  * by its id, and the vault's own assertion passes (procedures named
  * *-assertion-agent) as the gardener, whatever model ran them. Nothing here
  * guesses at tasks or presents an author as a running agent.
+ *
+ * Pure, and safe for the browser bundle (the view imports plainText): the
+ * projection read lives in lib/squadRead.ts.
  */
 
 import type { AssertionEvent } from "./assertionLog";
@@ -25,7 +28,12 @@ export interface SquadAuthor {
 
 export interface SquadFeedRow {
   id: string;
+  /** When the claim was first recorded. A rewrite (one assertion standing in
+   * for another, `supersedes`) keeps its original's date, so a cleanup pass
+   * doesn't re-date everything it touched. */
   at: string;
+  /** Present when this row is a rewrite: when the standing version was written. */
+  writtenAt?: string;
   /** SquadAuthor.id, or null for a user or the engine's own bookkeeping. */
   author: string | null;
   /** Exactly who the record says wrote it: the model id when the record
@@ -42,6 +50,34 @@ export interface Squad {
   authors: SquadAuthor[];
   /** The latest assertions, oldest first. */
   feed: SquadFeedRow[];
+}
+
+/** What the squad reads, from one projection snapshot: the live rows, the
+ * alias table, and each live row's first-recorded date. */
+export interface SquadSource {
+  rows: AssertionEvent[];
+  aliases: EntityAliasResolution;
+  firstAt: ReadonlyMap<string, string>;
+}
+
+export interface ChainLink { id: string; created_at: string; supersedes: string | null }
+/** Follow each live row's `supersedes` back to the claim it stands in for,
+ * and keep the earliest date on the way. */
+export function firstRecordedAt(rows: readonly AssertionEvent[], chain: ReadonlyMap<string, ChainLink>): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const row of rows) {
+    let at = row.created_at, next = row.supersedes ?? null;
+    const seen = new Set([row.id]);
+    while (next && !seen.has(next)) {
+      seen.add(next);
+      const prior = chain.get(next);
+      if (!prior) break;
+      if (prior.created_at < at) at = prior.created_at;
+      next = prior.supersedes;
+    }
+    out.set(row.id, at);
+  }
+  return out;
 }
 
 const GARDENER = "gardener";
@@ -69,8 +105,18 @@ export function plainText(text: string): string {
   return text.replace(/\[\[[^|\]]*\|([^\]]*)\]\]/g, "$1").replace(/\[\[([^\]]*)\]\]/g, "$1").replace(/\s+/g, " ").trim();
 }
 
-export function buildSquad(rows: readonly AssertionEvent[], aliases: EntityAliasResolution): Squad {
-  const live = [...rows].sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id));
+const feedRow = (src: SquadSource, row: AssertionEvent): SquadFeedRow => {
+  const at = src.firstAt.get(row.id) ?? row.created_at;
+  return {
+    id: row.id, at, ...(at !== row.created_at ? { writtenAt: row.created_at } : {}),
+    author: authorOf(row), by: row.author.id, model: namesModel(row.author), text: plainText(row.text),
+    entities: [...new Set(row.entities.map((e) => src.aliases.canonical.get(e.id)?.id ?? e.id))],
+  };
+};
+const byRecorded = (a: SquadFeedRow, b: SquadFeedRow) => a.at.localeCompare(b.at) || a.id.localeCompare(b.id);
+
+export function buildSquad(src: SquadSource): Squad {
+  const live = [...src.rows].sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id));
   const authors = new Map<string, SquadAuthor>();
   for (const row of live) {
     const id = authorOf(row);
@@ -80,9 +126,14 @@ export function buildSquad(rows: readonly AssertionEvent[], aliases: EntityAlias
     a.lastAt = row.created_at;
     authors.set(id, a);
   }
-  const feed = live.slice(-FEED).map((row) => ({
-    id: row.id, at: row.created_at, author: authorOf(row), by: row.author.id, model: namesModel(row.author), text: plainText(row.text),
-    entities: [...new Set(row.entities.map((e) => aliases.canonical.get(e.id)?.id ?? e.id))],
-  }));
+  // the latest by when each claim was first recorded, so a cleanup pass's
+  // rewrites sit at their originals' dates instead of crowding the top
+  const feed = live.map((row) => feedRow(src, row)).sort(byRecorded).slice(-FEED);
   return { authors: [...authors.values()].sort((a, b) => b.lastAt.localeCompare(a.lastAt) || a.id.localeCompare(b.id)), feed };
+}
+
+/** One entity's latest assertions (aliases folded), dated the same way. */
+export function buildEntityFeed(src: SquadSource, entityId: string, limit = 6): SquadFeedRow[] {
+  const id = src.aliases.canonical.get(entityId)?.id ?? entityId;
+  return src.rows.map((row) => feedRow(src, row)).filter((r) => r.entities.includes(id)).sort(byRecorded).slice(-limit);
 }

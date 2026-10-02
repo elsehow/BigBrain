@@ -202,6 +202,8 @@ export const api = {
   graph: () => get<GraphData>(U.graph()),
   /** The squad view's who and what (lib/squadGraph.ts): agents and the latest assertions. */
   squad: () => get<import("./squad/model").SquadData>("/api/squad"),
+  /** One entity's latest assertions, dated by when each claim was first recorded. */
+  squadEntity: (id: string) => get<{ rows: import("./squad/model").SquadFeedRow[] }>(`/api/squad/entity?id=${encodeURIComponent(id)}`),
   folds: () => get<FoldsView>(U.folds()),
   /** ACCEPT a fold: every member's label becomes an alias of the canonical. */
   acceptFold: (canonical: string, members: string[]) =>

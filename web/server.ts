@@ -55,8 +55,9 @@ import { walkMarkdown } from "../lib/vaultRead";
 import { parseBlobRef, readBlob } from "../lib/blobs";
 import { recentSourcePageAsync } from "../lib/sourceFeed";
 import { primaryGraphWithLayoutAsync, primaryGraphAsync } from "../lib/graphCache";
-import { buildSquad } from "../lib/squadGraph";
-import { vaultRecord } from "../lib/vaultReadModel";
+import { buildEntityFeed, buildSquad, type SquadSource } from "../lib/squadGraph";
+import { readSquadSource } from "../lib/squadRead";
+import { withVaultSnapshot } from "../lib/vaultReadModel";
 import { frozenMessagesForRefs, sortFrozenDesc } from "../lib/frozenQueue";
 import { queueHead } from "../lib/queueHead";
 import { noteLog } from "../lib/noteLog";
@@ -514,10 +515,24 @@ function search({ req, res, url }: Ctx): void {
 // The squad view's read (lib/squadGraph.ts): the agents writing this vault,
 // what each centres on lately, and the latest assertions as a feed. The
 // graph itself comes from /api/graph; this adds only who and what.
+let squadHeld: { revision: string; src: SquadSource } | undefined;
+const squadSource = (): SquadSource => withVaultSnapshot(ROOT, (db, revision) => {
+  if (squadHeld?.revision !== revision) squadHeld = { revision, src: readSquadSource(db) };
+  return squadHeld.src;
+});
 function squad({ res }: Ctx): void {
   try {
-    const record = vaultRecord(ROOT);
-    json(res, 200, buildSquad(record.rows, record.aliases));
+    json(res, 200, buildSquad(squadSource()));
+  } catch (error) {
+    json(res, 500, { error: errText(error) });
+  }
+}
+// One entity's latest assertions, dated as the feed is (first recorded).
+function squadEntity({ res, url }: Ctx): void {
+  const id = url.searchParams.get("id") ?? "";
+  if (!id) return json(res, 400, { error: "Which entity? Pass ?id=." });
+  try {
+    json(res, 200, { rows: buildEntityFeed(squadSource(), id) });
   } catch (error) {
     json(res, 500, { error: errText(error) });
   }
@@ -725,6 +740,7 @@ export const ROUTES: readonly Route[] = [
   { method: "GET", path: "/api/search", handler: search },
   { method: "GET", path: "/api/graph", handler: graph },
   { method: "GET", path: "/api/squad", handler: squad },
+  { method: "GET", path: "/api/squad/entity", handler: squadEntity },
   { method: "GET", path: "/squad", handler: serveSquad },
   { method: "GET", path: "/api/note-log", handler: noteLogRoute },
   { method: "GET", path: "/api/note-messages", handler: noteMessages },

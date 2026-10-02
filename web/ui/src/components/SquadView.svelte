@@ -127,16 +127,16 @@
 
   type Said = { text: string; caption: string } | undefined;
   const day = (iso: string) => new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
-  /** An entity's latest assertion: the feed's if it's there, else its own record's. */
-  async function latestWord(i: number): Promise<Said> {
+  /** An entity's own latest assertions, dated by when each claim was first recorded. */
+  async function entityRows(i: number): Promise<SquadFeedRow[]> {
     const n = field!.nodes[i]!;
-    const inFeed = [...squad!.feed].reverse().find((r) => r.entities.includes(n.id));
-    if (inFeed) return { text: inFeed.text, caption: `Latest assertion · ${day(inFeed.at)}` };
-    if (data || !n.path) return undefined;
-    try {
-      const last = (await api.note(n.path, 1)).projectedEntity?.assertions.at(-1);
-      return last ? { text: plain(last.text), caption: `Latest assertion · ${day(last.created_at)}` } : undefined;
-    } catch { return undefined; }
+    if (data) return squad!.feed.filter((r) => r.entities.includes(n.id));
+    try { return (await api.squadEntity(n.id)).rows; } catch { return squad!.feed.filter((r) => r.entities.includes(n.id)); }
+  }
+  /** An entity's latest assertion. */
+  async function latestWord(i: number): Promise<Said> {
+    const last = (await entityRows(i)).at(-1);
+    return last ? { text: last.text, caption: `Latest assertion · ${day(last.at)}` } : undefined;
   }
   /** Quick's briefing on a note — the summary the app shows when you select it.
    * Cached by the engine per note and evidence; a fresh one streams as it's written. */
@@ -184,13 +184,8 @@
       entRows = squad.feed.filter((r) => r.entities.some((id) => cites.has(id)));
       return;
     }
-    if (data || !n.path) { entRows = squad.feed.filter((r) => r.entities.includes(n.id)); return; }
-    try {
-      const view = (await api.note(n.path, 6)).projectedEntity;
-      if (ent !== i || !view) return;
-      entRows = view.assertions.map((a) => ({ id: a.id, at: a.created_at, author: squad!.authors.some((g) => g.id === a.author.id) ? a.author.id : null,
-        by: a.author.id, model: a.author.kind === "model" && a.author.invocation_id !== "mcp", text: plain(a.text), entities: [n.id] }));
-    } catch { entRows = squad.feed.filter((r) => r.entities.includes(n.id)); }
+    const own = await entityRows(i);
+    if (ent === i) entRows = own;
   }
 
   // ── search by name ─────────────────────────────────────────────────────
@@ -318,7 +313,7 @@
         <div class="row" role="presentation"
           onmouseenter={() => scene?.hover(r.entities.map((id) => field!.byId.get(id)).filter((x): x is number => x != null))}
           onmouseleave={() => scene?.hover(null)}>
-          <span class="w">{when(r.at)}</span>
+          <span class="w" title={r.writtenAt ? `First recorded ${when(r.at)}; this version written ${when(r.writtenAt)}` : undefined}>{when(r.at)}</span>
           <span class="a" class:client={!r.model} title={r.model ? `Written by ${r.by}` : r.author ? `Written through ${authorName(r.author)}; the model it ran isn’t recorded` : "Written by you"}>{r.by}</span>
           <span class="x">{r.text}</span>
         </div>
