@@ -18,6 +18,7 @@ import { writeAtomic } from "./fsx";
 import { pilotToolCall } from "./pilot";
 import { arrangeDesktop, closeView, desktopDetail, desktopReference, DESKTOP_TOOLS, DesktopError, emptyDesktop, loopbackUrl, openView, SHOW_PAGE_TOOL, type PilotDesktop } from "./pilotDesktop";
 import { namingMoment, type TaskNamer } from "./pilotTaskName";
+import { DEFAULT_PILOT_BACKEND } from "./pilotBackendTypes";
 import { spoolDir } from "./spool";
 
 export interface CodingDesktopRecord {
@@ -104,7 +105,9 @@ export class CodingDesktops {
     const status = [...events].reverse().find(e => e.type === "status" && e.status !== "archived");
     const phase = !events.some(e => e.type === "input") ? "draft" : (status?.type === "status" && PHASE[status.status]) || "answered";
     return {
-      id: r.id, kind: "coding" as const, title: r.title, titleSource: r.titleSource ?? "auto", model: r.model ?? "default",
+      id: r.id, kind: "coding" as const, title: r.title, titleSource: r.titleSource ?? "auto",
+      // the model's own name, as the bar shows a Pilot's
+      model: (r.model ?? `${DEFAULT_PILOT_BACKEND.provider}/${DEFAULT_PILOT_BACKEND.model}`).split("/").slice(1).join("/"),
       phase, lifecycle: "active" as const, created: r.created, updated: r.updated,
       lastActivityAt: events.at(-1)?.at ?? r.updated,
       ...(r.archivedAt ? { deactivatedAt: r.archivedAt } : {}),
@@ -308,7 +311,6 @@ export function transcript(events: Stamped[]): TranscriptItem[] {
     else if (e.type === "tool.end") out.push({ id: `a${e.seq}`, role: "activity", text: e.label, at: e.at, ok: e.ok });
     else if (e.type === "project.forked") out.push({ id: `a${e.seq}`, role: "activity", text: `Made its own copy of ${e.project} (branch ${e.branch})`, at: e.at, ok: true });
     else if (e.type === "project.landed") out.push({ id: `a${e.seq}`, role: "activity", text: e.how === "pr" ? `Opened a pull request for ${e.project}: ${e.url}` : `Brought ${e.branch} home to ${e.project}`, at: e.at, ok: true });
-    else if (e.type === "server.started") out.push({ id: `a${e.seq}`, role: "activity", text: `Serving http://127.0.0.1:${e.port}`, at: e.at, ok: true });
     else if (e.type === "homecopy.changed") out.push({ id: `a${e.seq}`, role: "activity", text: `Your home copy of ${e.project} changed underneath it`, at: e.at, ok: false });
   }
   return out;
