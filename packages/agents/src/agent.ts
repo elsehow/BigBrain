@@ -14,7 +14,7 @@ import type { AgentSession, CreateAgentSessionOptions, ModelRuntime } from "@ear
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
 import { EventLog, type AgentEvent, type Stamped } from "./events";
-import { discardFork, readFork, type ForkRecord } from "./fork";
+import { discardFork, landFork, readFork, type ForkRecord, type LandHow, type Landed } from "./fork";
 import { run } from "./run";
 import { Harbor } from "./harbor";
 import { codingTools, type AgentTool } from "./tools";
@@ -70,16 +70,27 @@ export class Agents {
     return [...ids].sort();
   }
 
-  /** Events for a desktop, whether or not it's open. */
-  events(id: string, since = 0): Stamped[] {
-    return (this.desktops.get(id)?.events ?? new EventLog(stateFolder(this.ws, checkDesktopId(id)))).since(since);
+  /** A desktop's event log, whether or not it's open. */
+  private log(id: string): EventLog {
+    return this.desktops.get(id)?.events ?? new EventLog(stateFolder(this.ws, checkDesktopId(id)));
   }
+
+  /** Events for a desktop, whether or not it's open. */
+  events(id: string, since = 0): Stamped[] { return this.log(id).since(since); }
 
   /** Delete a desktop's fork of a project and put the link back; its processes are stopped first. */
   async discard(id: string, project: string): Promise<void> {
     await this.harbor.stopDesktop(checkDesktopId(id));
     discardFork(this.ws, id, project);
-    (this.desktops.get(id)?.events ?? new EventLog(stateFolder(this.ws, id))).append({ type: "project.discarded", project });
+    this.log(id).append({ type: "project.discarded", project });
+  }
+
+  /** Bring a fork's committed work home (fork.ts, landFork). A person's verb: no tool exposes it to the agent. */
+  async land(id: string, project: string, how: LandHow = "auto"): Promise<Landed> {
+    const landed = await landFork(this.ws, checkDesktopId(id), project, how);
+    this.log(id).append({ type: "project.landed", project,
+      how: landed.how, branch: landed.branch, ...(landed.how === "pr" ? { url: landed.url } : {}) });
+    return landed;
   }
 
   close(id: string): void { this.desktops.get(id)?.close(); this.desktops.delete(id); }

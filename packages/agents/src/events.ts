@@ -17,6 +17,7 @@ export type AgentEvent =
   | { type: "tool.end"; call: string; tool: string; label: string; ok: boolean }
   | { type: "project.forked"; project: string; branch: string; path: string; ms: number }
   | { type: "project.discarded"; project: string }
+  | { type: "project.landed"; project: string; how: "pr" | "branch"; branch: string; url?: string }
   | { type: "server.started"; port: number; job: number; command: string }
   | { type: "server.exited"; job: number; code: number | null }
   | { type: "homecopy.changed"; project: string; files: number }

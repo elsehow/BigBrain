@@ -2,7 +2,7 @@
  * harbor.ts — the shell a desktop's agent runs commands in.
  *
  * Every command runs under `/bin/bash -c`, in its own process group, with
- * `BIGBRAIN_DESKTOP=<id>` in its environment. That tag is inherited by
+ * `BIGBRAIN_AGENT_DESKTOP=<id>` in its environment. That tag is inherited by
  * everything the command starts and survives daemonizing, so this module can
  * find a desktop's processes without the agent's help:
  *
@@ -19,7 +19,18 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { run } from "./run";
 
-export const TAG = "BIGBRAIN_DESKTOP";
+/** Not BIGBRAIN_DESKTOP: the engine reads that as "running inside the app" (lib/env.ts). */
+export const TAG = "BIGBRAIN_AGENT_DESKTOP";
+
+/** A command's environment: the base, minus the host's own BIGBRAIN_* settings
+ * (the app's mode, the vault, ports), plus the desktop's tag. An agent working
+ * on BigBrain itself must not run its code as the host's app, on the host's vault. */
+export function commandEnv(base: NodeJS.ProcessEnv, desktop: string): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {};
+  for (const [k, v] of Object.entries(base)) if (!k.startsWith("BIGBRAIN_")) env[k] = v;
+  env[TAG] = desktop;
+  return env;
+}
 const OUTPUT_CAP = 200_000;
 
 export interface Job {
@@ -51,7 +62,7 @@ export class Harbor {
     const settleMs = this.options.settleMs ?? 3000, waitMs = this.options.waitMs ?? 120_000;
     const child = spawn("/bin/bash", ["-c", command], {
       cwd, detached: true, stdio: ["ignore", "pipe", "pipe"],
-      env: { ...(this.options.env ?? process.env), [TAG]: desktop },
+      env: commandEnv(this.options.env ?? process.env, desktop),
     });
     const id = this.next++;
     const buf: string[] = [];

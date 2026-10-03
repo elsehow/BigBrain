@@ -18,7 +18,7 @@ keeps the record. Design: `docs/design/coding-desktops.md`.
 |---|---|
 | `workspace.ts` | Folders, project list, and the desktop folder's mirror of links |
 | `fork.ts` | `cp -c -R` clone on first change: drops nested worktrees, rewrites venv shebangs, branches `desktop/<id>`, refuses linked worktrees |
-| `harbor.ts` | The shell: tags every command with `BIGBRAIN_DESKTOP=<id>` in its own process group, notices when it becomes a server, stops by group (TERM, then KILL) |
+| `harbor.ts` | The shell: tags every command with `BIGBRAIN_AGENT_DESKTOP=<id>` in its own process group, notices when it becomes a server, stops by group (TERM, then KILL) |
 | `tools.ts` | `read`, `ls`, `write`, `edit`, `bash`: paths relative to the desktop's folder; a change or command in a project forks it first |
 | `events.ts` | One durable, sequence-numbered event stream per desktop |
 | `agent.ts` | `Agents.open(id, { modelRuntime, model, instructions, tools, wrapStream })`, then `send`, `steer`, `stop`, `changes`, `servers`, `snapshot`, `archive`, `discard` |

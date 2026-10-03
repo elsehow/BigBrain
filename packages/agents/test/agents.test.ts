@@ -1,9 +1,9 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Agents, AgentsError, desktopFolder, discardFork, forkProject, Harbor, projectState, projectsIn, readFork, workspace, codingTools } from "../src";
+import { Agents, AgentsError, commandEnv, desktopFolder, discardFork, forkProject, Harbor, landFork, projectState, projectsIn, readFork, workspace, codingTools } from "../src";
 import type { ToolContext } from "../src/tools";
 
 const mac = process.platform === "darwin";
@@ -91,10 +91,64 @@ describe.if(mac)("forks", () => {
   });
 });
 
+describe.if(mac)("landing", () => {
+  const commitIn = (dir: string, msg: string) => {
+    sh(dir, "git", "-c", "user.email=t@example.invalid", "-c", "user.name=t", "commit", "-q", "-am", msg);
+  };
+
+  test("as a branch: the home copy gains the desktop's branch and nothing else changes", async () => {
+    const { ws, home } = scene();
+    const fork = await forkProject(ws, "desk-land", "orrery");
+    writeFileSync(join(fork.path, "src", "ratios.ts"), "export const moon = 1.5;\n");
+    await expect(landFork(ws, "desk-land", "orrery", "branch")).rejects.toThrow(/1 uncommitted file/);
+    commitIn(fork.path, "Fix the moon ratio");
+    const landed = await landFork(ws, "desk-land", "orrery", "auto");
+    expect(landed).toEqual({ how: "branch", branch: "desktop/desk-land", home: realpathSync(home) });
+    expect(sh(home, "git", "rev-parse", "desktop/desk-land")).toBe(sh(fork.path, "git", "rev-parse", "HEAD"));
+    expect(sh(home, "git", "branch", "--show-current")).toBe("main");
+    expect(sh(home, "git", "status", "--porcelain")).toBe("");
+    expect(readFileSync(join(home, "src", "ratios.ts"), "utf8")).toContain("1.25");
+  });
+
+  test("an empty branch, or a project the desktop never changed, is refused", async () => {
+    const { ws } = scene();
+    await expect(landFork(ws, "desk-none", "orrery")).rejects.toThrow(/hasn't changed orrery/);
+    await forkProject(ws, "desk-none", "orrery");
+    await expect(landFork(ws, "desk-none", "orrery")).rejects.toThrow(/no commits/);
+  });
+
+  test("as a pull request: the branch is pushed to origin and the PR's address comes back", async () => {
+    const { ws, home } = scene();
+    const origin = join(ws.root, "origin.git");
+    sh(ws.root, "git", "init", "-q", "--bare", origin);
+    sh(home, "git", "remote", "add", "origin", origin);
+    const bin = join(ws.root, "bin");
+    mkdirSync(bin);
+    writeFileSync(join(bin, "gh"), "#!/bin/sh\necho https://example.invalid/orrery/pull/7\n");
+    chmodSync(join(bin, "gh"), 0o755);
+    const fork = await forkProject(ws, "desk-pr", "orrery");
+    writeFileSync(join(fork.path, "src", "ratios.ts"), "export const moon = 1.5;\n");
+    commitIn(fork.path, "Fix the moon ratio");
+    const path = process.env.PATH;
+    process.env.PATH = `${bin}:${path}`;
+    try {
+      expect(await landFork(ws, "desk-pr", "orrery", "pr")).toEqual({ how: "pr", branch: "desktop/desk-pr", url: "https://example.invalid/orrery/pull/7" });
+    } finally { process.env.PATH = path; }
+    expect(sh(ws.root, "git", "--git-dir", origin, "rev-parse", "desktop/desk-pr")).toBe(sh(fork.path, "git", "rev-parse", "HEAD"));
+  });
+});
+
 describe.if(mac)("harbor", () => {
   const harbor = new Harbor({ settleMs: 400, waitMs: 4000, graceMs: 500 });
   const server = (port = 0, stubborn = false) =>
     `node -e "${stubborn ? "process.on('SIGTERM',()=>{});" : ""}require('http').createServer((q,s)=>s.end('ok')).listen(${port},'127.0.0.1')"`;
+
+  test("commands carry the desktop's tag and none of the host's own BigBrain settings", async () => {
+    const env = commandEnv({ PATH: "/bin", BIGBRAIN_DESKTOP: "1", BIGBRAIN_VAULT: "/somewhere/vault", HOME: "/home/x" }, "desk-env");
+    expect(env).toEqual({ PATH: "/bin", HOME: "/home/x", BIGBRAIN_AGENT_DESKTOP: "desk-env" });
+    const r = await new Harbor({ env: { PATH: process.env.PATH, BIGBRAIN_DESKTOP: "1" } }).run("desk-env", "echo app=$BIGBRAIN_DESKTOP tag=$BIGBRAIN_AGENT_DESKTOP", tmpdir());
+    expect(r.output.trim()).toBe("app= tag=desk-env");
+  });
 
   test("a short command returns its output and exit code", async () => {
     const r = await harbor.run("desk-h", "echo gears; exit 3", tmpdir());

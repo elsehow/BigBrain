@@ -107,7 +107,7 @@ fork is the usual cost). Discard reclaims it.
 
 The package runs the agent's shell commands itself, through pi's tool list
 and its `tool_call` hook. Every command runs with
-`BIGBRAIN_DESKTOP=<id>` in its environment, in its own process group.
+`BIGBRAIN_AGENT_DESKTOP=<id>` in its environment, in its own process group.
 
 - **Long-running commands return on their own.** If a command is still
   running after a few seconds and a process carrying that tag is listening
