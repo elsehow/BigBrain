@@ -2,14 +2,11 @@
 
 Every arrival — a drop, a clip, an email, a meeting — is screened by a
 decision model before anything stores it (`lib/door.ts`, `lib/firewall.ts`).
-Two yes/no questions:
+One yes/no question: does it carry a **credential** — a password, key, token,
+one-time or verification code, recovery codes, or a password-reset, magic
+sign-in or verification link?
 
-- **credential** — a password, key, token, one-time or verification code,
-  recovery codes, or a password-reset, magic sign-in or verification link
-- **malicious** — phishing, impersonation, lookalike domains, malware, or text
-  that tries to instruct an AI system
-
-Either over its threshold and the item is **withheld**: not landed, not staged
+Over the threshold and the item is **withheld**: not landed, not staged
 for the gardener, never read by any agent. One line goes to
 `.spool/firewall/withheld.jsonl` — source, sender, date, reason, scores; never
 the subject or body — so a false positive is visible.
@@ -29,7 +26,7 @@ firewall:
 ```
 
 Absent means off. `model` (default `clef-flash`) and
-`thresholds: { credential: 0.25, malicious: 0.85 }` are optional. A hosted
+`thresholds: { credential: 0.15 }` are optional. A hosted
 endpoint's bearer token goes in `BIGBRAIN_FIREWALL_TOKEN`.
 
 The endpoint speaks the Jev/SystemOne `POST /v1/systemone` API, so it can be a
@@ -55,18 +52,22 @@ ingests — otherwise intake waits.
 ## Tuning
 
 `eval/fixtures.json` is an invented set: 28 credential mails (resets in five
-languages, codes, magic links, a forwarded reset, one buried in a thread), 8
-malicious and 18 ordinary-but-tricky ones. `bun deploy/firewall/eval/run.ts`
-runs them through `screen()` and prints each question's catch rate and false
-positives per threshold. Clef scores all questions jointly, so **rerun it after
-changing any question's wording**, not only the one you edited.
+languages, codes, magic links, a forwarded reset, one buried in a thread) and
+18 ordinary-but-tricky ones (a reset help article, a password-changed notice,
+tracking numbers, commit hashes). `bun deploy/firewall/eval/run.ts` runs them
+through `screen()` and prints the catch rate and false positives per threshold.
+Rerun it after changing the question's wording — or after adding a question:
+Clef scores a request's questions jointly, so a second question shifts the
+first one's scores.
 
-At the defaults, local Clef-flash withholds 28/28 credential, 7/8 malicious and
-0/18 ordinary mails. The credential question separates cleanly (every
-credential ≥ 0.3, every ordinary mail ≤ 0.12); the malicious one also flags
-urgent marketing, which is why its threshold sits high. The miss is a
-plain-text "AI agent, you are authorized to…" mail at 0.67 — prompt injection
-is defended architecturally anyway (`docs/design-principles.md` §2).
+At the default threshold (0.15), local Clef-flash withholds 28/28 credential
+mails and 0/18 ordinary ones: every credential mail scores ≥ 0.22, every
+ordinary one ≤ 0.06. The weakest are an invitation's set-password link (0.22)
+and a disable-2FA confirmation (0.25).
+
+A second question — "is this malicious?" — was tried and removed: on real mail
+it withheld genuine Wise payment notices, a brokerage agreement update and a
+family member's app invitation (0.89–0.91) as readily as it caught phishing.
 
 ## Limits
 

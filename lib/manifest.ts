@@ -49,11 +49,11 @@ export const curationAgent = (manifest: Manifest): AgentId => manifest.curation?
 /** The intake firewall (lib/firewall.ts): a Jev/SystemOne `/v1/systemone`
  * endpoint that every arrival is screened against. Absent means off — an
  * older vault keeps landing exactly as it did (design-principles §5). */
-export interface FirewallConfig { url: string; model: string; thresholds: { credential: number; malicious: number } }
-/** Tuned on deploy/firewall/eval with local Clef-flash: the credential
- * question separates cleanly, so it is held low (a reset link is the threat
- * this exists for); the malicious one flags marketing too, so it is held high. */
-export const FIREWALL_THRESHOLDS = { credential: 0.25, malicious: 0.85 };
+export interface FirewallConfig { url: string; model: string; thresholds: { credential: number } }
+/** Tuned on deploy/firewall/eval with local Clef-flash: every credential
+ * mail scores ≥ 0.22, every ordinary one ≤ 0.06, and a missed reset link is
+ * the costly error — so the threshold sits low in that gap. */
+export const FIREWALL_THRESHOLDS = { credential: 0.15 };
 export function parseFirewall(raw: unknown): FirewallConfig | undefined {
   if (raw === undefined || raw === null) return undefined;
   if (typeof raw !== "object" || Array.isArray(raw)) throw new Error("firewall must be a mapping");
@@ -63,7 +63,10 @@ export function parseFirewall(raw: unknown): FirewallConfig | undefined {
   if (typeof t !== "object" || Array.isArray(t)) throw new Error("firewall thresholds must be a mapping");
   const thresholds = { ...FIREWALL_THRESHOLDS };
   for (const [k, v] of Object.entries(t)) {
-    if (k !== "credential" && k !== "malicious") throw new Error("firewall thresholds accepts credential and malicious only");
+    // `malicious` was a second question, removed; a vault that set it keeps
+    // loading (design-principles §5) — a config error would stop intake.
+    if (k === "malicious") continue;
+    if (k !== "credential") throw new Error("firewall thresholds accepts credential only");
     if (!(Number(v) > 0 && Number(v) < 1)) throw new Error(`firewall ${k} threshold must be between 0 and 1`);
     thresholds[k] = Number(v);
   }
