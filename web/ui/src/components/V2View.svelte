@@ -70,8 +70,14 @@
   let notice = $state("");
 
   // ── pilots ──────────────────────────────────────────────────────────────
-  type PilotDetail = PilotSummary & { messages: Array<{ id: string; role: "user" | "assistant"; text: string; at: string }>; error?: string; viewRevision?: number;
-    desktop?: { views: DesktopView[]; layout: DesktopTile | null; arrangedBy: "agent" | "human" | null } };
+  type PilotDetail = PilotSummary & { messages: Array<{ id: string; role: "user" | "assistant" | "activity"; text: string; at: string; ok?: boolean }>; error?: string; viewRevision?: number;
+    desktop?: { views: DesktopView[]; layout: DesktopTile | null; arrangedBy: "agent" | "human" | null };
+    /** Coding desktops: each fork's work, and the servers it runs. */
+    changes?: Array<{ project: string; branch: string; commits: number; dirty: number; stat: string }>;
+    servers?: Array<{ port: number; command?: string }> };
+  /** Coding desktops (lib/codingDesktops.ts) have `d-` ids and live at /api/desktops;
+   * Pilot conversations keep their own routes. One switch, so the rest of the view is shared. */
+  const coding = (id: string | null | undefined): boolean => !!id && id.startsWith("d-");
   let pilotsAll: PilotSummary[] = $state([]);
   let openPilot: string | null = $state(null);
   let detail: PilotDetail | null = $state(null);
@@ -93,7 +99,11 @@
   });
   async function closeView(view: string): Promise<void> {
     if (!openPilot) return;
-    try { await pilotReq("/desktop", { id: openPilot, action: "close", view }); await loadDetail(); void tick().then(() => scene?.shift(shiftFor())); }
+    try {
+      if (coding(openPilot)) await desktopReq("/view", { id: openPilot, action: "close", view });
+      else await pilotReq("/desktop", { id: openPilot, action: "close", view });
+      await loadDetail(); void tick().then(() => scene?.shift(shiftFor()));
+    }
     catch (e) { flash(`Couldn’t close the view: ${errText(e)}`); }
   }
 
@@ -117,8 +127,11 @@
     try {
       // the engine's rename marks the name as a person's (Quick stops re-naming);
       // an older engine without it still takes the title through /context
-      try { await pilotReq("/rename", { id, title }); }
-      catch { await pilotReq("/context", { id, nodes: detail?.context ?? [], title, expectedRevision: detail?.viewRevision ?? 0 }); }
+      if (coding(id)) await desktopReq("/rename", { id, title });
+      else {
+        try { await pilotReq("/rename", { id, title }); }
+        catch { await pilotReq("/context", { id, nodes: detail?.context ?? [], title, expectedRevision: detail?.viewRevision ?? 0 }); }
+      }
       await loadDetail(); await refreshPilots();
     } catch (e) { flash(`Couldn’t rename: ${errText(e)}`); }
   }
@@ -133,7 +146,8 @@
     const [adapter, provider] = agent.id.split("/");
     const reasoning = model.reasoning?.includes("medium") ? "medium" : model.reasoning?.[0];
     try {
-      await pilotReq("/backend", { id: openPilot, backend: { adapter, provider, model: model.id, ...(reasoning ? { reasoning } : {}) } });
+      if (coding(openPilot)) await desktopReq("/model", { id: openPilot, model: `${provider}/${model.id}` });
+      else await pilotReq("/backend", { id: openPilot, backend: { adapter, provider, model: model.id, ...(reasoning ? { reasoning } : {}) } });
       pickerOpen = false;
       await loadDetail(); await refreshPilots();
     } catch (e) { flash(`Couldn’t change the agent: ${errText(e)}`); }
@@ -143,23 +157,53 @@
   let composerEl: HTMLTextAreaElement | undefined = $state();
   let bar = $derived(barPilots(pilotsAll, openPilot));
   const PHASE: Record<PilotSummary["phase"], string> = { draft: "draft", working: "working", answered: "answered", interrupted: "interrupted", failed: "failed" };
-  async function pilotReq<T>(path: string, body?: unknown): Promise<T> {
-    const r = await fetch(`/api/pilot/chat${path}`, body === undefined ? {} : { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-    if (!r.ok) throw new Error(((await r.json().catch(() => ({}))) as { error?: string }).error ?? `The engine said ${r.status}.`);
+  /** GET (no body) or POST JSON to the engine; a failure carries the engine's message and status. */
+  async function request<T>(base: string, path: string, body?: unknown): Promise<T> {
+    const r = await fetch(`${base}${path}`, body === undefined ? {} : { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    if (!r.ok) throw Object.assign(new Error(((await r.json().catch(() => ({}))) as { error?: string }).error ?? `The engine said ${r.status}.`), { status: r.status });
     return r.json() as Promise<T>;
   }
+  const pilotReq = <T,>(path: string, body?: unknown) => request<T>("/api/pilot/chat", path, body);
+  const desktopReq = <T,>(path: string, body?: unknown) => request<T>("/api/desktops", path, body);
+  /** A route both kinds of desktop share (/session, /stop), on the right one for `id`. */
+  const chatReq = <T,>(id: string | null, path: string, body?: unknown) => request<T>(coding(id) ? "/api/desktops" : "/api/pilot/chat", path, body);
   async function refreshPilots(): Promise<void> {
     if (data) return;
-    try { pilotsAll = (await pilotReq<{ sessions: PilotSummary[] }>("")).sessions; } catch { /* keep the last list */ }
+    // either list can be missing (an older engine has no /api/desktops): keep the last of each
+    const [pilots, desktops] = await Promise.all([
+      pilotReq<{ sessions: PilotSummary[] }>("").then((r) => r.sessions, () => null),
+      desktopReq<{ desktops: PilotSummary[] }>("").then((r) => r.desktops, () => null),
+    ]);
+    pilotsAll = [...(pilots ?? pilotsAll.filter((p) => !coding(p.id))), ...(desktops ?? pilotsAll.filter((p) => coding(p.id)))];
   }
   async function loadDetail(): Promise<void> {
     const id = openPilot;
     if (!id) return;
     try {
-      const d = await pilotReq<PilotDetail>(`/session?id=${encodeURIComponent(id)}`);
+      const d = await chatReq<PilotDetail>(id, `/session?id=${encodeURIComponent(id)}`);
       if (openPilot === id) detail = d;
     } catch (e) { if (openPilot === id) flash(errText(e)); }
   }
+  /** A coding desktop's live stream: text as it's written, and a refresh when anything else happens. */
+  let liveText = $state("");
+  $effect(() => {
+    const id = openPilot;
+    if (!id || !coding(id) || data) return;
+    liveText = "";
+    const es = new EventSource(`/api/desktops/events?id=${encodeURIComponent(id)}&since=${Number.MAX_SAFE_INTEGER}`);
+    let pending: ReturnType<typeof setTimeout> | undefined;
+    const refresh = () => { clearTimeout(pending); pending = setTimeout(() => { void loadDetail(); void refreshPilots(); }, 120); };
+    es.onmessage = (m) => {
+      const e = JSON.parse(m.data) as { type: string; text?: string };
+      if (e.type === "message.delta") { liveText += e.text ?? ""; return; }
+      if (e.type === "message.done") liveText = "";
+      refresh();
+    };
+    es.addEventListener("record", refresh);
+    return () => { es.close(); clearTimeout(pending); };
+  });
+  let live: string = $derived.by(() => (coding(openPilot) ? liveText : detail?.live ?? ""));
+
   // the bar's pilots, placed over their context, are what the field draws
   $effect(() => {
     const f = field, b = bar;
@@ -167,7 +211,7 @@
   });
   // keep the scroll at the newest message
   $effect(() => {
-    void detail?.messages.length; void detail?.live;
+    void detail?.messages.length; void live;
     void tick().then(() => { if (msgsEl) msgsEl.scrollTop = msgsEl.scrollHeight; });
   });
   function openPilotChat(id: string): void {
@@ -188,7 +232,15 @@
   }
   /** A new session: on `context` (note paths), titled now if `title` is given,
    * else named by the pilot itself once it starts (the engine's own rule). */
-  async function createPilot(context: string[], title?: string): Promise<void> {
+  async function createPilot(context: string[], title?: string, labels: string[] = []): Promise<void> {
+    try {
+      const made = await desktopReq<{ id: string }>("/create", { ...(title ? { title } : {}), context: context.map((path, k) => ({ path, title: labels[k] ?? path })) });
+      await refreshPilots();
+      openPilotChat(made.id);
+      return;
+    } catch (e) {
+      if ((e as { status?: number }).status !== 404) { flash(`Couldn’t start a desktop: ${errText(e)}`); return; }
+    }
     const id = `pilot-${crypto.randomUUID().replaceAll("-", "")}`;
     try {
       const made = await pilotReq<PilotDetail>("/create", { id, context });
@@ -203,12 +255,37 @@
     const id = openPilot, text = draftText.trim();
     if (!id || !text) return;
     draftText = "";
-    try { await pilotReq("/send", { id, text, inputId: `in-${crypto.randomUUID()}` }); await loadDetail(); }
+    const inputId = `in-${crypto.randomUUID()}`;
+    try {
+      // a coding desktop's agent is steered by what you say while it works
+      if (coding(id)) await desktopReq(detail?.phase === "working" ? "/steer" : "/send", { id, text, inputId });
+      else await pilotReq("/send", { id, text, inputId });
+      await loadDetail();
+    }
     catch (e) { draftText = text; flash(`Couldn’t send: ${errText(e)}`); }
   }
   async function stopPilot(): Promise<void> {
     if (!openPilot) return;
-    try { await pilotReq("/stop", { id: openPilot }); await loadDetail(); } catch (e) { flash(errText(e)); }
+    try { await chatReq(openPilot, "/stop", { id: openPilot }); await loadDetail(); } catch (e) { flash(errText(e)); }
+  }
+  /** Bring a fork's committed work home: a PR when the project is on GitHub, else a branch in your copy. */
+  async function landProject(project: string): Promise<void> {
+    try {
+      const r = await desktopReq<{ how: "pr" | "branch"; branch: string; url?: string }>("/land", { id: openPilot, project });
+      flash(r.how === "pr" ? `Opened a pull request: ${r.url}` : `Brought ${r.branch} home to ${project}. Merge it there when you're ready.`);
+      await loadDetail();
+    } catch (e) { flash(errText(e)); }
+  }
+  let discarding: string | null = $state(null);
+  async function discardProject(project: string): Promise<void> {
+    if (discarding !== project) { discarding = project; flash(`Click Discard again to delete this desktop's copy of ${project}.`); return; }
+    discarding = null;
+    try { await desktopReq("/discard", { id: openPilot, project }); await loadDetail(); } catch (e) { flash(errText(e)); }
+  }
+  async function archiveDesktop(): Promise<void> {
+    const id = openPilot;
+    if (!id) return;
+    try { await desktopReq("/archive", { id }); closePilot(); await refreshPilots(); } catch (e) { flash(errText(e)); }
   }
   /** Chat text: markdown, with [[path|title]] citations as quiet links (as the app draws them). */
   const CITE = "#/vault/";
@@ -331,7 +408,7 @@
     const i = inHand();
     const n = i == null ? null : field?.nodes[i];
     if (!n?.path) { flash("Open something first — Shift+Enter starts a pilot on it."); return; }
-    await createPilot([n.path], `Re: ${n.label}`);
+    await createPilot([n.path], `Re: ${n.label}`, [n.label]);
   }
   let noticeTimer: ReturnType<typeof setTimeout> | undefined;
   const errText = (e: unknown): string => (e instanceof Error ? e.message : String(e));
@@ -494,14 +571,19 @@
     {@const v = desktopViews.find((x) => x.id === t.view)}
     {#if v}
       <article class="view" aria-label={v.title}>
-        <header><span class="vt">{v.title}</span><span class="vp">{v.path}</span>
+        <header><span class="vt">{v.title}</span>{#if v.kind === "url"}<a class="vp" href={v.path} target="_blank" rel="noopener" title="Open in a browser">{v.path} ↗</a>{:else}<span class="vp">{v.path}</span>{/if}
           <button type="button" class="px" onclick={() => void closeView(v.id)} aria-label={`Close ${v.title}`} title="Close — the agent leaves it closed">×</button></header>
-        <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-        <div class="vbody" onclick={citation}>
-          {#if notes[v.path]?.content != null}{@html render(notes[v.path]!.content!)}
-          {:else if notes[v.path]?.error}<p class="activity err">{notes[v.path]!.error}</p>
-          {:else}<p class="activity">Opening…</p>{/if}
-        </div>
+        {#if v.kind === "url"}
+          <!-- a page on this machine (the engine's CSP allows nothing else) -->
+          <iframe class="vpage" src={v.path} title={v.title} sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"></iframe>
+        {:else}
+          <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+          <div class="vbody" onclick={citation}>
+            {#if notes[v.path]?.content != null}{@html render(notes[v.path]!.content!)}
+            {:else if notes[v.path]?.error}<p class="activity err">{notes[v.path]!.error}</p>
+            {:else}<p class="activity">Opening…</p>{/if}
+          </div>
+        {/if}
       </article>
     {/if}
   {:else}
@@ -602,23 +684,35 @@
           {#if desktopViews.length}<button type="button" class="find" class:lit={showDesktop} onclick={toggleDesktop} title="Show or hide this desktop's views (\)">{desktopViews.length} {desktopViews.length === 1 ? "view" : "views"} <span class="k">\</span></button>{/if}
         </div>
         {#if detail.contextNodes?.length}<p class="ctx">{detail.contextNodes.map((n) => n.title ?? n.id).join(" · ")}</p>{/if}
+        {#if detail.changes?.length}
+          <div class="forks">
+            {#each detail.changes as c (c.project)}
+              <span class="fork"><b>{c.project}</b> {c.commits} commit{c.commits === 1 ? "" : "s"}{c.dirty ? ` · ${c.dirty} uncommitted` : ""}
+                <button type="button" class="find" onclick={() => void landProject(c.project)} disabled={!c.commits || c.dirty > 0}
+                  title={c.dirty ? "Commit the changes first; landing moves commits" : c.commits ? "A pull request when the project is on GitHub, otherwise a branch in your copy" : "Nothing committed yet"}>Land</button>
+                <button type="button" class="find" class:lit={discarding === c.project} onclick={() => void discardProject(c.project)} title="Delete this desktop's copy">Discard</button></span>
+            {/each}
+          </div>
+        {/if}
       </header>
       <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
       <div class="msgs" bind:this={msgsEl} onclick={citation}><div class="col">
         {#each detail.messages as m (m.id)}
-          <div class="msg {m.role}"><div class="body">{@html render(m.text)}</div></div>
+          {#if m.role === "activity"}<p class="act" class:bad={m.ok === false}>{m.text}</p>
+          {:else}<div class="msg {m.role}"><div class="body">{@html render(m.text)}</div></div>{/if}
         {/each}
-        {#if detail.live}<div class="msg assistant live"><div class="body">{@html render(detail.live)}</div></div>{/if}
-        {#if detail.phase === "working" && !detail.live}<p class="activity">{detail.activity || "Working…"}</p>{/if}
+        {#if live}<div class="msg assistant live"><div class="body">{@html render(live)}</div></div>{/if}
+        {#if detail.phase === "working" && !live}<p class="activity">{detail.activity || "Working…"}</p>{/if}
         {#if detail.error}<p class="activity err">{detail.error}</p>{/if}
-        {#if !detail.messages.length && detail.phase === "draft"}<p class="activity">Ask it anything — it can read your vault.</p>{/if}
+        {#if !detail.messages.length && detail.phase === "draft"}<p class="activity">{coding(detail.id) ? "Ask it anything: it can read your vault and work on your projects." : "Ask it anything — it can read your vault."}</p>{/if}
       </div></div>
       <div class="dock"><div class="composer col">
         <textarea bind:this={composerEl} bind:value={draftText} rows="3" placeholder={`Message ${detail.title}…`} aria-label="Message"></textarea>
         <div class="row">
-          <span class="k">↵ Send · ⇧↵ New line · Esc Back</span>
+          <span class="k">{coding(detail.id) && detail.phase === "working" ? "↵ Steer" : "↵ Send"} · ⇧↵ New line · Esc Back</span>
           {#if detail.phase === "working"}<button type="button" class="find" onclick={() => void stopPilot()}>Stop</button>{/if}
-          <a class="find" href={`${APP}#/session/${detail.id}`}>Open in app</a>
+          {#if coding(detail.id)}<button type="button" class="find" onclick={() => void archiveDesktop()} title="Stop its processes; its files and conversation stay">Archive</button>
+          {:else}<a class="find" href={`${APP}#/session/${detail.id}`}>Open in app</a>{/if}
         </div>
       </div></div>
     </section>
@@ -801,6 +895,16 @@
   .vbody { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 22px 22px; font: 400 var(--chat-fs)/1.65 var(--font-app); color: color-mix(in srgb, var(--fg) 92%, var(--bg));
     overflow-wrap: anywhere; scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--fg) 22%, transparent) transparent; }
   .vbody > :global(*) { max-width: 72ch; }
+  .vpage { flex: 1; min-height: 0; width: 100%; border: 0; background: #fff; }
+  .act { margin: -12px 0; font: 400 12px/1.5 var(--font-mono); color: var(--v2-faint); }
+  .act::before { content: "· "; }
+  .act.bad { color: color-mix(in srgb, var(--activity) 80%, var(--fg)); }
+  .act.bad::before { content: "× "; }
+  .forks { display: flex; flex-wrap: wrap; gap: 6px 16px; font: 400 12px/1.6 var(--font-mono); color: var(--v2-muted); }
+  .fork { display: inline-flex; align-items: baseline; gap: 8px; }
+  .fork b { font-weight: 500; color: var(--fg); }
+  .fork .find { font-size: 12px; }
+  .fork .find:disabled { opacity: .45; cursor: default; }
   .vbody :global(> :first-child) { margin-top: 0; } .vbody :global(p) { margin: 0 0 0.85em; }
   .vbody :global(ul), .vbody :global(ol) { margin: 0 0 0.85em; padding-left: 1.5em; } .vbody :global(li + li) { margin-top: 0.3em; }
   .vbody :global(h1), .vbody :global(h2), .vbody :global(h3), .vbody :global(h4) { margin: 1.2em 0 0.45em; font: 600 calc(var(--chat-fs) * 1.08)/1.35 var(--font-app); }

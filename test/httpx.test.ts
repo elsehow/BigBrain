@@ -102,13 +102,14 @@ describe("dispatch", () => {
 });
 
 describe("armor — the viewer's security headers (#692)", () => {
-  test("the policy: this origin's scripts only, nothing inline or eval'd, no framing, no plugins", () => {
+  test("the policy: this origin's scripts only, nothing inline or eval'd, framing only this machine's pages, no plugins", () => {
     const d = Object.fromEntries(CSP.split("; ").map((x) => [x.split(" ")[0], x.split(" ").slice(1)]));
     expect(d["script-src"]).toEqual(["'self'"]);
     expect(CSP).not.toContain("unsafe-eval");
     expect(d["default-src"]).toEqual(["'self'"]);
     expect(d["object-src"]).toEqual(["'none'"]);
-    expect(d["frame-src"]).toEqual(["'none'"]);
+    // a desktop view can show a dev server on this machine, and nothing else
+    expect(d["frame-src"]).toEqual(["http://127.0.0.1:*", "http://localhost:*"]);
     expect(d["frame-ancestors"]).toEqual(["'none'"]);
     expect(d["base-uri"]).toEqual(["'self'"]);
     // the Tauri IPC transport, both spellings — the webview shows this

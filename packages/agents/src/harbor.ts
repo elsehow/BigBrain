@@ -179,6 +179,13 @@ export class Harbor {
     if (job && !job.exited) await this.stopGroups([job.pid]);
   }
 
+  /** Stop every desktop's processes: after a restart no agent is running, so anything tagged is left over. */
+  async stopAll(): Promise<number> {
+    const groups = new Set([...(await this.tags()).values()].map(t => t.pgid));
+    await this.stopGroups([...groups]);
+    return groups.size;
+  }
+
   /** Stop everything carrying a desktop's tag, by process group. Returns how many groups. */
   async stopDesktop(desktop: string): Promise<number> {
     const tagged = await this.tags();

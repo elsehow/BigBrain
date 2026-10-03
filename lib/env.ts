@@ -69,6 +69,16 @@ export const supervisorPidEnv = (): number | undefined => {
  * is not installed over the developer's own. */
 export const isDev = (): boolean => Boolean(str("BIGBRAIN_DEV"));
 
+// ── coding desktops (packages/agents) ────────────────────────────────────────
+
+/** The workspace desktops' agents work in: projects/ and desktops/. Absent:
+ * the package's default, ~/bigbrain. */
+export const agentWorkspace = (): string | undefined => str("BIGBRAIN_WORKSPACE");
+
+/** Dev only: a module whose default export hosts a scripted agent
+ * (test/support/scriptedAgentHost.ts), for looking at v2 without a model. */
+export const agentScript = (): string | undefined => (isDev() ? str("BIGBRAIN_AGENT_SCRIPT") : undefined);
+
 /** Which role the caller runs as — the write guard's signal that a session
  * is the gardener rather than an interactive human. */
 export const role = (): string | undefined => str("BIGBRAIN_ROLE");
