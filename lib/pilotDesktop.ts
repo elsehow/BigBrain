@@ -17,8 +17,9 @@ export type DesktopTile = { view: string } | { dir: "row" | "col"; weights: numb
 
 export interface DesktopView {
   id: string;
-  kind: "note";
-  /** The vault path the view shows. */
+  /** "note": a vault note. "url": a page served on this machine's loopback, such as an agent's dev server. */
+  kind: "note" | "url";
+  /** What the view shows: the note's vault path, or the page's address. */
   path: string;
   title: string;
   at: string;
@@ -133,6 +134,21 @@ export const desktopReference = (d: PilotDesktop | undefined) => ({
   arrangedBy: d?.arrangedBy ?? null,
   closedByPerson: d?.closed ?? [],
 });
+
+/** A page a desktop may embed: http on a loopback address only, so a view can
+ * show an agent's dev server and nothing from the wider web. */
+export function loopbackUrl(raw: unknown): string {
+  let url: URL;
+  try { url = new URL(String(raw)); } catch { throw new DesktopError("Give a full address, such as http://127.0.0.1:5173/."); }
+  if (url.protocol !== "http:" || !["127.0.0.1", "localhost"].includes(url.hostname))
+    throw new DesktopError("Only pages served on this machine (http://127.0.0.1 or localhost) can be shown on a desktop.");
+  return url.href;
+}
+
+/** For agents that run servers (coding desktops): show one beside the chat. */
+export const SHOW_PAGE_TOOL = { type: "function", name: "show_page", strict: false,
+  description: "Show a page served on this machine, such as a dev server you started, on your desktop beside this chat. Use it when the person should see the running result. Only loopback addresses (http://127.0.0.1:<port>, localhost) can be shown. Showing a page that is already open does nothing.",
+  parameters: { type: "object", properties: { url: { type: "string", description: "The page's address, e.g. http://127.0.0.1:5173/." }, title: { type: "string", description: "A short label for the view." }, user_asked: { type: "boolean", description: "True only when the person asked to see a page they had closed." } }, required: ["url"], additionalProperties: false } };
 
 export const DESKTOP_TOOLS = [
   { type: "function", name: "open_view", strict: false,

@@ -18,6 +18,7 @@ import { AgentsError, listProjects, projectState, type Workspace } from "./works
 export interface ToolResult { text: string; label: string; ok: boolean }
 export interface AgentTool {
   name: string; description: string; parameters: Record<string, unknown>;
+  label?(args: Record<string, unknown>): string;
   run(args: Record<string, unknown>, signal: AbortSignal): Promise<ToolResult>;
 }
 export interface ToolContext {

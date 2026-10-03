@@ -72,7 +72,9 @@ export const CSP = [
   "connect-src 'self' ipc: http://ipc.localhost https://api.openai.com",
   "worker-src 'self' blob:",
   "object-src 'none'",
-  "frame-src 'none'",
+  // A desktop view can show a page served on this machine, such as an
+  // agent's dev server (lib/pilotDesktop.ts, loopbackUrl); nothing else.
+  "frame-src http://127.0.0.1:* http://localhost:*",
   "base-uri 'self'",
   "form-action 'self'",
   "frame-ancestors 'none'",

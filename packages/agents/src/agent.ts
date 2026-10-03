@@ -26,6 +26,8 @@ type StreamFn = AgentSession["agent"]["streamFunction"];
 export interface HostTool {
   name: string; description: string; parameters: Record<string, unknown>;
   execute(args: Record<string, unknown>, signal: AbortSignal): Promise<unknown>;
+  /** The activity line for a call, in plain words ("Searched the vault for orrery"); defaults to the tool's name. */
+  label?(args: Record<string, unknown>): string;
 }
 export interface OpenOptions {
   modelRuntime: ModelRuntime;
@@ -139,8 +141,8 @@ export class Desktop {
         homeCopyChanged: (project, files) => this.emit({ type: "homecopy.changed", project, files }),
       }),
       ...(options.tools ?? []).map((t): AgentTool => ({
-        name: t.name, description: t.description, parameters: t.parameters,
-        run: async (args, signal) => ({ text: JSON.stringify(await t.execute(args, signal)) ?? "null", label: t.name, ok: true }),
+        name: t.name, description: t.description, parameters: t.parameters, label: t.label,
+        run: async (args, signal) => ({ text: JSON.stringify(await t.execute(args, signal)) ?? "null", label: t.label?.(args) ?? t.name, ok: true }),
       })),
     ];
     const names = new Set<string>();
@@ -152,14 +154,14 @@ export class Desktop {
       executionMode: "sequential" as const,
       execute: async (call: string, input: unknown, signal?: AbortSignal) => {
         const args = (input ?? {}) as Record<string, unknown>;
-        this.emit({ type: "tool.start", call, tool: t.name, label: startLabel(t.name, args) });
+        this.emit({ type: "tool.start", call, tool: t.name, label: startLabel(t.name, args, t.label) });
         try {
           const r = await t.run(args, signal ?? new AbortController().signal);
           this.emit({ type: "tool.end", call, tool: t.name, label: r.label, ok: r.ok });
           return { content: [{ type: "text" as const, text: r.text }], details: {} };
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
-          this.emit({ type: "tool.end", call, tool: t.name, label: `${startLabel(t.name, args)} failed`, ok: false });
+          this.emit({ type: "tool.end", call, tool: t.name, label: `${startLabel(t.name, args, t.label)} failed`, ok: false });
           return { content: [{ type: "text" as const, text: `Error: ${message}` }], details: {} };
         }
       },
@@ -258,7 +260,7 @@ export class Desktop {
   }
 }
 
-function startLabel(tool: string, args: Record<string, unknown>): string {
+function startLabel(tool: string, args: Record<string, unknown>, label?: (args: Record<string, unknown>) => string): string {
   const s = (k: string) => typeof args[k] === "string" ? args[k] as string : "";
   const short = (t: string) => t.length > 60 ? t.slice(0, 57) + "…" : t;
   switch (tool) {
@@ -267,6 +269,6 @@ function startLabel(tool: string, args: Record<string, unknown>): string {
     case "write": return `Writing ${s("path")}`;
     case "edit": return `Editing ${s("path")}`;
     case "bash": return `Running ${short(s("command"))}`;
-    default: return tool;
+    default: return label?.(args) ?? tool;
   }
 }
