@@ -17,10 +17,17 @@
  * carries the tag); both are macOS/BSD tools.
  */
 import { spawn, type ChildProcess } from "node:child_process";
+import { existsSync } from "node:fs";
 import { run } from "./run";
 
 /** Not BIGBRAIN_DESKTOP: the engine reads that as "running inside the app" (lib/env.ts). */
 export const TAG = "BIGBRAIN_AGENT_DESKTOP";
+
+/** The system tools discovery needs, by absolute path where they live: an app
+ * started from Finder runs with a PATH that may lack /usr/sbin, where lsof is. */
+const tool = (name: string, ...dirs: string[]) => dirs.map(d => `${d}/${name}`).find(p => existsSync(p)) ?? name;
+const LSOF = tool("lsof", "/usr/sbin", "/usr/bin");
+const PS = tool("ps", "/bin", "/usr/bin");
 
 /** A command's environment: the base, minus the host's own BIGBRAIN_* settings
  * (the app's mode, the vault, ports), plus the desktop's tag. An agent working
@@ -150,7 +157,7 @@ export class Harbor {
 
   /** Every listening TCP socket, with the desktop whose tag its process carries. */
   async listeners(): Promise<Listener[]> {
-    const lsof = await run("lsof", ["-nP", "-iTCP", "-sTCP:LISTEN", "-Fpn"]);
+    const lsof = await run(LSOF, ["-nP", "-iTCP", "-sTCP:LISTEN", "-Fpn"]);
     const out: Listener[] = [];
     let pid = 0;
     for (const line of lsof.out.split("\n")) {
@@ -170,7 +177,7 @@ export class Harbor {
     const map = new Map<number, { desktop: string; pgid: number }>();
     if (pids && !pids.length) return map;
     const args = ["-E", "-ww", "-o", "pid=,pgid=,command=", ...(pids ? ["-p", pids.join(",")] : ["-ax"])];
-    const ps = await run("ps", args);
+    const ps = await run(PS, args);
     const pattern = new RegExp(`(?:^|\\s)${TAG}=([a-z0-9-]+)(?:\\s|$)`);
     for (const line of ps.out.split("\n")) {
       const m = /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(line);
