@@ -1,19 +1,19 @@
 /**
  * tools.ts — the coding tools a desktop's agent works with.
  *
- * Paths are relative to the desktop's folder, where every project appears
- * under its own name. Reading goes through the links to home copies freely.
- * The first `write`, `edit` or `bash` that touches a project forks it
- * (fork.ts), so the change lands in the desktop's own copy at the same path.
+ * Paths are relative to the workspace root (workspace.ts): the person's
+ * projects at projects/<name>, the desktop's own worktrees at
+ * desktops/<id>/<name>. Nothing is redirected and no command is classified:
+ * the agent works where it says it works. Editing a project in place takes
+ * its lease; start_work gives the desktop its own worktree (worktree.ts).
  * Commands run in Harbor (harbor.ts). Every result carries a plain-language
  * label for the desktop's activity line.
  */
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
-import { forkProject, type ForkRecord } from "./fork";
-import { run } from "./run";
 import type { Harbor } from "./harbor";
-import { AgentsError, listProjects, projectState, type Workspace } from "./workspace";
+import { startWork, type WorkRecord } from "./worktree";
+import { AgentsError, listProjects, takeLease, type Workspace } from "./workspace";
 
 export interface ToolResult { text: string; label: string; ok: boolean }
 export interface AgentTool {
@@ -22,10 +22,9 @@ export interface AgentTool {
   run(args: Record<string, unknown>, signal: AbortSignal): Promise<ToolResult>;
 }
 export interface ToolContext {
-  ws: Workspace; desktop: string; folder: string; harbor: Harbor;
-  forked(record: ForkRecord): void;
+  ws: Workspace; desktop: string; harbor: Harbor;
+  started(record: WorkRecord): void;
   server(port: number, job: number, command: string): void;
-  homeCopyChanged(project: string, files: number): void;
 }
 
 const READ_LINES = 2000, READ_CHARS = 60_000, OUTPUT_CHARS = 30_000;
@@ -34,44 +33,32 @@ const str = (v: unknown, what: string): string => {
   return v;
 };
 
-/** A path inside the desktop's folder, and the project it falls in, if any. */
-function locate(ctx: ToolContext, path: string): { abs: string; rel: string; project?: string } {
-  const abs = resolve(ctx.folder, path);
-  if (!(abs === ctx.folder || abs.startsWith(ctx.folder + sep)))
-    throw new AgentsError(`${path} is outside your folder. Paths are relative to it, and projects appear in it by name.`);
-  const rel = relative(ctx.folder, abs);
-  const first = rel.split(sep)[0]!;
-  const project = listProjects(ctx.ws).some(p => p.name === first) ? first : undefined;
-  return { abs, rel: rel || ".", ...(project ? { project } : {}) };
+/** A path in the agent's world (projects/ or this desktop's desktops/<id>/), and the in-place project it falls in, if any. */
+function locate(ctx: ToolContext, path: string): { abs: string; rel: string; inPlace?: string } {
+  const abs = resolve(ctx.ws.root, path);
+  const mine = join(ctx.ws.desktops, ctx.desktop);
+  const inside = (dir: string) => abs === dir || abs.startsWith(dir + sep);
+  if (!inside(ctx.ws.projects) && !inside(mine) && abs !== ctx.ws.root)
+    throw new AgentsError(`${path} is outside your world: use projects/<name> for your person's projects and desktops/${ctx.desktop}/<name> for your own worktrees.`);
+  const rel = relative(ctx.ws.root, abs) || ".";
+  const first = inside(ctx.ws.projects) ? relative(ctx.ws.projects, abs).split(sep)[0] : undefined;
+  return { abs, rel, ...(first && listProjects(ctx.ws).some(p => p.name === first) ? { inPlace: first } : {}) };
 }
 
-async function ensureFork(ctx: ToolContext, project: string): Promise<void> {
-  if (projectState(ctx.ws, ctx.desktop, project) !== "link") return;
-  ctx.forked(await forkProject(ctx.ws, ctx.desktop, project));
-}
-
-/** Projects a shell command touches: its working folder, and any path in it starting with a project's name. */
-export function projectsIn(command: string, cwdRel: string, names: string[]): string[] {
-  const found = new Set<string>();
-  const first = cwdRel.split(sep)[0];
-  if (first && names.includes(first)) found.add(first);
-  for (const token of command.split(/[\s;&|()<>"'`=]+/)) {
-    const seg = token.replace(/^\.\//, "").split("/")[0];
-    if (seg && names.includes(seg)) found.add(seg);
-  }
-  return [...found];
-}
-
-async function dirtyCount(path: string): Promise<number> {
-  const r = await run("git", ["status", "--porcelain"], path);
-  return r.code === 0 ? r.out.split("\n").filter(Boolean).length : 0;
+/** Editing a project in place takes its lease; another desktop's lease means start_work instead. */
+function lease(ctx: ToolContext, project: string | undefined): void {
+  if (!project) return;
+  const holder = takeLease(ctx.ws, ctx.desktop, project);
+  if (holder) throw new AgentsError(`Desktop ${holder} is editing ${project} in place. Call start_work for ${project} to get your own worktree, and work there.`);
 }
 
 export function codingTools(ctx: ToolContext): AgentTool[] {
+  const labelPath = (a: Record<string, unknown>) => typeof a.path === "string" && a.path ? a.path : "your workspace";
   return [
     {
-      name: "read", description: "Read a file. Paths are relative to your folder, where each project appears by name. Returns numbered lines; use offset and limit for long files.",
+      name: "read", description: "Read a file. Paths are relative to your workspace: projects/<name>/… are your person's projects; desktops/<id>/<name>/… are your own worktrees. Returns numbered lines; use offset and limit for long files.",
       parameters: { type: "object", properties: { path: { type: "string" }, offset: { type: "integer", minimum: 1 }, limit: { type: "integer", minimum: 1 } }, required: ["path"], additionalProperties: false },
+      label: a => `Reading ${labelPath(a)}`,
       async run(a) {
         const { abs, rel } = locate(ctx, str(a.path, "a path"));
         if (!existsSync(abs)) throw new AgentsError(`${rel} doesn't exist.`);
@@ -85,39 +72,39 @@ export function codingTools(ctx: ToolContext): AgentTool[] {
       },
     },
     {
-      name: "ls", description: "List a folder. Your folder lists every project: forked ones are your own copies; the rest are your person's home copies, readable until you change them.",
+      name: "ls", description: "List a folder. Default: projects/, your person's projects.",
       parameters: { type: "object", properties: { path: { type: "string" } }, additionalProperties: false },
+      label: a => `Listing ${typeof a.path === "string" && a.path ? a.path : "projects"}`,
       async run(a) {
-        const { abs, rel } = locate(ctx, typeof a.path === "string" && a.path ? a.path : ".");
-        const names = readdirSync(abs, { withFileTypes: true }).filter(e => e.name !== ".git").map(e => {
-          if (abs === ctx.folder && listProjects(ctx.ws).some(p => p.name === e.name))
-            return `${e.name}/  (${projectState(ctx.ws, ctx.desktop, e.name) === "fork" ? "your fork" : "home copy: forked on your first change"})`;
-          return e.isDirectory() || e.isSymbolicLink() ? `${e.name}/` : e.name;
-        }).sort();
+        const { abs, rel } = locate(ctx, typeof a.path === "string" && a.path ? a.path : "projects");
+        const names = readdirSync(abs, { withFileTypes: true }).filter(e => e.name !== ".git")
+          .map(e => e.isDirectory() || e.isSymbolicLink() ? `${e.name}/` : e.name).sort();
         return { text: names.join("\n") || "(empty)", label: `Listed ${rel}`, ok: true };
       },
     },
     {
-      name: "write", description: "Create or replace a file. Writing into a project forks it first, so the change lands in your own copy at the same path.",
+      name: "write", description: "Create or replace a file. Writing in projects/<name> edits your person's copy in place; in desktops/<id>/<name>, your own worktree.",
       parameters: { type: "object", properties: { path: { type: "string" }, content: { type: "string" } }, required: ["path", "content"], additionalProperties: false },
+      label: a => `Writing ${labelPath(a)}`,
       async run(a) {
         const where = locate(ctx, str(a.path, "a path"));
         if (typeof a.content !== "string") throw new AgentsError("Give the file's content.");
-        if (where.project) await ensureFork(ctx, where.project);
+        lease(ctx, where.inPlace);
         mkdirSync(dirname(where.abs), { recursive: true });
         writeFileSync(where.abs, a.content);
         return { text: `Wrote ${where.rel} (${a.content.length} characters).`, label: `Wrote ${where.rel}`, ok: true };
       },
     },
     {
-      name: "edit", description: "Replace exact text in a file. old must match exactly once unless all is true. Editing a project forks it first.",
+      name: "edit", description: "Replace exact text in a file. old must match exactly once unless all is true.",
       parameters: { type: "object", properties: { path: { type: "string" }, old: { type: "string" }, new: { type: "string" }, all: { type: "boolean" } }, required: ["path", "old", "new"], additionalProperties: false },
+      label: a => `Editing ${labelPath(a)}`,
       async run(a) {
         const where = locate(ctx, str(a.path, "a path"));
         const oldText = str(a.old, "the exact text to replace");
         if (typeof a.new !== "string") throw new AgentsError("Give the replacement text.");
         if (!existsSync(where.abs)) throw new AgentsError(`${where.rel} doesn't exist.`);
-        if (where.project) await ensureFork(ctx, where.project);
+        lease(ctx, where.inPlace);
         const body = readFileSync(where.abs, "utf8");
         const count = body.split(oldText).length - 1;
         if (!count) throw new AgentsError(`That text isn't in ${where.rel}. Read the file again; it may have changed.`);
@@ -128,23 +115,13 @@ export function codingTools(ctx: ToolContext): AgentTool[] {
       },
     },
     {
-      name: "bash", description: "Run a shell command in your folder (or cwd inside it). A command that touches a project forks it first. Long-running commands such as dev servers return on their own once they're listening, and keep running.",
+      name: "bash", description: "Run a shell command, in cwd (relative to your workspace; default projects/). It runs as your person, with their environment. Long-running commands such as dev servers return on their own once they're listening, and keep running.",
       parameters: { type: "object", properties: { command: { type: "string" }, cwd: { type: "string" } }, required: ["command"], additionalProperties: false },
+      label: a => `Running ${short(String(a.command ?? ""))}`,
       async run(a, signal) {
         const command = str(a.command, "a command");
-        const where = locate(ctx, typeof a.cwd === "string" && a.cwd ? a.cwd : ".");
-        const names = listProjects(ctx.ws).map(p => p.name);
-        for (const p of projectsIn(command, where.rel === "." ? "" : where.rel, names)) await ensureFork(ctx, p);
-        // A command can still reach a home copy through its link (or any path):
-        // that isn't a boundary, so it is watched and reported instead.
-        const linked = names.filter(n => projectState(ctx.ws, ctx.desktop, n) === "link").slice(0, 12);
-        const before = new Map(await Promise.all(linked.map(async n => [n, await dirtyCount(join(ctx.ws.projects, n))] as const)));
+        const where = locate(ctx, typeof a.cwd === "string" && a.cwd ? a.cwd : "projects");
         const result = await ctx.harbor.run(ctx.desktop, command, where.abs, signal);
-        for (const n of linked) {
-          const after = await dirtyCount(join(ctx.ws.projects, n));
-          if (after !== before.get(n)) ctx.homeCopyChanged(n, after);
-        }
-        const short = command.length > 60 ? command.slice(0, 57) + "…" : command;
         const tail = (s: string) => s.length > OUTPUT_CHARS ? "… (earlier output cut)\n" + s.slice(-OUTPUT_CHARS) : s;
         if (result.status === "exited") {
           const ok = result.code === 0;
@@ -152,12 +129,26 @@ export function codingTools(ctx: ToolContext): AgentTool[] {
           const busy = /EADDRINUSE[^\n]*?:(\d+)/.exec(result.output);
           const holder = busy ? await ctx.harbor.holder(Number(busy[1])) : undefined;
           const note = busy ? `\n[Port ${busy[1]} is in use${holder ? holder === ctx.desktop ? " by another of your own commands" : ` by desktop ${holder}` : " by a process outside any desktop"}.]` : "";
-          return { text: `${tail(result.output) || "(no output)"}\n[exit ${result.code ?? result.signal}]${note}`, label: `Ran ${short}${ok ? "" : ` (exit ${result.code ?? result.signal})`}`, ok };
+          return { text: `${tail(result.output) || "(no output)"}\n[exit ${result.code ?? result.signal}]${note}`, label: `Ran ${short(command)}${ok ? "" : ` (exit ${result.code ?? result.signal})`}`, ok };
         }
         for (const port of result.ports) ctx.server(port, result.job, command);
-        const label = result.ports.length ? `Started ${short} on :${result.ports.join(", :")}` : `Still running ${short}`;
+        const label = result.ports.length ? `Started ${short(command)} on :${result.ports.join(", :")}` : `Still running ${short(command)}`;
         return { text: `${tail(result.output)}\n[${result.note}]`, label, ok: true };
+      },
+    },
+    {
+      name: "start_work", description: "Give yourself your own git worktree of a project, on branch desktop/<id>, for changes that should be kept apart from your person's copy: anything more than a small fix, or when the project is busy. It shares the project's repo (branches, stashes and worktrees are the same), and its dependencies are already in place. Work there from then on.",
+      parameters: { type: "object", properties: { project: { type: "string", description: "The project's name, as it appears in projects/." } }, required: ["project"], additionalProperties: false },
+      label: a => `Starting work on ${String(a.project ?? "a project")}`,
+      async run(a) {
+        const record = await startWork(ctx.ws, ctx.desktop, str(a.project, "a project name"));
+        ctx.started(record);
+        const where = relative(ctx.ws.root, record.path);
+        return { text: `Your worktree of ${record.project} is ${where}, on branch ${record.branch}${record.cloned.length ? ` (brought ${record.cloned.join(", ")})` : ""}. It shares ${record.project}'s repo. Make your changes there.`,
+          label: `Started work on ${record.project} in ${where}`, ok: true };
       },
     },
   ];
 }
+
+const short = (t: string) => t.length > 60 ? t.slice(0, 57) + "…" : t;

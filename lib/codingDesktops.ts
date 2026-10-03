@@ -110,6 +110,7 @@ export class CodingDesktops {
       model: (r.model ?? `${DEFAULT_PILOT_BACKEND.provider}/${DEFAULT_PILOT_BACKEND.model}`).split("/").slice(1).join("/"),
       phase, lifecycle: "active" as const, created: r.created, updated: r.updated,
       lastActivityAt: events.at(-1)?.at ?? r.updated,
+      ...(running(events) ? { activity: running(events) } : {}),
       ...(r.archivedAt ? { deactivatedAt: r.archivedAt } : {}),
       contextNodes: (r.context ?? []).map(c => ({ id: c.path, path: c.path, title: c.title })),
     };
@@ -302,6 +303,13 @@ export class CodingDesktops {
   }
 }
 
+/** The step in progress: the last tool that has started and not ended, while the agent works. */
+function running(events: Stamped[]): string | undefined {
+  const ended = new Set(events.filter(e => e.type === "tool.end").map(e => (e as { call: string }).call));
+  const last = [...events].reverse().find(e => e.type === "tool.start" || e.type === "status");
+  return last?.type === "tool.start" && !ended.has(last.call) ? `${last.label}…` : undefined;
+}
+
 /** The package's events, read back as a conversation with its activity lines. */
 export function transcript(events: Stamped[]): TranscriptItem[] {
   const out: TranscriptItem[] = [];
@@ -309,9 +317,8 @@ export function transcript(events: Stamped[]): TranscriptItem[] {
     if (e.type === "input") out.push({ id: e.inputId, role: "user", text: e.text, at: e.at });
     else if (e.type === "message.done") out.push({ id: `m${e.seq}`, role: "assistant", text: e.text, at: e.at });
     else if (e.type === "tool.end") out.push({ id: `a${e.seq}`, role: "activity", text: e.label, at: e.at, ok: e.ok });
-    else if (e.type === "project.forked") out.push({ id: `a${e.seq}`, role: "activity", text: `Made its own copy of ${e.project} (branch ${e.branch})`, at: e.at, ok: true });
-    else if (e.type === "project.landed") out.push({ id: `a${e.seq}`, role: "activity", text: e.how === "pr" ? `Opened a pull request for ${e.project}: ${e.url}` : `Brought ${e.branch} home to ${e.project}`, at: e.at, ok: true });
-    else if (e.type === "homecopy.changed") out.push({ id: `a${e.seq}`, role: "activity", text: `Your home copy of ${e.project} changed underneath it`, at: e.at, ok: false });
+    else if (e.type === "work.started") out.push({ id: `a${e.seq}`, role: "activity", text: `Started its own worktree of ${e.project} (branch ${e.branch}, ${(e.ms / 1000).toFixed(1)}s)`, at: e.at, ok: true });
+    else if (e.type === "project.landed") out.push({ id: `a${e.seq}`, role: "activity", text: e.how === "pr" ? `Opened a pull request for ${e.project}: ${e.url}` : `${e.branch} is ready to merge in ${e.project}`, at: e.at, ok: true });
   }
   return out;
 }

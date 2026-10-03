@@ -7,8 +7,8 @@
  * - answers any message, streaming its reply;
  * - when asked to "serve", starts `python3 -m http.server` through its shell,
  *   then shows the page beside the chat with show_page;
- * - when asked to "change" something, commits a note in a project called
- *   orrery (its first command there forks it), so Land has work to bring home.
+ * - when asked to "change" something, starts its own worktree of a project
+ *   called orrery and commits a note there, so Land has work to bring home.
  */
 import type { OpenOptions } from "../../packages/agents/src";
 
@@ -25,6 +25,9 @@ export default async function scriptedHost(): Promise<OpenOptions> {
     const last = context.messages.at(-1)!;
     const asked = text([...context.messages].reverse().find(m => m.role === "user")!);
     if (last.role === "toolResult") {
+      const worktree = /Your worktree of orrery is (\S+), on branch/.exec(text(last))?.[1];
+      if (worktree) return fauxAssistantMessage([fauxToolCall("bash", { cwd: worktree,
+        command: "echo 'A note from a desktop.' >> NOTES.md && git add NOTES.md && git -c user.email=agent@example.invalid -c user.name=agent commit -qm 'Add a note' && git log --oneline -1" })], { stopReason: "toolUse" });
       const port = /127\.0\.0\.1:(\d+)/.exec(text(last))?.[1];
       if (port && !context.messages.some(m => m.role === "toolResult" && text(m).includes("views"))) {
         return fauxAssistantMessage([fauxToolCall("show_page", { url: `http://127.0.0.1:${port}/`, title: "Your folder, served" })], { stopReason: "toolUse" });
@@ -32,8 +35,7 @@ export default async function scriptedHost(): Promise<OpenOptions> {
       return fauxAssistantMessage("It's running, and it's beside this chat. Ask me to stop it whenever you like.");
     }
     if (/change/i.test(asked) && last.role === "user") {
-      return fauxAssistantMessage([fauxText("Adding a note to orrery and committing it."),
-        fauxToolCall("bash", { command: "cd orrery && echo 'A note from a desktop.' >> NOTES.md && git add NOTES.md && git -c user.email=agent@example.invalid -c user.name=agent commit -qm 'Add a note' && git log --oneline -1" })], { stopReason: "toolUse" });
+      return fauxAssistantMessage([fauxText("Starting my own worktree of orrery for this."), fauxToolCall("start_work", { project: "orrery" })], { stopReason: "toolUse" });
     }
     if (/serve/i.test(asked)) {
       return fauxAssistantMessage([fauxText("Starting a server in your folder."), fauxToolCall("bash", { command: "python3 -m http.server 0 --bind 127.0.0.1" })], { stopReason: "toolUse" });

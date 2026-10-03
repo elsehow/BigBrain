@@ -25,8 +25,8 @@ export function vaultTools(root: string): HostTool[] {
   return pilotTools().filter(t => VAULT_READERS.includes(t.name)).map(t => ({
     name: t.name, description: t.description, parameters: t.parameters as Record<string, unknown>,
     execute: (args, signal) => pilotToolCall(root, t.name, args, { signal }),
-    label: (args: Record<string, unknown>) => t.name === "search_vault" ? `Searched your vault for ${String(args.query ?? "")}`
-      : t.name === "load_memory" ? `Read your memory of ${String(args.topic ?? "")}` : `Read ${String(args.path ?? "a note")}`,
+    label: (args: Record<string, unknown>) => t.name === "search_vault" ? `Searched your vault for ${[args.query, ...(Array.isArray(args.queries) ? args.queries : [])].filter(Boolean).map(String).join(", ") || "notes"}`
+      : t.name === "load_memory" ? (args.topic ? `Read your memory of ${String(args.topic)}` : "Read your memory") : `Read ${String(args.path ?? "a note")}`,
   }));
 }
 
