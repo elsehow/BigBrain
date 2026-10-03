@@ -286,11 +286,15 @@
     discarding = null;
     try { await desktopReq("/discard", { id: openPilot, project }); await loadDetail(); } catch (e) { flash(errText(e)); }
   }
-  async function archiveDesktop(): Promise<void> {
-    const id = openPilot;
-    if (!id) return;
-    try { await desktopReq("/archive", { id }); closePilot(); await refreshPilots(); } catch (e) { flash(errText(e)); }
+  /** The bar's ×: archive a desktop, whichever kind. It leaves the bar; its conversation is kept. */
+  async function closeDesktop(id: string): Promise<void> {
+    try {
+      if (coding(id)) await desktopReq("/archive", { id }); else await pilotReq("/deactivate", { id });
+      if (openPilot === id) closePilot();
+      await refreshPilots();
+    } catch (e) { flash(`Couldn’t close it: ${errText(e)}`); }
   }
+  const archiveDesktop = (): Promise<void> => (openPilot ? closeDesktop(openPilot) : Promise.resolve());
   /** Chat text: markdown, with [[path|title]] citations as quiet links (as the app draws them). */
   const CITE = "#/vault/";
   const render = (t: string) => sanitizeHtml(md(t.replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_, path: string, label?: string) =>
@@ -609,11 +613,15 @@
     <nav class="strip" aria-label="Pilots">
       <!-- the task's full name is the token: no model squeezed in beside it -->
       {#each bar as p, k (p.id)}
-        <button type="button" class="tok" class:on={openPilot === p.id} class:working={p.phase === "working"} aria-pressed={openPilot === p.id}
-          title={`${p.title} · ${p.model} · ${PHASE[p.phase]} (${k + 1})`} onclick={() => (openPilot === p.id ? closePilot() : openPilotChat(p.id))}>
-          <svg width="11" height="11" viewBox="-12 -12 24 24" aria-hidden="true"><path d="M 0 9 L 7.794 -4.5 L -7.794 -4.5 Z" /></svg>
-          <span class="k">{k + 1}</span><span class="t">{p.title}</span>
-        </button>
+        <span class="tokwrap">
+          <button type="button" class="tok" class:on={openPilot === p.id} class:working={p.phase === "working"} aria-pressed={openPilot === p.id}
+            title={`${p.title} · ${p.model} · ${PHASE[p.phase]} (${k + 1})`} onclick={() => (openPilot === p.id ? closePilot() : openPilotChat(p.id))}>
+            <svg width="11" height="11" viewBox="-12 -12 24 24" aria-hidden="true"><path d="M 0 9 L 7.794 -4.5 L -7.794 -4.5 Z" /></svg>
+            <span class="k">{k + 1}</span><span class="t">{p.title}</span>
+          </button>
+          <button type="button" class="tokx" class:on={openPilot === p.id} onclick={() => void closeDesktop(p.id)}
+            aria-label={`Close ${p.title}`} title="Close this desktop: its processes stop; its conversation is kept">×</button>
+        </span>
       {/each}
       <button type="button" class="new" onclick={() => void createPilot([])} title="New pilot (⌘N)">+ <span class="k">⌘N</span></button>
       <button type="button" class="find" onclick={openSearch}>Search <span class="k">/</span></button>
@@ -793,6 +801,14 @@
   .tok svg { flex: none; fill: currentColor; }
   .tok.working svg { fill: none; stroke: var(--activity); stroke-width: 2.4; }
   .tok:hover, .new:hover { background: color-mix(in srgb, var(--fg) 7%, var(--bg)); }
+  /* the × sits over the token's right end, shown on hover or keyboard focus */
+  .tokwrap { position: relative; display: inline-flex; }
+  .tokx { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); width: 20px; height: 20px; padding: 0; border: 0; border-radius: 999px;
+    background: color-mix(in srgb, var(--fg) 7%, var(--bg)); color: var(--v2-muted); font: 400 14px/1 var(--font-app); cursor: pointer; opacity: 0; transition: opacity .12s; }
+  .tokx.on { background: var(--fg); color: color-mix(in srgb, var(--bg) 65%, var(--fg)); }
+  .tokwrap:hover .tokx, .tokx:focus-visible { opacity: 1; }
+  .tokx:hover { color: var(--fg); }
+  .tokx.on:hover { color: var(--bg); }
   .tok.on { background: var(--fg); color: var(--bg); }
   .tok.on .k { color: color-mix(in srgb, var(--bg) 65%, var(--fg)); }
   .new { color: var(--v2-muted); }

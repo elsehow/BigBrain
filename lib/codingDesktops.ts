@@ -124,7 +124,8 @@ export class CodingDesktops {
     const last = [...events].reverse().find(e => e.type === "error" || e.type === "status");
     return { ...this.summary(r), messages: transcript(events), seq: events.at(-1)?.seq ?? 0,
       ...(r.desktop ? { desktop: desktopDetail(r.desktop) } : {}),
-      changes: open ? await open.changes() : [], servers: open ? await open.servers() : [],
+      // a desktop still loads when its worktrees or servers can't be read
+      changes: open ? await open.changes().catch(() => []) : [], servers: open ? await open.servers().catch(() => []) : [],
       ...(last?.type === "error" ? { error: last.message } : {}) };
   }
 

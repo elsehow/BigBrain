@@ -162,6 +162,13 @@ describe.if(mac)("harbor", () => {
     expect((await h.servers("desk-h")).length).toBe(0);
   });
 
+  test("discovery works with an app's thin PATH, which lacks /usr/sbin where lsof lives", async () => {
+    const path = process.env.PATH;
+    process.env.PATH = "/usr/bin:/bin";
+    try { expect(Array.isArray(await h.servers("desk-thin"))).toBe(true); }
+    finally { process.env.PATH = path; }
+  });
+
   test("a fixed-port collision names the desktop holding the port", async () => {
     const { ws } = scene();
     const first = await h.run("desk-a", server(0), tmpdir());
