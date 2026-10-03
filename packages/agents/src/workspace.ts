@@ -1,22 +1,23 @@
 /**
- * workspace.ts — the folders this package owns.
+ * workspace.ts — the folders this package works with.
  *
- *   <root>/projects/<name>/     home copies (the person's projects)
- *   <root>/desktops/<id>/       a desktop's folder, and its agent's cwd
+ *   <root>/projects/<name>/     the person's projects, where agents work in place
+ *   <root>/desktops/<id>/<name> a desktop's own worktree of a project (worktree.ts)
  *   <root>/.agents/<id>/        this package's state for a desktop
  *
- * A desktop's folder mirrors projects/: a project the desktop hasn't
- * changed is a relative link to its home copy, and a forked one is a real
- * folder (fork.ts). Sibling paths such as `../other-project/` resolve the
- * same way inside a fork as in the home copy.
+ * An agent's working folder is <root>: it reaches the person's projects at
+ * projects/<name> and its own worktrees at desktops/<id>/<name>.
+ *
+ * Editing a project in place takes a lease, so two desktops don't edit the
+ * same copy at once: the second is told to start_work instead. Leases are
+ * released when a desktop is archived.
  */
-import { existsSync, lstatSync, mkdirSync, readdirSync, readlinkSync, symlinkSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, relative } from "node:path";
+import { join } from "node:path";
 
 export interface Workspace { root: string; projects: string; desktops: string; state: string }
 export interface Project { name: string; path: string }
-export type ProjectState = "link" | "fork" | "absent";
 
 export class AgentsError extends Error {}
 
@@ -36,33 +37,9 @@ export function checkDesktopId(id: string): string {
 export function listProjects(ws: Workspace): Project[] {
   if (!existsSync(ws.projects)) return [];
   return readdirSync(ws.projects, { withFileTypes: true })
-    .filter(e => PROJECT_NAME.test(e.name) && !e.name.startsWith(".") && (e.isDirectory() || e.isSymbolicLink()))
+    .filter(e => PROJECT_NAME.test(e.name) && (e.isDirectory() || e.isSymbolicLink()))
     .map(e => ({ name: e.name, path: join(ws.projects, e.name) }))
     .sort((a, b) => a.name.localeCompare(b.name));
-}
-
-export function projectState(ws: Workspace, id: string, name: string): ProjectState {
-  const entry = join(ws.desktops, checkDesktopId(id), name);
-  try { return lstatSync(entry).isSymbolicLink() ? "link" : "fork"; } catch { return "absent"; }
-}
-
-/** A desktop's folder, created on demand, with a link for every project it hasn't forked. */
-export function desktopFolder(ws: Workspace, id: string): string {
-  const dir = join(ws.desktops, checkDesktopId(id));
-  mkdirSync(dir, { recursive: true });
-  for (const p of listProjects(ws)) {
-    const entry = join(dir, p.name);
-    const target = relative(dir, p.path);
-    try {
-      const st = lstatSync(entry);
-      if (st.isSymbolicLink() && readlinkSync(entry) !== target) throw new AgentsError(`${entry} links somewhere unexpected.`);
-      continue; // a fork, or the right link already
-    } catch (error) {
-      if (error instanceof AgentsError) throw error;
-    }
-    symlinkSync(target, entry);
-  }
-  return dir;
 }
 
 export const stateFolder = (ws: Workspace, id: string): string => {
@@ -70,3 +47,28 @@ export const stateFolder = (ws: Workspace, id: string): string => {
   mkdirSync(dir, { recursive: true });
   return dir;
 };
+
+// ── leases on in-place edits ──────────────────────────────────────────────────
+const leaseFile = (ws: Workspace, project: string) => join(ws.state, "leases", `${project}.json`);
+
+/** Take (or keep) the lease on editing a project in place. Returns the
+ * desktop that holds it when that's another one. */
+export function takeLease(ws: Workspace, id: string, project: string): string | undefined {
+  const file = leaseFile(ws, project);
+  if (existsSync(file)) {
+    const holder = (JSON.parse(readFileSync(file, "utf8")) as { desktop: string }).desktop;
+    return holder !== id ? holder : undefined;
+  }
+  mkdirSync(join(ws.state, "leases"), { recursive: true });
+  writeFileSync(file, JSON.stringify({ desktop: id, at: new Date().toISOString() }));
+  return undefined;
+}
+
+export function releaseLeases(ws: Workspace, id: string): void {
+  const dir = join(ws.state, "leases");
+  if (!existsSync(dir)) return;
+  for (const f of readdirSync(dir)) {
+    const file = join(dir, f);
+    try { if ((JSON.parse(readFileSync(file, "utf8")) as { desktop: string }).desktop === id) rmSync(file); } catch { rmSync(file, { force: true }); }
+  }
+}

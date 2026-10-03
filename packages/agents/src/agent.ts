@@ -5,20 +5,20 @@
  * its folder: the model runtime and model (credentials stay with the host;
  * `wrapStream` lets it attach them per request), the instructions, and host
  * tools. This module supplies the coding tools (tools.ts), the shell
- * (harbor.ts), forks (fork.ts), and one durable event stream (events.ts).
+ * (harbor.ts), worktrees on request (worktree.ts), and one durable event stream (events.ts).
  *
  * pi's own built-in tools never run: every tool the agent has is listed
  * here, as BigBrain's Pilot already does (lib/run/piSession.ts).
  */
 import type { AgentSession, CreateAgentSessionOptions, ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { readdirSync } from "node:fs";
+import { mkdirSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { EventLog, type AgentEvent, type Stamped } from "./events";
-import { discardFork, landFork, readFork, type ForkRecord, type LandHow, type Landed } from "./fork";
+import { discardWork, landWork, listWork, type LandHow, type Landed, type WorkRecord } from "./worktree";
 import { run } from "./run";
 import { Harbor } from "./harbor";
 import { codingTools, type AgentTool } from "./tools";
-import { AgentsError, checkDesktopId, desktopFolder, listProjects, projectState, stateFolder, workspace, type Workspace } from "./workspace";
+import { AgentsError, checkDesktopId, releaseLeases, stateFolder, workspace, type Workspace } from "./workspace";
 
 type Model = NonNullable<CreateAgentSessionOptions["model"]>;
 type StreamFn = AgentSession["agent"]["streamFunction"];
@@ -39,15 +39,14 @@ export interface OpenOptions {
   wrapStream?: (stream: StreamFn) => StreamFn;
 }
 
-/** What the agent is told about its folder; the host's instructions come first. */
+/** What the agent is told about where it works; the host's instructions come first. */
 export const WORKING_INSTRUCTIONS = (id: string) => `
-## Your folder
-You work in a folder where each of your person's projects appears by name. Paths are relative to it.
-- Reading is free: you can read any project.
-- The first time you change a project, or run a command in it, you get your own copy of it on branch desktop/${id}, with its dependencies already in place. The path stays the same, so keep using it.
-- Never change files outside your folder, and never edit your person's home copies by absolute path.
-- Long-running commands such as dev servers return once they're listening, and keep running. Say the address you were given.
-- Commit finished pieces of work on your branch. Don't push, merge, rebase or switch branches unless your person asks.`;
+## Where you work
+Paths are relative to your workspace.
+- projects/<name> are your person's projects: their real checkouts, exactly as they see them. Reading, searching and running commands there is how you answer questions about them.
+- Small, clear fixes can be made in place. For anything larger, or a project another desktop is editing, call start_work: it gives you your own git worktree at desktops/${id}/<name> on branch desktop/${id}, sharing the project's repo, with its dependencies in place. Then make your changes there.
+- Commands run as your person, with their environment. Long-running commands such as dev servers return once they're listening, and keep running; say the address you were given.
+- Commit finished work on your branch. Don't push, merge, rebase or switch branches in your person's checkouts unless they ask.`;
 
 export class Agents {
   private desktops = new Map<string, Desktop>();
@@ -80,16 +79,16 @@ export class Agents {
   /** Events for a desktop, whether or not it's open. */
   events(id: string, since = 0): Stamped[] { return this.log(id).since(since); }
 
-  /** Delete a desktop's fork of a project and put the link back; its processes are stopped first. */
+  /** Delete a desktop's worktree of a project and its branch; its processes are stopped first. */
   async discard(id: string, project: string): Promise<void> {
     await this.harbor.stopDesktop(checkDesktopId(id));
-    discardFork(this.ws, id, project);
-    this.log(id).append({ type: "project.discarded", project });
+    await discardWork(this.ws, id, project);
+    this.log(id).append({ type: "work.discarded", project });
   }
 
-  /** Bring a fork's committed work home (fork.ts, landFork). A person's verb: no tool exposes it to the agent. */
+  /** Bring a worktree's committed work home (worktree.ts, landWork). A person's verb: no tool exposes it to the agent. */
   async land(id: string, project: string, how: LandHow = "auto"): Promise<Landed> {
-    const landed = await landFork(this.ws, checkDesktopId(id), project, how);
+    const landed = await landWork(this.ws, checkDesktopId(id), project, how);
     this.log(id).append({ type: "project.landed", project,
       how: landed.how, branch: landed.branch, ...(landed.how === "pr" ? { url: landed.url } : {}) });
     return landed;
@@ -107,7 +106,8 @@ export class Desktop {
   private status: Extract<AgentEvent, { type: "status" }>["status"] = "idle";
 
   constructor(private ws: Workspace, readonly id: string, private harbor: Harbor) {
-    this.folder = desktopFolder(ws, id);
+    this.folder = ws.root;
+    mkdirSync(ws.projects, { recursive: true });
     this.events = new EventLog(stateFolder(ws, id));
     for (const e of this.events.since()) {
       if (e.type === "input") this.inputs.add(e.inputId);
@@ -132,13 +132,12 @@ export class Desktop {
 
     const tools: AgentTool[] = [
       ...codingTools({
-        ws: this.ws, desktop: this.id, folder: this.folder, harbor: this.harbor,
-        forked: (r: ForkRecord) => this.emit({ type: "project.forked", project: r.project, branch: r.branch, path: r.path, ms: r.ms }),
+        ws: this.ws, desktop: this.id, harbor: this.harbor,
+        started: (r: WorkRecord) => this.emit({ type: "work.started", project: r.project, branch: r.branch, path: r.path, ms: r.ms, cloned: r.cloned }),
         server: (port, job, command) => {
           this.emit({ type: "server.started", port, job, command });
           void this.harbor.whenExited(job).then(x => this.emit({ type: "server.exited", job, code: x?.code ?? null }));
         },
-        homeCopyChanged: (project, files) => this.emit({ type: "homecopy.changed", project, files }),
       }),
       ...(options.tools ?? []).map((t): AgentTool => ({
         name: t.name, description: t.description, parameters: t.parameters, label: t.label,
@@ -219,14 +218,12 @@ export class Desktop {
     if (this.status === "working") this.emit({ type: "status", status: "stopped" });
   }
 
-  forks(): ForkRecord[] {
-    return listProjects(this.ws).filter(p => projectState(this.ws, this.id, p.name) === "fork")
-      .map(p => readFork(this.ws, this.id, p.name)).filter((r): r is ForkRecord => !!r);
-  }
+  /** The worktrees this desktop has started. */
+  work(): WorkRecord[] { return listWork(this.ws, this.id); }
 
-  /** Per fork: branch, commits since the fork, uncommitted files, and a diffstat. */
+  /** Per worktree: branch, commits since it started, uncommitted files, and a diffstat. */
   async changes(): Promise<Array<{ project: string; branch: string; commits: number; dirty: number; stat: string }>> {
-    return Promise.all(this.forks().map(async f => {
+    return Promise.all(this.work().map(async f => {
       const [commits, dirty, stat] = await Promise.all([
         run("git", ["rev-list", "--count", `${f.base}..HEAD`], f.path),
         run("git", ["status", "--porcelain"], f.path),
@@ -241,13 +238,14 @@ export class Desktop {
 
   async snapshot() {
     return { id: this.id, folder: this.folder, status: this.status, seq: this.events.last,
-      forks: this.forks(), servers: await this.servers() };
+      work: this.work(), servers: await this.servers() };
   }
 
   /** Stop the desktop's processes and its session. Files stay; reopening resumes. */
   async archive(): Promise<void> {
     await this.stop();
     await this.harbor.stopDesktop(this.id);
+    releaseLeases(this.ws, this.id);
     this.close();
     this.emit({ type: "status", status: "archived" });
   }
@@ -260,15 +258,7 @@ export class Desktop {
   }
 }
 
+/** A tool's in-progress label: its own, or its name. */
 function startLabel(tool: string, args: Record<string, unknown>, label?: (args: Record<string, unknown>) => string): string {
-  const s = (k: string) => typeof args[k] === "string" ? args[k] as string : "";
-  const short = (t: string) => t.length > 60 ? t.slice(0, 57) + "…" : t;
-  switch (tool) {
-    case "read": return `Reading ${s("path")}`;
-    case "ls": return `Listing ${s("path") || "your folder"}`;
-    case "write": return `Writing ${s("path")}`;
-    case "edit": return `Editing ${s("path")}`;
-    case "bash": return `Running ${short(s("command"))}`;
-    default: return label?.(args) ?? tool;
-  }
+  return label?.(args) || tool;
 }

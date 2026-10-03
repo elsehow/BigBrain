@@ -186,16 +186,20 @@
   }
   /** A coding desktop's live stream: text as it's written, and a refresh when anything else happens. */
   let liveText = $state("");
+  /** The step the agent is on right now ("Running git worktree list…"), from the stream. */
+  let runningLabel = $state("");
   $effect(() => {
     const id = openPilot;
     if (!id || !coding(id) || data) return;
-    liveText = "";
+    liveText = ""; runningLabel = "";
     const es = new EventSource(`/api/desktops/events?id=${encodeURIComponent(id)}&since=${Number.MAX_SAFE_INTEGER}`);
     let pending: ReturnType<typeof setTimeout> | undefined;
     const refresh = () => { clearTimeout(pending); pending = setTimeout(() => { void loadDetail(); void refreshPilots(); }, 120); };
     es.onmessage = (m) => {
-      const e = JSON.parse(m.data) as { type: string; text?: string };
+      const e = JSON.parse(m.data) as { type: string; text?: string; label?: string };
       if (e.type === "message.delta") { liveText += e.text ?? ""; return; }
+      if (e.type === "tool.start") runningLabel = `${e.label ?? "Working"}…`;
+      if (e.type === "tool.end" || e.type === "status") runningLabel = "";
       if (e.type === "message.done") liveText = "";
       refresh();
     };
@@ -702,7 +706,7 @@
           {:else}<div class="msg {m.role}"><div class="body">{@html render(m.text)}</div></div>{/if}
         {/each}
         {#if live}<div class="msg assistant live"><div class="body">{@html render(live)}</div></div>{/if}
-        {#if detail.phase === "working" && !live}<p class="activity">{detail.activity || "Working…"}</p>{/if}
+        {#if detail.phase === "working" && !live}<p class="activity">{(coding(detail.id) && runningLabel) || detail.activity || "Working…"}</p>{/if}
         {#if detail.error}<p class="activity err">{detail.error}</p>{/if}
         {#if !detail.messages.length && detail.phase === "draft"}<p class="activity">{coding(detail.id) ? "Ask it anything: it can read your vault and work on your projects." : "Ask it anything — it can read your vault."}</p>{/if}
       </div></div>

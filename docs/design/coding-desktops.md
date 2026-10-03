@@ -1,300 +1,193 @@
 # Desktops that work on code
 
-Status: proposed (2026-10-03). Nothing here is built yet. The mechanisms
-marked *measured* were tested on real projects on one Mac (APFS).
+Status: built (packages/agents, #56–#58), and revised after first use (this
+version). The mechanisms marked *measured* were tested on real projects on
+one Mac.
 
 A **desktop** in v2 (`/v2`) is one **agent**: its chat, with views tiled
-beside it (`lib/pilotDesktop.ts`). `⌘N` makes a new one. Today a desktop's
-agent can read the vault and show notes. This design lets it **work on
-code**: edit projects, run tests, start a dev server and show it beside the
-chat. It does so without bringing back the brokered workers #23 removed,
-and without per-project setup recipes or a permissions regress.
+beside it. `⌘N` makes a new one. Its agent can read the vault and work on
+the person's code: answer questions about it, edit it, run tests, start a
+dev server and show it beside the chat. It does so without bringing back the
+brokered workers #23 removed.
 
-The approach is one new package, `packages/agents` (the name is
-provisional), built on two mechanisms:
+The runtime is one package, `packages/agents`. BigBrain uses it through host
+tools (`lib/agentHost.ts`, `lib/codingDesktops.ts`); the package knows
+nothing about vaults.
 
-- **Fork:** each desktop works in a copy-on-write clone of the whole
-  project, environment and all.
-- **Harbor:** BigBrain runs the agent's shell, so it can see every process
-  a desktop starts and find its dev servers on its own.
+## The principle: the agent works in the person's world
 
-BigBrain uses the package; the package knows nothing about vaults. What
-BigBrain has called "Pilot" becomes BigBrain's configuration of an agent.
+**An agent sees exactly what its person sees, and anything it does
+differently is explicit and visible.**
+
+The first design gave every desktop a hidden copy of a project, created
+implicitly the first time a command touched it. On its first real use, a
+read-only question ("do we have a worktree for…?"):
+- forked two projects behind a bare "Working…", for 46 s;
+- answered wrongly, because the copy had dropped the repo's worktree
+  records.
+
+The pattern behind it is that any substitute world drifts from the real
+one, and a heuristic that decides when to substitute guesses wrong in both
+directions. So:
+
+- **Agents work in place by default.** Their working folder is the
+  workspace; the person's projects are at `projects/<name>`, their real
+  checkouts. Questions, searches and commands see the real state.
+- **Isolation is a step the agent takes, not one inferred for it.**
+  `start_work(project)` gives the desktop its own git worktree. The step is
+  visible in the chat, with its time.
+- **No command is classified, and no path is redirected.** The agent works
+  where it says it works.
 
 ## Vocabulary
 
 | Term | Meaning |
 |---|---|
-| **Workspace** | The folder BigBrain owns for code: `~/bigbrain/` by default, named in `vault.yaml`. |
-| **Project** | A git repo under `workspace/projects/<name>/`. The vault records it as an entity. |
-| **Home copy** | That folder: the project as you use it, with its branch, `node_modules`, `.venv` and `.env`. |
-| **Desktop** | One agent with its chat and views, plus its folder `workspace/desktops/<id>/`. |
-| **Agent** | What you talk to on a desktop: a pi session. BigBrain decides what it knows and can do; the package runs it. One per desktop. |
-| **Fork** | A desktop's copy-on-write clone of a project's home copy. |
-| **Host tools** | Tools BigBrain hands an agent: vault search and read, `open_view`, `notify_user`. |
-
-"Pilot" leaves the vocabulary in favour of **agent**. Code names
-(`lib/pilot*`, `/api/pilot/chat`, the `pilot-…` ids of saved conversations)
-change when existing desktops move onto the package (phase 5), so saved
-conversations keep opening.
-
-The vault keeps the record; the workspace keeps the code. Code never goes
-inside a vault: a vault is a code-free content repo that the engine commits
-to and backs up.
-
-## The agent's world
-
-A desktop's folder mirrors the projects folder, and it is the agent's
-working directory:
+| **Workspace** | The folder BigBrain owns for code: `~/bigbrain/` (`BIGBRAIN_WORKSPACE`). |
+| **Project** | A git repo at `projects/<name>`: the person's checkout. The vault records it as an entity. |
+| **Desktop** | One agent with its chat and views. |
+| **Agent** | What you talk to on a desktop: a pi session. BigBrain decides what it knows and can do; the package runs it. |
+| **Worktree** | A desktop's own `git worktree` of a project, at `desktops/<id>/<name>` on branch `desktop/<id>`, made by `start_work`. |
+| **Lease** | A desktop's claim on editing a project in place, so two don't edit one checkout at once. |
+| **Host tools** | Tools BigBrain hands an agent: vault search and read, `open_view`, `show_page`, `notify_user`. |
 
 ```
 ~/bigbrain/
-  projects/                  home copies
+  projects/                  the person's projects; agents work here in place
     orrery/
-    orrery-site/
   desktops/
-    7f3a9c/                  the agent's cwd; named by a stable id, titles are labels
-      orrery/                a fork: an APFS clone of projects/orrery, everything included
-      orrery-site -> ../../projects/orrery-site     not forked yet: a link to the home copy
-  .agents/                   the package's state: per-desktop event logs
+    d-7f3a9c/
+      orrery/                a worktree of projects/orrery on branch desktop/d-7f3a9c
+  .agents/                   the package's state: event logs, sessions, worktree records, leases
 ```
 
-- **Every project appears under its own name.** A project the desktop
-  hasn't changed is a link to its home copy, which it can read. That also
-  keeps sibling paths working: one tested project's dev server reads
-  `../<sibling>/…`, and failed in a clone that had no sibling beside it.
-- **Forking happens on first change.** The first time the agent edits a
-  project or runs a command inside it, the package replaces the link with a
-  fork. The agent's paths don't change: `orrery/ratios.ts` is the same name
-  before and after, now pointing at a private copy. Nothing is redirected,
-  so there is nothing for the agent to be confused by.
-- **The agent never sees a second path for the same project.**
+Code never goes inside a vault. A vault is a code-free content repo that the
+engine commits to and backs up.
 
-### Fork (*measured*)
+## Working in place, and leases
 
-A fork is `cp -c -R` of the home copy: APFS `clonefile`, which shares
-storage until a file changes.
+The agent reads, searches and runs commands in `projects/<name>` as the
+person would. Small, clear fixes can be made in place.
 
-- **A 7.3 GB Python project with 37,000 files** cloned in 5.9 s, using
-  71 MB of new disk. Its tests passed from the clone, against the clone's
-  code.
-- **A Node site** cloned in 0.3 s. Its tests and build ran unchanged from
-  the clone, and its dev server served from the clone once its sibling was
-  in place.
-- **A fork is a complete repo:** same history, same `origin`, its own
-  branch `desktop/<id>`. It has the home copy's `node_modules`, `.venv`,
-  `.env`, build output and data. There is no setup recipe, because the
-  environment already exists.
+Editing a file there with `write` or `edit` takes that project's **lease**.
+If another desktop holds it, the edit is refused with the remedy: call
+`start_work` and work in your own worktree. That catches the one real hazard
+of working in place: concurrent sessions in one checkout have destroyed each
+other's uncommitted work before. Leases are released when a desktop is
+archived.
 
-Two adjustments, both mechanical:
+Shell commands can still change anything, as in the person's terminal. The
+instructions say to use `start_work` for anything non-trivial. Nothing
+pretends to police the shell.
 
-- **Python virtualenvs carry absolute paths** in the first line of their
-  scripts (`#!…/projects/orrery/.venv/bin/python3`). The package rewrites
-  that first line in `.venv/bin/*` after cloning. *Measured:* after the
-  rewrite, `pytest` in the clone runs on the clone's environment. Don't run
-  `uv sync` as a "repair": in the test it made the environment match the
-  lockfile exactly and removed `pytest`, which that project installs outside
-  its default dependencies.
-- **Nested worktrees aren't copied** (such as `.claude/worktrees/`), and the
-  fork runs `git worktree prune`. A fork must not inherit other sessions'
-  checkouts.
+## Worktrees on request (*measured*)
 
-What a fork shares with its home copy is deliberate: it runs as you, with
-your `.env`. Disk grows only as the fork diverges (an `npm install` in the
-fork is the usual cost). Discard reclaims it.
+`start_work(project)` runs `git worktree add desktops/<id>/<name> -b
+desktop/<id>` from the project's own repo.
+
+- **One repo, so one set of facts.** A worktree shares the repo's database.
+  Branches, stashes, tags, remotes and other worktrees are the same on both
+  sides, and the person sees `desktop/<id>` in their own repo.
+- **It runs immediately.** What git ignores but the project needs is cloned
+  in from the person's checkout, at any depth: `node_modules`, `.venv`,
+  `venv`, `.env`, `.env.local`, `.envrc`. On APFS this is `cp -c`, which
+  shares storage until a file changes; elsewhere it's a plain copy.
+- **Virtualenvs are fixed up.** A cloned venv's scripts name their
+  interpreter by absolute path, so their first lines are rewritten to the
+  worktree's own. Don't "repair" a venv with `uv sync`: in testing it matched
+  the lockfile exactly and removed `pytest`, which that project installs
+  outside its default dependencies.
+- **It's quick.** Starting a worktree of a fixture with nested dependencies
+  takes well under 2 s. The test suite holds it there.
 
 ## Harbor: processes and previews (*measured*)
 
-The package runs the agent's shell commands itself, through pi's tool list
-and its `tool_call` hook. Every command runs with
-`BIGBRAIN_AGENT_DESKTOP=<id>` in its environment, in its own process group.
+The package runs the agent's shell commands itself. Every command runs with
+`BIGBRAIN_AGENT_DESKTOP=<id>` in its own process group, in the person's login
+environment.
 
+- **The environment is the person's.** Their login shell's environment
+  (`$SHELL -ilc env`) is captured once, so commands see the same PATH,
+  version managers and exports as the person's terminal. The host's own
+  `BIGBRAIN_*` settings are stripped: an agent working on BigBrain itself
+  must not run its code as the app, or against the host's vault.
 - **Long-running commands return on their own.** If a command is still
-  running after a few seconds and a process carrying that tag is listening
-  on a loopback port, the tool returns: "still running as job 2, listening
-  on 127.0.0.1:5174". The package emits `server.started`, and the desktop
-  can show it. The agent just types `npm run dev`; there is no `serve` tool
-  to remember.
-- **Finding a desktop's servers needs no cooperation.** *Measured:*
-  `ps -E` shows the tag on the listening process, and `lsof` maps listeners
-  to processes. Processes that hand themselves to launchd escape the tag;
-  that is rare.
-- **Ports are discovered, not assigned.** Vite, Next and Astro move to the
-  next free port by default. A server with a fixed port fails with
-  `EADDRINUSE` (*measured*). The package then reports which desktop holds
-  the port, so the agent or you can stop that one or change the port.
-- **Stopping is by process group, with escalation.** *Measured:* one dev
-  server outlived `SIGTERM` to its own pid but stopped when its whole
-  process group got `SIGTERM`. The package sends `SIGTERM` to the group,
-  then `SIGKILL` after a grace period. Archive and app relaunch stop
-  everything carrying the desktop's tag.
-- **Previews embed `http://127.0.0.1:<port>` directly** as a loopback-only
-  web view, so hot reload works. Routing by `*.localhost` hostname isn't
-  used: macOS's resolver and WKWebView don't resolve it.
+  running after a few seconds and a tagged process is listening on a
+  loopback port, the tool returns with that address, and the desktop can
+  show it (`show_page`).
+- **Ports are discovered, not assigned.** A fixed-port collision reports
+  which desktop holds the port.
+- **Stopping is by process group,** SIGTERM then SIGKILL after a grace
+  period. Archive stops everything tagged with the desktop. An engine
+  restart stops anything tagged, because no agent survives a restart.
+- **Previews embed `http://127.0.0.1:<port>`.** The engine's CSP allows
+  framing loopback pages only.
+
+## What this is not
+
+Agents run as the person, like `pi` in their terminal. That means:
+- they have the person's GitHub access (SSH agent, `gh`'s keychain login);
+- they can read anything the person's account can;
+- the instructions and the Land button shape what an agent does, but they
+  don't limit what it can do.
+
+Real limits need a different place to run:
+- a container or VM per project, mounting only that project and given only
+  the credentials listed for it;
+- credentials scoped for agents.
+
+Where commands run is one swappable piece of the package, for when agents
+run unattended, on untrusted code, or with narrower credentials than their
+person.
 
 ## A desktop's life
 
 | Verb | Who | What happens |
 |---|---|---|
-| **Fork** | automatic, on first change to a project | Clone the home copy into the desktop's folder, and branch `desktop/<id>` |
-| **Archive** | you, or after a day idle | Stop the desktop's processes. **Files stay.** Reopening is instant |
-| **Land** | you | Bring a fork's work home: open a PR from the fork, or fetch its branch into the home copy (`git -C projects/orrery fetch <fork> HEAD:refs/heads/desktop/<id>`) for you to merge |
-| **Discard** | you | Delete the desktop's forks |
+| **Work in place** | the agent | Reads and commands in `projects/<name>`; edits take the lease |
+| **start_work** | the agent | A worktree of the project on `desktop/<id>`; shown in the chat |
+| **Archive** | you, or after a day idle | Stops its processes, releases its leases. Files stay; reopening resumes |
+| **Land** | you | A worktree's commits come home: a pull request when the project is on GitHub, otherwise its branch, already in your repo, ready to merge |
+| **Discard** | you | Deletes the desktop's worktree and its branch |
 
-- **Nothing is committed automatically, ever.** A fork's uncommitted work
-  stays in the fork, just as it would in a checkout you left open.
-- **Nothing is deleted on a timer.** Forks cost almost nothing at rest, so
-  only Land and Discard change what's on disk, and both are your decision.
-- The conversation is filed into the vault as it is today. The project
-  entity lists its desktops, so forks you haven't landed or discarded stay
-  visible.
-
-## Working in the home copy (optional)
-
-For a quick fix you want to watch live in your editor, a desktop can work
-directly in a project's home copy instead of forking it, by your choice. It
-then holds a **lease**: a second desktop that wants that project gets a fork
-instead, and is told who holds the home copy. In the home copy the agent
-commits but never switches branches, and a short list of destructive
-commands is refused (`git reset --hard`, `git clean -f`, `git checkout --`,
-`git push --force`, `rm -rf` of a project root). This is a guard against
-accidents, not permission brokering.
-
-Forking is the default. Concurrent sessions in one shared checkout have
-destroyed uncommitted work before, and the fork makes that impossible
-rather than merely unlikely.
-
-## What this is not
-
-Pi's own security guide says a working folder "does not prevent commands
-from accessing other paths". Agents run as you, like `pi` in your terminal
-or Ficus's `host` runtime. A fork protects your home copy from accidents
-made through the agent's own paths. A shell command can still reach any
-file you can, including a home copy through its link, before that project
-is forked. The package checks home copies for unexpected changes after each
-command and reports them. Where commands run is one swappable piece inside
-the package, so a sandbox per project can come later without changing
-desktops.
+Nothing is committed automatically, and nothing is deleted on a timer.
 
 ## The interface BigBrain uses
 
 ```ts
-open(desktop, { model, tools: HostTool[], instructions })
-send(desktop, text, { inputId })          // queued when busy
-steer(desktop, text)
-stop(desktop)
-answer(desktop, questionId, text)
-snapshot(desktop)                         // everything needed to draw it after a reload
-events(desktop, sinceSeq)                 // replay missed events
-changes(desktop)                          // per fork: branch, ahead/behind, dirty files, diffstat
-diff(desktop, project, path?)
-servers(desktop) / stopServer(id) / logs(id, tail)
-paths(desktop)                            // fork paths, for "Open in editor / Terminal"
+open(desktop, { model, tools: HostTool[], instructions, wrapStream })
+send(desktop, text, { inputId }) / steer(desktop, text) / stop(desktop)
+changes(desktop)                          // per worktree: branch, commits, uncommitted files, diffstat
+servers(desktop) / snapshot(desktop) / events(desktop, sinceSeq)
 archive(desktop) / land(desktop, project, how) / discard(desktop, project)
 ```
 
-One ordered event stream per desktop, sequence-numbered and persisted:
+One ordered, persisted event stream per desktop:
+- `status` and `input`;
+- `message.delta` and `message.done`;
+- `tool.start` and `tool.end`, each with a plain label. The UI shows the
+  running step from `tool.start`, never a bare "Working…".
+- `work.started`, with its time;
+- `server.started`, `server.exited`, `project.landed`, `work.discarded`
+  and `error`.
 
-| Event | What it drives |
-|---|---|
-| `status`: idle, working, waiting, failed, stopped | The desktop's glyph in the bar and the activity line |
-| `message.delta` / `message.done` | Streaming text in the chat |
-| `tool.start` / `tool.end`, with a plain label ("Edited ratios.ts", "Ran tests: 42 passed") | Readable activity. The UI never parses pi's tool calls. |
-| `project.forked` | "Now working on its own copy of orrery", and the vault record |
-| `changes.updated` (debounced) | A live "3 files changed" summary per project |
-| `server.started` / `server.health` / `server.exited` | Offering the dev server as a view, and dead-server indicators |
-| `homecopy.changed` | A warning that a home copy changed underneath the agent |
-| `question` | The desktop asking you, plus a notification |
-| `error` (kind, recoverable) | A clear message, and resume when recoverable |
+## Tests that guard the principle
 
-Guarantees:
-
-- **Nothing is lost on reload or restart:** events replay, agents resume
-  from pi's session files, and forks are just folders.
-- **Nothing is committed or deleted without you.**
-- **One turn at a time per desktop,** and every command is safe to retry.
-- **Servers are found by tag and shown from loopback.**
-
-## Why a separate package
-
-- **Its hard problems are its own:** clones, links, process groups, ports,
-  and resuming. None of them touches the gardener or the graph.
-- **Conversation is an application, not the engine** (design principle 4).
-- **One runtime, not two.** Coding desktops and today's knowledge-only
-  desktops need the same machinery (turns, steering, streaming, resuming).
-- **It is the only code that runs shells,** so it is the one place to review
-  for safety.
-
-It lives in this monorepo as `packages/agents/`, with its own
-`package.json`, README and tests. A lint rule forbids it from importing
-`lib/`, `web/` or `bin/`. Root `bun run lint` names the new directory
-explicitly (see CLAUDE.md, Linting).
-
-## Today's agent code, split
-
-**The machinery moves to the package:** turns and transitions
-(`pilotTransitions.ts`), persistence (`pilotChatPersistence.ts`), the
-provider conversation and transcript (`pilotConversation.ts`,
-`pilotTranscript.ts`), lifecycle timing (`pilotLifecycleConfig.ts`), and
-running pi (`lib/run/piSession.ts`).
-
-**What the agent knows and can do stays in BigBrain:**
-
-- the instructions;
-- vault tools (`pilotAccess.ts`), context and mentions;
-- notifications, Quick naming (`pilotTaskName.ts`), and filing finished
-  conversations into the vault (`pilotChatIngestion.ts`);
-- categories, the desktop's views (`pilotDesktop.ts`), and the HTTP routes.
-
-A knowledge-only desktop is an agent that hasn't forked anything. Today's
-agent code is load-bearing, so the move is staged. Coding desktops ship on
-the package first, and saved conversations keep opening throughout.
-
-## Phases
-
-1. **This document.**
-2. **Package core and a CLI:**
-   - the workspace and the desktop folder's mirror of links;
-   - fork on first change, with the venv rewrite and nested-worktree
-     exclusion;
-   - agents, through pi's SDK;
-   - `bigbrain agent run "<task>"`, used on real work before any UI.
-3. **Harbor:** tagged commands, server discovery, group stops,
-   `homecopy.changed`, and durable events.
-4. **Coding desktops in v2:**
-   - Archive, Land and Discard;
-   - project entities in the vault;
-   - a loopback-only `url` view, which means opening the engine's
-     `frame-src` to loopback only.
-5. **Existing desktops move onto the package,** and code names drop
-   "Pilot".
-6. **Later, if wanted:**
-   - working in the home copy, with leases;
-   - a sandboxed runtime per project;
-   - agents that start helper desktops, where Ficus's workflow runtime is
-     worth porting.
+- **Fidelity.** In a fixture project with a tag, another worktree, a stash
+  and uncommitted edits, the same git commands give the same output through
+  the agent's shell as in the checkout. Each command takes under 2 s. It
+  would have caught the first design's bug before a person did: on that
+  design, 2 of 5 commands differed.
+- **Worktree.** The person sees the desktop's branch, the worktree sees
+  their stash and worktrees, dependencies are in place, and their checkout
+  is untouched.
+- **Leases, path boundaries, Land, Discard, Harbor, the login environment**,
+  and a full agent loop: a question answered in place, then a change in its
+  own worktree.
 
 ## Open questions
 
-- **Large home copies:** on a home copy with hundreds of thousands of files,
-  how long does a clone take? Test it before promising "instant".
-- **Linux:** filesystems without `clonefile` need a fallback. `cp --reflink`
-  works on btrfs and XFS; elsewhere use a worktree plus a setup step.
-- **Filing coding transcripts:** coding transcripts can contain code and
-  secrets. Should filing them into the vault be opt-in per project?
-- **The package's name:** `agents` is provisional.
-
-## Prior art
-
-- **Ficus** (github.com/ficushq/tau, AGPL-3.0, like BigBrain): its `host`
-  runtime, per-squad workspaces with worktrees, supervised local
-  deployments, and a workflow runtime. Its manager is a prompt over a
-  Postgres-backed scheduler, so it can't be lifted out.
-- **Claude Code:** projects are implicit, with each project's `CLAUDE.md`
-  loaded as files are touched, and isolation is opt-in through worktrees.
-  Here, isolation is the default, and it costs nothing.
-- **#23** removed app-owned workers that BigBrain brokered permissions for.
-  Here nothing is brokered: one agent per desktop, its forks, and you in its
-  chat.
-- An earlier draft of this document used worktrees with write redirection
-  and per-project setup recipes. Forks remove both.
+- **Filing coding conversations** into the vault (#60).
+- **Views of stopped servers** (#61).
+- **Linux:** worktrees work as they are; dependency clones are plain copies
+  there.

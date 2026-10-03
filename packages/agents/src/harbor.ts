@@ -50,7 +50,34 @@ export interface HarborOptions {
   settleMs?: number;              // how long before a still-running command may return as a job
   waitMs?: number;                // the longest a command holds a turn before returning as a job
   graceMs?: number;               // SIGTERM → SIGKILL
-  env?: NodeJS.ProcessEnv;        // the base environment for commands
+  /** The base environment for commands. Default: the person's login shell's (loginEnv). */
+  env?: NodeJS.ProcessEnv | (() => Promise<NodeJS.ProcessEnv>);
+}
+
+let snapshot: Promise<NodeJS.ProcessEnv> | undefined;
+/** The person's login shell's environment, taken once: their PATH, version
+ * managers and exports, so an agent's commands behave like their terminal.
+ * An app started from Finder gets a thinner environment than a shell. The
+ * shell starts from an identity-only seed so this process's own variables
+ * don't leak in; anything that fails falls back to this process's env. */
+export function loginEnv(): Promise<NodeJS.ProcessEnv> {
+  return snapshot ??= (async () => {
+    const shell = process.env.SHELL || "/bin/zsh";
+    const seed: NodeJS.ProcessEnv = { PATH: "/usr/bin:/bin:/usr/sbin:/sbin", TERM: "dumb" };
+    for (const k of ["HOME", "USER", "LOGNAME", "SHELL", "LANG", "TMPDIR", "SSH_AUTH_SOCK"]) if (process.env[k]) seed[k] = process.env[k];
+    const out = await new Promise<string | null>(done => {
+      const child = spawn(shell, ["-ilc", "env -0"], { env: seed, stdio: ["ignore", "pipe", "ignore"] });
+      const chunks: Buffer[] = [];
+      const timer = setTimeout(() => { child.kill("SIGKILL"); done(null); }, 10_000);
+      child.stdout!.on("data", d => chunks.push(d));
+      child.on("error", () => { clearTimeout(timer); done(null); });
+      child.on("close", code => { clearTimeout(timer); done(code === 0 ? Buffer.concat(chunks).toString() : null); });
+    });
+    if (!out) return { ...process.env };
+    const env: NodeJS.ProcessEnv = {};
+    for (const pair of out.split("\0")) { const i = pair.indexOf("="); if (i > 0) env[pair.slice(0, i)] = pair.slice(i + 1); }
+    return env.PATH ? env : { ...process.env };
+  })();
 }
 
 export class Harbor {
@@ -58,11 +85,16 @@ export class Harbor {
   private next = 1;
   constructor(private options: HarborOptions = {}) {}
 
-  run(desktop: string, command: string, cwd: string, signal?: AbortSignal): Promise<RunResult> {
+  private base(): Promise<NodeJS.ProcessEnv> {
+    const env = this.options.env;
+    return typeof env === "function" ? env() : env ? Promise.resolve(env) : loginEnv();
+  }
+
+  async run(desktop: string, command: string, cwd: string, signal?: AbortSignal): Promise<RunResult> {
     const settleMs = this.options.settleMs ?? 3000, waitMs = this.options.waitMs ?? 120_000;
     const child = spawn("/bin/bash", ["-c", command], {
       cwd, detached: true, stdio: ["ignore", "pipe", "pipe"],
-      env: commandEnv(this.options.env ?? process.env, desktop),
+      env: commandEnv(await this.base(), desktop),
     });
     const id = this.next++;
     const buf: string[] = [];
@@ -85,29 +117,27 @@ export class Harbor {
     const onAbort = () => { void this.stopJob(id); };
     signal?.addEventListener("abort", onAbort, { once: true });
 
-    return (async (): Promise<RunResult> => {
-      const t0 = Date.now();
-      try {
-        for (;;) {
-          const tick = Math.min(500, Math.max(50, settleMs / 4));
-          const finished = await Promise.race([exited.then(() => true), sleep(tick).then(() => false)]);
-          if (finished) return { status: "exited", code: job.exited!.code, signal: job.exited!.signal, output: job.output(), job: id };
-          const elapsed = Date.now() - t0;
-          if (elapsed >= settleMs) {
-            const ports = (await this.listeners()).filter(l => l.desktop === desktop && this.inGroup(l.pid, job.pid)).map(l => l.port);
-            if (ports.length) {
-              job.ports = [...new Set(ports)].sort((a, b) => a - b);
-              return { status: "running", job: id, ports: job.ports, output: job.output(),
-                note: `Still running as job ${id}; listening on ${job.ports.map(p => `127.0.0.1:${p}`).join(", ")}.` };
-            }
+    const t0 = Date.now();
+    try {
+      for (;;) {
+        const tick = Math.min(500, Math.max(50, settleMs / 4));
+        const finished = await Promise.race([exited.then(() => true), sleep(tick).then(() => false)]);
+        if (finished) return { status: "exited", code: job.exited!.code, signal: job.exited!.signal, output: job.output(), job: id };
+        const elapsed = Date.now() - t0;
+        if (elapsed >= settleMs) {
+          const ports = (await this.listeners()).filter(l => l.desktop === desktop && this.inGroup(l.pid, job.pid)).map(l => l.port);
+          if (ports.length) {
+            job.ports = [...new Set(ports)].sort((a, b) => a - b);
+            return { status: "running", job: id, ports: job.ports, output: job.output(),
+              note: `Still running as job ${id}; listening on ${job.ports.map(p => `127.0.0.1:${p}`).join(", ")}.` };
           }
-          if (elapsed >= waitMs)
-            return { status: "running", job: id, ports: [], output: job.output(), note: `Still running as job ${id} after ${Math.round(waitMs / 1000)}s; it keeps running in the background.` };
         }
-      } finally {
-        signal?.removeEventListener("abort", onAbort);
+        if (elapsed >= waitMs)
+          return { status: "running", job: id, ports: [], output: job.output(), note: `Still running as job ${id} after ${Math.round(waitMs / 1000)}s; it keeps running in the background.` };
       }
-    })();
+    } finally {
+      signal?.removeEventListener("abort", onAbort);
+    }
   }
 
   /** Whether `pid` is the job's leader or in its process group. */

@@ -53,10 +53,10 @@ function narrate(desktop: Desktop): () => void {
       case "message.delta": say(e.text); midLine = !e.text.endsWith("\n"); break;
       case "message.done": if (midLine) { say("\n"); midLine = false; } break;
       case "tool.end": line(dim(`  ${e.ok ? "·" : "×"} ${e.label}`)); break;
-      case "project.forked": line(dim(`  ⑂ forked ${e.project} → ${e.path} (${e.branch}, ${(e.ms / 1000).toFixed(1)}s)`)); break;
+      case "tool.start": line(dim(`  … ${e.label}`)); break;
+      case "work.started": line(dim(`  ⑂ worktree of ${e.project} → ${e.path} (${e.branch}, ${(e.ms / 1000).toFixed(1)}s)`)); break;
       case "server.started": line(`  ▸ http://127.0.0.1:${e.port}  (job ${e.job}: ${e.command})`); break;
       case "server.exited": line(dim(`  ▪ job ${e.job} exited (${e.code})`)); break;
-      case "homecopy.changed": line(`  ! your home copy of ${e.project} changed (${e.files} files differ from its last commit)`); break;
       case "error": line(`  error: ${e.message}`); break;
     }
   });
