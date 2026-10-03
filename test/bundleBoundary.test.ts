@@ -21,7 +21,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync, statSync } from "node:fs";
-import { join, relative } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 
 const ROOT = join(import.meta.dir, "..");
 
@@ -59,6 +59,27 @@ describe("the engine does not import what the bundle strips", () => {
         if (/(^|\/)ui\/src(\/|$)/.test(spec)) offenders.push(`${relative(ROOT, file)} → ${spec}`);
       }
     }
+    expect(offenders).toEqual([]);
+  });
+
+  test("every relative import in shipped code lands in a tree the bundle copies", () => {
+    // build-resources.sh copies an explicit list of top-level trees. A new
+    // tree the engine imports (packages/, #58) resolves in the checkout and
+    // is missing from the app, which then fails on its first start.
+    const script = readFileSync(join(ROOT, "desktop", "build-resources.sh"), "utf8");
+    const shipped = /\nfor d in ([^;]+); do/.exec(script)![1]!.trim().split(/\s+/);
+    const files = shipped.flatMap((d) => { try { return tsFiles(join(ROOT, d)); } catch { return []; } })
+      .filter((f) => !f.endsWith(".test.ts") && !f.includes(`${sep}ui${sep}`) && !f.includes(`${sep}browser-extension${sep}`) && !f.includes(`${sep}node_modules${sep}`));
+    const offenders: string[] = [];
+    for (const file of files) {
+      for (const m of readFileSync(file, "utf8").matchAll(SPECIFIER)) {
+        const spec = m[1] ?? "";
+        if (!spec.startsWith(".")) continue;
+        const top = relative(ROOT, resolve(dirname(file), spec)).split(sep)[0]!;
+        if (!shipped.includes(top) && !top.endsWith(".json")) offenders.push(`${relative(ROOT, file)} → ${spec}`);
+      }
+    }
+    expect(shipped).toContain("lib");
     expect(offenders).toEqual([]);
   });
 

@@ -7,7 +7,7 @@
 #                                            (build-llama-server.sh)
 #   src-tauri/resources/engine/              the engine tree the sidecar runs
 #                                            (bin/ lib/ integrations/ prompts/
-#                                            deploy/ clients/ web/ui/dist/
+#                                            deploy/ clients/ packages/ web/ui/dist/
 #                                            + production node_modules)
 #
 # The engine spawns every job as `process.execPath <ENGINE_ROOT>/bin/x.ts`
@@ -60,7 +60,7 @@ mkdir -p "$dest"
 # viewer's 668K of TypeScript sources and the 692K browser extension ended
 # up inside the app. Nothing in the bundle runs either one: the viewer is
 # served from web/ui/dist, and the extension ships from the site.
-for d in bin lib integrations prompts deploy clients web; do
+for d in bin lib integrations prompts deploy clients web packages; do
   rsync -a --delete \
     --exclude node_modules --exclude '.claude' --exclude '*.test.ts' \
     --exclude 'ui/src' --exclude 'ui/dev.html' --exclude 'browser-extension' \
