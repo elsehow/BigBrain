@@ -29,6 +29,8 @@ export interface PilotChatSession {
   /** Who named it: the engine (Quick, re-naming as the conversation goes) or a
    * person, by hand — after which it is never re-named. Absent reads as auto. */
   titleSource?: "auto" | "human";
+  /** The views the agent shows beside this chat (lib/pilotDesktop.ts). */
+  desktop?: import("./pilotDesktop").PilotDesktop;
   category?: PilotCategory;
   model: string;
   nativeRequests?: import("./pilotNativeRequests").PilotNativeRequest[];

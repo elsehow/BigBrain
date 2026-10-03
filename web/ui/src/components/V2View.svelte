@@ -4,7 +4,7 @@
   // lib/v2/scene.ts (three.js, loaded on demand); everything with words
   // is here. Keys: / search by name, j/k step through the memory topics,
   // Shift+Enter starts a pilot on what's in hand ("Re: …"), ⌘N (or n) a blank
-  // one the pilot names itself, \ toggles the workspace sidebar, Esc back out.
+  // one the pilot names itself, \ shows or hides the desktop's views, Esc back out.
   // Pilots are the real agents: /api/pilot/chat sessions, placed over their
   // context, and their chat opens here as a flat column over the field.
   import { onMount, tick } from "svelte";
@@ -14,6 +14,7 @@
   import { md, sanitizeHtml } from "../lib/markdown";
   import type { V2Scene } from "../lib/v2/scene";
   import { plainText as plain } from "../../../../lib/v2Feed";
+  import type { DesktopTile, DesktopView } from "../../../../lib/pilotDesktop";
 
   /** Where the app lives, for settings and pilot conversations: beside this
    * page in a build; a dev preview can point at the live engine instead
@@ -69,47 +70,31 @@
   let notice = $state("");
 
   // ── pilots ──────────────────────────────────────────────────────────────
-  type PilotDetail = PilotSummary & { messages: Array<{ id: string; role: "user" | "assistant"; text: string; at: string }>; error?: string; viewRevision?: number };
+  type PilotDetail = PilotSummary & { messages: Array<{ id: string; role: "user" | "assistant"; text: string; at: string }>; error?: string; viewRevision?: number;
+    desktop?: { views: DesktopView[]; layout: DesktopTile | null; arrangedBy: "agent" | "human" | null } };
   let pilotsAll: PilotSummary[] = $state([]);
   let openPilot: string | null = $state(null);
   let detail: PilotDetail | null = $state(null);
   let draftText = $state("");
-  /** The workspace belongs to an agent's chat: each remembers its own. It's a
-   * tiling area — as many panes as the agent opens (a page it drives, a note
-   * you write together) — that takes every pixel the chat doesn't. Its width
-   * and arrangement (a split tree: each split a direction and weights) are
-   * the agent's to set once it can project into it; until then the panes
-   * tile themselves (`autoTile`), and placeholders can be added to feel the
-   * proportions. */
-  type Pane = { id: string; title: string };
-  type Tile = { pane: string } | { dir: "row" | "col"; weights: number[]; kids: Tile[] };
-  type Workspace = { open: boolean; width?: number; panes: Pane[]; layout?: Tile };
-  let workspaces: Record<string, Workspace> = $state({});
-  let ws = $derived(openPilot ? workspaces[openPilot] : undefined);
-  let sidebarOpen = $derived(!!ws?.open);
-  let sideWidth = $derived(ws?.width);
-  /** One pane fills; two sit side by side; more go in columns of stacked panes. */
-  function autoTile(panes: Pane[]): Tile {
-    if (panes.length === 1) return { pane: panes[0]!.id };
-    const cols = Math.min(panes.length, Math.ceil(Math.sqrt(panes.length)));
-    const per = Math.ceil(panes.length / cols);
-    const kids: Tile[] = [];
-    for (let c = 0; c < cols; c++) {
-      const col = panes.slice(c * per, c * per + per);
-      if (col.length) kids.push(col.length === 1 ? { pane: col[0]!.id } : { dir: "col", weights: col.map(() => 1), kids: col.map((p) => ({ pane: p.id })) });
+  /** A desktop is the chat plus the views its agent chose to show beside it
+   * (lib/pilotDesktop.ts): the engine holds them, so they survive reloads and
+   * the agent sees what is open. With none (or hidden with \) the chat stands
+   * alone, centred. You can close a view; the agent leaves it closed. */
+  let hidden: Record<string, boolean> = $state({});
+  let desktopViews: DesktopView[] = $derived.by(() => detail?.desktop?.views ?? []);
+  let showDesktop = $derived(!!openPilot && desktopViews.length > 0 && !hidden[openPilot]);
+  let notes: Record<string, { content?: string; error?: string }> = $state({});
+  $effect(() => {
+    for (const v of desktopViews) if (v.kind === "note" && !notes[v.path]) {
+      notes[v.path] = {};
+      api.note(v.path).then((r) => { notes[v.path] = { content: r.content.replace(/^---\n[\s\S]*?\n---\n/, "") }; })
+        .catch((e) => { notes[v.path] = { error: errText(e) }; });
     }
-    return { dir: "row", weights: kids.map(() => 1), kids };
-  }
-  function addPane(): void {
-    if (!openPilot || !ws) return;
-    const panes = [...ws.panes, { id: `pane-${crypto.randomUUID().slice(0, 8)}`, title: `Pane ${ws.panes.length + 1}` }];
-    workspaces[openPilot] = { ...ws, panes, layout: undefined };
-  }
-  function closePane(id: string): void {
-    if (!openPilot || !ws) return;
-    const panes = ws.panes.filter((p) => p.id !== id);
-    workspaces[openPilot] = { ...ws, panes, layout: undefined, open: panes.length > 0 };
-    void tick().then(() => scene?.shift(shiftFor()));
+  });
+  async function closeView(view: string): Promise<void> {
+    if (!openPilot) return;
+    try { await pilotReq("/desktop", { id: openPilot, action: "close", view }); await loadDetail(); void tick().then(() => scene?.shift(shiftFor())); }
+    catch (e) { flash(`Couldn’t close the view: ${errText(e)}`); }
   }
 
   // ── the agent a session talks to: its backend, changeable from the chat ──
@@ -302,13 +287,13 @@
   const shiftFor = () => {
     const chatW = (chatWidth ?? Math.min(1000, Math.max(520, innerWidth * 0.44))) + GUTTER; // .v2's --chat-w, plus a gutter
     const left = searching ? Math.min(600, innerWidth * 0.4) : openPilot ? chatW : ent != null ? Math.min(380, innerWidth * 0.26) : 0;
-    const right = sidebarOpen ? (sideWidth ?? innerWidth - chatW - 2 * GUTTER) + GUTTER : 0;
+    if (openPilot && !showDesktop && !searching) return 0; // the chat stands alone, centred
+    const right = showDesktop ? innerWidth - chatW - GUTTER : 0;
     return (left - right) / 2;
   };
-  function toggleSidebar(): void {
-    if (!openPilot) return;
-    const w = workspaces[openPilot] ?? { open: false, panes: [] };
-    workspaces[openPilot] = { ...w, open: !w.open, panes: w.panes.length ? w.panes : [{ id: "pane-1", title: "Pane 1" }] };
+  function toggleDesktop(): void {
+    if (!openPilot || !desktopViews.length) return;
+    hidden[openPilot] = !hidden[openPilot];
     void tick().then(() => scene?.shift(shiftFor()));
   }
   function overview(): void {
@@ -496,7 +481,7 @@
     if (e.key === "n") { take(e); void createPilot([]); return true; }
     const slot = Number(e.key);
     if (slot >= 1 && slot <= bar.length) { take(e); const p = bar[slot - 1]!; if (openPilot === p.id) closePilot(); else openPilotChat(p.id); return true; }
-    if (e.key === "\\" && openPilot) { take(e); toggleSidebar(); return true; }
+    if (e.key === "\\" && openPilot) { take(e); toggleDesktop(); return true; }
     if (e.key === "j" || e.key === "k") { take(e); stepMemory(e.key === "j" ? 1 : -1); return true; }
     if (e.key === "Enter" && e.shiftKey) { take(e); void startPilot(); return true; }
     return false;
@@ -504,14 +489,21 @@
   function take(e: KeyboardEvent): void { e.preventDefault(); e.stopPropagation(); }
 </script>
 
-{#snippet tile(t: Tile)}
-  {#if "pane" in t}
-    {@const pane = ws?.panes.find((p) => p.id === t.pane)}
-    <div class="ws-pane">
-      <span class="pt">{pane?.title}</span>
-      <button type="button" class="px" onclick={() => closePane(t.pane)} aria-label="Close pane">×</button>
-      <span class="ph">A page the agent drives, or a note you write together. The agent decides what opens here and how panes tile.</span>
-    </div>
+{#snippet tile(t: DesktopTile)}
+  {#if "view" in t}
+    {@const v = desktopViews.find((x) => x.id === t.view)}
+    {#if v}
+      <article class="view" aria-label={v.title}>
+        <header><span class="vt">{v.title}</span><span class="vp">{v.path}</span>
+          <button type="button" class="px" onclick={() => void closeView(v.id)} aria-label={`Close ${v.title}`} title="Close — the agent leaves it closed">×</button></header>
+        <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+        <div class="vbody" onclick={citation}>
+          {#if notes[v.path]?.content != null}{@html render(notes[v.path]!.content!)}
+          {:else if notes[v.path]?.error}<p class="activity err">{notes[v.path]!.error}</p>
+          {:else}<p class="activity">Opening…</p>{/if}
+        </div>
+      </article>
+    {/if}
   {:else}
     <div class="ws-split ws-{t.dir}">
       {#each t.kids as kid, k (k)}<div class="ws-cell" style:flex-grow={t.weights[k] ?? 1}>{@render tile(kid)}</div>{/each}
@@ -593,7 +585,7 @@
   {/if}
 
   {#if openPilot && detail}
-    <section class="chat" bind:this={chatEl} aria-label="Pilot conversation">
+    <section class="chat" class:solo={!showDesktop} bind:this={chatEl} aria-label="Pilot conversation">
       <header>
         <div class="top">
           <div class="who-is">
@@ -607,7 +599,7 @@
             <button type="button" class="agent" onclick={() => void openPicker()} title="Change the agent for this conversation"
               disabled={detail.phase === "working"}>{detail.model} <span aria-hidden="true">▾</span></button>
           </div>
-          <button type="button" class="find" class:lit={sidebarOpen} onclick={toggleSidebar} title="This agent's workspace (\)">Workspace <span class="k">\</span></button>
+          {#if desktopViews.length}<button type="button" class="find" class:lit={showDesktop} onclick={toggleDesktop} title="Show or hide this desktop's views (\)">{desktopViews.length} {desktopViews.length === 1 ? "view" : "views"} <span class="k">\</span></button>{/if}
         </div>
         {#if detail.contextNodes?.length}<p class="ctx">{detail.contextNodes.map((n) => n.title ?? n.id).join(" · ")}</p>{/if}
       </header>
@@ -647,18 +639,17 @@
       <p class="k">Esc to close · the next reply comes from the one you pick</p>
     </div>
   {/if}
-  {#if openPilot && detail}
+  {#if openPilot && detail && showDesktop}
     <div class="split" role="separator" aria-orientation="vertical" aria-label="Resize the chat" title="Drag to resize · double-click to reset"
       onpointerdown={dragSplit} ondblclick={resetSplit}></div>
   {/if}
-  {#if sidebarOpen}
-    <aside class="side" bind:this={sidebarEl} aria-label="Workspace" style:width={sideWidth ? `${sideWidth}px` : null} style:left={sideWidth ? "auto" : null}>
-      <header><p>Workspace · {detail?.title ?? ""}</p><button type="button" class="find" onclick={addPane} title="Add a placeholder pane">+ Pane</button></header>
-      {#if ws}{@render tile(ws.layout ?? autoTile(ws.panes))}{/if}
+  {#if showDesktop && detail?.desktop?.layout}
+    <aside class="side" bind:this={sidebarEl} aria-label="Desktop">
+      {@render tile(detail.desktop.layout)}
     </aside>
   {/if}
 
-  <p class="hints" aria-hidden="true"><span>/ Search</span><span>j k Memories</span><span>⇧↵ Pilot</span><span>1–9 Pilots</span><span>⌘N New</span>{#if openPilot}<span>\ Workspace</span>{/if}{#if ent != null}<span>Esc Back</span>{/if}</p>
+  <p class="hints" aria-hidden="true"><span>/ Search</span><span>j k Memories</span><span>⇧↵ Pilot</span><span>1–9 Pilots</span><span>⌘N New</span>{#if openPilot && desktopViews.length}<span>\ Views</span>{/if}{#if ent != null}<span>Esc Back</span>{/if}</p>
   {#if notice}<p class="notice" role="status">{notice}</p>{/if}
   {#if error}<p class="error">The v2 view couldn’t load: {error}</p>{/if}
 </div>
@@ -714,6 +705,10 @@
     display: flex; flex-direction: column; gap: 10px; background: var(--bg); z-index: 1; }
   .chat::after { content: ""; position: absolute; top: 0; bottom: 0; right: -96px; width: 96px; pointer-events: none;
     background: linear-gradient(to right, var(--bg), color-mix(in srgb, var(--bg) 0%, transparent)); }
+  /* with no views the chat stands alone, centred, fading into the field on both sides */
+  .chat.solo { left: 50%; transform: translateX(-50%); padding-right: var(--app-gutter, 34px); width: calc(var(--chat-w) + 2 * var(--app-gutter, 34px)); }
+  .chat.solo::before { content: ""; position: absolute; top: 0; bottom: 0; left: -96px; width: 96px; pointer-events: none;
+    background: linear-gradient(to left, var(--bg), color-mix(in srgb, var(--bg) 0%, transparent)); }
   .chat .top { display: flex; align-items: flex-start; gap: 12px; }
   .chat .who-is { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 3px; }
   .title { all: unset; cursor: text; border-radius: 4px; }
@@ -784,25 +779,37 @@
   .composer .row { display: flex; align-items: center; gap: 8px; }
   .composer .row .k { margin-right: auto; }
   .composer a.find { text-decoration: none; }
-  /* the workspace takes every pixel the chat doesn't, unless the agent asks for less */
+  /* the desktop's views take every pixel the chat doesn't */
   .split { position: absolute; z-index: 2; top: 62px; bottom: 26px; left: calc(var(--chat-w) + 2 * var(--app-gutter, 34px)); width: 14px; transform: translateX(-50%); cursor: col-resize; touch-action: none; }
   .split::after { content: ""; position: absolute; top: 0; bottom: 0; left: 6px; width: 2px; border-radius: 1px; background: var(--fg); opacity: 0; transition: opacity .15s; }
   .split:hover::after, .split:active::after { opacity: .35; }
   .side { position: absolute; top: 62px; bottom: 26px; right: var(--app-gutter, 34px); left: calc(var(--chat-w) + 3 * var(--app-gutter, 34px)); z-index: 1;
     display: flex; flex-direction: column; gap: 8px; }
-  .side header { display: flex; align-items: center; gap: 10px; height: 30px; }
-  .side header p { margin: 0 auto 0 0; font: 600 10px/1 var(--font-app); letter-spacing: .24em; text-transform: uppercase; color: var(--v2-muted); }
-  .side > .ws-split, .side > .ws-pane { flex: 1; min-height: 0; }
-  .ws-split { display: flex; gap: 8px; min-width: 0; min-height: 0; }
+  .side > .ws-split, .side > .view { flex: 1; min-height: 0; }
+  .ws-split { display: flex; gap: 10px; min-width: 0; min-height: 0; }
   .ws-split.ws-row { flex-direction: row; } .ws-split.ws-col { flex-direction: column; }
   .ws-cell { flex-basis: 0; min-width: 0; min-height: 0; display: flex; }
   .ws-cell > :global(*) { flex: 1; min-width: 0; min-height: 0; }
-  .ws-pane { position: relative; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 24px; border-radius: 10px; text-align: center;
-    border: 1px dashed color-mix(in srgb, var(--fg) 30%, transparent); background: color-mix(in srgb, var(--bg) 85%, transparent); }
-  .ws-pane .pt { position: absolute; top: 10px; left: 12px; font: 600 10px/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--v2-muted); }
-  .ws-pane .px { position: absolute; top: 4px; right: 6px; border: 0; background: none; color: var(--v2-faint); font: 400 16px/1 var(--font-app); cursor: pointer; padding: 4px 6px; }
-  .ws-pane .px:hover { color: var(--fg); }
-  .ws-pane .ph { max-width: 34ch; font: 400 12.5px/1.5 var(--font-app); color: var(--v2-faint); }
+  /* a view: a document beside the chat, set in the chat's own type */
+  .view { --chat-fs: 15px; display: flex; flex-direction: column; min-width: 0; min-height: 0; border-radius: 12px; overflow: hidden;
+    background: var(--bg); box-shadow: 0 0 0 1px var(--rule); }
+  .view header { display: flex; align-items: baseline; gap: 10px; padding: 12px 10px 10px 18px; border-bottom: 1px solid var(--rule); }
+  .view .vt { font: 600 14px/1.3 var(--font-app); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .view .vp { flex: 1; min-width: 0; font: 400 11px/1.3 var(--font-mono); color: var(--v2-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .view .px { flex: none; border: 0; background: none; color: var(--v2-faint); font: 400 17px/1 var(--font-app); cursor: pointer; padding: 2px 6px; border-radius: 6px; }
+  .view .px:hover { color: var(--fg); background: color-mix(in srgb, var(--fg) 8%, transparent); }
+  .vbody { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 22px 22px; font: 400 var(--chat-fs)/1.65 var(--font-app); color: color-mix(in srgb, var(--fg) 92%, var(--bg));
+    overflow-wrap: anywhere; scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--fg) 22%, transparent) transparent; }
+  .vbody > :global(*) { max-width: 72ch; }
+  .vbody :global(> :first-child) { margin-top: 0; } .vbody :global(p) { margin: 0 0 0.85em; }
+  .vbody :global(ul), .vbody :global(ol) { margin: 0 0 0.85em; padding-left: 1.5em; } .vbody :global(li + li) { margin-top: 0.3em; }
+  .vbody :global(h1), .vbody :global(h2), .vbody :global(h3), .vbody :global(h4) { margin: 1.2em 0 0.45em; font: 600 calc(var(--chat-fs) * 1.08)/1.35 var(--font-app); }
+  .vbody :global(h1) { font-size: calc(var(--chat-fs) * 1.3); }
+  .vbody :global(a) { color: inherit; text-decoration-color: color-mix(in srgb, var(--fg) 35%, transparent); text-underline-offset: 3px; }
+  .vbody :global(a[href^="#/vault/"]) { color: var(--v2-muted); font-size: 0.92em; }
+  .vbody :global(code) { font: 400 0.86em/1.4 var(--font-mono); } .vbody :global(pre) { white-space: pre-wrap; padding: 10px 12px; border-radius: 8px; background: color-mix(in srgb, var(--fg) 7%, var(--bg)); }
+  .vbody :global(blockquote) { margin: 0 0 0.85em; padding-left: 1em; border-left: 2px solid var(--rule); color: var(--v2-muted); }
+  .vbody :global(table) { display: block; overflow-x: auto; border-collapse: collapse; font-size: 0.92em; } .vbody :global(th), .vbody :global(td) { border: 1px solid var(--rule); padding: 0.35em 0.6em; }
   .gear { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 999px; color: var(--v2-muted); }
   .gear:hover { color: var(--fg); background: color-mix(in srgb, var(--fg) 7%, var(--bg)); }
 
