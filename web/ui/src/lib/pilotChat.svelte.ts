@@ -364,7 +364,8 @@ export async function renameChat(id: string, title: string): Promise<void> {
   await contextWrites.get(id);
   const latest = chat.sessions.find(s => s.id === id);
   if (!latest) return;
-  accept(await request<PilotChatDetail>("/context", { id, nodes: latest.context, title, expectedRevision: latest.viewRevision }));
+  // a person's name stands: the engine's Quick naming leaves it alone from now on
+  accept(await request<PilotChatDetail>("/rename", { id, title }));
 }
 
 export async function removeChatContext(id: string): Promise<void> {
