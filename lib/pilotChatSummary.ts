@@ -1,5 +1,6 @@
 import { lastMessageAt } from "./messageTime";
 import type { PilotChatSession } from "./pilotChatTypes";
+import { desktopDetail } from "./pilotDesktop";
 
 import { fields, imageView, notificationView, outputView } from "./publicViews";
 const summaryFields = ["id", "title", "titleSource", "model", "transport", "phase", "lifecycle", "lastActivityAt", "deactivatedAt", "ingestedMessages", "ingestionError", "seed", "context", "viewRevision", "revision", "draft", "live", "activity", "error", "created", "updated"] as const;
@@ -24,6 +25,7 @@ export function pilotChatDetail(s: PilotChatSession) {
     messages: s.messages.map(m => ({ ...fields(m, ["id", "role", "text", "at", "replyTo"]), images: m.images?.map(imageView) })),
     inputs: s.inputs?.map(i => ({ ...inputView(i), message: i.message })),
     spoken: s.spoken?.map(i => fields(i, ["id", "message", "text", "status", "at"])),
+    ...(s.desktop ? { desktop: desktopDetail(s.desktop) } : {}),
   };
 }
 export const pilotMessageCount = (s: { messages?: unknown[]; messageCount?: number }): number => s.messageCount ?? s.messages?.length ?? 0;

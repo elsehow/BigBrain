@@ -140,6 +140,7 @@ describe("the route table is the door's whole surface", () => {
       "POST /api/pilot/chat/resume",
       "POST /api/pilot/chat/context",
       "POST /api/pilot/chat/rename",
+      "POST /api/pilot/chat/desktop",
       "POST /api/pilot/chat/context-add",
       "GET /api/pilot/work",
       "GET /api/connected-clients",
