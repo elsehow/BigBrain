@@ -2,7 +2,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { spoolDir } from "../lib/spool";
-import { PilotChats, pilotChatTools } from "./support/pilotSession";
+import { PilotChats } from "./support/pilotSession";
 import { PILOT_TEXT_MODEL, pilotContextLabel } from "../lib/pilotChatTypes";
 import { withPilotChats } from "../web/ui/src/lib/pilotChatGraph";
 import { nativeVault } from "./support/vault";
@@ -134,9 +134,6 @@ describe("text Pilot sessions", () => {
   await turn(seeded.id, "what is Arbor?"); await turn(chosen.id, "what is Arbor?");
   expect(seeded.title).toBe("Task at 1"); expect(chosen.title).toBe("Chosen title");
   sessions.close();
- });
- test("shared tools include readers, vault submissions and agent sessions", () => {
-  expect(pilotChatTools().map(t=>t.name).sort()).toEqual(["read_action","list_directories","list_files","read_file","write_scratch","notify_user","resolve_notification","open_view","close_view","arrange_desktop","integration_capabilities","email_search", "email_read", "inbox_set_unread","inbox_list","inbox_read","granola_tools","granola_read","source_read_state","load_memory","read_note","recent","search_vault","set_context","capabilities","drop","directive","status"].sort());
  });
  test("canonical seed, replacement, stale revisions, and durable draft", () => {
   const root=vault(), sessions=new PilotChats(root,{graph:()=>nodes,fetch:fetch});

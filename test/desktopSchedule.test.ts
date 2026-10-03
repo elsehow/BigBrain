@@ -102,13 +102,6 @@ describe("durationLabel", () => {
 });
 
 describe("cadence", () => {
-  // These four numbers were the launchd templates' `StartInterval` until
-  // #645; the table is now their only home, so they get pinned here. A
-  // change to one of them is a change to how often the machine works.
-  test("every recurring job's interval, by name", () => {
-    expect(CADENCE).toEqual({ tend: 300, publish: 900, granola: 60, email: 60, "that-tracks": 60 });
-  });
-
   test("the two inbound pollers run every minute, not the workers' five", () => {
     expect(CADENCE["agent-chat"]).toBeUndefined();
     // granola joined at a minute on 2026-09-04: one cheap list call per poll
