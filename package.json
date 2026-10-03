@@ -16,7 +16,7 @@
     "pilot:dev": "bun bin/pilotDev.ts",
     "desktop:dev": "sh desktop/dev.sh",
     "site:build": "bun site/build.ts",
-    "lint": "oxlint --deny-warnings bin lib web integrations clients site test",
+    "lint": "oxlint --deny-warnings bin lib web integrations clients site test packages",
     "plugins:build": "bun bin/build-agent-plugins.ts",
     "plugins:check": "bun bin/build-agent-plugins.ts --check",
     "pilot:login": "pi --no-extensions --no-skills",

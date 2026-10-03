@@ -7,8 +7,35 @@
     "clients/browser-extension/vendor/**",
     "**/*.svelte"
   ],
-  "categories": { "correctness": "warn" },
+  "categories": {
+    "correctness": "warn"
+  },
   "rules": {
     "no-control-regex": "off"
-  }
+  },
+  "overrides": [
+    {
+      "files": [
+        "packages/agents/**"
+      ],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": [
+                  "**/lib/**",
+                  "**/bin/**",
+                  "**/web/**",
+                  "**/integrations/**"
+                ],
+                "message": "packages/agents imports nothing from BigBrain: the host passes what it needs through open() (docs/design/coding-desktops.md)."
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
 }

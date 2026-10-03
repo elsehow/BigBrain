@@ -1,0 +1,7 @@
+{
+  "name": "@bigbrain/agents",
+  "private": true,
+  "type": "module",
+  "description": "Runs each desktop's agent: pi sessions, forks of projects, and the processes they start. Knows nothing about vaults.",
+  "main": "src/index.ts"
+}

@@ -31,6 +31,7 @@
     "lib/**/*.ts",
     "integrations/**/*.ts",
     "site/build.ts",
-    "web/server.ts"
+    "web/server.ts",
+    "packages/**/*.ts"
   ]
 }
