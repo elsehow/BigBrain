@@ -49,7 +49,7 @@ export async function clear(
 export async function land(opts: ReceiveItemOpts & { source?: string }): Promise<IntakeReceipt> {
   const { source = "drop", ...rest } = opts;
   if (!(await clear(rest.root, source, rest.content, rest.attachments)))
-    throw new IntakeError("withheld", "withheld by the firewall: this looks like it carries a credential or is malicious — nothing landed");
+    throw new IntakeError("withheld", "withheld by the firewall: this looks like it carries a credential — nothing landed");
   return receive(rest);
 }
 

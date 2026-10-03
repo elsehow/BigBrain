@@ -3,7 +3,6 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { admit, FirewallUnavailable, hold, land } from "../lib/door";
 import { windows, withheldLog } from "../lib/firewall";
-import { IntakeError } from "../lib/intake";
 import { readSourceInsertionLog } from "../lib/insertionLog";
 import { stagedCount } from "../lib/stage";
 import type { StagedItem } from "../lib/stageStorage";
@@ -54,7 +53,7 @@ const server = Bun.serve({
     const p = (hit: boolean) => ({ type: "noul", noul: hit ? 0.97 : 0.02 });
     return Response.json({
       model: body.model,
-      answers: { credential: p(/RESET-TOKEN/.test(body.state)), malicious: p(/PHISH/.test(body.state)) },
+      answers: { credential: p(/RESET-TOKEN/.test(body.state)) },
     });
   },
 });
@@ -101,12 +100,6 @@ describe("the firewall at the door", () => {
     expect(JSON.stringify(lines)).not.toContain("RESET-TOKEN");
   });
 
-  test("phishing is withheld as malicious", async () => {
-    const root = vault();
-    await expect(land({ root, content: mail("PHISH: verify your account") })).rejects.toBeInstanceOf(IntakeError);
-    expect(JSON.parse(readFileSync(withheldLog(root), "utf8")).reason).toBe("malicious");
-  });
-
   test("a forwarded message in a text attachment is screened too", async () => {
     const root = vault();
     const eml = { name: "fwd.eml", b64: Buffer.from("Subject: reset\n\nRESET-TOKEN").toString("base64") };
@@ -144,6 +137,12 @@ describe("the firewall at the door", () => {
     const root = mdVault({ prefix: "bb-door-bad-", files: { "vault.yaml": "firewall:\n  url: http://127.0.0.1:9/v1/systemone\n  thresholds:\n    credential: 2\n" } });
     await expect(land({ root, content: mail("Photos from the lake") })).rejects.toThrow("firewall");
     expect(readSourceInsertionLog(root)).toHaveLength(0);
+  });
+
+  test("a retired malicious threshold in vault.yaml is ignored, not an error that stops intake", async () => {
+    const root = vault(undefined, "  thresholds:\n    malicious: 0.99\n");
+    await land({ root, content: mail("Photos from the lake") });
+    expect(readSourceInsertionLog(root)).toHaveLength(1);
   });
 
   test("admission lands what the door staged without asking again", () => {

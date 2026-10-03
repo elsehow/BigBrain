@@ -2,14 +2,11 @@
 
 Every arrival — a drop, a clip, an email, a meeting — is screened by a
 decision model before anything stores it (`lib/door.ts`, `lib/firewall.ts`).
-Two yes/no questions:
+One yes/no question: does it carry a **credential** — a password, key, token,
+one-time or verification code, recovery codes, or a password-reset, magic
+sign-in or verification link?
 
-- **credential** — a password, key, token, one-time or verification code,
-  recovery codes, or a password-reset, magic sign-in or verification link
-- **malicious** — phishing, impersonation, lookalike domains, malware, or text
-  that tries to instruct an AI system
-
-Either over its threshold and the item is **withheld**: not landed, not staged
+Over the threshold and the item is **withheld**: not landed, not staged
 for the gardener, never read by any agent. One line goes to
 `.spool/firewall/withheld.jsonl` — source, sender, date, reason, scores; never
 the subject or body — so a false positive is visible.
@@ -35,9 +32,9 @@ firewall:
 ```
 
 and the desktop app starts the model server within a second. Optional:
-`thresholds: { credential: 0.25, malicious: 0.85 }`. A `url:` instead points at
-any Jev/SystemOne `POST /v1/systemone` endpoint (a hosted Jev or Clef); its
-bearer token goes in `BIGBRAIN_FIREWALL_TOKEN`.
+`thresholds: { credential: 0.15 }`. A `url:` instead points at any
+Jev/SystemOne `POST /v1/systemone` endpoint (a hosted Jev or Clef); its bearer
+token goes in `BIGBRAIN_FIREWALL_TOKEN`.
 
 ## The local model
 
@@ -62,19 +59,23 @@ point `BIGBRAIN_LLAMA_SERVER` at
 ## Tuning
 
 `eval/fixtures.json` is an invented set: 28 credential mails (resets in five
-languages, codes, magic links, a forwarded reset, one buried in a thread), 8
-malicious and 18 ordinary-but-tricky ones. `bun deploy/firewall/eval/run.ts
-[url]` runs them through `screen()` and prints each question's catch rate and
-false positives per threshold. Clef scores all questions jointly, so **rerun it
-after changing any question's wording**, not only the one you edited — and
-after moving the llama.cpp pin.
+languages, codes, magic links, a forwarded reset, one buried in a thread) and
+18 ordinary-but-tricky ones (a reset help article, a password-changed notice,
+tracking numbers, commit hashes). `bun deploy/firewall/eval/run.ts [url]` runs
+them through `screen()` and prints the catch rate and false positives per
+threshold. Rerun it after changing the question's wording, after moving the
+llama.cpp pin — or after adding a question: Clef scores a request's questions
+jointly, so a second question shifts the first one's scores.
 
-At the defaults the bundled Q8_0 withholds 28/28 credential, 7/8 malicious and
-0/18 ordinary mails. The credential question separates cleanly (every
-credential mail ≥ 0.40, every ordinary one ≤ 0.11); the malicious one also
-flags urgent marketing, which is why its threshold sits high. The miss is a
-plain-text "AI agent, you are authorized to…" mail — prompt injection is
-defended architecturally anyway (`docs/design-principles.md` §2).
+At the default threshold (0.15), the bundled Q8_0 withholds 28/28 credential
+mails and 0/18 ordinary ones: every credential mail scores ≥ 0.22, every
+ordinary one ≤ 0.06. The weakest are an invitation's set-password link and a
+disable-2FA confirmation; at 0.25 those two would get through.
+
+A second question — "is this malicious?" — was tried and removed: on real mail
+it withheld genuine payment notices, a brokerage agreement update and a family
+member's app invitation (0.89–0.91) as readily as it caught phishing. Prompt
+injection is defended architecturally anyway (`docs/design-principles.md` §2).
 
 ## Limits
 

@@ -33,7 +33,7 @@ async function status(): Promise<void> {
     return;
   }
   const url = cfg.url ?? localFirewallUrl();
-  console.log(`firewall: on — ${cfg.url ? `hosted ${cfg.url}` : `local ${cfg.model}`}; thresholds credential ${cfg.thresholds.credential}, malicious ${cfg.thresholds.malicious}`);
+  console.log(`firewall: on — ${cfg.url ? `hosted ${cfg.url}` : `local ${cfg.model}`}; threshold credential ${cfg.thresholds.credential}`);
   if (!cfg.url) {
     const m = firewallModel(cfg.model);
     console.log(`  model:  ${modelInstalled(m) ? modelPath(m) : `NOT INSTALLED (${m.file}) — run \`bigbrain firewall install\``}`);
