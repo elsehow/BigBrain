@@ -123,6 +123,37 @@ function writeJson(file: string, value: unknown): void {
   writeFileSync(file, JSON.stringify(value, null, 2));
 }
 
+export type LandHow = "pr" | "branch" | "auto";
+export type Landed = { how: "branch"; branch: string; home: string } | { how: "pr"; branch: string; url: string };
+
+/** Bring a fork's committed work home: a pull request from its branch when the
+ * project's remote is on GitHub (or `how: "pr"`), otherwise its branch fetched
+ * into the home copy for the person to merge. Uncommitted work and an empty
+ * branch are refused with the reason, never committed for them. */
+export async function landFork(ws: Workspace, id: string, name: string, how: LandHow = "auto"): Promise<Landed> {
+  const rec = readFork(ws, id, name);
+  if (!rec || projectState(ws, id, name) !== "fork") throw new AgentsError(`Desktop ${id} hasn't changed ${name}; there's nothing to land.`);
+  const dirty = (await git(rec.path, "status", "--porcelain")).split("\n").filter(Boolean).length;
+  if (dirty) throw new AgentsError(`${name} has ${dirty} uncommitted file${dirty === 1 ? "" : "s"} in desktop ${id}'s copy. Commit them first; landing only moves commits.`);
+  const commits = Number(await git(rec.path, "rev-list", "--count", `${rec.base}..HEAD`));
+  if (!commits) throw new AgentsError(`${name} has no commits on ${rec.branch} since the fork; there's nothing to land.`);
+  const remote = (await run("git", ["remote", "get-url", "origin"], rec.path)).out.trim();
+  const viaPr = how === "pr" || (how === "auto" && /github\.com[:/]/.test(remote));
+  if (!viaPr) {
+    const home = realpathSync(join(ws.projects, name));
+    await git(home, "fetch", "--quiet", rec.path, `${rec.branch}:${rec.branch}`);
+    return { how: "branch", branch: rec.branch, home };
+  }
+  if (!remote) throw new AgentsError(`${name} has no origin remote to open a pull request on. Land it as a branch instead.`);
+  await git(rec.path, "push", "--quiet", "-u", "origin", rec.branch);
+  const created = await run("gh", ["pr", "create", "--head", rec.branch, "--fill"], rec.path);
+  if (created.code === 0) return { how: "pr", branch: rec.branch, url: created.out.trim().split("\n").at(-1)! };
+  // An open PR for the branch already exists: the push updated it.
+  const existing = await run("gh", ["pr", "view", rec.branch, "--json", "url", "--jq", ".url"], rec.path);
+  if (existing.code === 0 && existing.out.trim()) return { how: "pr", branch: rec.branch, url: existing.out.trim() };
+  throw new AgentsError(`Pushed ${rec.branch}, but couldn't open a pull request: ${(created.err || created.out).trim()}`);
+}
+
 /** Delete a desktop's fork of a project and put the link back. */
 export function discardFork(ws: Workspace, id: string, name: string): void {
   const target = join(desktopFolder(ws, id), name);

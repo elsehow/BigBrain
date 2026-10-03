@@ -27,7 +27,7 @@ const EVERYDAY: Record<string, [script: string, blurb: string]> = {
   firewall: ["bin/firewall.ts", "screen arrivals for credentials and phishing: status, install, off"],
   observe: ["bin/observe.ts", "submit evidence to the memory pass"],
   tend: ["bin/tend.ts", "run the gardener: drain due intake + memory with your Claude"],
-  agent: ["bin/agent.ts", "run an agent on your projects in its own desktop folder (run, resume, list, discard)"],
+  agent: ["bin/agent.ts", "run an agent on your projects in its own desktop folder (run, resume, list, land, discard)"],
   links: ["bin/links.ts", "wikilink lint and conversion"],
   blob: ["bin/blob.ts", "follow a blob: link to bytes"],
 };

@@ -4,31 +4,37 @@
  *   bigbrain agent run [--desktop <id>] [--model <provider>/<model>] "<task>"
  *   bigbrain agent resume <id>
  *   bigbrain agent list
+ *   bigbrain agent land <id> <project> [--pr|--branch]
  *   bigbrain agent discard <id> <project>
  *
  * The agent runs in packages/agents: it works in ~/bigbrain/desktops/<id>/,
  * forking a project from ~/bigbrain/projects/ the first time it changes it
- * (docs/design/coding-desktops.md). This entry point is the host: it builds
- * the model runtime from the vault's model connections and keeps the
- * credentials; the package never sees them.
+ * (docs/design/coding-desktops.md). BigBrain is its host (lib/agentHost.ts):
+ * the model from the vault's connections, the vault's read-only tools, and
+ * the credentials, which the package never sees.
  *
  * After each turn you can type another message; while the agent works,
- * a message steers it. Ctrl-D (or /done) stops the desktop's processes and
- * leaves its files where they are.
+ * a message steers it. /land <project> brings committed work home (a pull
+ * request when the project is on GitHub, otherwise a branch in your home
+ * copy). Ctrl-D (or /done) stops the desktop's processes and leaves its
+ * files where they are.
  */
 import { createInterface } from "node:readline";
-import { Agents, type Desktop, type Stamped } from "../packages/agents/src";
+import { Agents, type Desktop, type LandHow, type Stamped } from "../packages/agents/src";
+import { agentHost } from "../lib/agentHost";
 import { requireVaultRoot } from "../lib/engine";
-import { DEFAULT_PILOT_BACKEND } from "../lib/pilotBackendTypes";
-import { createCatalogRuntime, exactCatalogModel } from "../lib/run/modelCatalogRefresh";
-import { configureVaultModelAuth } from "../lib/run/piModelRuntime";
-import { exactModel, loadPi } from "../lib/run/piSession";
-
-const INSTRUCTIONS = `You are an agent on your person's BigBrain desktop, working on their code with them.
-Be direct and concise. Read before you change things, run the project's own tests after changing it, and say plainly what you did and what you didn't verify.`;
 
 const dim = (s: string) => process.stdout.isTTY ? `\x1b[2m${s}\x1b[0m` : s;
 const say = (s: string) => process.stdout.write(s);
+
+function landHow(args: string[]): LandHow {
+  return args.includes("--pr") ? "pr" : args.includes("--branch") ? "branch" : "auto";
+}
+async function land(agents: Agents, id: string, project: string, how: LandHow): Promise<void> {
+  const landed = await agents.land(id, project, how);
+  say(landed.how === "pr" ? `Opened ${landed.url} from ${landed.branch}.\n`
+    : `Fetched ${landed.branch} into ${landed.home}. Merge it there when you're ready: git merge ${landed.branch}\n`);
+}
 
 function flag(args: string[], name: string): string | undefined {
   const i = args.indexOf(name);
@@ -36,32 +42,6 @@ function flag(args: string[], name: string): string | undefined {
   const value = args[i + 1];
   args.splice(i, 2);
   return value;
-}
-
-async function host(modelFlag?: string) {
-  const root = requireVaultRoot();
-  const sdk = await loadPi();
-  const signal = AbortSignal.timeout(20_000);
-  const runtime = await createCatalogRuntime(sdk, signal, root);
-  const [provider, id] = modelFlag ? modelFlag.split("/", 2) as [string, string] : [DEFAULT_PILOT_BACKEND.provider!, DEFAULT_PILOT_BACKEND.model];
-  const model = await exactCatalogModel(runtime, provider, id, signal);
-  if (!model) throw new Error(`No model ${provider}/${id}. Choose one in Settings › Models, or pass --model <provider>/<model>.`);
-  const subscription = runtime.isUsingSubscription(provider);
-  return {
-    modelRuntime: runtime, model, instructions: INSTRUCTIONS,
-    thinkingLevel: (DEFAULT_PILOT_BACKEND.reasoning ?? "low") as never,
-    // Credentials stay here: each request gets the vault's key or subscription token.
-    wrapStream: (stream: Parameters<NonNullable<import("../packages/agents/src").OpenOptions["wrapStream"]>>[0]) =>
-      (async (m, context, options) => {
-        await configureVaultModelAuth(runtime, root);
-        if (m.provider === "anthropic" && (await runtime.checkAuth("anthropic", { signal: options?.signal }))?.type !== "oauth")
-          throw new Error("Connect your Claude subscription in Settings › Models. API billing is not used for this connection.");
-        let token: string | undefined;
-        if (subscription && ["openai-codex", "anthropic"].includes(m.provider))
-          token = (await runtime.getAuth(m, { signal: options?.signal, apiKey: options?.apiKey }))?.auth.apiKey;
-        return stream(exactModel(m), context, { ...options, ...(token ? { apiKey: token } : {}) });
-      }) as typeof stream,
-  };
 }
 
 /** Print a desktop's events as they happen: text streams; activity is one dim line each. */
@@ -92,7 +72,7 @@ async function summary(desktop: Desktop): Promise<void> {
 }
 
 async function converse(agents: Agents, id: string, modelFlag: string | undefined, first?: string): Promise<void> {
-  const desktop = await agents.open(id, await host(modelFlag));
+  const desktop = await agents.open(id, await agentHost(requireVaultRoot(), modelFlag));
   const stop = narrate(desktop);
   say(dim(`desktop ${id} · folder ${desktop.folder}\n`));
   let turn: Promise<void> | undefined;
@@ -106,6 +86,13 @@ async function converse(agents: Agents, id: string, modelFlag: string | undefine
     const text = raw.trim();
     if (!text) continue;
     if (text === "/done") break;
+    if (text.startsWith("/land")) {
+      const words = text.split(/\s+/).slice(1), project = words.find(w => !w.startsWith("--"));
+      if (turn) say("Wait for the turn to finish before landing.\n> ");
+      else if (!project) say("Say which project: /land <project> [--pr|--branch]\n> ");
+      else await land(agents, id, project, landHow(words)).catch(e => say(`${e instanceof Error ? e.message : e}\n`)).finally(() => say("> "));
+      continue;
+    }
     if (turn) await desktop.steer(text); else start(text);
   }
   if (turn) await turn;
@@ -133,6 +120,8 @@ try {
       const last = agents.events(id).filter(e => e.type === "input").at(-1);
       console.log(`${id}${last && last.type === "input" ? `  — ${last.text.slice(0, 70)}` : ""}`);
     }
+  } else if (sub === "land" && args[0] && args[1]) {
+    await land(agents, args[0], args[1], landHow(args));
   } else if (sub === "discard" && args[0] && args[1]) {
     await agents.discard(args[0], args[1]);
     console.log(`Discarded desktop ${args[0]}'s fork of ${args[1]}.`);
@@ -141,6 +130,7 @@ try {
   bigbrain agent run [--desktop <id>] [--model <provider>/<model>] "<task>"
   bigbrain agent resume <id>
   bigbrain agent list
+  bigbrain agent land <id> <project> [--pr|--branch]
   bigbrain agent discard <id> <project>
 
 Projects live in ${agents.ws.projects}; each desktop works in ${agents.ws.desktops}/<id>/.`);
