@@ -49,6 +49,9 @@ import { intakeBody } from "./work";
 export const GOAL_JOURNAL_DIR = "journal/goals";
 const SOURCE_PROMPT_VERSION = "goals-source/v1";
 const PICTURE_PROMPT_VERSION = "goals-picture/v1";
+const PICTURE_AGENT_PROMPT_VERSION = "goals-picture-agent/v1";
+/** A hard bound on an agent picture; the prompt asks for 4,000 characters. */
+const PICTURE_AGENT_MAX_CHARS = 16_000;
 /** The owner-only view a source call reads, at most. */
 export const GOAL_SOURCE_CHARS = 150_000;
 /** A source whose call fails this many times in one run is recorded as failed. */
@@ -286,26 +289,40 @@ async function buildPicture(
   const folded = foldedEvents(records);
   const fresh = readGoalLog(root).filter((e) => !folded.has(e.id));
   const sources = projectedSourcesById(root, fresh.map((e) => e.insertion_id));
+  const agent = cfg.pictureMode === "agent";
   const lines = fresh.flatMap((e) => {
     const s = sources.get(e.insertion_id);
     const date = (s?.occurred_at ?? s?.received_at ?? "").slice(0, 10);
-    return e.assertions.filter((a) => a.type === "about_goals").map((a) => `- (${date}) ${a.assertion}`);
+    // The agent sees where each assertion came from, so it can tell the
+    // owner's words from a relay; the single call sees the text alone.
+    const env = (k: string) => (typeof s?.envelope?.[k] === "string" ? s.envelope[k] : "?");
+    const tag = agent ? `[${e.insertion_id} · ${date} · ${env("source")} · ${env("from_kind")}]` : `(${date})`;
+    return e.assertions.filter((a) => a.type === "about_goals").map((a) => `- ${tag} ${a.assertion}`);
   });
   const startedAt = new Date().toISOString();
   const base = {
     format: "bigbrain-goal-picture/v1" as const, invocation_id: newRunId(now),
-    covers: { from, through }, events: fresh.map((e) => e.id), prompt_version: PICTURE_PROMPT_VERSION,
+    covers: { from, through }, events: fresh.map((e) => e.id),
+    prompt_version: agent ? PICTURE_AGENT_PROMPT_VERSION : PICTURE_PROMPT_VERSION,
     started_at: startedAt,
   };
   if (!lines.length)
     return { ...base, picture: last?.picture ?? NO_PICTURE, rebuilt: false, completed_at: new Date().toISOString() };
-  const input = ["ABSTRACT GOALS", goalList(cfg), "", "CURRENT PICTURE", last?.picture ?? NO_PICTURE, "", "ASSERTIONS", ...lines].join("\n");
+  const input = agent
+    ? [`AS OF ${through.slice(0, 10)}`, "", "ABSTRACT GOALS", goalList(cfg), "", "PREVIOUS MODEL", last?.picture ?? NO_PICTURE, "", "NEW GOAL ASSERTIONS", ...lines].join("\n")
+    : ["ABSTRACT GOALS", goalList(cfg), "", "CURRENT PICTURE", last?.picture ?? NO_PICTURE, "", "ASSERTIONS", ...lines].join("\n");
   try {
-    const run = await runner({
-      root, role: "goals", auth: manifest.auth, target: cfg.picture, capabilities: "none",
-      instructions: render(template("goals-picture.md"), { OWNER: ownerName(root) }),
-      prompt: input, output: { requireText: true },
-    });
+    const run = await runner(agent
+      ? {
+        root, role: "goals-picture", auth: manifest.auth, target: cfg.picture, capabilities: "goals",
+        instructions: render(template("goals-picture-agent.md"), { OWNER: ownerName(root) }),
+        prompt: input, output: { requireText: true, maxCharacters: PICTURE_AGENT_MAX_CHARS },
+      }
+      : {
+        root, role: "goals", auth: manifest.auth, target: cfg.picture, capabilities: "none",
+        instructions: render(template("goals-picture.md"), { OWNER: ownerName(root) }),
+        prompt: input, output: { requireText: true },
+      });
     return {
       ...base, picture: run.text.trim(), rebuilt: true, completed_at: new Date().toISOString(),
       model: cfg.picture.model, ...modelRunJournalFields(run) as { usage?: RunUsage },

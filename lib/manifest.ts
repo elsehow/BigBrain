@@ -117,6 +117,9 @@ export interface GoalChainConfig {
   source: ModelChoice;
   /** The picture rebuild. */
   picture: ModelChoice;
+  /** `single`: one call over the new assertions. `agent`: a read-only agent
+   * that checks the goal log and sources before writing (backtests only, #51). */
+  pictureMode: "single" | "agent";
   /** Picture cadence, counted in arrival time (lib/goalChain.ts). */
   interval: string;
   intervalMs: number;
@@ -286,6 +289,8 @@ function parseGoalChain(raw: unknown, fallbackAgent: AgentId): GoalChainConfig {
   };
   const pictureBlock = block["picture"] as Record<string, unknown> | undefined;
   const interval = String(pictureBlock?.["interval"] ?? "7d");
+  const pictureMode = pictureBlock?.["mode"] ?? "single";
+  if (pictureMode !== "single" && pictureMode !== "agent") throw new Error("vault.yaml: chains.goals.picture.mode must be single or agent");
   const concurrency = Number(block["concurrency"] ?? 4);
   if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 16)
     throw new Error("vault.yaml: chains.goals.concurrency must be 1-16");
@@ -294,8 +299,8 @@ function parseGoalChain(raw: unknown, fallbackAgent: AgentId): GoalChainConfig {
   return {
     goals: goals.map((g: string) => g.trim()), since, batch,
     source: stage(block["source"], GOAL_SOURCE_DEFAULT),
-    picture: stage(pictureBlock && { ...pictureBlock, interval: undefined }, GOAL_PICTURE_DEFAULT),
-    interval, intervalMs: parseDuration(interval), concurrency,
+    picture: stage(pictureBlock && { ...pictureBlock, interval: undefined, mode: undefined }, GOAL_PICTURE_DEFAULT),
+    pictureMode, interval, intervalMs: parseDuration(interval), concurrency,
   };
 }
 

@@ -34,6 +34,7 @@ const EVERYDAY: Record<string, [script: string, blurb: string]> = {
 
 /** Setup and ops — humans, rarely. */
 const SETUP: Record<string, [script: string, blurb: string]> = {
+  backtest: ["bin/backtest.ts", "replay a vault's past into a sandbox and run a chain as if live (goals)"],
   init: ["bin/init.ts", "create a vault (backend for /setup)"],
   install: ["bin/install.ts", "link the bigbrain command; refresh the vault's scaffold"],
   auth: ["bin/auth.ts", "credentials: create/list/revoke drop tokens"],

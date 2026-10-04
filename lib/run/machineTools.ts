@@ -12,6 +12,7 @@ import { MEMORY_ROLE } from "../memory";
 import { readSharedMemory, sharedCite, sharedSourcePath } from "../sharedMemory";
 import { readConnections, connectionStorePath, sharedRequest } from "../sharedConnections";
 import { norm } from "../ids";
+import { goalTools } from "../goalTools";
 
 export interface RunTool { name: string; description: string; inputSchema: Record<string, unknown>; call(args: Record<string, any>): unknown | Promise<unknown> }
 const schema = (properties: Record<string, unknown>, required: string[] = []) => ({ type: "object", properties, required, additionalProperties: false });
@@ -27,8 +28,9 @@ export function machinePath(root: string, path: unknown, write = false): string 
   return full;
 }
 export function machineTools(root: string, role: string, noTools = false, clientName = "pi", edits?: import("../memoryEdits").MemoryEdits): RunTool[] {
-  jobProfile(role, noTools ? "none" : role === "tend" || role === "gardener" ? "gardener" : "memory");
+  jobProfile(role, noTools ? "none" : role === "tend" || role === "gardener" ? "gardener" : role === "goals-picture" ? "goals" : "memory");
   if (noTools) return [];
+  if (role === "goals-picture") return goalTools(root);
   if (role === "gardener") role = "tend";
   const names = role === "tend" ? ["next", "open", "submit", "search_vault", "read_note"] : ["search_vault", "read_note", "load_memory"];
   const tools: RunTool[] = VAULT_TOOLS.filter(t => names.includes(t.name)).map(t => ({ ...t, call: args => {

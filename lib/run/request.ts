@@ -2,7 +2,7 @@
 import type { ToolObserver } from "./toolActivity";
 import type { Auth } from "../manifest";
 import type { ModelChoice } from "../modelChoice";
-export type JobCapabilities = "gardener" | "memory" | "none";
+export type JobCapabilities = "gardener" | "memory" | "goals" | "none";
 export interface OutputRequirements {
   requireText?: boolean;
   schema?: Record<string, unknown>;
