@@ -76,6 +76,28 @@ test("a coding desktop: its agent shows a local page, the transcript reads back,
   desktops.close();
 });
 
+test("an agent's own page: plain HTML shown as a view, updated in place by title, and bounded", async () => {
+  const { fauxAssistantMessage, fauxToolCall } = await import("@earendil-works/pi-ai");
+  const { ws, host } = await fakeHost([
+    fauxAssistantMessage([fauxToolCall("show_html", { title: "Gear report", html: "<h1>Gears</h1><p>Four.</p>" })], { stopReason: "toolUse" }),
+    fauxAssistantMessage([fauxToolCall("show_html", { title: "Gear report", html: "<h1>Gears</h1><p>Five.</p>" })], { stopReason: "toolUse" }),
+    fauxAssistantMessage([fauxToolCall("show_html", { title: "Huge", html: "x".repeat(200_001) })], { stopReason: "toolUse" }),
+    fauxAssistantMessage("Done."),
+  ]);
+  const root = nativeVault(); roots.push(root);
+  const desktops = new CodingDesktops(root, { agents: new Agents(workspace(ws), new Harbor()), host });
+  const made = desktops.create();
+  await desktops.send(made.id, "report on the gears", "in-1");
+  for (let i = 0; i < 50 && desktops.list()[0]!.phase !== "answered"; i++) await Bun.sleep(20);
+  const detail = await desktops.detail(made.id);
+  expect(detail.desktop?.views.map(v => [v.kind, v.title, v.html])).toEqual([["html", "Gear report", "<h1>Gears</h1><p>Five.</p>"]]);
+  expect(detail.messages.filter(m => m.role === "activity").map(m => [m.text, m.ok])).toEqual([
+    ["Showed Gear report", true], ["Showed Gear report", true], ["Showed Huge failed", false]]);
+  expect(desktops.writeTheme(":root{--bg:#fff}").path).toBe(join(ws, "bigbrain.css"));
+  expect(() => desktops.writeTheme("")).toThrow();
+  desktops.close();
+});
+
 test("only pages on this machine can be shown", async () => {
   const { loopbackUrl } = await import("../lib/pilotDesktop");
   expect(loopbackUrl("http://localhost:3000/app")).toBe("http://localhost:3000/app");

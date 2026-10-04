@@ -117,9 +117,18 @@ environment.
   show it (`show_page`).
 - **Ports are discovered, not assigned.** A fixed-port collision reports
   which desktop holds the port.
+- **Each engine only touches its own processes.** Commands also carry
+  `BIGBRAIN_AGENT_SCOPE`, a hash of the workspace. Discovery, stops and the
+  restart sweep only touch their own scope, so a developer's scratch engine
+  can't stop the app's agents' servers. It did once, before this rule.
 - **Stopping is by process group,** SIGTERM then SIGKILL after a grace
   period. Archive stops everything tagged with the desktop. An engine
   restart stops anything tagged, because no agent survives a restart.
+- **Pages the agent writes** (`show_html`) are semantic HTML with no CSS or
+  scripts. v2 dresses them in the person's live theme
+  (`web/ui/src/lib/pageTheme.ts`) and shows them in a frame with no scripts.
+  The same style is written to `bigbrain.css` in the workspace, for pages
+  an agent serves itself.
 - **Previews embed `http://127.0.0.1:<port>`.** The engine's CSP allows
   framing loopback pages only.
 

@@ -16,7 +16,7 @@ import { join } from "node:path";
 import { EventLog, type AgentEvent, type Stamped } from "./events";
 import { discardWork, landWork, listWork, type LandHow, type Landed, type WorkRecord } from "./worktree";
 import { run } from "./run";
-import { Harbor } from "./harbor";
+import { Harbor, scopeOf } from "./harbor";
 import { codingTools, type AgentTool } from "./tools";
 import { AgentsError, checkDesktopId, releaseLeases, stateFolder, workspace, type Workspace } from "./workspace";
 
@@ -50,7 +50,7 @@ Paths are relative to your workspace.
 
 export class Agents {
   private desktops = new Map<string, Desktop>();
-  constructor(readonly ws: Workspace = workspace(), readonly harbor = new Harbor()) {}
+  constructor(readonly ws: Workspace = workspace(), readonly harbor = new Harbor({ scope: scopeOf(ws.root) })) {}
 
   async open(id: string, options: OpenOptions): Promise<Desktop> {
     checkDesktopId(id);
