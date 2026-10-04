@@ -100,7 +100,7 @@ describe("the goal chain", () => {
     // nothing left to garden; the open window's picture waits for its clock
     const due = goalChain.due(root, { now: now() });
     expect(due.source).toBe(0);
-    expect(due.scheduled.picture).toMatchObject({ due: false });
+    expect(due.scheduled.memory).toMatchObject({ due: false });
   });
 
   test("the picture reads only the assertion field: relevance never feeds back", async () => {
@@ -121,15 +121,13 @@ describe("the goal chain", () => {
     expect(lines.slice(0, 5)).toEqual(["SOURCE", `title: ${relay.title}`, "from: Claude Code", "from_kind: agent", "via: mcp"]);
   });
 
-  test("only about_goals assertions reach the picture", async () => {
+  test("the Gardener writes only about_goals, whatever the model labels them", async () => {
     const root = vault(GOALS_YAML(), at("2026-08-02"));
-    const m = scripted((t) => [
-      { type: "about_goals", assertion: `goal ${t}`, relevance: "r" },
-      { type: "action_space", assertion: `option ${t}`, relevance: "r" },
-    ]);
+    const m = scripted((t) => [{ type: "action_space", assertion: `goal ${t}`, relevance: "r" }]);
     await runGoals({ root, manifest: loadManifest(root), runner: m.runner, now });
-    expect(m.pictures()[0]!.prompt).toContain("goal item-2026-08-02");
-    expect(m.pictures()[0]!.prompt).not.toContain("option item-2026-08-02");
+    expect(readGoalLog(root)[0]!.assertions).toEqual([{ type: "about_goals", assertion: "goal item-2026-08-02", relevance: "r" }]);
+    expect(m.sources()[0]!.output!.schema).not.toHaveProperty("properties.assertions.items.properties.type");
+    expect(m.sources()[0]!.instructions).not.toContain("action space");
   });
 
   test("an empty answer settles the arrival; a window with no goal assertions advances without a model call", async () => {
