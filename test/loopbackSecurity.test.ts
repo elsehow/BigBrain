@@ -3,7 +3,7 @@ import { createServer, request, type IncomingHttpHeaders } from "node:http";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { allowLoopbackRequest, armor, json } from "../lib/httpx";
+import { allowLoopbackRequest, armor, json, THEME_SHEET } from "../lib/httpx";
 import { nativeVault, NATIVE_YAML } from "./support/vault";
 
 const roots: string[] = [];
@@ -48,6 +48,11 @@ test("loopback guard rejects browser/rebinding requests before any handler runs"
     for (const type of [undefined, "text/plain", "application/x-www-form-urlencoded", "multipart/form-data; boundary=test"])
       expect((await http(port, "/api/write", { host, ...(type ? { "content-type": type } : {}) }, "POST", "{}")).status).toBe(415);
     expect(reached).toBe(0);
+    // An agent's page on another loopback port may load the theme sheet, and nothing else
+    expect((await http(port, THEME_SHEET, { host, "sec-fetch-site": "same-site" })).status).toBe(200);
+    for (const [path, headers, method] of [[THEME_SHEET, { host, "sec-fetch-site": "cross-site" }, "GET"], [THEME_SHEET, { host: "rebind.example", "sec-fetch-site": "same-site" }, "GET"],
+      [THEME_SHEET, { host, "sec-fetch-site": "same-site", "content-type": "application/json" }, "POST"], [`${THEME_SHEET}/..`, { host, "sec-fetch-site": "same-site" }, "GET"]] as const)
+      expect((await http(port, path, headers, method, method === "POST" ? "{}" : undefined)).status).toBe(403);
     expect((await http(port, "/", { host, "sec-fetch-site": "none" })).status).toBe(200);
     expect((await http(port, "/api/write", { host, origin, "sec-fetch-site": "same-origin", "content-type": "application/json; charset=utf-8" }, "POST", "{}")).status).toBe(200);
     // Native tools omit Origin. Vite and SSH tunnels may use another loopback port.

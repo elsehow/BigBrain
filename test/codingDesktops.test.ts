@@ -93,7 +93,9 @@ test("an agent's own page: plain HTML shown as a view, updated in place by title
   expect(detail.desktop?.views.map(v => [v.kind, v.title, v.html])).toEqual([["html", "Gear report", "<h1>Gears</h1><p>Five.</p>"]]);
   expect(detail.messages.filter(m => m.role === "activity").map(m => [m.text, m.ok])).toEqual([
     ["Showed Gear report", true], ["Showed Gear report", true], ["Showed Huge failed", false]]);
+  expect(desktops.theme()).toBe("");
   expect(desktops.writeTheme(":root{--bg:#fff}").path).toBe(join(ws, "bigbrain.css"));
+  expect(desktops.theme()).toBe(":root{--bg:#fff}");
   expect(() => desktops.writeTheme("")).toThrow();
   desktops.close();
 });
