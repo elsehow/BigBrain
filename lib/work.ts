@@ -265,7 +265,7 @@ const NEIGHBORHOOD_LIMIT = 8;
 export const WORK_BODY_INLINE_CHARS = 20_000;
 
 /** The same body representation for inline intake and every continuation. */
-function intakeBody(insertion: SourceInsertion): string {
+export function intakeBody(insertion: SourceInsertion): string {
   const field = (key: string) => typeof insertion.envelope[key] === "string" ? insertion.envelope[key] as string : undefined;
   return classifyIntake({ kind: field("kind"), type: field("type"), source: field("source") }) === "agent-chat"
     ? renderUserSide(userSide(insertion.body)) : insertion.body;

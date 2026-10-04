@@ -141,3 +141,21 @@ quick:
 # firewall:
 #   model: clef-flash # local, run by the app; or url: <a /v1/systemone endpoint>
 #   # thresholds: { credential: 0.25, malicious: 0.85 }
+
+# The goal chain (lib/goalChain.ts, #51): an experimental second gardener
+# that runs beside the classic one. It reads every arrival against your
+# abstract goals and keeps a short "picture" of what you are pursuing, rebuilt
+# each `interval` of arrivals and journaled under journal/goals/ (no picture is
+# ever overwritten). It writes only log/goal-assertions/ and never settles the
+# classic gardener's work. Off unless this block is present.
+#
+# chains:
+#   goals:
+#     goals:                 # your long-running goals, in your own words
+#       - "Grow tomatoes. Patience, soil, sun."
+#       - "Learn the cello."
+#     since: 2026-07-01      # arrivals before this date are never read
+#     # source:  { model: claude-sonnet-5-5, reasoning: medium }
+#     # picture: { model: claude-opus-5-5, interval: 7d }
+#     # concurrency: 4       # source calls at once
+#     # batch: 100           # arrivals one run reads at most
