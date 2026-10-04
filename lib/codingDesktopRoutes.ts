@@ -5,7 +5,7 @@
  */
 import { AgentsError } from "../packages/agents/src";
 import { CodingDesktopError, type CodingDesktops } from "./codingDesktops";
-import { json, readBody, type Route } from "./httpx";
+import { json, readBody, THEME_SHEET, type Route } from "./httpx";
 
 const message = (e: unknown) => e instanceof CodingDesktopError || e instanceof AgentsError ? e.message : "Could not update the desktop.";
 const status = (e: unknown) => e instanceof CodingDesktopError ? e.status : e instanceof AgentsError ? 400 : 500;
@@ -32,6 +32,11 @@ export function codingDesktopRoutes(desktops: CodingDesktops): Route[] {
     { method: "GET", path: "/api/desktops/events", handler: ({ req, url, res }) => {
       try { desktops.stream(url.searchParams.get("id"), Number(url.searchParams.get("since")) || 0, res, fn => req.on("close", fn)); }
       catch (e) { json(res, status(e), { error: message(e) }); }
+    } },
+    // linked from pages agents serve on other loopback ports (allowLoopbackRequest lets them); only colours and fonts
+    { method: "GET", path: THEME_SHEET, handler: ({ res }) => {
+      res.writeHead(200, { "content-type": "text/css; charset=utf-8", "cache-control": "no-cache" });
+      res.end(desktops.theme());
     } },
     post("create", b => desktops.create(b)),
     post("send", b => desktops.send(b.id, b.text, b.inputId)),

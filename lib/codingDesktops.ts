@@ -56,7 +56,7 @@ export class CodingDesktops {
   private streams = new Map<string, Set<ServerResponse>>();
   private naming = new Map<string, number>();
 
-  constructor(private root: string, private options: { agents?: Agents; host?: HostFn; nameTask?: TaskNamer } = {}) {
+  constructor(private root: string, private options: { agents?: Agents; host?: HostFn; nameTask?: TaskNamer; themeUrl?: string } = {}) {
     this.agents = options.agents ?? new Agents();
     this.dir = join(spoolDir(root), "coding-desktops");
     mkdirSync(this.dir, { recursive: true });
@@ -141,7 +141,10 @@ export class CodingDesktops {
     const work = (async () => {
       const host = await (this.options.host ?? agentHost)(this.root, r.model);
       const about = r.context?.length ? `\nThis desktop was started about: ${r.context.map(c => `${c.title} (${c.path})`).join("; ")}.` : "";
-      const showing = `\n## Showing things\nTo show your person a result (a report, a comparison, a table, a chart), use show_html with plain semantic HTML: no CSS, style attributes or scripts. It is dressed in their BigBrain theme. For a page you serve yourself, link ${join(this.agents.ws.root, "bigbrain.css")} (the same style) instead of writing CSS.`;
+      const theme = this.options.themeUrl;
+      const showing = `\n## Showing things\nTo show your person a result (a report, a comparison, a table, a chart), use show_html with plain semantic HTML: no CSS, style attributes or scripts. It is dressed in their BigBrain theme.` +
+        (theme ? ` For a page you serve yourself, use the same style: put <link rel="stylesheet" href="${theme}"> in its head instead of writing CSS (a served page can't load files from disk).` : "") +
+        ` Serve pages with a server that reloads them when files change, so you never restart it or show the page again after an edit: the project's own dev server if it has one, otherwise \`npx --yes vite <folder> --host 127.0.0.1 --port <port> --strictPort\`.`;
       const desktop = await this.agents.open(id, { ...host, instructions: host.instructions + about + showing,
         tools: [...(host.tools ?? []), ...this.viewTools(id)] });
       desktop.events.subscribe(e => this.broadcast(id, e));
@@ -229,10 +232,16 @@ export class CodingDesktops {
     return this.save(r);
   }
 
-  /** The person's live theme, as a stylesheet for pages agents serve themselves (workspace bigbrain.css). */
+  private get themePath(): string { return join(this.agents.ws.root, "bigbrain.css"); }
+
+  /** The person's live theme, as a stylesheet for pages agents serve themselves (served at THEME_SHEET). */
+  theme(): string {
+    return existsSync(this.themePath) ? readFileSync(this.themePath, "utf8") : "";
+  }
+
   writeTheme(css: unknown): { path: string } {
     if (typeof css !== "string" || !css.trim() || css.length > 64_000) throw new CodingDesktopError("Send the theme's stylesheet.");
-    const path = join(this.agents.ws.root, "bigbrain.css");
+    const path = this.themePath;
     mkdirSync(this.agents.ws.root, { recursive: true });
     writeAtomic(path, css);
     return { path };

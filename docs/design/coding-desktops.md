@@ -127,8 +127,13 @@ environment.
 - **Pages the agent writes** (`show_html`) are semantic HTML with no CSS or
   scripts. v2 dresses them in the person's live theme
   (`web/ui/src/lib/pageTheme.ts`) and shows them in a frame with no scripts.
-  The same style is written to `bigbrain.css` in the workspace, for pages
-  an agent serves itself.
+  The same style is written to `bigbrain.css` in the workspace and served
+  at `/api/desktops/theme.css`, which pages an agent serves itself link: a
+  page on a loopback port can't load a `file://` stylesheet.
+- **Served pages reload themselves.** Agents are told to serve with a
+  server that reloads on change (the project's own, or `npx vite <folder>`),
+  so an edit needs no restart and no second `show_page`. BigBrain builds
+  no reload machinery of its own.
 - **Previews embed `http://127.0.0.1:<port>`.** The engine's CSP allows
   framing loopback pages only.
 

@@ -90,6 +90,9 @@ export function armor(res: ServerResponse): void {
   res.setHeader("referrer-policy", "no-referrer");
 }
 
+/** The theme stylesheet, served to agents' own pages on other loopback ports. */
+export const THEME_SHEET = "/api/desktops/theme.css";
+
 /** The unauthenticated viewer and setup door trust local programs, not arbitrary
  * websites. Loopback binding alone does not prevent DNS rebinding or browser
  * writes. Apply this before ALL routes, including reads and first-run setup.
@@ -106,6 +109,10 @@ export function allowLoopbackRequest(req: IncomingMessage, res: ServerResponse):
     return refuse(403, "Use a loopback address to access the app.");
 
   const site = req.headers["sec-fetch-site"];
+  // The one thing other pages on this machine may load: the theme sheet that
+  // agents' served pages link (lib/codingDesktopRoutes.ts). Same-site only, so
+  // a loopback page on another port, never a website.
+  if (site === "same-site" && ["GET", "HEAD"].includes(req.method ?? "GET") && req.url?.split("?")[0] === THEME_SHEET) return true;
   if (site !== undefined && site !== "same-origin" && site !== "none")
     return refuse(403, "The app's own origin is required.");
   const origin = req.headers.origin;

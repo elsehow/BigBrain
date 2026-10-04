@@ -1,11 +1,11 @@
 import { nameTask } from "../lib/pilotTaskName";
 import { CodingDesktops } from "../lib/codingDesktops";
-import { agentScript, agentWorkspace } from "../lib/env";
+import { agentScript, agentWorkspace, webPort } from "../lib/env";
 import { Agents, workspace } from "../packages/agents/src";
 import { resolve } from "node:path";
 import { codingDesktopRoutes } from "../lib/codingDesktopRoutes";
 import { ApplicationActions, actionReceiptView, actionHistoryQuery } from "../lib/applicationActions";
-import { json } from "../lib/httpx";
+import { json, THEME_SHEET } from "../lib/httpx";
 import { IntegrationAccounts } from "../lib/integrationAccounts";
 import { integrationAccountRoutes } from "../lib/integrationAccountRoutes";
 import { ConnectedClients } from "../lib/connectedClients";
@@ -35,7 +35,7 @@ export function desktopRouteManifest(root: string, options: { includeSupport?: b
   process.once("exit", () => chats.close());
   // Dev only: a scripted agent instead of the vault's model (lib/env.ts, agentScript).
   const script = agentScript();
-  const desktops = new CodingDesktops(root, { nameTask, agents: new Agents(workspace(agentWorkspace())),
+  const desktops = new CodingDesktops(root, { nameTask, agents: new Agents(workspace(agentWorkspace())), themeUrl: `http://127.0.0.1:${webPort()}${THEME_SHEET}`,
     ...(script ? { host: async () => (await import(resolve(script))).default() } : {}) });
   process.once("exit", () => desktops.close());
   // Finish only already-spooled legacy speech; no endpoint accepts new turns.
