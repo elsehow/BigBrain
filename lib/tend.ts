@@ -12,6 +12,7 @@ import {
   ownerLabelsFor,
   releaseAssertionLock,
 } from "./assertionAgent";
+import type { Chain } from "./chain";
 import type { RunMeter } from "./meterTypes";
 import { runAgent } from "./run/agent";
 import { type RunUsage, type AgentRunResult } from "./run/model";
@@ -274,3 +275,29 @@ export async function runTend(opts: TendOpts): Promise<TendResult> {
     releaseAssertionLock(root);
   }
 }
+
+/** The classic chain (#51): agentic intake rounds over the entity-linked
+ * assertion log, then the memory pass. Its source work is due intake plus
+ * staged arrivals, which this chain admits or passes. */
+export const classicChain: Chain<TendResult> = {
+  name: "classic",
+  due(root: string, opts: { now?: Date } = {}) {
+    return {
+      source: dueIntakeIds(root).length + stagedIds(root).length,
+      scheduled: { memory: memoryDue(root, opts) },
+    };
+  },
+  run: runTend,
+  report(result: TendResult) {
+    if (result.error) return { lines: [], failed: true, error: `tend: ${result.error}` };
+    if (!result.ran) return { lines: [`tend: ${result.reason}`], failed: false };
+    const lines = result.rounds.map((r) =>
+      `tend: round ${r.runId} — ${r.settled} settled, ${r.remaining} remaining` +
+        (r.usage ? ` ($${(r.usage.cost_usd?.toFixed(4) ?? "unavailable")}, ${r.usage.turns} turns)` : "") +
+        (r.error ? ` — ERROR: ${r.error}` : ""));
+    if (result.memory)
+      lines.push(`tend: memory — ${result.memory.ran ? "ran" : "declined"}${result.memory.error ? ` — ERROR: ${result.memory.error}` : ""}`);
+    if (!result.rounds.length && !result.memory) lines.push("tend: nothing due");
+    return { lines, failed: result.rounds.some((r) => r.error) || Boolean(result.memory?.error) };
+  },
+};

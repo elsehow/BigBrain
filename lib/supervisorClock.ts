@@ -24,7 +24,7 @@
  * intact and this respects it: a wake request moves a CLOCK the supervisor
  * owns, it does not start anything. The supervisor still decides whether the
  * job exists in its plan at all, `Scheduler.due` still refuses a job that is
- * already running, and `tendDue` inside the tick is still the only judge of
+ * already running, and the chains asked inside the tick are the only judge of
  * whether there is work. Nothing here can run a pass the plan does not carry.
  *
  * With no supervisor — the scripts run by hand — there is nothing to read

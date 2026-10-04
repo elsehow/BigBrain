@@ -6,6 +6,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { hasAssertionEvents, type AssertionEvent } from "./assertionLog";
 import { ensureDir, writeAtomic } from "./fsx";
+import { scheduledVerdict, type StageVerdict } from "./chain";
 import { acquire, held, release } from "./pidLock";
 import type { SourceInsertion } from "./insertionLog";
 import { loadManifest } from "./manifest";
@@ -165,26 +166,23 @@ export function describeMemoryWork(w: MemoryWork): string {
   ].join(" + ");
 }
 
-/** Work and an elapsed schedule are both required, unless forced. A fresh
- * vault's first run is explicit (--force). Each attempt, including failure,
- * schedules the next full interval, so ticks cannot repeatedly bill retries. */
+/** Memory is the classic chain's scheduled stage, judged by the one rule
+ * (lib/chain.ts scheduledVerdict): work and an elapsed schedule are both
+ * required, unless forced. Each attempt, including failure, schedules the
+ * next full interval, so ticks cannot repeatedly bill retries. */
 export function memoryDue(
   root: string,
   opts: { force?: boolean; now?: Date } = {}
-): { due: boolean; reason: string } {
-  if (opts.force) return { due: true, reason: "forced" };
-  const now = (opts.now ?? new Date()).getTime();
+): StageVerdict {
   const stamp = readMemoryStamp(root);
-  const next = stamp.nextRunAt ? Date.parse(stamp.nextRunAt) : NaN;
-  if (!Number.isFinite(next)) return { due: false, reason: "no stamp — first run is --force" };
-
-  const w = memoryWork(root, stamp);
-  if (!hasMemoryWork(w))
-    return { due: false, reason: "nothing to fold in — no voice, no new assertions" };
-
-  const work = describeMemoryWork(w);
-  if (now >= next) return { due: true, reason: `scheduled sweep — ${work}` };
-  return { due: false, reason: `next sweep not yet due (${work} waiting)` };
+  return scheduledVerdict({
+    ...opts, nextRunAt: stamp.nextRunAt,
+    work: () => {
+      const w = memoryWork(root, stamp);
+      return hasMemoryWork(w) ? describeMemoryWork(w) : undefined;
+    },
+    idle: "nothing to fold in — no voice, no new assertions",
+  });
 }
 
 // ── the memory pass's own lock ──────────────────────────────────────────────
