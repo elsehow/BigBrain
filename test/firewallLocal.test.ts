@@ -23,7 +23,7 @@ afterEach(() => {
 
 describe("config", () => {
   test("a block without a url is the local model; with one, that endpoint", () => {
-    expect(parseFirewall({})).toEqual({ model: "clef-flash", thresholds: { credential: 0.25, malicious: 0.85 } });
+    expect(parseFirewall({})).toEqual({ model: "clef-flash", thresholds: { credential: 0.15 } });
     expect(parseFirewall({ url: "https://decide.example/v1/systemone" })?.url).toBe("https://decide.example/v1/systemone");
     expect(() => parseFirewall({ url: "ftp://nope" })).toThrow("url");
     process.env["BIGBRAIN_FIREWALL_PORT"] = "4999";
@@ -131,7 +131,7 @@ describe("windows that fit the server's batch", () => {
       if (state.length > 3000)
         return Response.json({ error: { code: 500, message: "input (9000 tokens) is too large to process. increase the physical batch size" } }, { status: 500 });
       const p = (hit: boolean) => ({ type: "noul", noul: hit ? 0.97 : 0.02 });
-      return Response.json({ answers: { credential: p(state.includes("RESET-TOKEN")), malicious: p(false) } });
+      return Response.json({ answers: { credential: p(state.includes("RESET-TOKEN")) } });
     },
   });
   afterAll(() => server.stop(true));

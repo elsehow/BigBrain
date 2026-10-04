@@ -132,15 +132,15 @@ quick:
 
 # The intake firewall (lib/firewall.ts, deploy/firewall/README.md): every
 # arrival is screened by a decision model before anything stores it. A
-# password-reset link, sign-in code, key or password — or a phishing mail —
-# is withheld: never landed, never staged, never read by an agent. Off unless
-# this block is present; once on it fails CLOSED (if the model cannot answer,
+# password-reset link, sign-in code, key or password is withheld: never
+# landed, never staged, never read by an agent. Off unless this block is
+# present; once on it fails CLOSED (if the model cannot answer,
 # nothing gets in, and pollers retry). `bigbrain firewall install` downloads
 # the local model and writes this block.
 #
 # firewall:
 #   model: clef-flash # local, run by the app; or url: <a /v1/systemone endpoint>
-#   # thresholds: { credential: 0.25, malicious: 0.85 }
+#   # thresholds: { credential: 0.15 }
 
 # The goal chain (lib/goalChain.ts, #51): an experimental second gardener
 # that runs beside the classic one. It reads every arrival against your

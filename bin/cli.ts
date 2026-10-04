@@ -24,7 +24,7 @@ const EVERYDAY: Record<string, [script: string, blurb: string]> = {
   search: ["bin/search.ts", "ranked full-text over every note"],
   assertions: ["bin/assertions.ts", "a date-ordered window over the record; --entities for the map"],
   drop: ["bin/drop.ts", "put an item into the vault"],
-  firewall: ["bin/firewall.ts", "screen arrivals for credentials and phishing: status, install, off"],
+  firewall: ["bin/firewall.ts", "screen arrivals for credentials and reset links: status, install, off"],
   observe: ["bin/observe.ts", "submit evidence to the memory pass"],
   tend: ["bin/tend.ts", "run the gardener: drain due intake + memory with your Claude"],
   agent: ["bin/agent.ts", "run an agent on your projects in its own desktop folder (run, resume, list, land, discard)"],
