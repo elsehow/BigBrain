@@ -602,7 +602,7 @@
           <iframe class="vpage vhtml" sandbox="" title={v.title} srcdoc={pageDoc(v.html ?? "", pageVars)}></iframe>
         {:else if v.kind === "url"}
           <!-- a page on this machine (the engine's CSP allows nothing else) -->
-          <iframe class="vpage" src={v.path} title={v.title} sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"></iframe>
+          {#key v.at}<iframe class="vpage" src={v.path} title={v.title} sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"></iframe>{/key}
         {:else}
           <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
           <div class="vbody" onclick={citation}>

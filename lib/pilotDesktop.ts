@@ -102,9 +102,11 @@ const withoutView = (layout: DesktopTile | undefined, id: string): DesktopTile |
 
 export function openView(d: PilotDesktop, view: Omit<DesktopView, "id">, id: string, opts: { userAsked?: boolean } = {}): PilotDesktop {
   const already = d.views.find((v) => v.kind === view.kind && v.path === view.path);
-  // a page shown again under the same title is updated in place
-  if (already) return view.kind === "html" && view.html !== already.html
-    ? { ...d, views: d.views.map((v) => (v === already ? { ...v, html: view.html, title: view.title, at: view.at } : v)) } : d;
+  if (already) {
+    // shown again: a note stays as it is, an html page is updated in place, a served page reloads (its frame is keyed on `at`)
+    if (view.kind === "note" || (view.kind === "html" && view.html === already.html)) return d;
+    return { ...d, views: d.views.map((v) => (v === already ? { ...view, id: v.id } : v)) };
+  }
   if (d.closed?.includes(view.path) && !opts.userAsked)
     throw new DesktopError("The person closed this view. Reopen it only if they ask to see it again (set user_asked).");
   if (d.views.length >= MAX_VIEWS) throw new DesktopError(`At most ${MAX_VIEWS} views are open at once; close one first.`);
@@ -152,7 +154,7 @@ export function loopbackUrl(raw: unknown): string {
 
 /** For agents that run servers (coding desktops): show one beside the chat. */
 export const SHOW_PAGE_TOOL = { type: "function", name: "show_page", strict: false,
-  description: "Show a page served on this machine, such as a dev server you started, on your desktop beside this chat. Use it when the person should see the running result. Only loopback addresses (http://127.0.0.1:<port>, localhost) can be shown. Showing a page that is already open does nothing.",
+  description: "Show a page served on this machine, such as a dev server you started, on your desktop beside this chat. Use it when the person should see the running result. Only loopback addresses (http://127.0.0.1:<port>, localhost) can be shown. Showing a page that is already open reloads it, for example after you restart its server.",
   parameters: { type: "object", properties: { url: { type: "string", description: "The page's address, e.g. http://127.0.0.1:5173/." }, title: { type: "string", description: "A short label for the view." }, user_asked: { type: "boolean", description: "True only when the person asked to see a page they had closed." } }, required: ["url"], additionalProperties: false } };
 
 /** The most HTML one page may carry. */

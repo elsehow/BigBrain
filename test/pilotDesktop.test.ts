@@ -26,6 +26,13 @@ describe("a desktop's views", () => {
     expect(() => openView(full, note("notes/one-more.md"), "x")).toThrow(/At most/);
   });
 
+  test("a served page shown again reloads: same view, new stamp", () => {
+    const page = (at: string) => ({ kind: "url" as const, path: "http://127.0.0.1:5173/", title: "Preview", at });
+    const d = openView(emptyDesktop(), page("2026-01-01T00:00:00Z"), "v1");
+    const again = openView(d, page("2026-01-01T00:05:00Z"), "v2");
+    expect(again.views).toEqual([{ ...page("2026-01-01T00:05:00Z"), id: "v1" }]);
+  });
+
   test("a layout places every open view exactly once", () => {
     const d = open("notes/a.md", "notes/b.md");
     expect(arrangeDesktop(d, { dir: "col", weights: [3, 1], kids: [{ view: "v1" }, { view: "v2" }] }, "agent").layout).toEqual({ dir: "col", weights: [3, 1], kids: [{ view: "v1" }, { view: "v2" }] });
