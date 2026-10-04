@@ -89,11 +89,11 @@ describe("the engine's prompts", () => {
     // lib/memoryRun.ts (memory.md), lib/tend.ts (tend.md),
     // lib/entityFolds.ts (entity-folds.md, #728), lib/pilot.ts (pilot.md,
     // #770 — the realtime session's instructions) and lib/goalChain.ts
-    // (goals-source.md and goals-picture.md, #51); add a name here only
+    // (goals-source.md, goals-picture.md and goals-picture-agent.md, #51); add a name here only
     // with its reader. (email-triage.md came and went in #744/#756: the
     // gardener triages staged mail itself, through tend.md.)
     const prompts = readdirSync(join(ENGINE_ROOT, "prompts")).filter((f) => f.endsWith(".md"));
-    expect(prompts.sort()).toEqual(["entity-folds.md", "goals-picture.md", "goals-source.md", "memory.md", "pilot.md", "tend.md"]);
+    expect(prompts.sort()).toEqual(["entity-folds.md", "goals-picture-agent.md", "goals-picture.md", "goals-source.md", "memory.md", "pilot.md", "tend.md"]);
   });
 
   // A fresh vault gets no prompts/ at all: a prompt is the engine's text,
