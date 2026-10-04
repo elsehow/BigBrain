@@ -16,8 +16,8 @@ import { allowVaultRequest } from "../lib/vaultBoundary";
  *
  * The clock is lib/desktopSchedule.ts: one heartbeat a second, per-job
  * "next fire" stamps. A machine that slept gets one catch-up fire per
- * overdue job on the first beat after waking, like launchd. `tendDue`
- * inside the tend tick remains the only judge of whether there is work.
+ * overdue job on the first beat after waking, like launchd. The chains
+ * asked inside the tend tick remain the only judge of whether there is work.
  *
  * The clock is also the one thing children need to reach, in both
  * directions (lib/supervisorClock.ts): a landing asks for the work it just

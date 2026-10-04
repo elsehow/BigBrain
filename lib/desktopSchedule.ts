@@ -2,7 +2,7 @@
  * desktopSchedule.ts — the desktop supervisor's clock (#574), kept pure so
  * it can be tested without spawning anything.
  *
- * The scheduler only decides WHEN TO ASK. `tendDue` (lib/tend.ts) stays the
+ * The scheduler only decides WHEN TO ASK. The chains (lib/chains.ts) stay the
  * single source of "is anything due"; a tick that finds nothing exits in
  * milliseconds. So the clock here is deliberately dumb — per-job "next
  * fire" timestamps checked from one heartbeat — and its one real job is
