@@ -3,7 +3,7 @@ import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { chainHasWork } from "../lib/chain";
 import { CHAINS } from "../lib/chains";
-import { goalChain, latestPicture, pictureRecords, runGoals } from "../lib/goalChain";
+import { goalChain, latestPicture, pictureRecords, renderGoalSource, runGoals } from "../lib/goalChain";
 import { readGoalLog } from "../lib/goalLog";
 import type { SourceInsertion } from "../lib/insertionLog";
 import { loadManifest } from "../lib/manifest";
@@ -113,6 +113,12 @@ describe("the goal chain", () => {
     expect(picture.instructions).toContain("This picture is read by a gardener");
     expect(picture.capabilities).toBe("none");
     expect(picture.role).toBe("goals");
+  });
+
+  test("a source is shown with the door's grade of its sender", () => {
+    const relay = insertion({ envelope: { source: "mcp", from: "Claude Code", from_kind: "agent" } });
+    const lines = renderGoalSource(relay).split("\n");
+    expect(lines.slice(0, 5)).toEqual(["SOURCE", `title: ${relay.title}`, "from: Claude Code", "from_kind: agent", "via: mcp"]);
   });
 
   test("only about_goals assertions reach the picture", async () => {
