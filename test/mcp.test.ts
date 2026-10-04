@@ -78,6 +78,25 @@ describe("load_memory", () => {
     expect(() => handleMcpTool(ctx(root), "load_memory", { topic: "nope" })).toThrow(McpToolError);
     expect(() => handleMcpTool(ctx(root), "load_memory", { topic: "../.env" })).toThrow(McpToolError);
   });
+
+  test("outside readers also get the goal chain's latest Memory; the engine's own passes do not", () => {
+    const root = vault();
+    expect(handleMcpTool(ctx(root), "load_memory", {})).not.toContain("Goal model");
+    const record = (through: string, picture: string) => ({
+      format: "bigbrain-goal-picture/v1", invocation_id: `run-${through}`, picture, covers: { from: "2026-09-20T00:00:00.000Z", through },
+      events: [], rebuilt: true, prompt_version: "goals-picture/v1", started_at: through, completed_at: through,
+    });
+    mkdirSync(join(root, "journal/goals/2026-10"), { recursive: true });
+    writeFileSync(join(root, "journal/goals/2026-10/a.json"), JSON.stringify(record("2026-09-27T00:00:00.000Z", "OLD PICTURE")));
+    writeFileSync(join(root, "journal/goals/2026-10/b.json"), JSON.stringify(record("2026-10-04T00:00:00.000Z", "Grows tomatoes; learning the cello.")));
+    const text = handleMcpTool(ctx(root), "load_memory", {}) as string;
+    expect(text).toContain("# Memory index");
+    expect(text).toContain("## Goal model (the goal chain's Memory, as of 2026-10-04)");
+    expect(text).toContain("Grows tomatoes; learning the cello.");
+    expect(text).not.toContain("OLD PICTURE");
+    expect(handleMcpTool(ctx(root), "load_memory", { topic: "ridgeways" })).not.toContain("Goal model");
+    expect(handleMcpTool(ctx(root, "gardener"), "load_memory", {})).not.toContain("Goal model");
+  });
 });
 
 describe("search_vault", () => {

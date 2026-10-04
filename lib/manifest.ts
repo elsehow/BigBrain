@@ -287,7 +287,8 @@ function parseGoalChain(raw: unknown, fallbackAgent: AgentId): GoalChainConfig {
     const b = value != null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
     return readRole({ ...fallback, ...b }, fallbackAgent, blockModel(b) ?? fallback.model);
   };
-  const pictureBlock = block["picture"] as Record<string, unknown> | undefined;
+  // The weekly stage is the chain's Memory; `picture` was its first name.
+  const pictureBlock = (block["memory"] ?? block["picture"]) as Record<string, unknown> | undefined;
   const interval = String(pictureBlock?.["interval"] ?? "7d");
   const pictureMode = pictureBlock?.["mode"] ?? "single";
   if (pictureMode !== "single" && pictureMode !== "agent") throw new Error("vault.yaml: chains.goals.picture.mode must be single or agent");

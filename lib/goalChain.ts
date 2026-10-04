@@ -20,7 +20,7 @@
  * Every picture is journaled (journal/goals/), so none is ever overwritten.
  */
 
-import { readdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { ownerLabelsFor } from "./assertionAgent";
 import {
@@ -32,9 +32,10 @@ import { scheduledVerdict, type Chain, type ChainDue, type ChainRunOpts, type St
 import { ENGINE_ROOT } from "./engine";
 import { ensureDir, writeAtomic } from "./fsx";
 import {
-  appendGoalEvent, commitGoalEvents, createGoalEvent, GOAL_ASSERTION_TYPES, goalEventRel, readGoalLog,
+  appendGoalEvent, commitGoalEvents, createGoalEvent, goalEventRel, readGoalLog,
   type GoalAssertion, type GoalEvent,
 } from "./goalLog";
+import { closed, foldedEvents, GOAL_JOURNAL_DIR, latestPicture, pictureRecords, type PictureRecord } from "./goalJournal";
 import type { SourceInsertion } from "./insertionLog";
 import { loadManifest, type GoalChainConfig, type Manifest } from "./manifest";
 import { choiceJournalFields } from "./modelResolution";
@@ -46,8 +47,7 @@ import type { AgentRunResult, RunUsage } from "./run/model";
 import { liveSourceSql } from "./sourceSupersede";
 import { intakeBody } from "./work";
 
-export const GOAL_JOURNAL_DIR = "journal/goals";
-const SOURCE_PROMPT_VERSION = "goals-source/v1";
+const SOURCE_PROMPT_VERSION = "goals-source/v2";
 const PICTURE_PROMPT_VERSION = "goals-picture/v1";
 const PICTURE_AGENT_PROMPT_VERSION = "goals-picture-agent/v1";
 /** A hard bound on an agent picture; the prompt asks for 4,000 characters. */
@@ -58,57 +58,9 @@ export const GOAL_SOURCE_CHARS = 150_000;
 const SOURCE_ATTEMPTS = 3;
 const NO_PICTURE = "none yet";
 
+export { GOAL_JOURNAL_DIR, latestPicture, pictureRecords, type PictureRecord } from "./goalJournal";
+
 type Runner = typeof runAgent;
-
-// ── the picture journal: the stage's record and its checkpoint ─────────────
-
-export interface PictureRecord {
-  format: "bigbrain-goal-picture/v1";
-  invocation_id: string;
-  /** The picture itself; unchanged from the last when nothing new arrived. */
-  picture: string;
-  /** The arrival-time window this picture closes: [from, through). */
-  covers: { from: string; through: string };
-  /** Goal events folded in by THIS picture — the checkpoint is their union. */
-  events: string[];
-  /** False when the window brought no goal assertions: no model was called. */
-  rebuilt: boolean;
-  prompt_version: string;
-  started_at: string;
-  completed_at: string;
-  model?: string;
-  usage?: RunUsage;
-  error?: { message: string };
-}
-
-export function pictureRecords(root: string): PictureRecord[] {
-  const base = join(root, GOAL_JOURNAL_DIR);
-  let months: string[];
-  try {
-    months = readdirSync(base).filter((m) => /^\d{4}-\d{2}$/.test(m)).sort();
-  } catch {
-    return [];
-  }
-  const out: PictureRecord[] = [];
-  for (const month of months)
-    for (const f of readdirSync(join(base, month)).filter((n) => n.endsWith(".json")).sort()) {
-      try {
-        out.push(JSON.parse(readFileSync(join(base, month, f), "utf8")) as PictureRecord);
-      } catch { /* a damaged record is skipped, never fatal */ }
-    }
-  return out.sort((a, b) => a.covers.through.localeCompare(b.covers.through) || a.completed_at.localeCompare(b.completed_at));
-}
-
-/** The pictures that closed their window — a failed build closes nothing. */
-const closed = (records: PictureRecord[]): PictureRecord[] => records.filter((r) => !r.error);
-
-/** The goal events some picture has folded in: the stage's checkpoint. */
-const foldedEvents = (records: PictureRecord[]): Set<string> => new Set(closed(records).flatMap((r) => r.events));
-
-/** The newest picture that closed its window. */
-export function latestPicture(root: string): PictureRecord | undefined {
-  return closed(pictureRecords(root)).at(-1);
-}
 
 function journalPicture(root: string, record: PictureRecord): string {
   const month = record.completed_at.slice(0, 7);
@@ -180,11 +132,10 @@ const ASSERTIONS_SCHEMA = {
       items: {
         type: "object",
         properties: {
-          type: { type: "string", enum: [...GOAL_ASSERTION_TYPES] },
           assertion: { type: "string" },
           relevance: { type: "string" },
         },
-        required: ["type", "assertion", "relevance"],
+        required: ["assertion", "relevance"],
         additionalProperties: false,
       },
     },
@@ -216,10 +167,14 @@ export function renderGoalSource(insertion: SourceInsertion): string {
   ].join("\n");
 }
 
+/** The Gardener writes only what the owner says about their goals (v2,
+ * 2026-10-04); every assertion it returns is `about_goals`. The log still
+ * reads v1's `action_space` events. */
 function parseAssertions(text: string): GoalAssertion[] {
   const json = text.trim().replace(/^```(?:json)?[ \t]*\r?\n([\s\S]*?)\r?\n```$/, "$1").trim();
-  const value = JSON.parse(json) as { assertions: GoalAssertion[] };
-  return value.assertions.filter((a) => a.assertion.trim());
+  const value = JSON.parse(json) as { assertions: Omit<GoalAssertion, "type">[] };
+  return value.assertions.filter((a) => a.assertion.trim())
+    .map((a) => ({ type: "about_goals", assertion: a.assertion, relevance: a.relevance }));
 }
 
 interface SourceOutcome { id: string; event?: GoalEvent; error?: string; usage?: RunUsage }
@@ -411,7 +366,7 @@ export const goalChain: Chain<GoalResult> = {
     if (!cfg) return { source: 0, scheduled: {} };
     return {
       source: dueGoalSources(root, cfg, opts.now).length,
-      scheduled: { picture: pictureDue(root, cfg, opts) },
+      scheduled: { memory: pictureDue(root, cfg, opts) },
     };
   },
   run: runGoals,
@@ -420,7 +375,7 @@ export const goalChain: Chain<GoalResult> = {
     const lines = result.windows.map((w) =>
       `goals: ${w.covers.from.slice(0, 10)}–${w.covers.through.slice(0, 10)} — ${w.gardened} gardened, ${w.assertions} assertions` +
         (w.failed.length ? `, ${w.failed.length} failed` : "") +
-        (w.picture ? `; picture ${w.picture.rebuilt ? `rebuilt (${w.picture.chars} chars)` : "unchanged"}` : "") +
+        (w.picture ? `; memory ${w.picture.rebuilt ? `rebuilt (${w.picture.chars} chars)` : "unchanged"}` : "") +
         (w.picture?.error ? ` — ERROR: ${w.picture.error}` : "") +
         ` ($${w.cost_usd.toFixed(2)})`);
     if (!lines.length) lines.push("goals: nothing due");
