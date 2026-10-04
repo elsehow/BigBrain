@@ -309,7 +309,7 @@ async function buildPicture(
   if (!lines.length)
     return { ...base, picture: last?.picture ?? NO_PICTURE, rebuilt: false, completed_at: new Date().toISOString() };
   const input = agent
-    ? ["ABSTRACT GOALS", goalList(cfg), "", "PREVIOUS MODEL", last?.picture ?? NO_PICTURE, "", "NEW GOAL ASSERTIONS", ...lines].join("\n")
+    ? [`AS OF ${through.slice(0, 10)}`, "", "ABSTRACT GOALS", goalList(cfg), "", "PREVIOUS MODEL", last?.picture ?? NO_PICTURE, "", "NEW GOAL ASSERTIONS", ...lines].join("\n")
     : ["ABSTRACT GOALS", goalList(cfg), "", "CURRENT PICTURE", last?.picture ?? NO_PICTURE, "", "ASSERTIONS", ...lines].join("\n");
   try {
     const run = await runner(agent

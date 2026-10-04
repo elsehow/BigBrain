@@ -47,5 +47,5 @@ records.forEach((r, i) => {
   const name = `${String(i).padStart(2, "0")}_${r.covers.from.slice(0, 10)}.md`;
   Bun.write(join(dir, name), `${r.picture}\n`);
 });
-console.log(`backtest: ${records.length} picture(s) in ${dir}${result.stopped ? ` — stopped: ${result.stopped}` : ""}`);
+console.log(`backtest: ${records.length} picture(s) in ${dir}; ${result.superseded} superseded arrival(s) marked${result.stopped ? ` — stopped: ${result.stopped}` : ""}`);
 if (result.stopped) process.exitCode = 1;

@@ -119,6 +119,30 @@ describe("backtest goals", () => {
     expect(m.calls.every((c) => !c.req.output?.schema)).toBe(true);
   });
 
+  test("an arrival superseded before the live chain ran is marked, not re-gardened; its revision replays when it lands", async () => {
+    const original = at("2026-08-02", "meeting-v1");
+    const revision = insertion({
+      source_id: original.source_id, title: "meeting-v2",
+      received_at: "2026-08-10T12:00:00.000Z", occurred_at: "2026-08-02T12:00:00.000Z",
+      envelope: { ...original.envelope, supersedes: original.id },
+    });
+    const source = nativeVault({ prefix: "bb-bt-src-", insertions: [original, revision], files: { "vault.yaml": YAML } });
+    scratch.push(source);
+    appendGoalEvent(source, createGoalEvent({
+      insertion_id: revision.id, source_id: revision.source_id,
+      assertions: [{ type: "about_goals", assertion: "WEEK-revision", relevance: "r" }],
+      author: { kind: "model", id: "recorded", invocation_id: "live" }, created_at: "2026-10-01T00:00:00.000Z",
+      produced_by: { procedure: "goals/source", version: "v1" },
+    }));
+    const m = scripted();
+    const result = await backtestGoals({ source, out: tmp("bb-bt-out-"), through: "2026-08-15", runner: m.runner, pictureMode: "agent" });
+    expect(result.stopped).toBeUndefined();
+    expect(result.superseded).toBe(1);
+    expect(m.calls).toHaveLength(1); // week 1 had nothing to say; week 2 read the revision
+    expect(m.calls[0]!.req.prompt).toContain("WEEK-revision");
+    expect(m.calls[0]!.req.prompt.startsWith("AS OF 2026-08-15")).toBe(true);
+  });
+
   test("the sandbox may not live inside the source vault", async () => {
     const source = sourceVault();
     await expect(backtestGoals({ source, out: join(source, "bt"), through: "2026-08-22", runner: scripted().runner }))

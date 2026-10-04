@@ -25,7 +25,7 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { stringify } from "yaml";
 import { dueGoalSources, goalChain, latestPicture, pictureRecords, pictureWindow, runGoals, type GoalWindowResult } from "./goalChain";
-import { appendGoalEvent, readGoalLog, type GoalEvent } from "./goalLog";
+import { appendGoalEvent, createGoalEvent, readGoalLog, type GoalEvent } from "./goalLog";
 import { appendSourceInsertionEvent, readSourceInsertionLog, type SourceInsertion } from "./insertionLog";
 import { loadManifest } from "./manifest";
 import type { ModelRunRequest } from "./run/request";
@@ -49,6 +49,9 @@ export interface GoalBacktestOpts {
 export interface GoalBacktestResult {
   sandbox: string;
   windows: GoalWindowResult[];
+  /** Arrivals the live chain never gardened because a later revision
+   * superseded them first; marked in the sandbox, never in the source. */
+  superseded: number;
   /** Why the replay stopped before `through`, if it did. */
   stopped?: string;
 }
@@ -108,6 +111,15 @@ export async function backtestGoals(opts: GoalBacktestOpts): Promise<GoalBacktes
   const through = new Date(`${opts.through}T23:59:59.999Z`).toISOString();
   const arrivals = readSourceInsertionLog(source).sort((a, b) => at(a).localeCompare(at(b)) || a.id.localeCompare(b.id));
   const recorded = new Map<string, GoalEvent>(readGoalLog(source).map((e) => [e.insertion_id, e]));
+  // An arrival a later revision superseded may never have been gardened
+  // live: the chain only reads the live version, and the revision existed by
+  // the time it ran. Replaying it as due would ask for a model call the live
+  // record never made.
+  const revised = new Set(arrivals.flatMap((s) => {
+    const sup = s.envelope?.["supersedes"];
+    return typeof sup === "string" ? [sup] : Array.isArray(sup) ? sup.filter((x): x is string => typeof x === "string") : [];
+  }));
+  let superseded = 0;
   const runner = recordedOnly(opts.runner ?? runAgent);
   const windows: GoalWindowResult[] = [];
   let landed = 0;
@@ -115,7 +127,7 @@ export async function backtestGoals(opts: GoalBacktestOpts): Promise<GoalBacktes
     const manifest = loadManifest(sandbox);
     const cfg = manifest.chains.goals!;
     const { end } = pictureWindow(cfg, latestPicture(sandbox));
-    if (end > through) return { sandbox, windows };
+    if (end > through) return { sandbox, windows, superseded };
     // Land everything that had arrived by the window's end — identity
     // declarations included, which the owner's labels are read from — and
     // replay the goal event the live chain wrote for each.
@@ -126,15 +138,26 @@ export async function backtestGoals(opts: GoalBacktestOpts): Promise<GoalBacktes
       if (event) appendGoalEvent(sandbox, event);
     }
     const now = new Date(end);
+    const arrived = new Map(arrivals.slice(0, landed).map((s) => [s.id, s]));
+    for (const id of dueGoalSources(sandbox, cfg, now).filter((i) => revised.has(i))) {
+      const s = arrived.get(id)!;
+      appendGoalEvent(sandbox, createGoalEvent({
+        insertion_id: id, source_id: s.source_id, assertions: [],
+        author: { kind: "model", id: "backtest", invocation_id: "recorded" },
+        created_at: now.toISOString(),
+        produced_by: { procedure: "backtest/superseded-unrecorded", version: "v1" },
+      }));
+      superseded++;
+    }
     const unrecorded = dueGoalSources(sandbox, cfg, now);
     if (unrecorded.length)
-      return { sandbox, windows, stopped: `${unrecorded.length} arrival(s) before ${end.slice(0, 10)} have no recorded goal event (e.g. ${unrecorded[0]})` };
+      return { sandbox, windows, superseded, stopped: `${unrecorded.length} arrival(s) before ${end.slice(0, 10)} have no recorded goal event (e.g. ${unrecorded[0]})` };
     const before = pictureRecords(sandbox).length;
     const result = await runGoals({ root: sandbox, manifest, runner, now: () => now });
     windows.push(...result.windows);
     opts.onWindow?.(goalChain.report(result).lines);
     if (pictureRecords(sandbox).length === before)
-      return { sandbox, windows, stopped: `no picture closed the window ending ${end.slice(0, 10)}` };
-    if (result.windows.some((w) => w.picture?.error)) return { sandbox, windows, stopped: "a picture build failed" };
+      return { sandbox, windows, superseded, stopped: `no picture closed the window ending ${end.slice(0, 10)}` };
+    if (result.windows.some((w) => w.picture?.error)) return { sandbox, windows, superseded, stopped: "a picture build failed" };
   }
 }
