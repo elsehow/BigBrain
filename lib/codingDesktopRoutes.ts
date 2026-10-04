@@ -43,5 +43,6 @@ export function codingDesktopRoutes(desktops: CodingDesktops): Route[] {
     post("land", b => desktops.land(b.id, b.project, b.how)),
     post("discard", b => desktops.discard(b.id, b.project)),
     post("view", b => desktops.view(b.id, b.action, b)),
+    post("theme", b => desktops.writeTheme(b.css)),
   ];
 }

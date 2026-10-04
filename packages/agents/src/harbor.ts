@@ -17,6 +17,7 @@
  * carries the tag); both are macOS/BSD tools.
  */
 import { spawn, type ChildProcess } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { run } from "./run";
 
@@ -29,15 +30,23 @@ const tool = (name: string, ...dirs: string[]) => dirs.map(d => `${d}/${name}`).
 const LSOF = tool("lsof", "/usr/sbin", "/usr/bin");
 const PS = tool("ps", "/bin", "/usr/bin");
 
+/** Which engine's agents a process belongs to: a short hash of its workspace,
+ * so two engines on one machine (the app, and a developer's scratch engine)
+ * never sweep or stop each other's processes. */
+export const SCOPE = "BIGBRAIN_AGENT_SCOPE";
+export const scopeOf = (workspaceRoot: string): string => createHash("sha256").update(workspaceRoot).digest("hex").slice(0, 12);
+
 /** A command's environment: the base, minus the host's own BIGBRAIN_* settings
  * (the app's mode, the vault, ports), plus the desktop's tag. An agent working
  * on BigBrain itself must not run its code as the host's app, on the host's vault. */
-export function commandEnv(base: NodeJS.ProcessEnv, desktop: string): NodeJS.ProcessEnv {
+export function commandEnv(base: NodeJS.ProcessEnv, desktop: string, scope?: string): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {};
   for (const [k, v] of Object.entries(base)) if (!k.startsWith("BIGBRAIN_")) env[k] = v;
   env[TAG] = desktop;
+  if (scope) env[SCOPE] = scope;
   return env;
 }
+
 const OUTPUT_CAP = 200_000;
 
 export interface Job {
@@ -54,6 +63,8 @@ export type RunResult =
 export interface Listener { pid: number; port: number; address: string; desktop?: string }
 
 export interface HarborOptions {
+  /** The workspace whose agents this Harbor runs (scopeOf): it only finds and stops those. */
+  scope?: string;
   settleMs?: number;              // how long before a still-running command may return as a job
   waitMs?: number;                // the longest a command holds a turn before returning as a job
   graceMs?: number;               // SIGTERM → SIGKILL
@@ -101,7 +112,7 @@ export class Harbor {
     const settleMs = this.options.settleMs ?? 3000, waitMs = this.options.waitMs ?? 120_000;
     const child = spawn("/bin/bash", ["-c", command], {
       cwd, detached: true, stdio: ["ignore", "pipe", "pipe"],
-      env: commandEnv(await this.base(), desktop),
+      env: commandEnv(await this.base(), desktop, this.options.scope),
     });
     const id = this.next++;
     const buf: string[] = [];
@@ -172,17 +183,19 @@ export class Harbor {
     return out;
   }
 
-  /** pid → its desktop tag and process group, for the given pids (or every process). */
+  /** pid → its desktop tag and process group, for this Harbor's scope only, for the given pids (or every process). */
   private async tags(pids?: number[]): Promise<Map<number, { desktop: string; pgid: number }>> {
     const map = new Map<number, { desktop: string; pgid: number }>();
     if (pids && !pids.length) return map;
     const args = ["-E", "-ww", "-o", "pid=,pgid=,command=", ...(pids ? ["-p", pids.join(",")] : ["-ax"])];
     const ps = await run(PS, args);
     const pattern = new RegExp(`(?:^|\\s)${TAG}=([a-z0-9-]+)(?:\\s|$)`);
+    const scoped = new RegExp(`(?:^|\\s)${SCOPE}=([a-f0-9]+)(?:\\s|$)`);
     for (const line of ps.out.split("\n")) {
       const m = /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(line);
       const tag = m && pattern.exec(m[3]!);
-      if (m && tag) map.set(Number(m[1]), { desktop: tag[1]!, pgid: Number(m[2]) });
+      if (!m || !tag || scoped.exec(m[3]!)?.[1] !== this.options.scope) continue;
+      map.set(Number(m[1]), { desktop: tag[1]!, pgid: Number(m[2]) });
     }
     return map;
   }
@@ -216,7 +229,7 @@ export class Harbor {
     if (job && !job.exited) await this.stopGroups([job.pid]);
   }
 
-  /** Stop every desktop's processes: after a restart no agent is running, so anything tagged is left over. */
+  /** Stop every desktop's processes in this Harbor's scope: after a restart no agent is running, so they're left over. */
   async stopAll(): Promise<number> {
     const groups = new Set([...(await this.tags()).values()].map(t => t.pgid));
     await this.stopGroups([...groups]);

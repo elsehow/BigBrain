@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Agents, AgentsError, codingTools, commandEnv, discardWork, Harbor, landWork, loginEnv, releaseLeases, startWork, workspace, type ToolContext } from "../src";
+import { Agents, AgentsError, codingTools, commandEnv, discardWork, Harbor, landWork, loginEnv, releaseLeases, scopeOf, startWork, workspace, type ToolContext } from "../src";
 
 const mac = process.platform === "darwin";
 const roots: string[] = [];
@@ -167,6 +167,20 @@ describe.if(mac)("harbor", () => {
     process.env.PATH = "/usr/bin:/bin";
     try { expect(Array.isArray(await h.servers("desk-thin"))).toBe(true); }
     finally { process.env.PATH = path; }
+  });
+
+  test("two engines on one machine never sweep each other's processes", async () => {
+    const a = new Harbor({ env: process.env, scope: scopeOf("/workspace/a"), settleMs: 400, graceMs: 500 });
+    const b = new Harbor({ env: process.env, scope: scopeOf("/workspace/b"), settleMs: 400, graceMs: 500 });
+    const r = await a.run("desk-same", server(0), tmpdir());
+    const port = r.status === "running" ? r.ports[0]! : 0;
+    expect(port).toBeGreaterThan(0);
+    // b restarts and sweeps; it stops only its own workspace's processes
+    expect(await b.stopAll()).toBe(0);
+    expect(await b.stopDesktop("desk-same")).toBe(0);
+    expect(await (await fetch(`http://127.0.0.1:${port}/`)).text()).toBe("ok");
+    expect((await a.servers("desk-same")).map(x => x.port)).toContain(port);
+    expect(await a.stopAll()).toBeGreaterThan(0);
   });
 
   test("a fixed-port collision names the desktop holding the port", async () => {

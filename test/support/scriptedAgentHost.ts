@@ -7,6 +7,7 @@
  * - answers any message, streaming its reply;
  * - when asked to "serve", starts `python3 -m http.server` through its shell,
  *   then shows the page beside the chat with show_page;
+ * - when asked for a "report", shows a page of invented figures with show_html;
  * - when asked to "change" something, starts its own worktree of a project
  *   called orrery and commits a note there, so Land has work to bring home.
  */
@@ -36,6 +37,16 @@ export default async function scriptedHost(): Promise<OpenOptions> {
     }
     if (/change/i.test(asked) && last.role === "user") {
       return fauxAssistantMessage([fauxText("Starting my own worktree of orrery for this."), fauxToolCall("start_work", { project: "orrery" })], { stopReason: "toolUse" });
+    }
+    if (/report/i.test(asked) && last.role === "user") {
+      const bars = [["Sun", 24], ["Earth", 96], ["Moon", 30], ["Mars", 51]] as const;
+      const svg = `<svg viewBox="0 0 320 120" role="img" aria-label="Teeth per gear">${bars.map(([, v], i) =>
+        `<rect x="${10 + i * 78}" y="${110 - v}" width="56" height="${v}" fill="var(--activity)"/><text x="${38 + i * 78}" y="${104 - v}" text-anchor="middle" font-size="11">${v}</text>`).join("")}</svg>`;
+      return fauxAssistantMessage([fauxText("Here's the gear report."), fauxToolCall("show_html", { title: "Gear report", html:
+        `<h1>Orrery gear report</h1><p class="muted">Invented figures for trying the page view.</p>` +
+        `<div class="grid"><div class="card"><h3>Gears</h3><p class="num">4</p></div><div class="card"><h3>Total teeth</h3><p class="num">201</p></div><div class="card"><h3>Moon ratio</h3><p class="num">1.25</p></div></div>` +
+        `<table><tr><th>Gear</th><th class="num">Teeth</th><th class="num">Ratio</th></tr>${bars.map(([n, v]) => `<tr><td>${n}</td><td class="num">${v}</td><td class="num">${(v / 24).toFixed(2)}</td></tr>`).join("")}</table>` +
+        `<figure>${svg}<figcaption>Teeth per gear.</figcaption></figure>` }) ], { stopReason: "toolUse" });
     }
     if (/serve/i.test(asked)) {
       return fauxAssistantMessage([fauxText("Starting a server in your folder."), fauxToolCall("bash", { command: "python3 -m http.server 0 --bind 127.0.0.1" })], { stopReason: "toolUse" });

@@ -16,7 +16,7 @@ import { Agents, type Desktop, type HostTool, type LandHow, type OpenOptions, ty
 import { agentHost } from "./agentHost";
 import { writeAtomic } from "./fsx";
 import { pilotToolCall } from "./pilot";
-import { arrangeDesktop, closeView, desktopDetail, desktopReference, DESKTOP_TOOLS, DesktopError, emptyDesktop, loopbackUrl, openView, SHOW_PAGE_TOOL, type PilotDesktop } from "./pilotDesktop";
+import { arrangeDesktop, closeView, desktopDetail, desktopReference, DESKTOP_TOOLS, DesktopError, emptyDesktop, loopbackUrl, MAX_PAGE_HTML, openView, SHOW_HTML_TOOL, SHOW_PAGE_TOOL, type PilotDesktop } from "./pilotDesktop";
 import { namingMoment, type TaskNamer } from "./pilotTaskName";
 import { DEFAULT_PILOT_BACKEND } from "./pilotBackendTypes";
 import { spoolDir } from "./spool";
@@ -141,7 +141,8 @@ export class CodingDesktops {
     const work = (async () => {
       const host = await (this.options.host ?? agentHost)(this.root, r.model);
       const about = r.context?.length ? `\nThis desktop was started about: ${r.context.map(c => `${c.title} (${c.path})`).join("; ")}.` : "";
-      const desktop = await this.agents.open(id, { ...host, instructions: host.instructions + about,
+      const showing = `\n## Showing things\nTo show your person a result (a report, a comparison, a table, a chart), use show_html with plain semantic HTML: no CSS, style attributes or scripts. It is dressed in their BigBrain theme. For a page you serve yourself, link ${join(this.agents.ws.root, "bigbrain.css")} (the same style) instead of writing CSS.`;
+      const desktop = await this.agents.open(id, { ...host, instructions: host.instructions + about + showing,
         tools: [...(host.tools ?? []), ...this.viewTools(id)] });
       desktop.events.subscribe(e => this.broadcast(id, e));
       return desktop;
@@ -228,6 +229,15 @@ export class CodingDesktops {
     return this.save(r);
   }
 
+  /** The person's live theme, as a stylesheet for pages agents serve themselves (workspace bigbrain.css). */
+  writeTheme(css: unknown): { path: string } {
+    if (typeof css !== "string" || !css.trim() || css.length > 64_000) throw new CodingDesktopError("Send the theme's stylesheet.");
+    const path = join(this.agents.ws.root, "bigbrain.css");
+    mkdirSync(this.agents.ws.root, { recursive: true });
+    writeAtomic(path, css);
+    return { path };
+  }
+
   /** Quick names the desktop as the conversation develops, never over a person's title. */
   private async retitle(id: string): Promise<void> {
     const namer = this.options.nameTask;
@@ -251,7 +261,7 @@ export class CodingDesktops {
       this.save(r);
       return desktopReference(r.desktop);
     };
-    const def = (name: string) => [...DESKTOP_TOOLS, SHOW_PAGE_TOOL].find(t => t.name === name)!;
+    const def = (name: string) => [...DESKTOP_TOOLS, SHOW_PAGE_TOOL, SHOW_HTML_TOOL].find(t => t.name === name)!;
     const tool = (name: string, run: (a: Record<string, unknown>) => Promise<unknown>, label: (a: Record<string, unknown>) => string): HostTool =>
       ({ name, description: def(name).description, parameters: def(name).parameters as Record<string, unknown>, execute: a => run(a), label });
     const viewId = () => `v-${crypto.randomUUID().slice(0, 6)}`;
@@ -269,6 +279,14 @@ export class CodingDesktops {
         const title = typeof a.title === "string" && a.title.trim() ? a.title.trim().slice(0, 60) : new URL(url).host;
         return change(d => openView(d, { kind: "url", path: url, title, at: new Date().toISOString() }, viewId(), { userAsked: a.user_asked === true }));
       }, a => `Showed ${String(a.url ?? "a page")}`),
+      tool("show_html", async a => {
+        if (typeof a.title !== "string" || !a.title.trim()) throw new Error("Give the page a short title.");
+        if (typeof a.html !== "string" || !a.html.trim()) throw new Error("Give the page's HTML.");
+        if (a.html.length > MAX_PAGE_HTML) throw new Error(`Pages are limited to ${MAX_PAGE_HTML.toLocaleString()} characters; show less, or split it.`);
+        const title = a.title.trim().slice(0, 60), html = a.html;
+        const key = `page:${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+        return change(d => openView(d, { kind: "html", path: key, title, html, at: new Date().toISOString() }, viewId()));
+      }, a => `Showed ${String(a.title ?? "a page")}`),
       tool("close_view", async a => {
         if (typeof a.view !== "string") throw new Error("Give the view's id from your desktop reference.");
         const view = a.view;

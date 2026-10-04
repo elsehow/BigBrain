@@ -12,6 +12,7 @@
   import type { GraphData } from "../lib/types";
   import { barPilots, buildField, neighbours, placePilots, searchNames, twinsOf, type Field, type PilotSummary, type V2Feed, type V2FeedRow } from "../lib/v2/model";
   import { md, sanitizeHtml } from "../lib/markdown";
+  import { pageDoc, themeSheet, themeVars } from "../lib/pageTheme";
   import type { V2Scene } from "../lib/v2/scene";
   import { plainText as plain } from "../../../../lib/v2Feed";
   import type { DesktopTile, DesktopView } from "../../../../lib/pilotDesktop";
@@ -184,6 +185,21 @@
       if (openPilot === id) detail = d;
     } catch (e) { if (openPilot === id) flash(errText(e)); }
   }
+  /** The theme pages are dressed in, read off this view's root, and read again when the theme or
+   * light/dark changes. Posted to the engine for pages agents serve themselves (bigbrain.css). */
+  let rootEl: HTMLDivElement | undefined = $state();
+  let themeTick = $state(0);
+  let pageVars: string = $derived.by(() => { void themeTick; return rootEl ? themeVars(rootEl) : ""; });
+  $effect(() => {
+    const dark = matchMedia("(prefers-color-scheme: dark)");
+    const bump = () => { themeTick++; };
+    dark.addEventListener("change", bump);
+    const watch = new MutationObserver(bump);
+    watch.observe(document.documentElement, { attributes: true, attributeFilter: ["class", "style", "data-theme"] });
+    return () => { dark.removeEventListener("change", bump); watch.disconnect(); };
+  });
+  $effect(() => { if (pageVars && !data) void desktopReq("/theme", { css: themeSheet(pageVars) }).catch(() => {}); });
+
   /** A coding desktop's live stream: text as it's written, and a refresh when anything else happens. */
   let liveText = $state("");
   /** The step the agent is on right now ("Running git worktree list…"), from the stream. */
@@ -579,9 +595,12 @@
     {@const v = desktopViews.find((x) => x.id === t.view)}
     {#if v}
       <article class="view" aria-label={v.title}>
-        <header><span class="vt">{v.title}</span>{#if v.kind === "url"}<a class="vp" href={v.path} target="_blank" rel="noopener" title="Open in a browser">{v.path} ↗</a>{:else}<span class="vp">{v.path}</span>{/if}
+        <header><span class="vt">{v.title}</span>{#if v.kind === "url"}<a class="vp" href={v.path} target="_blank" rel="noopener" title="Open in a browser">{v.path} ↗</a>{:else if v.kind === "note"}<span class="vp">{v.path}</span>{:else}<span class="vp"></span>{/if}
           <button type="button" class="px" onclick={() => void closeView(v.id)} aria-label={`Close ${v.title}`} title="Close — the agent leaves it closed">×</button></header>
-        {#if v.kind === "url"}
+        {#if v.kind === "html"}
+          <!-- the agent's page, in this person's theme; scripts don't run -->
+          <iframe class="vpage vhtml" sandbox="" title={v.title} srcdoc={pageDoc(v.html ?? "", pageVars)}></iframe>
+        {:else if v.kind === "url"}
           <!-- a page on this machine (the engine's CSP allows nothing else) -->
           <iframe class="vpage" src={v.path} title={v.title} sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"></iframe>
         {:else}
@@ -606,7 +625,7 @@
 </svelte:head>
 <svelte:window onkeydown={onKey} />
 
-<div class="v2" style:--chat-w={chatWidth ? `${chatWidth}px` : null}>
+<div class="v2" bind:this={rootEl} style:--chat-w={chatWidth ? `${chatWidth}px` : null}>
   <div class="stage" bind:this={host}></div>
 
   {#if field}
@@ -916,6 +935,7 @@
     overflow-wrap: anywhere; scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--fg) 22%, transparent) transparent; }
   .vbody > :global(*) { max-width: 72ch; }
   .vpage { flex: 1; min-height: 0; width: 100%; border: 0; background: #fff; }
+  .vpage.vhtml { background: var(--bg); }
   .act { margin: -12px 0; font: 400 12px/1.5 var(--font-mono); color: var(--v2-faint); }
   .act::before { content: "· "; }
   .act.bad { color: color-mix(in srgb, var(--activity) 80%, var(--fg)); }
