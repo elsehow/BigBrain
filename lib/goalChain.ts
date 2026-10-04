@@ -194,14 +194,19 @@ const ownerName = (root: string): string => ownerLabelsFor(root)[0] ?? "the owne
 const goalList = (cfg: GoalChainConfig): string => cfg.goals.map((g, i) => `${i + 1}. ${g}`).join("\n");
 const template = (name: string): string => readFileSync(join(ENGINE_ROOT, "prompts", name), "utf8");
 
-/** The one rendering of an arrival the source stage reads. */
+/** The one rendering of an arrival the source stage reads. `from_kind` is
+ * the door's grade of the sender (lib/voice.ts): `person`, `agent` or
+ * `service`, stamped from the verified credential — without it, an agent's
+ * relay of what the owner "decided" reads like the owner's own words. */
 export function renderGoalSource(insertion: SourceInsertion): string {
   const env = insertion.envelope ?? {};
+  const str = (k: string) => (typeof env[k] === "string" ? env[k] : "");
   return [
     "SOURCE",
     `title: ${insertion.title ?? ""}`,
-    `from: ${typeof env["from"] === "string" ? env["from"] : ""}`,
-    `via: ${typeof env["source"] === "string" ? env["source"] : ""}`,
+    `from: ${str("from")}`,
+    `from_kind: ${str("from_kind")}`,
+    `via: ${str("source")}`,
     `date: ${insertion.occurred_at ?? insertion.received_at ?? ""}`,
     "",
     intakeBody(insertion).slice(0, GOAL_SOURCE_CHARS),
