@@ -7,6 +7,7 @@ import {readInclusionPolicy,sharedRuleScope} from '../lib/inclusionPolicy';
 import {inclusionEvaluator,decideInclusion} from '../lib/inclusionEvaluation';
 import {rankCandidates} from '../lib/inclusionCandidates';
 import {saveJevKey} from '../lib/jevSettings';
+import {OutOfCredits,outOfCredits} from '../lib/sharedJev';
 function fixture(){const root=mkdtempSync(join(tmpdir(),'rule-review-')),store=join(root,'connections.json');writeFileSync(join(root,'vault.yaml'),'integrations: {}\n');saveJevKey(store,'fabricated-key');return {root,store,scope:sharedRuleScope('fixture'),text:'Sources about the Example project.',sources:[.95,.9,.85,.1,.2,.3,.65,.45].map((score,i)=>({id:String(i),title:'Example source '+i,origin:'Fixture',body:'Complete source '+score})),check:()=>{},save:(_text:string)=>{}};}
 const factory:typeof inclusionEvaluator=(root,store,text,labels)=>({identity:inclusionEvaluator(root,store,text,labels).identity,score:async(source:{body:string})=>Number(source.body.split(' ').at(-1))});
 async function idle(root:string,id:string){for(let i=0;i<100;i++){const s=getReview(root,id);if(!reviewState(s).busy)return s;await Bun.sleep(1);}throw Error('Review did not settle');}
@@ -95,4 +96,21 @@ test('a long transcript that mentions the topic in passing does not outrank a no
  const filler=Array.from({length:400},(_,i)=>`line ${i} about tooling and builds`).join('\n');
  const rows=[source('t','Session log',`${filler}\nwe talked about the baby and childcare once\n${filler}`),source('n','Daycare','Childcare waitlist for the baby.'),source('x','Note','Unrelated short note.'),source('y','Note','Another short note.')];
  expect(rankCandidates(rows,'family concerns',[],['baby','childcare'])[0]!.id).toBe('n');
+});
+
+test('out of credits stops the review and says so, instead of blaming the sources',async()=>{
+ const c=fixture();try{
+  let calls=0;
+  const broke:typeof inclusionEvaluator=(root,store,text,labels)=>({identity:inclusionEvaluator(root,store,text,labels).identity,score:async()=>{calls++;throw new OutOfCredits();}});
+  const s=await idle(c.root,startReview(c,broke).id);
+  expect(reviewState(s).error).toBe('Out of usage credits. (You need credits to calibrate your inclusion rule.)');
+  expect(calls).toBeLessThanOrEqual(4); // one batch, not every candidate
+ }finally{rmSync(c.root,{recursive:true,force:true});}
+});
+test('a provider error reads as out of credits only when it says so',()=>{
+ expect(outOfCredits(402,'')).toBe(true);
+ expect(outOfCredits(400,'Your credit balance is too low to access the API.')).toBe(true);
+ expect(outOfCredits(429,'{"error":{"code":"insufficient_quota"}}')).toBe(true);
+ expect(outOfCredits(500,'upstream timed out')).toBe(false);
+ expect(outOfCredits(400,'The source thanks the film credits team.')).toBe(false);
 });

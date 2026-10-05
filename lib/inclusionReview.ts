@@ -6,6 +6,8 @@ import {inclusionEvaluator} from './inclusionEvaluation';
 import {rankCandidates,type CandidateEntity} from './inclusionCandidates';
 import type {RuleQueries} from './inclusionQueries';
 import {resolveRuleMentions} from './sharedRuleMentions';
+import {OutOfCredits} from './sharedJev';
+const NO_CREDITS='Out of usage credits. (You need credits to calibrate your inclusion rule.)';
 export interface ReviewContext {root:string;store:string;scope:string;text:string;sources:InclusionSource[];select?:(text:string)=>InclusionSource[];check:()=>void;save:(text:string)=>void;
  /** Search phrases and subject mentions for a rule (lib/inclusionQueries.ts); absent, the rule's own words rank. */
  queries?:(text:string,entities:CandidateEntity[])=>Promise<RuleQueries|undefined>}
@@ -59,7 +61,10 @@ async function refill(s:Session){
   const fresh=candidates.filter(p=>!s.scores.has(labelKey(p))&&!s.failed.has(labelKey(p))).slice(0,Math.max(0,BATCH-availableScores));
   for(let i=0;i<fresh.length;i+=CONCURRENCY){
    if(!valid())return;
-   await Promise.all(fresh.slice(i,i+CONCURRENCY).map(async source=>{const k=labelKey(source);try{const score=await s.evaluator.score(source);if(valid())s.scores.set(k,score);}catch{if(valid())s.failed.set(k,'Could not evaluate this source');}}));
+   let broke=false;
+   await Promise.all(fresh.slice(i,i+CONCURRENCY).map(async source=>{const k=labelKey(source);try{const score=await s.evaluator.score(source);if(valid())s.scores.set(k,score);}catch(e){if(e instanceof OutOfCredits)broke=true;else if(valid())s.failed.set(k,'Could not evaluate this source');}}));
+   // no credits: no source will score until the account is topped up, so stop and say so
+   if(broke){if(valid())s.error=NO_CREDITS;return;}
   }
   if(!valid())return;
   const available=candidates.filter(p=>s.scores.has(labelKey(p))&&!s.cards.some(c=>c.id===p.id)),score=(p:InclusionSource)=>s.scores.get(labelKey(p))!;
