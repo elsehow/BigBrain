@@ -1,7 +1,6 @@
 /** Shared vault tool schemas and operations. Transports and runtime adapters select capabilities. */
 import { parseNoteWindow, NoteWindowError, ENTITY_WINDOW_CAP, SLACK_CAP, type NoteWindow } from "./noteWindow";
 import { landDrop } from "./landItem";
-import { latestPicture } from "./goalJournal";
 import { memoryRead, notePayload } from "./noteRead";
 import { recordUse, type RetrievalVia } from "./retrieval";
 import { clampLimit, scanSurface, type SearchFilters } from "./searchCore";
@@ -99,14 +98,7 @@ function loadMemoryTool(ctx: VaultToolContext, args: Record<string, unknown>): u
   const r = memoryRead(ctx.root, topic);
   if (r.status !== 200)
     throw new VaultToolError(r.status === 404 ? "no such memory file" : "forbidden path");
-  // The goal chain's Memory rides beside the classic working set for every
-  // reader outside the engine (#51). The engine's own passes never see it:
-  // a chain reads no other chain's memory, so neither can absorb the other.
-  const goals = !topic && ctx.via !== "gardener" ? latestPicture(ctx.root) : undefined;
-  if (!goals || goals.picture === "none yet") return r.text;
-  return `${r.text}\n\n---\n\n## Goal model (the goal chain's Memory, as of ${goals.covers.through.slice(0, 10)})\n\n` +
-    "Built from the owner's own statements about their goals, against the abstract goals in vault.yaml. " +
-    "It is a separate record from the memory above.\n\n" + goals.picture;
+  return r.text;
 }
 
 function dropTool(ctx: VaultToolContext, args: Record<string, unknown>): unknown {
@@ -188,7 +180,7 @@ export const VAULT_TOOLS: VaultToolDef[] = [
   {
     name: "load_memory",
     description:
-      "The vault's curated working set: memory/MEMORY.md, or one topic file. The index also carries the owner's goal model when there is one. Call this first.",
+      "The vault's curated working set: memory/MEMORY.md, or one topic file. Call this first.",
     inputSchema: {
       type: "object",
       properties: { topic: { type: "string", description: "topic slug, e.g. a [[memory/slug]] target" } },

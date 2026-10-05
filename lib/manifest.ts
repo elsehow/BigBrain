@@ -102,31 +102,6 @@ export interface Manifest {
   /** A disposable, read-only orientation sentence for an entity node. */
   quick: RoleConfig;
   modelPreferences: Record<"gardener" | "memory" | "quick", ModelPreference>;
-  /** Chains beyond the classic one (lib/chains.ts), each from its own block
-   * under `chains:`. A block's presence is what turns its chain on. */
-  chains: { goals?: GoalChainConfig };
-}
-
-/** `chains.goals` (#51): the goal chain's own configuration. */
-export interface GoalChainConfig {
-  /** The owner's long-running abstract goals, in their own words. Inputs. */
-  goals: string[];
-  /** Arrivals before this date (YYYY-MM-DD) are never gardened by the chain. */
-  since: string;
-  /** One call per arrival. */
-  source: ModelChoice;
-  /** The picture rebuild. */
-  picture: ModelChoice;
-  /** `single`: one call over the new assertions. `agent`: a read-only agent
-   * that checks the goal log and sources before writing (backtests only, #51). */
-  pictureMode: "single" | "agent";
-  /** Picture cadence, counted in arrival time (lib/goalChain.ts). */
-  interval: string;
-  intervalMs: number;
-  /** Source calls in flight at once. */
-  concurrency: number;
-  /** Arrivals one run gardens at most (lib/goalChain.ts runGoals). */
-  batch: number;
 }
 
 export interface PassConfig extends RoleConfig {
@@ -258,50 +233,8 @@ export function loadManifest(root: string): Manifest {
       const explicit = !!curation || !!block && ["adapter", "agent", "model"].some(key => block[key] !== undefined);
       return [role, modelPreference(block?.preference, explicit ? "pinned" : "recommended")];
     })) as Manifest["modelPreferences"],
-    chains: parseChains(raw["chains"], fallbackAgent),
     ...(curation ? { curation } : {}),
     ...(firewall ? { firewall } : {}),
-  };
-}
-
-const GOAL_SOURCE_DEFAULT = { model: "claude-sonnet-5-5", reasoning: "medium" };
-const GOAL_PICTURE_DEFAULT = { model: "claude-opus-5-5" };
-
-function parseChains(raw: unknown, fallbackAgent: AgentId): Manifest["chains"] {
-  if (raw == null) return {};
-  if (typeof raw !== "object" || Array.isArray(raw)) throw new Error("vault.yaml: chains must be a mapping");
-  const goals = (raw as Record<string, unknown>)["goals"];
-  return goals == null ? {} : { goals: parseGoalChain(goals, fallbackAgent) };
-}
-
-function parseGoalChain(raw: unknown, fallbackAgent: AgentId): GoalChainConfig {
-  if (typeof raw !== "object" || Array.isArray(raw) || raw === null) throw new Error("vault.yaml: chains.goals must be a mapping");
-  const block = raw as Record<string, unknown>;
-  const goals = block["goals"];
-  if (!Array.isArray(goals) || !goals.length || goals.some((g) => typeof g !== "string" || !g.trim()))
-    throw new Error("vault.yaml: chains.goals.goals must be a list of goals, in your own words");
-  const since = String(block["since"] ?? "");
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(since) || !Number.isFinite(Date.parse(since)))
-    throw new Error("vault.yaml: chains.goals.since must be a date (YYYY-MM-DD)");
-  const stage = (value: unknown, fallback: { model: string; reasoning?: string }): ModelChoice => {
-    const b = value != null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
-    return readRole({ ...fallback, ...b }, fallbackAgent, blockModel(b) ?? fallback.model);
-  };
-  // The weekly stage is the chain's Memory; `picture` was its first name.
-  const pictureBlock = (block["memory"] ?? block["picture"]) as Record<string, unknown> | undefined;
-  const interval = String(pictureBlock?.["interval"] ?? "7d");
-  const pictureMode = pictureBlock?.["mode"] ?? "single";
-  if (pictureMode !== "single" && pictureMode !== "agent") throw new Error("vault.yaml: chains.goals.picture.mode must be single or agent");
-  const concurrency = Number(block["concurrency"] ?? 4);
-  if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 16)
-    throw new Error("vault.yaml: chains.goals.concurrency must be 1-16");
-  const batch = Number(block["batch"] ?? 100);
-  if (!Number.isInteger(batch) || batch < 1) throw new Error("vault.yaml: chains.goals.batch must be a positive integer");
-  return {
-    goals: goals.map((g: string) => g.trim()), since, batch,
-    source: stage(block["source"], GOAL_SOURCE_DEFAULT),
-    picture: stage(pictureBlock && { ...pictureBlock, interval: undefined, mode: undefined }, GOAL_PICTURE_DEFAULT),
-    pictureMode, interval, intervalMs: parseDuration(interval), concurrency,
   };
 }
 
