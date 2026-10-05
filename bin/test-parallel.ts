@@ -20,8 +20,14 @@ const SHARD_TIMEOUT_MS = 300_000;
 const TIMINGS = "test/timings.json";
 // bun test's own discovery patterns.
 const TEST_FILE = /(\.|_)(test|spec)\.(ts|tsx|js|jsx|mjs|cjs)$/;
-// bun announces each file as `path:` (as `##[group]path:` under Actions).
-const FILE_HEADER = /^(?:##\[group\])?(\S+):$/;
+// bun announces each file as `path:` (as `::group::path:` under Actions),
+// and closes a failing run by repeating every failure under `N tests failed:`.
+const FILE_HEADER = /^(?:::group::)?(\S+):$/;
+const FAILURE_RECAP = /^\d+ tests? failed:$/;
+// bun's 5s default per test is a hang detector, and a test that spawns the
+// real CLI a few times can pass it alone yet miss it beside three busy
+// shards. Hangs are SHARD_TIMEOUT_MS's job; a test's own timeout still wins.
+const TEST_TIMEOUT_MS = 30_000;
 
 function testFiles(root: string): string[] {
   const listed = Bun.spawnSync(["git", "ls-files", "--cached", "--others", "--exclude-standard"], { cwd: root });
@@ -78,7 +84,7 @@ type Result = { ok: boolean; output: string; ms: number; files: number; pass: nu
 
 async function runShard(root: string, files: string[]): Promise<Result> {
   const started = performance.now();
-  const child = Bun.spawn(["bun", "test", ...files.map(f => `./${f}`)], { cwd: root, stdout: "pipe", stderr: "pipe" });
+  const child = Bun.spawn(["bun", "test", "--timeout", String(TEST_TIMEOUT_MS), ...files.map(f => `./${f}`)], { cwd: root, stdout: "pipe", stderr: "pipe" });
   let timedOut = false;
   const timer = setTimeout(() => { timedOut = true; child.kill("SIGKILL"); }, SHARD_TIMEOUT_MS);
   const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
@@ -88,6 +94,7 @@ async function runShard(root: string, files: string[]): Promise<Result> {
   let current: string | undefined;
   const failed = new Set<string>();
   for (const line of output.split("\n")) {
+    if (FAILURE_RECAP.test(line)) break;
     const header = FILE_HEADER.exec(line)?.[1];
     if (header && TEST_FILE.test(header)) current = header;
     else if (line.startsWith("(fail)") && current) failed.add(current);
