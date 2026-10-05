@@ -20,7 +20,6 @@ import { DEFAULT_PILOT_BACKEND } from "../../../../lib/pilotBackendTypes";
  */
 
 import { clearSwrCache } from "../lib/api";
-import { clearNoteBriefingCache } from "../lib/noteBriefing";
 import { SAMPLE_GROUPS } from "./foldFixtures";
 import type { Connection } from "../lib/connect";
 import type { DiagnosticsReport } from "../lib/diagnostics";
@@ -39,8 +38,8 @@ import type {
   UsageInfo,
   VaultInfo,
 } from "../lib/types";
-import type { Phase } from "../lib/pilot";
-import type { Line } from "../lib/pilot.svelte";
+type Phase = "off" | "idle" | "connecting" | "ready" | "listening" | "thinking" | "speaking" | "error";
+interface Line { at?: string; speaker: "user" | "pilot"; text: string; tools?: string[] }
 
 export interface VaultState {
   telemetry?: import("../lib/telemetry").TelemetrySnapshot;
@@ -1172,7 +1171,6 @@ export function setVaultState(s: VaultState): void {
   pilotBackend = { ...DEFAULT_PILOT_BACKEND };
   agentPermissions = { version: 2, folders: [{ path: "~/Projects", access: "write" }] };
   clearSwrCache();
-  clearNoteBriefingCache();
 }
 
 const json = (body: unknown, status = 200) =>
@@ -1191,6 +1189,7 @@ const servePair = (p: PairState | null | undefined): Response => {
   return json({ ...s, pending: { ...s.pending, created: new Date(t - 60_000).toISOString(), expires: new Date(t + 9 * 60_000).toISOString() } });
 };
 
+let creditsCleared = false;
 function route(path: string, method: string, body?: string, search?: URLSearchParams): Response {
   // Sample-vault previews never transmit feedback. The workbench can simulate
   // success/failure explicitly; otherwise match an unconfigured build.
@@ -1199,6 +1198,12 @@ function route(path: string, method: string, body?: string, search?: URLSearchPa
     if (mode === 'success') return json({ ok: true });
     if (mode === 'failure') return json({ error: 'Simulated connection failure. Your draft is still here. Switch the preview to success, then try again.' }, 502);
     return json({ error: "Feedback delivery is not set up yet. Keep this draft and try after updating BigBrain." }, 503);
+  }
+  // ?credits=out shows a provider out of usage credits (CreditsBanner) until Retry.
+  if (path === "/api/credits" || path === "/api/credits/retry") {
+    if (method === "POST") creditsCleared = true;
+    const out = !creditsCleared && new URLSearchParams(location.search).get("credits") === "out";
+    return json({ providers: out ? { anthropic: { since: "2026-09-01T09:00:00Z", at: "2026-09-01T09:05:00Z", roles: ["tend", "quick", "pilot"], detail: "Your credit balance is too low." } } : {} });
   }
   if (path === "/api/telemetry") {
     if (!current.telemetry) return json({ error: "no telemetry here" }, 404);
@@ -1313,7 +1318,6 @@ function route(path: string, method: string, body?: string, search?: URLSearchPa
     const next = { ...plugin, installed: plugin.shipped, current: true };
     current = { ...current, setup: { ...setup, claude: { ...setup.claude, plugin: next } } };
     clearSwrCache();
-    clearNoteBriefingCache();
     return json({ ...current.setup, pluginRefresh: { outcome: "refreshed" } });
   }
   // the pilot (#770): the key saves (and the state re-reads it); a session

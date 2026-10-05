@@ -1,4 +1,4 @@
-// Browser-only state for the production AppShell. No filesystem or provider calls.
+// Browser-only state for the production base and Field. No filesystem or provider calls.
 import type { SetupState } from '../lib/setup';
 import type { TelemetrySnapshot } from '../lib/telemetry';
 export const onboardingPreviewKey = 'bb-preview-onboarding-v1';

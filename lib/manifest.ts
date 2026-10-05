@@ -94,6 +94,8 @@ export interface Manifest {
   auth: Auth;
   curation?: CurationConfig;
   firewall?: FirewallConfig;
+  /** What the app may load from the web: a source's images and its page. */
+  security: SecurityConfig;
   integrations: Record<string, Record<string, unknown>>;
   /** The gardener — the one runner (`bigbrain tend`), draining due intake. */
   gardener: PassConfig;
@@ -240,6 +242,19 @@ function parseMemoryConfig(raw: unknown, gardener: PassConfig, fallbackAgent: Ag
   };
 }
 
+export interface SecurityConfig {
+  /** Sources show their images and are read from their pages (on unless `security.remote_content: false`). */
+  remoteContent: boolean;
+}
+
+export function parseSecurity(raw: unknown): SecurityConfig {
+  if (raw == null) return { remoteContent: true };
+  if (typeof raw !== "object" || Array.isArray(raw)) throw new Error("vault.yaml: security must be a mapping");
+  const v = (raw as Record<string, unknown>)["remote_content"];
+  if (v !== undefined && typeof v !== "boolean") throw new Error("vault.yaml: security.remote_content must be true or false");
+  return { remoteContent: v !== false };
+}
+
 export function loadManifest(root: string): Manifest {
   const raw = (parse(readFileSync(resolve(root, "vault.yaml"), "utf8")) ?? {}) as Record<
     string,
@@ -262,6 +277,7 @@ export function loadManifest(root: string): Manifest {
   return {
     root,
     auth: parseAuth(raw["auth"], "max"),
+    security: parseSecurity(raw["security"]),
     integrations: (raw["integrations"] ?? {}) as Manifest["integrations"],
     gardener,
     memory,

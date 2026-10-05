@@ -20,6 +20,7 @@ import { integrationCapabilities, integrationToolCall, INTEGRATION_TOOLS, type I
 import { modelDescriptor } from "./modelRegistry";
 import { pilotModels } from "./modelCatalog";
 import type { PilotState } from "./pilotTypes";
+import { noteCreditsOk, noteOutOfCredits, outOfCredits } from "./providerCredits";
 
 /** The env var the key lives under — `.env.example` documents it. */
 export const PILOT_ENV = "OPENAI_API_KEY";
@@ -320,6 +321,11 @@ export async function mintPilotSecret(
     } catch {
       /* not JSON — the slice stands */
     }
+    // Out of usage credits raises the base's banner (lib/providerCredits.ts).
+    if (outOfCredits(res.status, text)) { // the raw body: OpenAI names insufficient_quota in `code`, not `message`
+      noteOutOfCredits(root, "openai", "voice", detail);
+      return { ok: false, status: 502, error: "Out of usage credits with OpenAI." };
+    }
     const refused = res.status === 401 || res.status === 403;
     return {
       ok: false,
@@ -335,6 +341,7 @@ export async function mintPilotSecret(
   }
   if (typeof j.value !== "string" || !j.value)
     return { ok: false, status: 502, error: "OpenAI answered without a client secret" };
+  noteCreditsOk(root, "openai");
   return {
     ok: true,
     secret: { value: j.value, expires_at: typeof j.expires_at === "number" ? j.expires_at : 0, model: PILOT_MODEL },

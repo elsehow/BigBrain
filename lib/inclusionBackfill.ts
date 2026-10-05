@@ -9,8 +9,13 @@
  * thumbs up or down is a label on the saved policy — the rule learns, so future
  * arrivals are judged with it too — and the likely candidates are re-scored after a
  * pause. Nothing is uploaded until `addBackfill`.
+ *
+ * A note already labelled on the policy (thumbs up or down while reviewing the rule)
+ * keeps that answer here: it is not re-scored, and a kept one is listed whatever its
+ * rank. A note whose scoring failed is counted as `failed`, never silently as a miss.
  */
 import {randomUUID} from 'node:crypto';
+import {modelErrText} from './errText';
 import {readSourceInsertionLog,type SourceInsertion} from './insertionLog';
 import {sharedRequest,type SharedConnection} from './sharedConnections';
 import {contributions,getRule,sendSources,sourceKey} from './sharedRules';
@@ -31,7 +36,7 @@ type Evaluator=ReturnType<typeof inclusionEvaluator>;
 interface Backfill {
  id:string;root:string;store:string;connection:SharedConnection;scope:string;text:string;threshold:number;
  pool:InclusionSource[];scores:Map<string,number>;rated:Map<string,boolean>;
- busy:boolean;scanned:number;error?:string;added?:number;generation:number;at:number;timer?:ReturnType<typeof setTimeout>;
+ busy:boolean;scanned:number;failed:number;failure?:string;error?:string;added?:number;generation:number;at:number;timer?:ReturnType<typeof setTimeout>;
  factory:typeof inclusionEvaluator;queries:typeof ruleQueries;
  /** Shared source ids already contributed; injectable for tests. */
  existing:()=>Promise<Set<string>>;
@@ -49,7 +54,7 @@ function savedPolicy(b:Pick<Backfill,'root'|'store'|'scope'|'text'>):InclusionPo
 export function backfillState(b:Backfill){
  const matches=b.pool.filter(s=>b.rated.get(s.id)??((b.scores.get(s.id)??0)>=b.threshold)).filter(s=>b.rated.get(s.id)!==false)
   .sort((x,y)=>Number(b.rated.get(y.id)===true)-Number(b.rated.get(x.id)===true)||(b.scores.get(y.id)??0)-(b.scores.get(x.id)??0));
- return {id:b.id,busy:b.busy,scanned:b.scanned,total:b.pool.length,error:b.error,added:b.added,
+ return {id:b.id,busy:b.busy,scanned:b.scanned,total:b.pool.length,failed:b.failed,failure:b.failure,error:b.error,added:b.added,
   matches:matches.map(({id,title,origin,body})=>({id,title,origin,excerpt:inclusionExcerpt(body),body,kept:b.rated.get(id)===true}))};
 }
 
@@ -57,7 +62,7 @@ export function getBackfill(root:string,id:string){const b=sessions.get(id);if(!
 
 async function scoreAll(b:Backfill,items:InclusionSource[],evaluator:Evaluator,generation:number,count=true){
  let next=0;
- await Promise.all(Array.from({length:CONCURRENCY},async()=>{while(next<items.length&&b.generation===generation){const s=items[next++]!;try{const score=await evaluator.score(s);if(b.generation===generation){b.scores.set(s.id,score);if(count)b.scanned++;}}catch(e){if(e instanceof OutOfCredits)throw e;if(b.generation===generation&&count)b.scanned++;}}}));
+ await Promise.all(Array.from({length:CONCURRENCY},async()=>{while(next<items.length&&b.generation===generation){const s=items[next++]!;try{const score=await evaluator.score(s);if(b.generation===generation){b.scores.set(s.id,score);if(count)b.scanned++;}}catch(e){if(e instanceof OutOfCredits)throw e;if(b.generation===generation&&count){b.scanned++;b.failed++;b.failure=modelErrText(e);}}}}));
 }
 
 export interface BackfillDeps {factory?:typeof inclusionEvaluator;queries?:typeof ruleQueries;existing?:()=>Promise<Set<string>>}
@@ -67,15 +72,19 @@ export async function startBackfill(root:string,store:string,connection:SharedCo
  const existing=opts.existing??(async()=>new Set((await contributions(connection)).map(c=>c.source_id)));
  const policy=savedPolicy({root,store,scope,text:rule.text});
  for(const [id,s] of sessions)if(s.connection.id===connection.id||Date.now()-s.at>3600000){s.generation++;clearTimeout(s.timer);sessions.delete(id);}
- const b:Backfill={id:randomUUID(),root,store,connection,scope,text:rule.text,threshold:policy.calibration!.threshold,pool:[],scores:new Map(),rated:new Map(),busy:true,scanned:0,generation:0,at:Date.now(),factory,queries,existing};
+ const b:Backfill={id:randomUUID(),root,store,connection,scope,text:rule.text,threshold:policy.calibration!.threshold,pool:[],scores:new Map(),rated:new Map(),busy:true,scanned:0,failed:0,generation:0,at:Date.now(),factory,queries,existing};
  sessions.set(b.id,b);
  void (async()=>{const generation=b.generation;try{
   const blocked=await existing();
   const candidates=latestSources(root).filter(s=>!blocked.has('origin:'+sourceKey(s))).filter(ruleCandidateFilter(root,rule.text)).map(asSource);
   let mentioned:ReturnType<typeof resolveRuleMentions>=[];try{mentioned=resolveRuleMentions(root,rule.text);}catch{/* rank by words alone */}
   const q=await queries(root,store,rule.text,mentioned);
-  b.pool=rankCandidates(candidates,rule.text,q?.subjects??mentioned,q?.phrases??[]).slice(0,POOL);
-  await scoreAll(b,b.pool,factory(root,store,rule.text,policy.labels),generation);
+  const labelled=new Map(policy.labels.map(l=>[sourceDigest(l.source),l.include]));
+  for(const s of candidates){const include=labelled.get(sourceDigest(s));if(include!==undefined)b.rated.set(s.id,include);}
+  const ranked=rankCandidates(candidates,rule.text,q?.subjects??mentioned,q?.phrases??[]).slice(0,POOL);
+  b.pool=[...candidates.filter(s=>b.rated.get(s.id)===true&&!ranked.includes(s)),...ranked];
+  b.scanned=b.pool.filter(s=>b.rated.has(s.id)).length;
+  await scoreAll(b,b.pool.filter(s=>!b.rated.has(s.id)),factory(root,store,rule.text,policy.labels),generation);
  }catch(e){if(b.generation===generation)b.error=e instanceof OutOfCredits?'Out of usage credits. (You need credits to find matches for your inclusion rule.)':e instanceof Error?e.message:'Could not find matches.';}
  finally{if(b.generation===generation)b.busy=false;}})();
  return backfillState(b);

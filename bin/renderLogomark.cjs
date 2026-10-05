@@ -67,7 +67,7 @@ const listThemes = (themes) => themes.map((t) => `  ${t.label.padEnd(24)} ${t.id
     await page.route("**/api/**", (route) => route.abort());
     const errors = [];
     page.on("pageerror", (e) => errors.push(e.message));
-    const stageUrl = `${url}/dev.html?c=logomark&s=render&theme=${encodeURIComponent(want)}&loop=${loop}&size=${size}&wordmark=${wordmark ? 1 : 0}${timing}`;
+    const stageUrl = `${url}/logomark.html?s=render&theme=${encodeURIComponent(want)}&loop=${loop}&size=${size}&wordmark=${wordmark ? 1 : 0}${timing}`;
     await page.goto(stageUrl).catch((e) => { throw new Error(`no dev server at ${url} (${e.message.split("\n")[0]}) — run \`bun run web:dev\` first, or pass --url`); });
     await page.waitForFunction(() => typeof window.__logomarkFrame === "function");
     const themes = await page.evaluate(() => window.__logomarkThemes);

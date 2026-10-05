@@ -42,6 +42,7 @@ import {
 } from "../lib/pilotTranscript";
 import { readSourceInsertionLog } from "../lib/insertionLog";
 import { nativeVault, NATIVE_YAML } from "./support/vault";
+import { creditsState } from "../lib/providerCredits";
 
 const scratch: string[] = [];
 afterAll(() => {
@@ -273,6 +274,19 @@ describe("the session and the mint", () => {
     }) as typeof fetch;
     const u = await mintPilotSecret(root, { fetch: unreachable });
     expect(u).toEqual({ ok: false, status: 502, error: expect.stringMatching(/could not reach OpenAI/) });
+  });
+
+  test("OpenAI out of usage credits raises the base's credits banner; the next secret clears it", async () => {
+    const root = vault();
+    setPilotKey(root, KEY);
+    // OpenAI's shape: the code says insufficient_quota, the message never does
+    const quota = (async () =>
+      new Response(JSON.stringify({ error: { message: "You exceeded your current quota.", type: "insufficient_quota", code: "insufficient_quota" } }), { status: 429 })) as typeof fetch;
+    expect(await mintPilotSecret(root, { fetch: quota })).toEqual({ ok: false, status: 502, error: "Out of usage credits with OpenAI." });
+    expect(creditsState(root).openai?.roles).toEqual(["voice"]);
+    const fine = (async () => new Response(JSON.stringify({ value: "ek_x", expires_at: 1 }))) as typeof fetch;
+    expect((await mintPilotSecret(root, { fetch: fine })).ok).toBe(true);
+    expect(creditsState(root).openai).toBeUndefined();
   });
 });
 

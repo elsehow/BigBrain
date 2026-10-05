@@ -47,3 +47,27 @@ export function claimAgentVoice(text: string): string {
     .join("\n");
   return `---\n${kept ? `${kept}\n` : ""}${claim}\n---\n${text.slice(m[0].length)}`;
 }
+
+const TITLE_KEY = /^["']?title["']?\s*:\s*\S/m;
+const FILENAME_KEY = /^["']?filename["']?\s*:/m;
+
+/** Name a verbatim .md item after itself. A file with no frontmatter
+ * `title:` would otherwise land titled by its item id (`api-2026-…`); the
+ * id is identity, never a name, and two items may share a title without
+ * colliding. The title is the file's first `# ` heading, else its filename
+ * without the extension; `filename:` is recorded either way. Expects the
+ * frontmatter block claimAgentVoice guarantees. */
+export function claimTitle(text: string, filename: string): string {
+  const m = /^---\n([\s\S]*?)\n---\n?/.exec(text);
+  if (!m) return text;
+  const fm = m[1]!;
+  const add: string[] = [];
+  if (!TITLE_KEY.test(fm)) {
+    const heading = /^#[ \t]+(.+?)[ \t#]*$/m.exec(text.slice(m[0].length))?.[1];
+    const title = heading || filename.replace(/\.md$/i, "").trim();
+    if (title) add.push(`title: ${JSON.stringify(title)}`);
+  }
+  if (!FILENAME_KEY.test(fm)) add.push(`filename: ${JSON.stringify(filename)}`);
+  if (!add.length) return text;
+  return `---\n${fm}\n${add.join("\n")}\n---\n${text.slice(m[0].length)}`;
+}

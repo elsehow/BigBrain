@@ -13,7 +13,7 @@ const input = (n: number): PilotEvent => ({ kind: "input", input: { id: `input-$
 const step = (s: PilotChatSession, e: PilotEvent) => transitionPilot(s, e).state;
 
 // Cancellation, duplicate/restart and deactivation traces live in applicationScenarios.test.ts
-// and are rendered by the AppShell workbench from the same inputs.
+// and are rendered by the sidebar workbench from the same inputs.
 
 test("publication receipts are scoped to their chapter and cannot archive resumed activity", () => {
   let s = step(newPilotChatSession([], id, at), input(1));

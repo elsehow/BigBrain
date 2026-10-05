@@ -1,5 +1,5 @@
 import { afterAll, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import type { ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -62,7 +62,12 @@ test("a coding desktop: its agent shows a local page, the transcript reads back,
   expect(desktops.get(made.id)).toMatchObject({ title: "My orrery", titleSource: "human" });
 
   const view = detail.desktop!.views[0]!.id;
-  expect(desktops.view(made.id, "close", { view }).desktop?.closed).toEqual(["http://127.0.0.1:5173/"]);
+  expect((await desktops.view(made.id, "close", { view })).desktop?.closed).toEqual(["http://127.0.0.1:5173/"]);
+  // the person following a citation: a note that reads opens beside the chat
+  mkdirSync(join(root, "memory"), { recursive: true });
+  writeFileSync(join(root, "memory", "gears.md"), "# Gears\n\nThe orrery's gear train.\n");
+  expect((await desktops.view(made.id, "open", { path: "memory/gears.md" })).desktop?.views.map(v => [v.kind, v.path, v.title])).toEqual([["note", "memory/gears.md", "Gears"]]);
+  await expect(desktops.view(made.id, "open", { path: "memory/missing.md" })).rejects.toThrow(/could not be read/);
 
   // the live stream replays what came before
   const written: string[] = [];
@@ -105,4 +110,16 @@ test("only pages on this machine can be shown", async () => {
   expect(loopbackUrl("http://localhost:3000/app")).toBe("http://localhost:3000/app");
   for (const bad of ["https://127.0.0.1:5173/", "http://example.invalid/", "file:///etc/hosts", "not a url"])
     expect(() => loopbackUrl(bad)).toThrow();
+});
+
+test("a desktop opened on a feed item starts with its source beside the chat; only a vault note can be seeded", async () => {
+  const { ws, host } = await fakeHost([]);
+  const root = nativeVault(); roots.push(root);
+  mkdirSync(join(root, "log/insertions"), { recursive: true });
+  writeFileSync(join(root, "log/insertions/ins_a.json"), "{}");
+  const desktops = new CodingDesktops(root, { agents: new Agents(workspace(ws), new Harbor()), host });
+  const made = desktops.create({ views: [{ path: "log/insertions/ins_a.json", title: "A source" }] });
+  expect((await desktops.detail(made.id)).desktop?.views.map(v => [v.kind, v.path, v.title])).toEqual([["note", "log/insertions/ins_a.json", "A source"]]);
+  expect(() => desktops.create({ views: [{ path: "../outside.md" }] })).toThrow("No note at");
+  expect(() => desktops.create({ views: [{ path: "log/insertions/missing.json" }] })).toThrow("No note at");
 });

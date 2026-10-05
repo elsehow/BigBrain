@@ -24,6 +24,14 @@ function git(root: string, args: string[]): { status: number; out: string } {
  * rule with an empty read-only tmpfs over `.git/hooks`. */
 const HOOKLESS = ["-c", "core.hooksPath=/dev/null"];
 
+/** Machine commits are never signed. A user's global `commit.gpgsign=true`
+ * would otherwise sign `editor@bigbrain`'s commits with the user's own key —
+ * and when that key is absent or locked (an ssh signing key path that
+ * doesn't exist, a gpg agent with no tty), every machine commit fails with
+ * git's "failed to write commit object", surfacing as a settings save
+ * that errors in the UI. The machine is not the user; it has no key. */
+const UNSIGNED = ["-c", "commit.gpgsign=false"];
+
 /** Trimmed stdout of a git command in `root` — the read-side helper the
  * editor modules share. Failures surface as "" (callers treat empty as
  * absent), stderr is dropped. */
@@ -60,6 +68,7 @@ export function commitAs(
   if (git(root, ["diff", "--cached", "--quiet"]).status === 0) return false;
   const r = git(root, [
     ...HOOKLESS,
+    ...UNSIGNED,
     "-c",
     `user.name=${role}`,
     "-c",
@@ -90,6 +99,7 @@ export function commitPathsOnly(
   git(root, ["add", "--", ...paths]); // partial commit needs the paths known to git (new files are untracked)
   const r = git(root, [
     ...HOOKLESS,
+    ...UNSIGNED,
     "-c",
     `user.name=${role}`,
     "-c",

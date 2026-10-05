@@ -12,3 +12,17 @@
 export function errText(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
+
+/** errText for a failed model call, in words a reader can act on. A provider's
+ * raw error — `429 {"type":"error","error":{"type":"rate_limit_error",…}}` —
+ * reached the screen verbatim, in the place the document should have been.
+ * A transient refusal (rate limit, overload) becomes one sentence; anything
+ * else passes through. */
+export function modelErrText(e: unknown): string {
+  const text = errText(e);
+  if (/\b429\b|rate_limit_error|rate.limit/i.test(text))
+    return "The model provider is rate-limiting requests right now. Try again in a minute.";
+  if (/\b529\b|overloaded_error|overloaded/i.test(text))
+    return "The model provider is overloaded right now. Try again in a minute.";
+  return text;
+}

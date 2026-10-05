@@ -34,7 +34,7 @@
   import { gotoNote } from "../lib/store.svelte";
   import { slug as baseSlug } from "../../../../lib/slug";
   import { fmSerialize, type FmPair } from "../../../../lib/wire";
-  import { AGENT_VOICE, claimAgentVoice } from "../lib/dropVoice";
+  import { AGENT_VOICE, claimAgentVoice, claimTitle } from "../lib/dropVoice";
   import { errText } from "../../../../lib/errText";
   import { extractPdf } from "../lib/pdf";
 
@@ -122,7 +122,7 @@
       // comes back from the landing, not from frontmatter we composed.
       // Verbatim still gets the voice claim: the claim must live in the
       // file's own frontmatter to survive, so it is injected there.
-      landed(t, await api.drop(file.name, claimAgentVoice(text)));
+      landed(t, await api.drop(file.name, claimTitle(claimAgentVoice(text), file.name)));
       return;
     }
     const head = fm([

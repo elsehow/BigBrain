@@ -6,7 +6,7 @@
  import InclusionRuleReview,{type RuleExample} from './InclusionRuleReview.svelte';
  import {serializeMentions} from '../../../../lib/pilotMentions';
  let {target,value,onsave,oncancel}:{target:{kind:'shared';id:string};value:string;onsave:(text:string)=>void;oncancel?:()=>void}=$props();
- type View={id:string;text:string;revision:number;busy:boolean;ready:boolean;remaining:number;overlap:boolean;judged:number;unresolved:number;error?:string;items:RuleExample[];exhausted:boolean};
+ type View={id:string;text:string;revision:number;busy:boolean;ready:boolean;remaining:number;overlap:boolean;judged:number;unresolved:number;failures:string[];sources:number;untried:number;narrowed:boolean;error?:string;items:RuleExample[];picked:RuleExample[];exhausted:boolean};
  let draft=$state(untrack(()=>value)),view=$state<View|null>(null),problem=$state(''),sending=$state(false),editing=$state(false),disposed=false;
  let editTimer:ReturnType<typeof setTimeout>|undefined;
  // Each sent edit restarts the review (and its Quick call for search phrases): wait for a real pause.
@@ -22,19 +22,29 @@
   const text=draft,g=++generation;sending=true;problem='';try{await follow(await request('edit',{id:view.id,text,revision:view.revision}),g);}catch(e){problem=(e as Error).message;}finally{sending=false;if(text===draft)editing=false;else editTimer=setTimeout(()=>void update(),100);}
  }
  async function judge(source:string,include:boolean){if(!view||sending||editing)return;sending=true;problem='';const g=++generation;try{await follow(await request('rate',{id:view.id,source,include,revision:view.revision}),g);}catch(e){problem=(e as Error).message;}finally{sending=false;}}
+ async function pick(source:string){if(!view||sending||editing)return;sending=true;problem='';const g=++generation;try{await follow(await request('pick',{id:view.id,source,revision:view.revision}),g);}catch(e){problem=(e as Error).message;}finally{sending=false;}}
+ async function findNotes(q:string,signal:AbortSignal){if(!view)return [];const r=await vaultFetch('/api/inclusion-review/sources?id='+encodeURIComponent(view.id)+'&q='+encodeURIComponent(q),{signal});if(!r.ok)throw Error('Note search unavailable');return(await r.json()).items;}
  async function retry(){if(!view)return void start();sending=true;problem='';const g=++generation;try{await follow(await request('retry',{id:view.id}),g);}catch(e){problem=(e as Error).message;}finally{sending=false;}}
  async function done(){if(!view||sending||editing)return;sending=true;problem='';try{await request('finish',{id:view.id});onsave(view.text);}catch(e){problem=(e as Error).message;}finally{sending=false;}}
  async function search(q:string,signal:AbortSignal){const r=await vaultFetch('/api/inclusion-review/entities?q='+encodeURIComponent(q),{signal});if(!r.ok)throw Error('Entity search unavailable');return(await r.json()).items;}
- const status=$derived(editing||view?.busy?'Learning from your examples…':view?.ready?'Ready when you are.':view?.exhausted?'No more examples available. Sync more sources to continue.':`Rate ${view?.remaining??4} more ${(view?.remaining??4)===1?'example':'examples'} to refine the inclusion rule.`);
+ const count=(n:number)=>`${n} ${n===1?'source':'sources'}`;
+ // Say why there is nothing to rate: an empty vault, every source already tried, or more left to fetch.
+ function emptyStatus(v:View){
+  const n=v.sources,tried=n===1?'it has been tried':'all have been tried';
+  if(!n)return v.narrowed?'No sources match this rule yet. Add more, or broaden the rule.':'Your vault has no sources yet. Add some to rate examples.';
+  if(v.untried)return 'No more examples right now. Refresh to try again.';
+  return v.narrowed?`Only ${count(n)} ${n===1?'matches':'match'} this rule so far, and ${tried}. Add more sources to continue.`:`Your vault has ${count(n)} so far, and ${tried}. Add more to rate examples.`;
+ }
+ const status=$derived(editing||view?.busy?'Learning from your examples…':view?.ready?'Ready when you are.':view?.exhausted?emptyStatus(view):`Rate ${view?.remaining??4} more ${(view?.remaining??4)===1?'example':'examples'} to refine the inclusion rule.`);
 </script>
 <div class="editor" role="group" aria-label="Inclusion rule review">
  <div class="rule-input"><PilotMentionComposer ariaLabel="Inclusion rule" value={draft} recents={[]} currentId="inclusion-rule" {search} onchange={parts=>changed(serializeMentions(parts))} onsend={()=>{}} placeholder="Describe what belongs here. Use @ to mention a topic." /></div>
- {#if view}<InclusionRuleReview showExamples={!includesEverything(draft)} items={view.items} onjudge={judge} ondone={done} ready={view.ready&&!editing&&!sending&&!!draft.trim()} retesting={view.busy||editing||sending} status={includesEverything(draft)?'':status}/>
+ {#if view}<InclusionRuleReview showExamples={!includesEverything(draft)} items={view.items} picked={view.picked} search={findNotes} onpick={pick} onjudge={judge} ondone={done} ready={view.ready&&!editing&&!sending&&!!draft.trim()} retesting={view.busy||editing||sending} status={includesEverything(draft)?'':status}/>
  {:else if sending}<p role="status">Finding examples…</p>
  {:else}<button class="settings-add" disabled={!draft.trim()} onclick={start}>Try rule</button>{/if}
  {#if problem||view?.error}<p role="alert">{problem||view?.error}</p><button class="settings-add" disabled={sending} onclick={retry}>Retry</button>{/if}
  {#if view?.exhausted&&!problem&&!view.error&&!view.ready}<button class="settings-add" disabled={sending} onclick={retry}>Refresh examples</button>{/if}
- {#if view?.unresolved}<small>{view.unresolved} sources could not be evaluated; they haven’t been treated as exclusions.</small>{/if}
+ {#if view?.unresolved}<small>{count(view.unresolved)} could not be evaluated{#if view.failures.length} ({view.failures.join('; ')}){/if}; {view.unresolved===1?'it hasn’t been treated as an exclusion':'they haven’t been treated as exclusions'}.</small>{/if}
  {#if oncancel}<button class="cancel" onclick={oncancel}>Cancel</button>{/if}
 </div>
 <style>
