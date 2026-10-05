@@ -40,8 +40,8 @@ export interface V2Scene {
   /** A hovered feed row: what it mentions. */
   hover(entities: number[] | null): void;
   /** Beside one of the opened entity's ties: how it relates to that entity,
-   * after its name, in place of the entity's own text; "" is a spinner
-   * beside the tie (the entity keeps its text meanwhile), null takes it away. */
+   * after its name; "" is a spinner, null takes it away. The entity keeps
+   * its own text: the relation finds room around its tie. */
   relate(j: number | null, text?: string): void;
   /** Pixels to slide the scene's centre right, clear of a left panel. */
   shift(px: number): void;
@@ -561,9 +561,7 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
     for (let i = 0; i < N; i++) {
       const n = field.nodes[i]!;
       const related = rl?.j === i;
-      // one caption at a time: a written relation stands in for the opened
-      // entity's own, which returns when the pointer moves off
-      const full = related || (i === inHand && handText !== undefined && !rl?.text);
+      const full = related || (i === inHand && handText !== undefined);
       const restOp = n.named && (field.hubs.has(i) || n.memory) ? 1 : 0;
       let op = srch && srch.matches.size ? match[i]! : Math.max(heat[i]!, THREE.MathUtils.lerp(restOp, rel[i]!, dim)) * (srch ? searchDim : 1);
       if (i === inHand || related) op = 1;
@@ -578,19 +576,29 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
       }
       toScreen(P[i]!, s1);
       if (!s1.ok) { place(lab, -999, -999, 0); continue; }
-      // a relation is placed first: it is what the pointer is asking about
-      cand.push({ L: lab, x: s1.x + 9, y: s1.y, op, full, pri: (related ? 2e4 : full ? 1e4 : 0) + heat[i]! * 2e3 + match[i]! * 400 + Math.log1p(n.degree) * 5 + (n.named ? 20 : 0) });
+      // the opened entity's caption is placed first and never moves; a
+      // relation then finds room around its tie, ahead of every plain name
+      cand.push({ L: lab, x: s1.x + 9, y: s1.y, op, full, pri: (related ? 9e3 : full ? 1e4 : 0) + heat[i]! * 2e3 + match[i]! * 400 + Math.log1p(n.degree) * 5 + (n.named ? 20 : 0) });
     }
     cand.sort((a, b) => b.pri - a.pri);
+    const rect = (x: number, y: number, w: number, h: number) => [x - 4, y - h / 2 - 3, x + w + 4, y + h / 2 + 3];
+    const free = (r: number[]) => !placed.some((p) => r[0]! < p[2]! && r[2]! > p[0]! && r[1]! < p[3]! && r[3]! > p[1]!);
     for (const c of cand) {
       if (c.L.w == null) { c.L.w = c.L.offsetWidth; c.L.h = c.L.offsetHeight; }
-      // a caption that would run off the right edge reads leftward from its dot
-      if (c.full && c.x + c.L.w > W - 12) c.x = Math.max(12, c.x - 18 - c.L.w);
-      const r = [c.x - 4, c.y - c.L.h! / 2 - 3, c.x + c.L.w + 4, c.y + c.L.h! / 2 + 3];
-      let ok = true;
-      for (const p of placed) if (r[0]! < p[2]! && r[2]! > p[0]! && r[1]! < p[3]! && r[3]! > p[1]!) { ok = false; break; }
-      if (ok) placed.push(r);
-      place(c.L, c.x, c.y, ok ? c.op : 0);
+      const w = c.L.w, h = c.L.h!;
+      // a caption tries right of its dot, then left, then above and below
+      // either side, within the window; one with no room anywhere waits
+      let at: [number, number][] = [[c.x, c.y]];
+      if (c.full) {
+        const left = c.x - 18 - w, up = c.y - h / 2 - 10, down = c.y + h / 2 + 10;
+        at = ([[c.x, c.y], [left, c.y], [c.x - 9, up], [c.x - 9, down], [left + 9, up], [left + 9, down]] as [number, number][])
+          .filter(([x]) => x >= 12 && x + w <= W - 12);
+        if (!at.length) at = [[Math.max(12, Math.min(c.x, W - 12 - w)), c.y]];
+      }
+      const spot = at.find(([x, y]) => free(rect(x, y, w, h)));
+      const [x, y] = spot ?? at[0]!;
+      if (spot) placed.push(rect(x, y, w, h));
+      place(c.L, x, y, spot ? c.op : 0);
     }
   };
   frame();
