@@ -1,5 +1,5 @@
 import { integrationLibrary, addLibraryIntegration, hasAccountPolicy } from "./integrationLibrary";
-/** Independent connection, remembering, and live access for each configured account. */
+/** Independent connection and live access for each configured account; a connected account is remembered. */
 import { startGranolaSignIn, cancelGranolaSignIn, granolaSignInStatus, granolaConnection, disconnectGranola } from './granolaMcp';
 import { applyConfig } from './config';
 import { basename } from 'node:path';
@@ -14,6 +14,8 @@ import { extraAccounts, integrationAccountEnvKey, integrationAccountKey } from '
 import { readEnvValues, writeEnvValues } from './envFile';
 import { loadManifest } from './manifest';
 import { ThatTracksClient } from './thatTracks';
+import { configuredFeeds, feedUrl, writeFeeds } from './rssConfig';
+import { fetchFeed, type Feed } from './rssFeed';
 export const LIVE_ACCESS_DESCRIPTIONS = {
   granola:{read:"Read current meeting notes, transcripts and folders via Granola MCP. Does not change meetings or remember evidence.",write:null},
   email:{read:'List inbox messages, read messages and threads, and inspect current read/unread flags. Reads do not mark messages read or save evidence.',write:'Mark specific inbox messages read or unread. Does not send, delete, move, or remember messages.'},
@@ -21,10 +23,10 @@ export const LIVE_ACCESS_DESCRIPTIONS = {
 export function configuredAccounts(root:string){
   const inboxes=emailConfig(loadManifest(root).integrations.email).inboxes;
   return [...MANAGED_INTEGRATIONS].flatMap(name=>integrationAccounts(root,name).map(account=>({name,account,...accountPolicy(root,name,account),
-    label:extraAccounts(root,name).find(a=>a.id===account)?.label ?? account,removable:name==='email'||account!==name,...(name==='email'?{gmail:gmailReadOnly(root,account),google:inboxes.some(i=>i.address===account&&isGmailInbox(i)),host:inboxes.find(i=>i.address===account)?.host,sync:readEmailState(root).inboxes[account]?.last}:{}),capabilities:name==='email'?{...LIVE_ACCESS_DESCRIPTIONS.email,...(gmailReadOnly(root,account)?{write:null}:{})}:name==='granola'?LIVE_ACCESS_DESCRIPTIONS.granola:{read:null,write:null},...(name==='granola'?{transport:'mcp',auth:granolaSignInStatus(root,account),identity:granolaConnection(root,account)?.identity}:{})})));
+    label:(name==='rss'?configuredFeeds(root).find(f=>f.url===account)?.title:extraAccounts(root,name).find(a=>a.id===account)?.label) ?? account,removable:name==='email'||account!==name,...(name==='email'?{gmail:gmailReadOnly(root,account),google:inboxes.some(i=>i.address===account&&isGmailInbox(i)),host:inboxes.find(i=>i.address===account)?.host,sync:readEmailState(root).inboxes[account]?.last}:{}),capabilities:name==='email'?{...LIVE_ACCESS_DESCRIPTIONS.email,...(gmailReadOnly(root,account)?{write:null}:{})}:name==='granola'?LIVE_ACCESS_DESCRIPTIONS.granola:{read:null,write:null},...(name==='granola'?{transport:'mcp',auth:granolaSignInStatus(root,account),identity:granolaConnection(root,account)?.identity}:{})})));
 }
 export class IntegrationAccounts {
-  constructor(readonly root:string,private probes:{email?:InboxProbe;granolaSignIn?:typeof startGranolaSignIn;tracks?:(key:string)=>Promise<unknown>}={}){}
+  constructor(readonly root:string,private probes:{email?:InboxProbe;granolaSignIn?:typeof startGranolaSignIn;tracks?:(key:string)=>Promise<unknown>;rss?:(url:string)=>Promise<Feed>}={}){}
   list(){return {destination:basename(this.root),library:integrationLibrary(this.root),accounts:configuredAccounts(this.root),callers:integrationCallerChoices(this.root)};}
   async update(value:any):Promise<ReturnType<IntegrationAccounts["list"]> & {checked?:boolean}>{
     const {name,account,action}=value;
@@ -32,7 +34,7 @@ export class IntegrationAccounts {
       // New additions opt in; existing account choices never change on upgrade or re-add.
       if(name==='granola'&&!hasAccountPolicy(this.root,name,name)) {
         const policy=accountPolicy(this.root,name,name);
-        writeAccountPolicy(this.root,name,name,{...policy,liveAccess:true,remembering:{...policy.remembering,enabled:true}});
+        writeAccountPolicy(this.root,name,name,{...policy,liveAccess:true});
       }
       addLibraryIntegration(this.root,name);
       return this.list();
@@ -46,8 +48,18 @@ export class IntegrationAccounts {
       if(revision!==JSON.stringify(integrationAccounts(this.root,'email')))throw Error('Accounts changed during connection. Try again.');
       applyConfig({integrations:[{name:'email',add:{address:add.address,host:add.host,password:add.password,provider:'gmail'}}]},this.root);
       const policy=accountPolicy(this.root,'email',add.address);
-      writeAccountPolicy(this.root,'email',add.address,{...policy,connected:true,fingerprint:accountFingerprint(this.root,'email',add.address),checkedAt:new Date().toISOString(),liveAccess:false,remembering:{enabled:false},email:{startAt:new Date().toISOString(),attachments:false}});
+      writeAccountPolicy(this.root,'email',add.address,{...policy,connected:true,fingerprint:accountFingerprint(this.root,'email',add.address),checkedAt:new Date().toISOString(),liveAccess:false,email:{startAt:new Date().toISOString(),attachments:false}});
       addLibraryIntegration(this.root,'email');
+      return this.list();
+    }
+    if(name==='rss'&&action==='add'){
+      // a feed is checked by reading it: it must answer, and be RSS or Atom
+      const url=feedUrl(value.url??value.label),feeds=configuredFeeds(this.root);
+      if(feeds.some(f=>f.url===url))throw Error('This feed is already listed above.');
+      const feed=await (this.probes.rss??fetchFeed)(url);
+      writeFeeds(this.root,[...feeds,{url,title:feed.title}],`config: add the RSS feed ${feed.title}`);
+      addLibraryIntegration(this.root,'rss');
+      writeAccountPolicy(this.root,'rss',url,{...accountPolicy(this.root,'rss',url),connected:true,fingerprint:accountFingerprint(this.root,'rss',url),checkedAt:new Date().toISOString(),liveAccess:false});
       return this.list();
     }
     if(action==='add'){
@@ -57,7 +69,7 @@ export class IntegrationAccounts {
       writeAtomic(join(this.root,'.spool','integration-accounts',name,'accounts.json'),JSON.stringify([...extraAccounts(this.root,name),{id,label:value.label.trim()}])+'\n',0o600);
       if(name==='granola') {
         const policy=accountPolicy(this.root,name,id);
-        writeAccountPolicy(this.root,name,id,{...policy,liveAccess:true,remembering:{...policy.remembering,enabled:true}});
+        writeAccountPolicy(this.root,name,id,{...policy,liveAccess:true});
       }
       return this.list();
     }
@@ -65,6 +77,7 @@ export class IntegrationAccounts {
     if(action==='remove') {
       // Whatever was configured can be removed, and removal takes its secret and its choices along.
       if(name==='email')applyConfig({integrations:[{name:'email',remove:account}]},this.root);
+      else if(name==='rss')writeFeeds(this.root,configuredFeeds(this.root).filter(f=>f.url!==account),'config: remove an RSS feed');
       else {
         if(account===name)throw Error('This account comes with the integration. Disconnect it instead.');
         if(name==='granola')disconnectGranola(this.root,account);
@@ -81,7 +94,7 @@ export class IntegrationAccounts {
       const oldIdentity=granolaConnection(this.root,account)?.identity;
       await (this.probes.granolaSignIn??startGranolaSignIn)(this.root,account,()=>{
         const current=accountPolicy(this.root,name,account);
-        writeAccountPolicy(this.root,name,account,{...current,...(prior.checkedAt && JSON.stringify(oldIdentity)!==JSON.stringify(granolaConnection(this.root,account)?.identity)?{liveAccess:false,grants:[],remembering:{enabled:false}}:{}),connected:true,fingerprint:accountFingerprint(this.root,name,account),checkedAt:new Date().toISOString()});
+        writeAccountPolicy(this.root,name,account,{...current,...(prior.checkedAt && JSON.stringify(oldIdentity)!==JSON.stringify(granolaConnection(this.root,account)?.identity)?{liveAccess:false,grants:[]}:{}),connected:true,fingerprint:accountFingerprint(this.root,name,account),checkedAt:new Date().toISOString()});
       });
       return this.list();
     }
@@ -115,7 +128,8 @@ export class IntegrationAccounts {
         const inbox=emailConfig(loadManifest(this.root).integrations.email).inboxes.find(i=>i.address===account)!;
         const password=readEnvValues(this.root)[passwordEnvKey(account)];if(!password)throw Error('Save the account password first.');
         await (this.probes.email??(gmailReadOnly(this.root,account)?probeGmail:probeInbox))({...inbox,password});
-      }else {
+      }else if(name==='rss')await (this.probes.rss??fetchFeed)(account);
+      else {
         const key=integrationAccountKey(this.root,name,account);if(!key)throw Error('Save the account API key first.');
         await (this.probes.tracks??(key=>new ThatTracksClient(key).identity()))(key);
       }
@@ -123,37 +137,33 @@ export class IntegrationAccounts {
       if(action==='connect')writeAccountPolicy(this.root,name,account,{...prior,connected:true,fingerprint,checkedAt:new Date().toISOString()});
       return {...this.list(),checked:true};
     }
-    if(action==='grant')return this.update({name,account,action:'save',remembering:prior.remembering,grants:[...prior.grants.filter(g=>g.caller!==value.caller&&integrationCallerChoices(this.root).some(c=>c.id===g.caller)),{caller:value.caller,access:value.access}]});
+    if(action==='grant')return this.update({name,account,action:'save',grants:[...prior.grants.filter(g=>g.caller!==value.caller&&integrationCallerChoices(this.root).some(c=>c.id===g.caller)),{caller:value.caller,access:value.access}]});
     if(action!=='save')throw Error('Unknown account action.');
-    if(!prior.connected)throw Error('Connect this account before changing access or remembering.');
-    const remembering=value.remembering;
-    if(!remembering||typeof remembering.enabled!=='boolean')throw Error('Choose whether to remember this account.');
+    if(!prior.connected)throw Error('Connect this account before changing its settings.');
     if(name==='email' && gmailReadOnly(this.root,account)) {
       const email={...prior.email??{startAt:new Date().toISOString(),attachments:false}};
-      if(!prior.remembering.enabled && remembering.enabled && !prior.email)email.startAt=new Date().toISOString();
       if(value.attachments!==undefined) {
         if(typeof value.attachments!=='boolean')throw Error('Choose whether to include attachments.');
         email.attachments=value.attachments;
       }
       if(value.backfillSince) {
         if(typeof value.backfillSince!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(value.backfillSince)||!Number.isFinite(Date.parse(value.backfillSince))||new Date(value.backfillSince).toISOString().slice(0,10)!==value.backfillSince||value.backfillSince>new Date().toISOString().slice(0,10))throw Error('Choose a past history start date.');
-        if(!remembering.enabled)throw Error('Enable remembering before requesting history.');
         email.backfill={since:new Date(value.backfillSince).toISOString(),request:crypto.randomUUID()};
       }
       prior.email=email;
     }
     if(value.liveAccess!==undefined){
-      if(typeof value.liveAccess!=='boolean'||(name==='that-tracks'&&value.liveAccess))throw Error('Choose supported live access.');
-      writeAccountPolicy(this.root,name,account,{...prior,liveAccess:value.liveAccess,grants:[],remembering:{enabled:remembering.enabled}});
+      if(typeof value.liveAccess!=='boolean'||((name==='that-tracks'||name==='rss')&&value.liveAccess))throw Error('Choose supported live access.');
+      writeAccountPolicy(this.root,name,account,{...prior,liveAccess:value.liveAccess,grants:[]});
       return this.list();
     }
     const callers=new Set(integrationCallerChoices(this.root).map(c=>c.id)),seen=new Set<string>();
     if(!Array.isArray(value.grants)||value.grants.length>100)throw Error('Choose live access for existing callers.');
     const grants=value.grants.map((g:any)=>{
-      if(!g||!callers.has(g.caller)||seen.has(g.caller)||!['off','read','read-write'].includes(g.access)||(name==='that-tracks'&&g.access!=='off')||((name==='granola'||(name==='email'&&gmailReadOnly(this.root,account)))&&g.access==='read-write'))throw Error('Choose a supported access level for an existing caller.');
+      if(!g||!callers.has(g.caller)||seen.has(g.caller)||!['off','read','read-write'].includes(g.access)||((name==='that-tracks'||name==='rss')&&g.access!=='off')||((name==='granola'||(name==='email'&&gmailReadOnly(this.root,account)))&&g.access==='read-write'))throw Error('Choose a supported access level for an existing caller.');
       seen.add(g.caller);return {caller:g.caller,access:g.access as LiveAccess};
     });
-    writeAccountPolicy(this.root,name,account,{...prior,remembering:{enabled:remembering.enabled},grants});
+    writeAccountPolicy(this.root,name,account,{...prior,grants});
     return this.list();
   }
 }

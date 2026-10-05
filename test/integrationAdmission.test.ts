@@ -17,20 +17,20 @@ const withStore = async (root: string, run: (store: string) => Promise<void>) =>
   }
 };
 
-test("an account that remembers admits what it staged; one that doesn't keeps it pending", async () => {
+test("a connected account's staged items are admitted; a disconnected one's stay pending", async () => {
   const account = "example@example.test";
   const root = gitVault({ files: { "vault.yaml": `integrations:\n  email:\n    inboxes:\n      - address: ${account}\n        host: imap.example.test\n`, ".env": "BIGBRAIN_IMAP_PASSWORD__EXAMPLE_EXAMPLE_TEST=fictional\n" } });
   await withStore(root, async (store) => {
-    const remember = (enabled: boolean) => writeAccountPolicy(root, "email", account, { ...accountPolicy(root, "email", account), connected: true,
-      fingerprint: accountFingerprint(root, "email", account), remembering: { enabled } });
+    const connect = (connected: boolean) => writeAccountPolicy(root, "email", account, { ...accountPolicy(root, "email", account), connected,
+      fingerprint: accountFingerprint(root, "email", account) });
     const item = (id: string) => ({ id, source: "email", account, at: "2026-09-01T00:00:00.000Z", line: id, name: `${id}.md`,
       content: `---\nid: ${id}\ntitle: Invented ${id}\nsource: email\nkind: email\ninbox: ${account}\n---\nAn invented message ${id}.` });
-    remember(true);
+    connect(true);
     stage(root, item("fixture-one"));
     await tickIntegrationAdmission(root, store);
     expect(stagedItems(root, "email")).toHaveLength(0);
     expect(readSourceInsertionLog(root).map((s) => s.title)).toEqual(["Invented fixture-one"]);
-    remember(false);
+    connect(false);
     stage(root, item("fixture-two"));
     await tickIntegrationAdmission(root, store);
     expect(stagedItems(root, "email").map((s) => s.id)).toEqual(["fixture-two"]);
@@ -42,7 +42,6 @@ test("Granola lands verbatim transcripts and leaves older summary-only items pen
   const root = gitVault({ files: { "vault.yaml": "integrations: {}\n" } });
   await withStore(root, async (store) => {
     fakeIntegrationActivation(root, "granola");
-    writeAccountPolicy(root, "granola", "granola", { ...accountPolicy(root, "granola", "granola"), remembering: { enabled: true } });
     for (let i = 0; i < 3; i++) stage(root, { id: `legacy-${i}`, source: "granola", account: "granola", at: "2026-09-01", line: "Old note", name: "old.md",
       content: `---\nid: old-${i}\nsource: granola\nkind: meeting\n---\nVendor summary` });
     stage(root, { id: "raw-new", source: "granola", account: "granola", at: "2026-09-29", line: "Raw meeting", name: "raw.md",

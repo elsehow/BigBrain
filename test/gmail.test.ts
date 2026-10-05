@@ -23,7 +23,7 @@ async function account(root:string,address='me@example.com'){
 }
 async function enable(root:string,options:{attachments?:boolean;startAt?:string}={}){
  const api=await account(root);
- await api.update({name:'email',action:'save',account:'me@example.com',liveAccess:true,remembering:{enabled:true},attachments:options.attachments??false});
+ await api.update({name:'email',action:'save',account:'me@example.com',liveAccess:true,attachments:options.attachments??false});
  const p=accountPolicy(root,'email','me@example.com');
  writeAccountPolicy(root,'email','me@example.com',{...p,email:{...p.email!,startAt:options.startAt??'2026-09-01T00:00:00Z'}});
  return api;
@@ -42,8 +42,7 @@ test('Gmail onboarding verifies before saving; returns no secrets, keeps choices
  expect(emailConfig(loadManifest(root).integrations.email).inboxes).toEqual([]);expect(existsSync(join(root,'.env'))).toBe(false);
  const connected=await account(root);expect(calls).toBe(1);
  const state=connected.list();expect(JSON.stringify(state)).not.toContain('abcdefghijklmnop');expect(statSync(join(root,'.env')).mode&0o777).toBe(0o600);
- expect(accountPolicy(root,'email','me@example.com').remembering.enabled).toBe(false);
- await connected.update({name:'email',action:'save',account:'me@example.com',liveAccess:true,remembering:{enabled:false},attachments:false});
+ await connected.update({name:'email',action:'save',account:'me@example.com',liveAccess:true,attachments:false});
  expect(integrationCapabilities(root,{kind:'pilot'}).email.operations).not.toContain('inbox_set_unread');
  expect(()=>requireIntegrationWrite(root,'email','me@example.com',{kind:'pilot'})).toThrow();
  await expect(connected.update({name:'email',action:'add',address:'me@example.com',password:'ponmlkjihgfedcba'})).rejects.toThrow('already exists');
@@ -97,19 +96,19 @@ test('real runner resumes >5000-message backfill without skipping the tail',asyn
  expect(readEmailState(root).inboxes['me@example.com']!.lastUid).toBe(5001);
  expect(headFiles(root).length).toBe(1);expect(accountPolicy(root,'email','me@example.com').fingerprint).toBe(p.fingerprint);
 },30000);
-test('real runner retries bodies and headers beyond three attempts, survives .state deletion, and honors remembering-off',async()=>{
+test('real runner retries bodies and headers beyond three attempts, survives .state deletion, and stops when disconnected',async()=>{
  const root=vault();await enable(root);
  for(let i=0;i<4;i++)await poll(root,{count:2,failBody:1,missingHeader:2});
  expect(readEmailState(root).inboxes['me@example.com']!.retry).toHaveLength(2);
  rmSync(join(root,'.state'),{recursive:true,force:true});
  await poll(root,{count:2});expect(headFiles(root).length).toBe(2);expect(readEmailState(root).inboxes['me@example.com']!.retry).toEqual([]);
- const p=accountPolicy(root,'email','me@example.com');writeAccountPolicy(root,'email','me@example.com',{...p,remembering:{...p.remembering,enabled:false}});
+ const p=accountPolicy(root,'email','me@example.com');writeAccountPolicy(root,'email','me@example.com',{...p,connected:false});
  const before=readFileSync(join(root,'.spool/email.json'),'utf8');await poll(root,{count:3});expect(readFileSync(join(root,'.spool/email.json'),'utf8')).toBe(before);
 },30000);
 test('real runner honors exact initial start and UI backfill request across ticks',async()=>{
  const root=vault();const api=await enable(root,{startAt:'2026-09-25T13:00:00Z'});
  await poll(root,{count:1});expect(headFiles(root)).toHaveLength(0);
- await api.update({name:'email',account:'me@example.com',action:'save',liveAccess:false,remembering:{enabled:true},backfillSince:'2026-09-01'});
+ await api.update({name:'email',account:'me@example.com',action:'save',liveAccess:false,backfillSince:'2026-09-01'});
  await poll(root,{count:1});expect(headFiles(root)).toHaveLength(1);
  expect(readEmailState(root).inboxes['me@example.com']!.backfillRequest).toBe(accountPolicy(root,'email','me@example.com').email!.backfill!.request);
 },30000);

@@ -4,12 +4,13 @@ import { readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { loadManifest, integrationEnabledIn } from "./manifest";
+import { configuredFeeds } from "./rssConfig";
 import { emailConfig, passwordEnvKey, gmailReadOnly } from "./emailConfig";
 import { readEnvValues } from "./envFile";
 import { writeAtomic } from "./fsx";
 import { listTokens, tokenStorePath, verifyToken, hasScope } from "./auth";
 
-export const MANAGED_INTEGRATIONS = new Set(["email", "granola", "that-tracks"]);
+export const MANAGED_INTEGRATIONS = new Set(["email", "granola", "that-tracks", "rss"]);
 export interface IntegrationGrant { caller: string; accounts: string[] }
 export interface IntegrationActivation {
   version: 1; active: boolean; fingerprint: string; checkedAt: string; grants: IntegrationGrant[];
@@ -28,6 +29,7 @@ export function activationRecord(root: string, name: string): IntegrationActivat
   } catch { return; }
 }
 export function integrationAccounts(root: string, name: string): string[] {
+  if (name === "rss") return configuredFeeds(root).map(f => f.url); // a feed is an account
   return name === "email" ? emailConfig(loadManifest(root).integrations.email).inboxes.map(i => i.address) : [name,...extraAccounts(root,name).map(a=>a.id)];
 }
 /** Credentials never leave the host. Changing account settings invalidates the check. */
@@ -35,13 +37,13 @@ export function integrationFingerprint(root: string, name: string): string {
   const cfg = loadManifest(root).integrations[name] ?? {};
   const { enabled: _e, remember: _r, skip: _s, ...connection } = cfg;
   const env = readEnvValues(root);
-  const keys = name === "email" ? integrationAccounts(root, name).map(passwordEnvKey) : [name === "granola" ? "GRANOLA_API_KEY" : "THAT_TRACKS_API_KEY"];
+  const keys = name === "email" ? integrationAccounts(root, name).map(passwordEnvKey) : name === "rss" ? [] : [name === "granola" ? "GRANOLA_API_KEY" : "THAT_TRACKS_API_KEY"];
   return createHash("sha256").update(JSON.stringify([connection, keys.map(k => env[k] ?? "")])).digest("hex");
 }
 export function integrationActive(root: string, name: string, account?: string): boolean {
   if (!MANAGED_INTEGRATIONS.has(name)) return integrationEnabledIn(loadManifest(root).integrations,name);
   return (account ? [account] : integrationAccounts(root,name)).some(a => {
-    const policy=accountPolicy(root,name,a);return policy.connected && policy.remembering.enabled;
+    return accountPolicy(root,name,a).connected; // a connected account is always remembered
   });
 }
 export function integrationCallerChoices(root: string) {
@@ -63,7 +65,7 @@ export function saveIntegrationActivation(root: string, name: string, grants: In
   if (fingerprint !== integrationFingerprint(root, name)) throw new Error("Account settings changed during the access check. Try again.");
   const record: IntegrationActivation = { version: 1, active: true, fingerprint, checkedAt: new Date().toISOString(), grants };
   writeAtomic(file(root, name), JSON.stringify(record) + "\n", 0o600);
-  for(const account of integrationAccounts(root,name))writeAccountPolicy(root,name,account,{version:2,connected:true,fingerprint:accountFingerprint(root,name,account),checkedAt:record.checkedAt,remembering:{enabled:true},grants:grants.filter(g=>g.accounts.includes(account)).map(g=>({caller:g.caller,access:"read"}))});
+  for(const account of integrationAccounts(root,name))writeAccountPolicy(root,name,account,{version:2,connected:true,fingerprint:accountFingerprint(root,name,account),checkedAt:record.checkedAt,grants:grants.filter(g=>g.accounts.includes(account)).map(g=>({caller:g.caller,access:"read"}))});
 }
 export function deactivateIntegration(root: string, name: string): void {
   const policies = integrationAccounts(root,name).map(account => ({account,policy:accountPolicy(root,name,account)}));
@@ -92,8 +94,7 @@ export type LiveAccess = "off" | "read" | "read-write";
 export interface AccountPolicy {
   version:2; connected:boolean; fingerprint:string; checkedAt:string|null; liveAccess?:boolean;
   email?: { startAt: string; attachments: boolean; backfill?: { since: string; request: string } };
-  /** Whether what it finds is remembered: staged, then admitted unless the worth gate passes it (lib/integrationAdmission.ts). */
-  remembering:{enabled:boolean}; grants:{caller:string;access:LiveAccess}[];
+  grants:{caller:string;access:LiveAccess}[];
 }
 function accountPolicyFile(root:string,name:string,account:string):string {
   file(root,name); // Validate the adapter namespace.
@@ -102,12 +103,13 @@ function accountPolicyFile(root:string,name:string,account:string):string {
 export function accountFingerprint(root:string,name:string,account:string):string {
   if (!integrationAccounts(root,name).includes(account)) throw new Error("Choose a configured account.");
   if(name==="granola")return createHash("sha256").update(JSON.stringify([account,granolaConnection(root,account)?.generation??"disconnected"])).digest("hex");
+  if(name==="rss")return createHash("sha256").update(JSON.stringify([account])).digest("hex"); // public: no secret to change
   if(name!=="email")return createHash("sha256").update(JSON.stringify([account,integrationAccountKey(root,name,account)])).digest("hex");
   const inbox=emailConfig(loadManifest(root).integrations.email).inboxes.find(i=>i.address===account);
   return createHash("sha256").update(JSON.stringify([inbox,readEnvValues(root)[passwordEnvKey(account)] ?? ""])).digest("hex");
 }
 export function accountPolicy(root:string,name:string,account:string):AccountPolicy {
-  const empty:AccountPolicy={version:2,connected:false,fingerprint:"",checkedAt:null,remembering:{enabled:false},grants:[]};
+  const empty:AccountPolicy={version:2,connected:false,fingerprint:"",checkedAt:null,grants:[]};
   if(!integrationAccounts(root,name).includes(account))return empty;
   let raw:string;
   try{raw=readFileSync(accountPolicyFile(root,name,account),"utf8");}
@@ -118,14 +120,15 @@ export function accountPolicy(root:string,name:string,account:string):AccountPol
     const old=activationRecord(root,name);
     const valid=!!old?.active && integrationEnabledIn(loadManifest(root).integrations,name) && old.fingerprint===integrationFingerprint(root,name);
     return {...empty,connected:valid,fingerprint:valid?accountFingerprint(root,name,account):"",checkedAt:old?.checkedAt??null,
-      remembering:{enabled:valid},grants:(old?.grants??[]).filter(g=>g.accounts.includes(account)).map(g=>({caller:g.caller,access:"read"}))};
+      grants:(old?.grants??[]).filter(g=>g.accounts.includes(account)).map(g=>({caller:g.caller,access:"read"}))};
   }
   try {
     const p=JSON.parse(raw);
-    if(p.version!==2||typeof p.connected!=="boolean"||typeof p.fingerprint!=="string"||!p.remembering||typeof p.remembering.enabled!=="boolean"||!Array.isArray(p.grants)||p.grants.some((g:any)=>typeof g.caller!=="string"||!["off","read","read-write"].includes(g.access)))return empty;
+    if(p.version!==2||typeof p.connected!=="boolean"||typeof p.fingerprint!=="string"||!Array.isArray(p.grants)||p.grants.some((g:any)=>typeof g.caller!=="string"||!["off","read","read-write"].includes(g.access)))return empty;
     if(p.liveAccess!==undefined&&typeof p.liveAccess!=="boolean")return empty;
-    // a retired per-account rule (`rule`, `inactiveRule`) in an older file is ignored
-    return {...p,remembering:{enabled:p.remembering.enabled},connected:p.connected&&(name!=="granola"||!!granolaConnection(root,account))&&p.fingerprint===accountFingerprint(root,name,account)};
+    // a retired `remembering` switch or rule in an older file is ignored: a connected account is remembered
+    const {remembering:_retired,...policy}=p;
+    return {...policy,connected:p.connected&&(name!=="granola"||!!granolaConnection(root,account))&&p.fingerprint===accountFingerprint(root,name,account)};
   }catch{return empty;}
 }
 export function writeAccountPolicy(root:string,name:string,account:string,policy:AccountPolicy):void {
@@ -154,7 +157,7 @@ export function writableIntegrationAccounts(root:string,name:string,caller:Integ
 }
 
 export function extraAccounts(root:string,name:string):{id:string;label:string}[] {
-  if(name==="email")return [];
+  if(name==="email"||name==="rss")return [];
   try{const v=JSON.parse(readFileSync(join(root,".spool","integration-accounts",name,"accounts.json"),"utf8"));return Array.isArray(v)?v.filter(a=>typeof a.id==="string"&&/^account-[a-f0-9]{16}$/.test(a.id)&&typeof a.label==="string"):[];}catch{return [];}
 }
 export function integrationAccountEnvKey(name:string,account:string):string {

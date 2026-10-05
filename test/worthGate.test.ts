@@ -57,7 +57,7 @@ describe("the gate in front of the gardener", () => {
     }) as typeof fetch;
     try {
       writeAccountPolicy(root, "email", account, { ...accountPolicy(root, "email", account), connected: true,
-        fingerprint: accountFingerprint(root, "email", account), remembering: { enabled: true } });
+        fingerprint: accountFingerprint(root, "email", account) });
       saveJevKey(store, "fictional");
       expect(loadManifest(root).gate).toMatchObject({ min: 2 });
       const item = (id: string, text: string): StagedItem => ({ id, source: "email", account, at: "2026-08-20T00:00:00.000Z", line: id, name: `${id}.md`,

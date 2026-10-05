@@ -99,10 +99,10 @@ test('two accounts and changed upstream identities cannot deduplicate or superse
  expect(log.every(e=>!e.envelope.supersedes)).toBe(true);
 });
 
-test('disabled remembering preserves pending material and prevents staging, admission and passing',async()=>{
+test('a disconnected account preserves pending material and prevents staging, admission and passing',async()=>{
  const root=vault();await observe(root,'A');const a=pending(root,'A'),p=accountPolicy(root,'granola','granola');
- writeAccountPolicy(root,'granola','granola',{...p,remembering:{...p.remembering,enabled:false}});
- await expect(observe(root,'B')).rejects.toThrow('remembering is off');
+ writeAccountPolicy(root,'granola','granola',{...p,connected:false});
+ await expect(observe(root,'B')).rejects.toThrow('not connected');
  expect(admitStaged(root,[a.id])[0]?.ok).toBe(false);expect(passStaged(root,[a.id],'No')[0]?.ok).toBe(false);
  expect(pending(root,'A')).toBeDefined();expect(readSourceInsertionLog(root)).toHaveLength(0);
 });

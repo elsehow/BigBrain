@@ -223,7 +223,7 @@ async function pollInbox(
   now: Date,
   since: string | undefined
 ): Promise<PollResult> {
-  if (!integrationActive(root,"email",inbox.address)) return {staged:0,skipped:0,unfetched:0,note:"Automatic remembering is off."};
+  if (!integrationActive(root,"email",inbox.address)) return {staged:0,skipped:0,unfetched:0,note:"Not connected."};
   const st = state.inboxes[inbox.address] ?? (state.inboxes[inbox.address] = {});
   const client = connect(inbox, pass);
   await client.connect();

@@ -13,7 +13,7 @@ export async function stageGranolaContent(root:string,account:string,content:str
  const cleared=await clear(root,'granola',content);
  if(!cleared)return false;
  return withProjectionWrite(root,()=>{
-  if(!integrationActive(root,'granola',account))throw Error('Granola remembering is off.');
+  if(!integrationActive(root,'granola',account))throw Error('Granola is not connected.');
   const r=granolaRevision(content),history=granolaHistory(root,r);
   const pending=stagedItems(root,'granola').filter(item=>(item.account??'granola')===account&&isGranolaMcpContent(item.content)).map(item=>granolaRevision(item.content));
   const passed=granolaPasses(root);

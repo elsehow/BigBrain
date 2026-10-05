@@ -41,7 +41,7 @@ saveJevKey(connections,'example-only-key');
 const mention=serializeMentions([{mention:searchRuleEntities(personal,'Example project')[0]!}]);
 writeFileSync(join(personal,'vault.yaml'),'integrations:\n  email:\n    inboxes:\n      - address: fixture@example.test\n        host: imap.example.test\n');
 writeFileSync(join(personal,'.env'),'BIGBRAIN_IMAP_PASSWORD__FIXTURE_EXAMPLE_TEST=fabricated\n',{mode:0o600});
-writeAccountPolicy(personal,'email','fixture@example.test',{...accountPolicy(personal,'email','fixture@example.test'),connected:true,fingerprint:accountFingerprint(personal,'email','fixture@example.test'),remembering:{enabled:true}});addLibraryIntegration(personal,'email');
+writeAccountPolicy(personal,'email','fixture@example.test',{...accountPolicy(personal,'email','fixture@example.test'),connected:true,fingerprint:accountFingerprint(personal,'email','fixture@example.test')});addLibraryIntegration(personal,'email');
 const fetchOriginal=globalThis.fetch;
 globalThis.fetch=(async(_input,init)=>{const request=JSON.parse(String(init?.body));return Response.json({answers:{relevant:{noul:request.state.source.title.startsWith('Include')?.94:.15}}});}) as typeof fetch;
 async function prime(rule:string,rows:import('../../lib/inclusionPolicy').InclusionSource[]){
