@@ -1,10 +1,10 @@
 <script lang="ts">
   // The base every view sits on: the vault (a shared one is checked first),
   // first run, the live stream (lib/store.svelte.ts init), and the settings
-  // screens. On top of it sits one view, swappable: Field (the v2 view) or
-  // Classic (the app shell with its sidebar), chosen in Settings → General.
-  // Classic loads only when chosen, so its global sidebar styles never
-  // reach Field.
+  // screens. On top of it sits one view: Field (the v2 view), or Classic (the
+  // app shell with its sidebar) for a window opened with `?view=classic`
+  // (lib/viewChoice.ts). Classic loads only then, so its global sidebar
+  // styles never reach Field.
   import { onMount } from "svelte";
   import FieldView from "./FieldView.svelte";
   import FirstRunGate from "./FirstRunGate.svelte";
@@ -14,11 +14,11 @@
   import { init } from "../lib/store.svelte";
   import { startTelemetryPresence } from "../lib/telemetry";
   import { startUpdateChecks } from "../lib/update.svelte";
-  import { viewChoice, type ViewKind } from "../lib/viewChoice.svelte";
+  import { viewKind, type ViewKind } from "../lib/viewChoice";
 
   /** `view` pins the view (a workbench, a test fixture); `shell` passes through to Classic. */
   const { view, shell = {} }: { view?: ViewKind; shell?: { baseline?: boolean; debug?: boolean } } = $props();
-  const kind = $derived(view ?? viewChoice.kind);
+  const kind = $derived(view ?? viewKind);
 
   // every view's services: whether a newer build is out (each view places
   // the banner in its TopStrips), and the usage presence a running app reports
