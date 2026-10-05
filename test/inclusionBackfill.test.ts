@@ -74,3 +74,44 @@ test('needs a saved, calibrated rule',async()=>{
  setRule(c.store,connection.id,'A different rule.',c.root);
  await expect(startBackfill(c.root,c.store,connection,{factory:c.factory,queries:async()=>undefined,existing:async()=>new Set()})).rejects.toThrow('Review and save');
 });
+
+/** Like the real evaluator: a note's own label is left out of the examples it is scored with,
+ * so a model that disagrees with the user's thumbs up still scores it low. */
+const ignoresLabels:typeof inclusionEvaluator=(root,store,text,labels=[])=>({identity:inclusionEvaluator(root,store,text,labels).identity,score:async(source:{body:string})=>Number(source.body.trim().split(' ').at(-1))});
+
+test('a note kept while reviewing the rule is listed and added, whatever the model now scores it',async()=>{
+ const c=await fixture();
+ const build=readSourceInsertionLog(c.root,{strict:true}).find(s=>s.title==='Build log')!;
+ const policy=readInclusionPolicy(c.root,c.store,c.scope)!;
+ policy.labels=[{source:{id:'review-card',title:build.title,body:build.body,origin:'Personal'},include:true}];
+ writeInclusionPolicy(c.root,c.store,policy);
+ const b=await settled(c.root,(await startBackfill(c.root,c.store,connection,{factory:ignoresLabels,queries:async()=>undefined,existing:async()=>new Set()})).id);
+ expect(titles(b)).toEqual(['Build log','Daycare waitlist','Clinic booking','Rent']);
+ expect(backfillState(b).matches[0]!.kept).toBe(true);
+ let uploaded:string[]=[];
+ await addBackfill(b,async(_store,_c,rows)=>{uploaded=rows.map(s=>s.title);return rows.length;});
+ expect(uploaded).toContain('Build log');
+});
+
+test('a note left out while reviewing stays out without being re-scored',async()=>{
+ const c=await fixture();
+ const rent=readSourceInsertionLog(c.root,{strict:true}).find(s=>s.title==='Rent')!;
+ const policy=readInclusionPolicy(c.root,c.store,c.scope)!;
+ policy.labels=[{source:{id:'review-card',title:rent.title,body:rent.body,origin:'Personal'},include:false}];
+ writeInclusionPolicy(c.root,c.store,policy);
+ const scored:string[]=[];
+ const counting:typeof inclusionEvaluator=(root,store,text,labels)=>{const e=ignoresLabels(root,store,text,labels);return {...e,score:async s=>{scored.push(s.title);return e.score(s);}};};
+ const b=await settled(c.root,(await startBackfill(c.root,c.store,connection,{factory:counting,queries:async()=>undefined,existing:async()=>new Set()})).id);
+ expect(titles(b)).toEqual(['Daycare waitlist','Clinic booking']);
+ expect(scored).not.toContain('Rent');
+});
+
+test('a scoring failure is reported as failed, not as no matches',async()=>{
+ const c=await fixture();
+ const limited:typeof inclusionEvaluator=(root,store,text,labels)=>({...ignoresLabels(root,store,text,labels),score:async()=>{throw Error('429 rate_limit_error');}});
+ const b=await settled(c.root,(await startBackfill(c.root,c.store,connection,{factory:limited,queries:async()=>undefined,existing:async()=>new Set()})).id);
+ const state=backfillState(b);
+ expect(state.matches).toEqual([]);
+ expect(state.failed).toBe(state.total);
+ expect(state.failure).toContain('429');
+});
