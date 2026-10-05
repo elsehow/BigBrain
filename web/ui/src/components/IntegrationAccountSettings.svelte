@@ -104,7 +104,6 @@
  {#if source==='rss'}
   {#if accounts.length}<button class="settings-add" onclick={()=>adding=!adding}>{adding?'Cancel':'New feed +'}</button>{/if}
   {#if adding||!accounts.length}<form onsubmit={e=>{e.preventDefault();void add();}}>
-   <p>Follow a news site or blog. New items pass the firewall and the worth gate before they reach your feed.</p>
    <label>Feed address<input type="url" autocomplete="off" bind:value={newLabel} placeholder="https://example.com/feed.xml" required/></label>
    <button disabled={busy||!newLabel.trim()}>{busy?'Checking…':'Add feed'}</button>
   </form>{/if}
