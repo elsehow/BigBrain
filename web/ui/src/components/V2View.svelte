@@ -1194,7 +1194,7 @@
   .stage :global(.v2-node:hover .t) { color: var(--fg); }
   .stage :global(.v2-pilot) { font: 500 11px/1 var(--font-mono); color: var(--v2-muted); }
   .stage :global(.v2-pilot:hover) { color: var(--fg); }
-  .stage :global(.v2-source) { font: 500 11.5px/1.2 var(--font-app); color: var(--fg); pointer-events: none; }
+  .stage :global(.v2-source) { pointer-events: none; }
   .stage :global(.v2-pilot.working) { color: color-mix(in srgb, var(--activity) 80%, var(--fg)); }
   .stage :global(.v2-node.memory .t) { font: 500 12px/1.2 var(--font-app); color: var(--fg); }
   .stage :global(.v2-node .q), .stage :global(.v2-node .c) { display: none; }
