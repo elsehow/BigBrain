@@ -1,5 +1,6 @@
-# One fast merge check. The browser suites (macOS and Linux) and repeated
-# stress run nightly and by hand in compatibility.yml.
+# The merge checks: `ci:checks`, split into two jobs that run side by side.
+# The browser suites (macOS and Linux) and repeated stress run nightly and
+# by hand in compatibility.yml.
 name: ci
 on:
   pull_request:
@@ -20,4 +21,16 @@ jobs:
         with:
           bun-version: 1.3.9
       - run: bun install --frozen-lockfile
-      - run: bun run ci:checks
+      - run: bun run ci:static
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.9
+      - run: bun install --frozen-lockfile
+      # Tests import viewer modules, which resolve against web/ui's own deps.
+      - run: bun install --frozen-lockfile --cwd web/ui
+      - run: bun run test

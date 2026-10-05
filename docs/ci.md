@@ -5,14 +5,20 @@ privacy and release gates. A green check does not claim those gates are complete
 
 ## Merge checks
 
-Every PR and main push runs one job:
+Every PR and main push runs `bun run ci:checks` as two Linux jobs, side by side:
 
-- `checks` on Linux: generated plugins, lint, TypeScript, production viewer build,
-  the full unit suite, and Svelte checks. The ordinary filesystem watcher regression
-  remains part of the full suite.
+- `checks` (`ci:static`): generated plugins, lint, TypeScript, production viewer
+  build, and Svelte checks.
+- `tests` (`bun run test`): the full unit suite. The ordinary filesystem watcher
+  regression remains part of it.
 
 `bun run test` is the full unit suite: `bin/test-parallel.ts` splits the test files
-by size across one `bun test` process per CPU (`BIGBRAIN_TEST_JOBS` overrides).
+across one `bun test` process per CPU (`BIGBRAIN_TEST_JOBS` overrides), balanced
+on each file's duration in `test/timings.json`. A file added since the last
+recording counts as the median one. Re-record with `bun bin/test-parallel.ts
+--record` when the shards' times (printed at the end of a run) drift apart. It
+times one file at a time, so run it on a quiet machine. Under load, every file
+looks slow and the balance is lost.
 Plain `bun test` runs the files one after another in one process, and about 100s
 of the check was that process waiting. A process still running after five
 minutes is killed, and the file it was in is named, rather than holding the job
@@ -22,7 +28,7 @@ process. `bun test <file>` is still how to run one file.
 Aim for ordinary PR feedback within five minutes, excluding runner queue time.
 The ten-minute timeout is a safety bound, not the performance target. Superseded
 PR runs cancel; main runs are not actively cancelled. No path filters can leave
-this check pending. Keep its stable name in any repository merge rules.
+these checks pending. Keep their stable names in any repository merge rules.
 
 The browser suite is not a merge gate: at ~11 minutes on macOS it slowed every PR
 for the work we use ourselves. It runs nightly and by hand (Compatibility and

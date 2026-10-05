@@ -23,7 +23,8 @@
     "site:deploy": "sh site/deploy.sh",
     "browser:install": "PLAYWRIGHT_BROWSERS_PATH=0 node node_modules/playwright-core/cli.js install chromium --no-shell",
     "design:sync": "bun bin/sync-design.ts",
-    "ci:checks": "bun run plugins:check && bun run lint && bun run typecheck && bun run web:build && bun run test && bun run --cwd web/ui check",
+    "ci:checks": "bun run ci:static && bun run test",
+    "ci:static": "bun run plugins:check && bun run lint && bun run typecheck && bun run web:build && bun run --cwd web/ui check",
     "ci:browser": "bun run web:build && bun test test/siteBuild.test.ts && node bin/ci-browser.cjs",
     "ci:stress": "bun test test/gardenerProgress.test.ts --test-name-pattern 'the real filesystem watcher' --rerun-each 100"
   },
