@@ -80,9 +80,10 @@ export async function startBackfill(root:string,store:string,connection:SharedCo
   let mentioned:ReturnType<typeof resolveRuleMentions>=[];try{mentioned=resolveRuleMentions(root,rule.text);}catch{/* rank by words alone */}
   const q=await queries(root,store,rule.text,mentioned);
   const labelled=new Map(policy.labels.map(l=>[sourceDigest(l.source),l.include]));
+  for(const s of candidates){const include=labelled.get(sourceDigest(s));if(include!==undefined)b.rated.set(s.id,include);}
   const ranked=rankCandidates(candidates,rule.text,q?.subjects??mentioned,q?.phrases??[]).slice(0,POOL);
-  b.pool=[...candidates.filter(s=>labelled.get(sourceDigest(s))===true&&!ranked.includes(s)),...ranked];
-  for(const s of b.pool){const include=labelled.get(sourceDigest(s));if(include!==undefined){b.rated.set(s.id,include);b.scanned++;}}
+  b.pool=[...candidates.filter(s=>b.rated.get(s.id)===true&&!ranked.includes(s)),...ranked];
+  b.scanned=b.pool.filter(s=>b.rated.has(s.id)).length;
   await scoreAll(b,b.pool.filter(s=>!b.rated.has(s.id)),factory(root,store,rule.text,policy.labels),generation);
  }catch(e){if(b.generation===generation)b.error=e instanceof OutOfCredits?'Out of usage credits. (You need credits to find matches for your inclusion rule.)':e instanceof Error?e.message:'Could not find matches.';}
  finally{if(b.generation===generation)b.busy=false;}})();

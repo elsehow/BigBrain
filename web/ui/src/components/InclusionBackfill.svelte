@@ -39,7 +39,7 @@
  {/each}
  </div>
  {#if problem||view?.error}<p role="alert">{problem||view?.error}</p>
- {:else if view&&!view.busy&&view.failed}<p role="alert">{view.failed===view.total?'':`${view.failed} ${view.failed===1?'note':'notes'} couldn’t be checked. `}{view.failure} <button class="retry" onclick={start}>Retry</button></p>{/if}
+ {:else if view&&!view.busy&&view.failed}<p role="alert">{view.failure} <button class="retry" onclick={start}>Retry</button></p>{/if}
  <div class="footer"><button class="cancel" onclick={()=>onclose(0)}>Not now</button><button class="add" disabled={!view||view.busy||sending||!count} onclick={add}>{sending?'Adding…':count?`Add ${count} ${count===1?'note':'notes'}`:'Add'}</button></div>
 </div>
 {#if opened}
