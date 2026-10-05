@@ -5,7 +5,7 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "test": "bun test",
+    "test": "bun bin/test-parallel.ts",
     "test:scenarios": "bun test test/applicationScenarios.test.ts test/applicationScenarioEffects.test.ts",
     "test:sessions": "bun test test/pilotChat.test.ts test/pilotProviders.test.ts test/pilotAccess.test.ts test/pilotWorkMigration.test.ts test/pilotOnly.test.ts",
     "typecheck": "tsc --noEmit",
@@ -23,7 +23,7 @@
     "site:deploy": "sh site/deploy.sh",
     "browser:install": "PLAYWRIGHT_BROWSERS_PATH=0 node node_modules/playwright-core/cli.js install chromium --no-shell",
     "design:sync": "bun bin/sync-design.ts",
-    "ci:checks": "bun run plugins:check && bun run lint && bun run typecheck && bun run web:build && bun test && bun run --cwd web/ui check",
+    "ci:checks": "bun run plugins:check && bun run lint && bun run typecheck && bun run web:build && bun run test && bun run --cwd web/ui check",
     "ci:browser": "bun run web:build && bun test test/siteBuild.test.ts && node bin/ci-browser.cjs",
     "ci:stress": "bun test test/gardenerProgress.test.ts --test-name-pattern 'the real filesystem watcher' --rerun-each 100"
   },

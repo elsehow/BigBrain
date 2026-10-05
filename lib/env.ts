@@ -120,6 +120,9 @@ export const assertionDb = (): string | undefined => str("BIGBRAIN_ASSERTION_DB"
 /** Suppress the retrieval log (a test reading a vault shouldn't write to it). */
 export const noRetrievalLog = (): boolean => Boolean(str("BIGBRAIN_NO_RETRIEVAL_LOG"));
 
+/** How many test files bin/test-parallel.ts runs at once; 0 = one per CPU. */
+export const testJobs = (): number => Number(str("BIGBRAIN_TEST_JOBS") ?? 0);
+
 /** A handoff worker gets authentication and OS basics, not the viewer's
  * OpenAI key, mail passwords, or gardener role. MCP reads its own config. */
 export function handoffProcessEnv(): Record<string, string> {
