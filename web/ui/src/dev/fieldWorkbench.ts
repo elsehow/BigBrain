@@ -3,7 +3,8 @@
 // graph fixture; this answers what only Field asks: the entity graph, the
 // record, the sorted feed and the coding desktops. `?empty` is a new vault;
 // `?view=field` keeps the browser suite's `?view=classic` off it; `?update`
-// shows the update banner, `?credits` a provider out of usage credits beside it.
+// shows the update banner, `?credits` a provider out of usage credits beside it,
+// `?working` a Desktop at work (its cube turning).
 import { mount } from "svelte";
 import "../design/tokens.css";
 import "../app.css";
