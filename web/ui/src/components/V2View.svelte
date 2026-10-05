@@ -337,7 +337,7 @@
   const writersOf = (id: string) => [...new Set(writing!.feed.filter((r) => r.entities.includes(id) && r.author).map((r) => authorName(r.author)))];
 
   const dueOn = (day: string) => `due ${new Date(`${day}T00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`;
-  // most pressing at the bottom, nearest the eye
+  // newest at the bottom, nearest the eye; needs-you rows keep their weight
   const SORTED_ROWS = 8;
   let sortedShown = $derived((allSorted ? sorted : sorted.slice(0, SORTED_ROWS)).toReversed());
 
