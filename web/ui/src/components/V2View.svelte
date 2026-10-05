@@ -681,7 +681,8 @@
   $effect(() => {
     void sceneRev;
     const r = sourceInHand;
-    scene?.source(r && field ? { label: r.title ?? r.headline, entities: feedEntities(r) } : null);
+    // walked to (j/k) or opened, the camera brings it into view; only pointed at, it holds still
+    scene?.source(r && field ? { label: r.title ?? r.headline, entities: feedEntities(r), reveal: r !== rowOver } : null);
   });
   /** Light what the row in hand mentions, where it sits in the field. */
   const lightCursor = () => { const r = cursorRow(); scene?.hover(r ? feedEntities(r) : null); };
@@ -1408,9 +1409,11 @@
   .sorted .due { margin-left: 10px; font: 500 9.5px/1 var(--font-mono); letter-spacing: .06em; text-transform: uppercase; color: var(--activity); }
   /* about eight rows tall; older ones scroll in above, fading at the top edge */
   .feed.sorted { display: block; max-height: 156px; overflow-y: auto; scrollbar-width: none; overscroll-behavior: contain;
-    mask-image: linear-gradient(to bottom, transparent, #000 40px); }
+    mask-image: linear-gradient(to bottom, transparent, #000 40px); padding-top: 40px; }
   .feed.sorted::-webkit-scrollbar { display: none; }
   .sorted .row { cursor: pointer; }
+  /* the row in hand scrolls clear of the fade (the padding above lets the oldest) */
+  .sorted .row.at { scroll-margin-top: 40px; }
   .sorted .row.at, .sorted .row.open { opacity: 1; } .sorted .row.at .x, .sorted .row.open .x { color: var(--fg); }
   .sorted .row.at .w { color: var(--activity); }
   .sorted.walking:not(:hover) .row:not(.at):not(.open) { opacity: .4; }
