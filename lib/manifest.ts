@@ -114,7 +114,8 @@ export interface FeedConfig {
    * turning the stage on never bills the whole history. */
   since: string;
   target: ModelChoice;
-  /** How often the stage runs when new assertions are waiting. */
+  /** How long to wait after a failed call before trying again. The stage
+   * otherwise runs whenever new assertions are waiting. */
   interval: string;
   intervalMs: number;
   /** Sources per model call. */

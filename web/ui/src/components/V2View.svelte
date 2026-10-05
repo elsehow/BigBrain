@@ -492,14 +492,15 @@
     scene?.shift(shiftFor());
     const n = field.nodes[i]!;
     const ties = neighbours(field, i);
-    // beside it, at once: the memory's own opening lines, or the latest assertion;
-    // then Quick's summary as it arrives, if the engine will give one
-    const first: Said = n.memory
-      ? (data || !n.path ? undefined : await memorySummary(n.path).then((t) => (t ? { text: t, caption: "From the memory note" } : undefined)))
-      : await latestWord(i);
+    // beside it: Quick's summary, written live, with a spinner until its first
+    // words (a memory shows its own opening lines meanwhile). Never the latest
+    // assertion: one claim out of many reads as the whole story.
+    const path = data ? undefined : n.path;
+    const first = n.memory && path ? await memorySummary(path) : undefined;
     if (ent !== i) return;
-    scene?.openEntity(i, ties, first?.text, first?.caption);
-    if (!data && n.path) void briefing(n.path, (text) => { if (ent === i) scene?.openEntity(i, ties, text, "Summary · Quick"); });
+    scene?.openEntity(i, ties, first ?? (path ? "" : undefined));
+    if (path) void briefing(path, (text) => { if (ent === i) scene?.openEntity(i, ties, text); })
+      .then((ok) => { if (!ok && !first && ent === i) scene?.openEntity(i, ties); });
     if (n.memory) {
       // a memory topic is a note, not an entity: its feed is about what it cites
       const cites = new Set(neighbours(field, i, 24).map((j) => field!.nodes[j]!.id));
@@ -826,6 +827,10 @@
   .stage :global(.v2-node.full .q) { display: block; white-space: normal; width: max-content; max-width: 32ch;
     font: 400 13px/1.45 var(--font-app); color: color-mix(in srgb, var(--fg) 82%, var(--bg)); }
   .stage :global(.v2-node .q b) { font-weight: 600; color: var(--fg); }
+  .stage :global(.v2-node .q .spin) { display: inline-block; width: 9px; height: 9px; margin-left: 9px; vertical-align: -1px; border-radius: 50%;
+    border: 1.5px solid color-mix(in srgb, var(--fg) 22%, transparent); border-top-color: var(--fg); animation: v2spin .8s linear infinite; }
+  @keyframes v2spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .stage :global(.v2-node .q .spin) { animation-duration: 2.4s; } }
 
   .strip { position: absolute; top: 18px; left: var(--app-gutter, 34px); right: var(--app-gutter, 34px); display: flex; gap: 4px; min-width: 0; z-index: 2; }
   .strip > :global(*) { flex: 0 1 auto; min-width: 0; }

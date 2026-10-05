@@ -151,6 +151,17 @@ describe("the feed stage", () => {
     expect(feedDue(root, cfg, { now: new Date("2026-08-25T01:00:01.000Z") })).toMatchObject({ due: true });
   });
 
+  test("after a call that succeeded, the next claim filed is due at once", async () => {
+    const [a, b] = [insertion({ title: "first" }), insertion({ title: "second" })];
+    const root = vault(FEED_YAML(), a, b);
+    claim(root, a, "Briar booked the venue.");
+    await runFeed({ root, manifest: loadManifest(root), runner: scripted(() => ({ section: "know" })).runner, now });
+    const cfg = loadManifest(root).feed!;
+    expect(feedDue(root, cfg, { now: now() })).toMatchObject({ due: false, reason: "nothing new to sort" });
+    claim(root, b, "Kit needs the slides tonight.");
+    expect(feedDue(root, cfg, { now: now() })).toMatchObject({ due: true });
+  });
+
   test("tend runs the feed after memory when it is due, and not when it is off", async () => {
     const a = insertion({ title: "y" });
     const on = vault(FEED_YAML(), a);

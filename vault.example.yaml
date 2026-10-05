@@ -131,7 +131,7 @@ memory:
 # feed:
 #   since: 2026-10-01
 #   model: claude-sonnet-5-5
-#   interval: 1h # how often it runs when new assertions are waiting
+#   interval: 1h # after a failed call, how long to wait before retrying
 #   batch: 10 # sources per model call
 
 # Fast, bounded orientation notes.
