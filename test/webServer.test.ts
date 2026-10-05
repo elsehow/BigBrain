@@ -99,7 +99,7 @@ describe("the route table", () => {
       memory: { agent: string; model: string; interval: number };
       quick: { agent: string; model: string };
     };
-    expect(Object.keys(cfg).sort()).toEqual(["curation", "gardener", "integrations", "memory", "quick"]);
+    expect(Object.keys(cfg).sort()).toEqual(["curation", "gardener", "integrations", "memory", "quick", "security"]);
     expect(typeof cfg.gardener.model).toBe("string");
     expect(typeof cfg.gardener.adapter).toBe("string");
     expect(typeof cfg.memory.model).toBe("string");
