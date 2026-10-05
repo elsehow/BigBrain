@@ -17,7 +17,7 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
  // The join link pasted into the app is refused with directions, before any request.
  await page.getByRole('button',{name:'+ Connect vault',exact:true}).click();await page.getByLabel('Invite link',{exact:true}).fill(fixture.endpoint+'/join');await page.getByRole('dialog').getByRole('button',{name:'Connect',exact:true}).click();
  await page.getByRole('dialog').getByRole('alert').filter({hasText:'open it in your browser'}).waitFor();
- await page.getByLabel('Invite link',{exact:true}).fill(fixture.invite);await page.getByRole('dialog').getByRole('button',{name:'Connect',exact:true}).click();await page.waitForURL(url=>url.searchParams.has('vaults'));await page.goto(fixture.base+'/#sharedVaultSettings');await page.getByRole('button',{name:'Example team',exact:true}).last().click();
+ await page.getByLabel('Invite link',{exact:true}).fill(fixture.invite);await page.getByRole('dialog').getByRole('button',{name:'Connect',exact:true}).click();await page.getByRole('dialog').waitFor({state:'detached'});await page.goto(fixture.base+'/#sharedVaultSettings');await page.getByRole('button',{name:'Example team',exact:true}).last().click();
  await page.getByRole('button',{name:'Members',exact:true}).click();await page.getByRole('button',{name:'Invite someone',exact:true}).click();
  assert.equal(await page.getByLabel('Name',{exact:true}).count(),0);
  await page.getByLabel('Email',{exact:true}).fill('mara@example.com');await page.getByRole('button',{name:'Create invite link'}).click();

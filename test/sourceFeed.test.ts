@@ -10,7 +10,6 @@ import { assertionEntityId, createAssertionEvent } from "../lib/assertionLog";
 import { appendAndProjectAssertion, appendAndProjectDecline, appendAndProjectRevocation, openAssertionProjectionReadonly, projectSourceInsertion } from "../lib/assertionProjection";
 import { createDeclineEvent } from "../lib/declineLog";
 import { createRevocationEvent } from "../lib/revocationLog";
-import { filedByLabel, filedByTitle, filerChips, nestNotes } from "../web/ui/src/lib/feed";
 import {
   insertionStatus,
   readSourceInsertionPath,
@@ -22,7 +21,6 @@ import {
 } from "../lib/sourceFeed";
 import { insertion } from "./support/vault";
 import { putBlob } from "../lib/blobs";
-import { tagLabel } from "../web/ui/src/lib/feed";
 
 test("existing Claude transcripts recover model from their raw attachments without rewriting events", () => {
   const root = mkdtempSync(join(tmpdir(), "bb-source-model-"));
@@ -30,7 +28,7 @@ test("existing Claude transcripts recover model from their raw attachments witho
   const blob = putBlob(root, raw);
   const event = insertion({ envelope: { source: "agent-chat", from: "claude-code", from_kind: "agent", attachments: [{ name: "session-1-2.jsonl", sha256: blob.sha256 }] } });
   const before = JSON.stringify(event);
-  expect(tagLabel(recentFromSourceLog(root, [sourceSummary(event)])[0]!)).toBe("fable 5.1");
+  expect(recentFromSourceLog(root, [sourceSummary(event)])[0]!.agentModel).toBe("claude-fable-5-1");
   expect(JSON.stringify(event)).toBe(before);
   expect(insertionFiler(event).agentModel).toBeUndefined();
   const declared = { ...event, envelope: { ...event.envelope, agent_model: "claude-sonnet-4-5" } };
@@ -77,15 +75,9 @@ describe("native source feed", () => {
       });
       appendSourceInsertionEvent(root, item);
       expect(projectedFilerName(envelope)).toBe("codex");
-      expect(filedByLabel(insertionFiler(item))).toBe("codex");
     }
     const rows = recentFromSourceLog(root);
     expect(rows).toHaveLength(envelopes.length);
-    for (const row of rows) {
-      expect(filedByLabel(row)).toBe("codex");
-      expect(filedByTitle(row).toLowerCase()).toContain(row.from!.toLowerCase());
-    }
-    expect(filerChips(rows, [])).toEqual([{ label: "codex", agent: true }]);
     // A person's name alone is not evidence that Codex composed the note.
     expect(projectedFilerName({ source: "api", from: "codex@example.com", from_kind: "person" })).toBe("other");
   });
@@ -253,7 +245,7 @@ describe("the INGESTED column's claim", () => {
 });
 
 describe("a note ON a clip, in the native feed", () => {
-  test("rows carry about/url, the popup note wears the extension's door, and nestNotes folds it under the clip", () => {
+  test("rows carry about/url, and the popup note wears the extension's door", () => {
     const root = mkdtempSync(join(tmpdir(), "bb-source-feed-nest-"));
     const clip: SourceInsertion = {
       ...source("ins_bbbbbbbbbbbbbbbbbbbbbbb1", "2026-08-27T20:44:52.000Z", "Global central bankers gather in Jackson Hole"),
@@ -277,9 +269,5 @@ describe("a note ON a clip, in the native feed", () => {
     expect(rows.map((r) => r.title)).toEqual(["all eyes on warsh", "Global central bankers gather in Jackson Hole"]);
     expect(rows[0]).toMatchObject({ about: "api-2026-08-27T20-44-52-06fnk7", via: "browser extension" });
     expect(rows[1]).toMatchObject({ id: "api-2026-08-27T20-44-52-06fnk7", url: "https://www.semafor.com/article/jackson-hole", via: "browser extension" });
-    const groups = nestNotes(rows);
-    expect(groups.map((g) => [g.row.title, g.notes.map((n) => n.title)])).toEqual([
-      ["Global central bankers gather in Jackson Hole", ["all eyes on warsh"]],
-    ]);
   });
 });

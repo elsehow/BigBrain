@@ -46,6 +46,8 @@ const fake = window.fetch;
   // `?credits`: the gardener's provider is out of usage credits until Retry
   if (url.pathname === "/api/credits/retry") { outOfCredits = false; return json({ providers: {} }); }
   if (url.pathname === "/api/credits") return json({ providers: outOfCredits ? { anthropic: { since: at(0), at: at(5), roles: ["tend", "quick"], detail: "Your credit balance is too low." } } : {} });
+  const note = url.pathname === "/api/note" ? sorted.find((r) => r.path === url.searchParams.get("path")) : undefined;
+  if (note) return json({ path: note.path, kind: "markdown", content: `# ${note.title}\n\n${note.headline}`, origin: { kind: "url", url: `https://example.com/${note.source}` } });
   if (url.pathname === "/api/note/briefing") return json({ error: "no briefings here" }, 404);
   return fake(input, init);
 }) as typeof fake;

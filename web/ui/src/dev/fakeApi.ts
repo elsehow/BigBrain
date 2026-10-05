@@ -20,7 +20,6 @@ import { DEFAULT_PILOT_BACKEND } from "../../../../lib/pilotBackendTypes";
  */
 
 import { clearSwrCache } from "../lib/api";
-import { clearNoteBriefingCache } from "../lib/noteBriefing";
 import { SAMPLE_GROUPS } from "./foldFixtures";
 import type { Connection } from "../lib/connect";
 import type { DiagnosticsReport } from "../lib/diagnostics";
@@ -39,8 +38,8 @@ import type {
   UsageInfo,
   VaultInfo,
 } from "../lib/types";
-import type { Phase } from "../lib/pilot";
-import type { Line } from "../lib/pilot.svelte";
+type Phase = "off" | "idle" | "connecting" | "ready" | "listening" | "thinking" | "speaking" | "error";
+interface Line { at?: string; speaker: "user" | "pilot"; text: string; tools?: string[] }
 
 export interface VaultState {
   telemetry?: import("../lib/telemetry").TelemetrySnapshot;
@@ -1172,7 +1171,6 @@ export function setVaultState(s: VaultState): void {
   pilotBackend = { ...DEFAULT_PILOT_BACKEND };
   agentPermissions = { version: 2, folders: [{ path: "~/Projects", access: "write" }] };
   clearSwrCache();
-  clearNoteBriefingCache();
 }
 
 const json = (body: unknown, status = 200) =>
@@ -1320,7 +1318,6 @@ function route(path: string, method: string, body?: string, search?: URLSearchPa
     const next = { ...plugin, installed: plugin.shipped, current: true };
     current = { ...current, setup: { ...setup, claude: { ...setup.claude, plugin: next } } };
     clearSwrCache();
-    clearNoteBriefingCache();
     return json({ ...current.setup, pluginRefresh: { outcome: "refreshed" } });
   }
   // the pilot (#770): the key saves (and the state re-reads it); a session

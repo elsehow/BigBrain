@@ -1,11 +1,11 @@
 <script lang="ts">
-  import AppShell from "../../components/AppShell.svelte";
+  import Base from "../../components/Base.svelte";
   import ThemeView from "../../components/ThemeView.svelte";
   import { goto } from "../../lib/store.svelte";
   let details = $state(false);
 </script>
 
-<AppShell />
+<Base />
 <div class="preview-mark">
   <button aria-expanded={details} onclick={() => details = !details}>Simulated preview <span aria-hidden="true">{details ? "−" : "+"}</span></button>
 </div>
@@ -15,7 +15,7 @@
     <p>Fabricated data only. Changes stay in this page; no OAuth, model, provider or vault calls.</p>
     <button onclick={() => { goto("integrations"); details = false; }}>Back to Integrations</button>
     <ThemeView />
-    <p>Production AppShell and Settings; prototype Integrations content. Offline system fonts.</p>
+    <p>Production base, Field and Settings; prototype Integrations content. Offline system fonts.</p>
     <p>{import.meta.env.VITE_INTEGRATION_PREVIEW_SOURCE}</p>
   </aside>
 {/if}

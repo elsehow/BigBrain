@@ -10,7 +10,7 @@ import { PilotCategories, type PilotCategoryOptions } from "./pilotCategories";
 import { validateChatImages, saveChatImage, readChatImage, modelImages } from "./chatImages";
 import type { ChatImage } from "./chatImageTypes";
 import { PilotAccess, PILOT_LOCAL_TOOLS } from "./pilotAccess";
-import { DESKTOP_TOOLS, DesktopError, arrangeDesktop, closeView, desktopReference, emptyDesktop, openView, type PilotDesktop } from "./pilotDesktop";
+import { DESKTOP_TOOLS, DesktopError, arrangeDesktop, closeView, desktopReference, emptyDesktop, noteTitle, openView, type DesktopView, type PilotDesktop } from "./pilotDesktop";
 import { existsSync, unlinkSync, rmSync, readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
@@ -459,27 +459,33 @@ export class PilotChats {
   }
   /** A person's name for the session: it stands, and Quick stops re-naming it. */
   /** The person's hand on a desktop: closing a view, or arranging the tiles. */
-  desktop(id: unknown, action: unknown, body: Record<string, unknown>): PilotChatSession {
-    const s = this.get(id), d = s.desktop ?? emptyDesktop();
+  async desktop(id: unknown, action: unknown, body: Record<string, unknown>): Promise<PilotChatSession> {
+    const s = this.get(id);
+    // a citation the person followed: the note opens beside the chat
+    const view = action === "open" ? await this.noteView(body.path, AbortSignal.timeout(30_000)) : undefined;
+    const d = s.desktop ?? emptyDesktop();
     s.desktop = desktopRule(() => {
+      if (view) return openView(d, view, `v-${crypto.randomUUID().slice(0, 6)}`, { userAsked: true });
       if (action === "close" && typeof body.view === "string") return closeView(d, body.view, "human");
       if (action === "arrange") return arrangeDesktop(d, body.layout, "human");
-      throw new PilotError('Choose "close" with a view, or "arrange" with a layout.');
+      throw new PilotError('Choose "open" with a path, "close" with a view, or "arrange" with a layout.');
     });
     s.viewRevision++; this.save(s); return s;
+  }
+  /** A note view, named by reading it: only a note that reads can be shown. */
+  private async noteView(path: unknown, signal: AbortSignal): Promise<Omit<DesktopView, "id">> {
+    if (typeof path !== "string" || !path.trim()) throw new PilotError("Give the note's exact vault path.");
+    const p = path.trim();
+    const note = await this.callShared("read_note", { path: p, chars: 1 }, signal) as { title?: unknown; error?: unknown } | null;
+    if (!note || typeof note !== "object" || note.error) throw new PilotError("That note could not be read; open_view needs an exact vault path.");
+    return { kind: "note", path: p, title: noteTitle(p, note), at: new Date(this.now()).toISOString() };
   }
   /** The agent's hand on its desktop (lib/pilotDesktop.ts holds the rules). */
   private async agentDesktop(s: PilotChatSession, name: string, a: Record<string, unknown>, signal: AbortSignal): Promise<unknown> {
     let d: PilotDesktop = s.desktop ?? emptyDesktop();
     if (name === "open_view") {
-      if (typeof a.path !== "string" || !a.path.trim()) throw new PilotError("Give the note's exact vault path.");
-      const path = a.path.trim();
-      // Only a note that reads can be shown: the read also names it.
-      const note = await this.callShared("read_note", { path, chars: 1 }, signal) as { title?: unknown; error?: unknown } | null;
-      if (!note || typeof note !== "object" || note.error) throw new PilotError("That note could not be read; open_view needs an exact vault path.");
-      const title = typeof note.title === "string" && note.title.trim() ? note.title.trim() : path.split("/").pop()!.replace(/\.md$/, "");
-      const at = new Date(this.now()).toISOString();
-      d = desktopRule(() => openView(d, { kind: "note", path, title, at }, `v-${crypto.randomUUID().slice(0, 6)}`, { userAsked: a.user_asked === true }));
+      const view = await this.noteView(a.path, signal);
+      d = desktopRule(() => openView(d, view, `v-${crypto.randomUUID().slice(0, 6)}`, { userAsked: a.user_asked === true }));
     } else if (name === "close_view") {
       if (typeof a.view !== "string") throw new PilotError("Give the view's id from your desktop reference.");
       const view = a.view;

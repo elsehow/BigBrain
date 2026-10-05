@@ -21,10 +21,20 @@ const assert = require('node:assert/strict');
     assert.match(await page.locator('.feed.sorted .row.at').innerText(), /orrery repair estimate/);
     await page.keyboard.press('k');
     assert.match(await page.locator('.feed.sorted .row.at').innerText(), /Atlas survey/);
+    // Enter opens the source as a draft desktop: the source beside an empty chat
     await page.keyboard.press('Enter');
-    await page.locator('.hud h1', { hasText: 'Atlas survey update' }).waitFor();
+    const draft = page.getByText('Not kept until you send');
+    await draft.waitFor();
+    // ⌘O hands the source's origin to the OS: a page goes to the browser (a new tab here)
+    assert.match(await draft.innerText(), /⌘O Open original/i);
+    const [popup] = await Promise.all([page.waitForEvent('popup'), page.keyboard.press(process.platform === 'darwin' ? 'Meta+o' : 'Control+o')]);
+    await popup.waitForEvent('domcontentloaded').catch(() => {});
+    assert.equal(popup.url(), 'https://example.com/ins_b');
+    await popup.close();
+    await draft.waitFor();
+    // Esc before a first message goes back to the feed, on the same row
     await page.keyboard.press('Escape');
-    await page.locator('.hud').waitFor({ state: 'detached' });
+    await draft.waitFor({ state: 'detached' });
 
     // settings: a panel over the field; Esc closes it and the field has its keys again
     await page.keyboard.press(process.platform === 'darwin' ? 'Meta+,' : 'Control+,');
@@ -46,7 +56,7 @@ const assert = require('node:assert/strict');
     await page.goto(`${base}/field-workbench.html?view=field&empty`);
     await page.getByText('Nothing here yet').waitFor();
     await page.getByRole('button', { name: 'Connect an integration' }).click();
-    await page.locator('aside.panel .settings').waitFor();
+    await page.locator('aside.panel .settings').first().waitFor();
 
     // out of usage credits: the base says so over the view, and Retry clears it
     await page.goto(`${base}/field-workbench.html?view=field&credits`);
@@ -56,6 +66,6 @@ const assert = require('node:assert/strict');
     await page.locator('.credits').waitFor({ state: 'detached' });
 
     assert.deepEqual(errors, []);
-    console.log('PASS: Field walks and opens the feed, settings sit over it and return its keys, Settings offers no Classic, a new vault says what to do, and running out of credits is said once.');
+    console.log('PASS: Field walks and opens the feed, ⌘O opens the original, settings sit over it and return its keys, Settings offers no Classic, a new vault says what to do, and running out of credits is said once.');
   } finally { await browser.close(); }
 })().catch(e => { console.error(e); process.exit(1); });

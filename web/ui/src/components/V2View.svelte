@@ -14,22 +14,19 @@
   import { barPilots, buildField, latestPerFamily, neighbours, placePilots, searchNames, twinsOf, type Field, type PilotSummary, type V2Feed, type V2FeedRow } from "../lib/v2/model";
   import { md, sanitizeHtml } from "../lib/markdown";
   import { Readability } from "@mozilla/readability";
+  import { openExternal } from "../lib/native";
+  import { openOrigin } from "../lib/origin";
   import { pageDoc, themeSheet, themeVars } from "../lib/pageTheme";
   import type { V2Scene } from "../lib/v2/scene";
   import { plainText as plain, type V2SortedRow } from "../../../../lib/v2Feed";
   import type { DesktopTile, DesktopView } from "../../../../lib/pilotDesktop";
   import { DEFAULT_PILOT_BACKEND } from "../../../../lib/pilotBackendTypes";
 
-  /** Classic, for what Field doesn't draw (a note's page, an older pilot's
-   * conversation): this page in Classic; a dev preview can point at the live
-   * engine instead (VITE_V2_APP), since a read-only preview can't hold one. */
-  const APP: string = import.meta.env["VITE_V2_APP"] ?? "./?view=classic";
-
   /** The workbench hands in fabricated data; the app fetches the vault's.
    * `paused`: the base's settings panel is over the field, and has the keys. */
   let { data = null, paused = false }: { data?: { graph: GraphData; v2: V2Feed } | null; paused?: boolean } = $props();
   /** Settings: the base's panel, over the field (FieldView); a preview has none. */
-  const openSettings = () => { if (data) location.href = `${APP}#/vaultSettings`; else goto("vaultSettings"); };
+  const openSettings = () => goto("vaultSettings");
 
   let host: HTMLDivElement;
   let hudEl: HTMLElement | undefined = $state();
@@ -199,6 +196,19 @@
     }
     return sanitizeHtml(out.body.innerHTML);
   }
+  /** The source in front, whose original ⌘O opens: a draft desktop's, or the panel's. */
+  const original = (): string | undefined => data ? undefined : draft?.path ?? src?.row.path;
+  /** ⌘O: the open source's origin, handed to the OS (lib/origin.ts): its page
+   * in the browser, a dropped file in the app that reads it, a text-only drop
+   * as a Markdown copy. Field draws none of them itself. */
+  async function openOriginal(path: string): Promise<void> {
+    try {
+      const { origin } = await api.note(path);
+      if (!origin) throw new Error("Nothing to open for this source.");
+      await openOrigin(origin, path, { external: openExternal, engine: api.openSource });
+    } catch (e) { flash(`Couldn’t open it: ${errText(e)}`); }
+  }
+
   async function closeView(view: string): Promise<void> {
     if (!openPilot) return;
     if (drafting(openPilot) && detail?.desktop) {
@@ -481,14 +491,24 @@
   const CITE = "#/vault/";
   const render = (t: string) => sanitizeHtml(md(t.replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_, path: string, label?: string) =>
     `[${(label ?? path.split("/").pop()!.replace(/\.md$/, "")).replace(/[[\]]/g, "")}](${CITE}${encodeURIComponent(path)})`)));
-  /** A citation opens its entity in the field beside the chat, or the note in the app when it isn't drawn. */
+  /** A citation opens its entity in the field beside the chat, or, when it isn't drawn, the note as a view beside the chat. */
   function citation(e: MouseEvent): void {
     const href = (e.target as Element).closest("a")?.getAttribute("href");
     if (!href?.startsWith(CITE)) return;
     e.preventDefault();
     const path = decodeURIComponent(href.slice(CITE.length));
     const i = field?.nodes.find((n) => n.path === path || n.id === path)?.i;
-    if (i != null) void openEntity(i); else window.open(`${APP}${href}`, "_blank", "noopener");
+    if (i != null) void openEntity(i); else void openNote(path);
+  }
+  async function openNote(path: string): Promise<void> {
+    if (!openPilot || data) return;
+    try {
+      if (coding(openPilot)) await desktopReq("/view", { id: openPilot, action: "open", path });
+      else await pilotReq("/desktop", { id: openPilot, action: "open", path });
+      hidden[openPilot] = false;
+      await loadDetail(); void tick().then(() => scene?.shift(shiftFor()));
+    }
+    catch (e) { flash(`Couldn’t open the note: ${errText(e)}`); }
   }
 
   const authorName = (id: string | null) => (id ? writing?.authors.find((a) => a.id === id)?.name ?? id : "You");
@@ -844,6 +864,7 @@
     // ⌘, (ctrl+, elsewhere): settings, the same view the app's gear opens
     if (paused) return false;
     if ((e.metaKey || e.ctrlKey) && e.key === ",") { take(e); openSettings(); return true; }
+    if ((e.metaKey || e.ctrlKey) && (e.key === "o" || e.key === "O") && !e.shiftKey && original()) { take(e); void openOriginal(original()!); return true; }
     if (e.metaKey || e.ctrlKey || e.altKey || !field) return false;
     if ((e.metaKey || e.ctrlKey) && (e.key === "n" || e.key === "N") && !e.shiftKey) { take(e); void createPilot([]); return true; }
     if (e.target === composerEl) {
@@ -951,7 +972,7 @@
 
   {#if hud}
     <header class="hud" bind:this={hudEl}>
-      <span class="eyebrow">{hud.eyebrow}</span>
+      <span class="eyebrow">{[hud.eyebrow, original() && "⌘O Open"].filter(Boolean).join(" · ")}</span>
       <h1>{hud.name}</h1>
       {#if hud.writing}<p><span class="spin" aria-label="Writing a summary"></span></p>{:else if hud.status}<p>{hud.status}</p>{/if}
     </header>
@@ -1051,9 +1072,8 @@
         <div class="row">
           <span class="k">{coding(detail.id) && detail.phase === "working" ? "↵ Steer" : "↵ Send"} · ⇧↵ New line · Esc Back</span>
           {#if detail.phase === "working"}<button type="button" class="find" onclick={() => void stopPilot()}>Stop</button>{/if}
-          {#if drafting(detail.id)}<span class="k">Not kept until you send</span>
-          {:else if coding(detail.id)}<button type="button" class="find" onclick={() => void archiveDesktop()} title="Stop its processes; its files and conversation stay">Archive</button>
-          {:else}<a class="find" href={`${APP}#/session/${detail.id}`}>Open in app</a>{/if}
+          {#if drafting(detail.id)}<span class="k">Not kept until you send{#if original()} · ⌘O Open original{/if}</span>
+          {:else if coding(detail.id)}<button type="button" class="find" onclick={() => void archiveDesktop()} title="Stop its processes; its files and conversation stay">Archive</button>{/if}
         </div>
       </div></div>
     </section>
@@ -1237,7 +1257,6 @@
   .composer textarea::placeholder { color: color-mix(in srgb, var(--fg) 55%, transparent); opacity: 1; }
   .composer .row { display: flex; align-items: center; gap: 8px; }
   .composer .row .k { margin-right: auto; }
-  .composer a.find { text-decoration: none; }
   /* the desktop's views take every pixel the chat doesn't */
   .split { position: absolute; z-index: 2; top: 62px; bottom: 26px; left: calc(var(--chat-w) + 2 * var(--app-gutter, 34px)); width: 14px; transform: translateX(-50%); cursor: col-resize; touch-action: none; }
   .split::after { content: ""; position: absolute; top: 0; bottom: 0; left: 6px; width: 2px; border-radius: 1px; background: var(--fg); opacity: 0; transition: opacity .15s; }
