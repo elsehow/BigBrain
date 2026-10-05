@@ -1,7 +1,7 @@
 // Field on the base (web/ui/field-workbench.html, a fabricated vault): the
 // feed walks with j/k and opens a source; settings open as a panel over the
-// field and give the keys back; Settings → General switches to Classic and
-// back; a new vault says what to do.
+// field and give the keys back; Settings offers no Classic; a new vault says
+// what to do.
 const { chromium } = require('./browserHarness.cjs');
 const assert = require('node:assert/strict');
 (async () => {
@@ -36,14 +36,11 @@ const assert = require('node:assert/strict');
     await page.keyboard.press('j');
     assert.match(await page.locator('.feed.sorted .row.at').innerText(), /orrery repair estimate/, 'the field has its keys back');
 
-    // the view is a setting: Classic, then Field again
+    // the view is not a setting: Settings offers no Classic
     await page.keyboard.press(process.platform === 'darwin' ? 'Meta+,' : 'Control+,');
-    await page.getByRole('button', { name: 'CLASSIC', exact: true }).click();
-    await page.locator('#topbar').waitFor();
-    assert.equal(await page.locator('.v2').count(), 0);
-    await page.getByRole('button', { name: 'FIELD', exact: true }).click();
     await page.locator('aside.panel .settings').waitFor();
-    assert.equal(await page.locator('#topbar').count(), 0);
+    assert.equal(await page.getByRole('button', { name: 'CLASSIC', exact: true }).count(), 0);
+    await page.keyboard.press('Escape');
 
     // a new vault
     await page.goto(`${base}/field-workbench.html?view=field&empty`);
@@ -59,6 +56,6 @@ const assert = require('node:assert/strict');
     await page.locator('.credits').waitFor({ state: 'detached' });
 
     assert.deepEqual(errors, []);
-    console.log('PASS: Field walks and opens the feed, settings sit over it and return its keys, the view switches both ways, and a new vault says what to do, and running out of credits is said once.');
+    console.log('PASS: Field walks and opens the feed, settings sit over it and return its keys, Settings offers no Classic, a new vault says what to do, and running out of credits is said once.');
   } finally { await browser.close(); }
 })().catch(e => { console.error(e); process.exit(1); });
