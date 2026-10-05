@@ -32,9 +32,31 @@ const assert = require('node:assert/strict');
     assert.equal(popup.url(), 'https://example.com/ins_b');
     await popup.close();
     await draft.waitFor();
+    // @ in the composer lists recently added items; typing searches the vault
+    const editor = page.getByRole('textbox', { name: 'Message' });
+    await editor.click();
+    await page.keyboard.type('see @');
+    const menu = page.locator('.mention-menu');
+    await menu.waitFor();
+    assert.match(await menu.locator('.menu-label').first().innerText(), /recent/i);
+    await menu.locator('[role=option]').first().waitFor();
+    await page.keyboard.press('Enter');
+    await menu.waitFor({ state: 'detached' });
+    assert.equal(await editor.locator('.mention-chip').count(), 1);
+    await page.keyboard.type(' @atlas');
+    await menu.waitFor();
+    await page.waitForFunction(() => /search results/i.test(document.querySelector('.mention-menu .menu-label')?.textContent ?? ''));
+    await page.keyboard.press('Escape');
+    await menu.waitFor({ state: 'detached' });
+    await page.keyboard.press(process.platform === 'darwin' ? 'Meta+a' : 'Control+a');
+    await page.keyboard.press('Backspace');
     // Esc before a first message goes back to the feed, on the same row
     await page.keyboard.press('Escape');
     await draft.waitFor({ state: 'detached' });
+
+    // ⌘N starts a new desktop (the workbench counts it rather than starting one)
+    await page.keyboard.press(process.platform === 'darwin' ? 'Meta+n' : 'Control+n');
+    await page.waitForFunction(() => window.desktopsCreated === 1);
 
     // settings: a panel over the field; Esc closes it and the field has its keys again
     await page.keyboard.press(process.platform === 'darwin' ? 'Meta+,' : 'Control+,');

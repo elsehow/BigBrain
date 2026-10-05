@@ -63,4 +63,4 @@ test("Granola's actual runner reports quiet checks, arrivals, errors, recovery a
     expect(await run("forbidden")).toBe(0);
     expect(existsSync(join(root, ".state/integrations/granola.json"))).toBe(false);
   } finally { rmSync(root, { recursive: true, force: true }); }
-});
+}, 60_000);

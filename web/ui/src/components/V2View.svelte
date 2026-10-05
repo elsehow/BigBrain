@@ -21,6 +21,9 @@
   import { plainText as plain, type V2SortedRow } from "../../../../lib/v2Feed";
   import type { DesktopTile, DesktopView } from "../../../../lib/pilotDesktop";
   import { DEFAULT_PILOT_BACKEND } from "../../../../lib/pilotBackendTypes";
+  import PilotMentionComposer from "./PilotMentionComposer.svelte";
+  import { serializeMentions, type MentionItem } from "../../../../lib/pilotMentions";
+  import { mentionRecents, mentionSearch } from "../lib/mentionSources";
 
   /** The workbench hands in fabricated data; the app fetches the vault's.
    * `paused`: the base's settings panel is over the field, and has the keys. */
@@ -276,7 +279,25 @@
   }
   let chatEl: HTMLElement | undefined = $state();
   let msgsEl: HTMLElement | undefined = $state();
-  let composerEl: HTMLTextAreaElement | undefined = $state();
+  // one side of .msgs' scrollbar gutter, which the composer's dock matches
+  let gutter = $state(0);
+  $effect(() => {
+    const el = msgsEl;
+    if (!el) return;
+    const measure = () => { gutter = Math.max(0, (el.offsetWidth - el.clientWidth) / 2); };
+    measure();
+    const ro = new ResizeObserver(measure); ro.observe(el);
+    return () => ro.disconnect();
+  });
+  // the desktop's composer: @ mentions from recents and the vault's search (lib/mentionSources.ts)
+  let composer: PilotMentionComposer | undefined = $state();
+  let composerEl: HTMLElement | undefined = $state();
+  let mentionRecentItems = $state<MentionItem[]>([]), mentionRecentLoading = $state(false), mentionRecentError = $state(false);
+  function loadMentionRecents(): void {
+    mentionRecentLoading = true; mentionRecentError = false;
+    mentionRecents().then((items) => { mentionRecentItems = items; })
+      .catch(() => { mentionRecentError = true; }).finally(() => { mentionRecentLoading = false; });
+  }
   let bar = $derived(barPilots(pilotsAll, openPilot));
   const PHASE: Record<PilotSummary["phase"], string> = { draft: "draft", working: "working", answered: "answered", interrupted: "interrupted", failed: "failed" };
   /** GET (no body) or POST JSON to the engine; a failure carries the engine's message and status. */
@@ -370,7 +391,7 @@
     scene?.focusPilot(id);
     scene?.shift(shiftFor());
     void loadDetail();
-    void tick().then(() => composerEl?.focus());
+    void tick().then(() => composer?.focus(true));
   }
   function closePilot(): void {
     const wasDraft = drafting(openPilot);
@@ -398,7 +419,7 @@
     scene?.hover(null);
     scene?.focusPilot(null);
     scene?.shift(shiftFor());
-    void tick().then(() => { scene?.shift(shiftFor()); composerEl?.focus(); });
+    void tick().then(() => { scene?.shift(shiftFor()); composer?.focus(true); });
   }
   /** The first message keeps a draft desktop: made for real, with its views, and the message sent. */
   async function keepDraft(text: string, inputId: string): Promise<void> {
@@ -865,12 +886,12 @@
     if (paused) return false;
     if ((e.metaKey || e.ctrlKey) && e.key === ",") { take(e); openSettings(); return true; }
     if ((e.metaKey || e.ctrlKey) && (e.key === "o" || e.key === "O") && !e.shiftKey && original()) { take(e); void openOriginal(original()!); return true; }
+    // ⌘N before the modifier bail-out below, which swallowed it
+    if ((e.metaKey || e.ctrlKey) && !e.altKey && (e.key === "n" || e.key === "N") && !e.shiftKey && field) { take(e); void createPilot([]); return true; }
     if (e.metaKey || e.ctrlKey || e.altKey || !field) return false;
-    if ((e.metaKey || e.ctrlKey) && (e.key === "n" || e.key === "N") && !e.shiftKey) { take(e); void createPilot([]); return true; }
-    if (e.target === composerEl) {
-      // the composer: Enter sends, Shift+Enter is a new line, Esc leaves it
-      if (e.key === "Enter" && !e.shiftKey) { take(e); void sendDraft(); return true; }
-      if (e.key === "Escape") { take(e); if (drafting(openPilot) && !draftText.trim()) closePilot(); else composerEl?.blur(); return true; }
+    if (composerEl?.contains(e.target as Node)) {
+      // the composer sends on Enter and keeps its @ menu's keys; an Esc it let through leaves it
+      if (e.key === "Escape") { take(e); if (drafting(openPilot) && !draftText.trim()) closePilot(); else composer?.blur(); return true; }
       return false;
     }
     if (searching && e.target === qEl) {
@@ -1069,8 +1090,15 @@
         {#if detail.error}<p class="activity err">{detail.error}</p>{/if}
         {#if !detail.messages.length && detail.phase === "draft"}<p class="activity">{coding(detail.id) || drafting(detail.id) ? "Ask it anything: it can read your vault and work on your projects." : "Ask it anything — it can read your vault."}</p>{/if}
       </div></div>
-      <div class="dock"><div class="composer col">
-        <textarea bind:this={composerEl} bind:value={draftText} rows="3" placeholder={`Message ${detail.title}…`} aria-label="Message"></textarea>
+      <div class="dock" style:--gutter={`${gutter}px`}><div class="composer col">
+        <div class="input" bind:this={composerEl} onfocusin={() => { if (!mentionRecentItems.length && !mentionRecentLoading) loadMentionRecents(); }}>
+          {#key detail.id}
+            <PilotMentionComposer bind:this={composer} ariaLabel="Message" currentId={detail.id} value={draftText} autofocus={false}
+              recents={mentionRecentItems} recentLoading={mentionRecentLoading} recentError={mentionRecentError} search={mentionSearch}
+              onchange={(parts) => { draftText = serializeMentions(parts); }} onsend={() => void sendDraft()}
+              placeholder={`Message ${detail.title}… type @ to mention`} />
+          {/key}
+        </div>
         <div class="row">
           <span class="k">{coding(detail.id) && detail.phase === "working" ? "↵ Steer" : "↵ Send"} · ⇧↵ New line · Esc Back</span>
           {#if detail.phase === "working"}<button type="button" class="find" onclick={() => void stopPilot()}>Stop</button>{/if}
@@ -1226,13 +1254,15 @@
      in a bubble at the column's right edge; the composer shares the column */
   .msgs, .dock { --chat-fs: clamp(15px, 2.25cqi, 17px); } /* cqi: the .chat panel's width */
   .chat .col { width: calc(100% - 24px); max-width: calc(68 * 0.56 * var(--chat-fs) + 28px); margin-inline: auto; box-sizing: border-box; }
-  /* the scrollbar's gutter is kept on both sides of the messages and, empty, of
-     the composer's dock: the two columns centre in the same width and line up;
-     the column leaves 12px a side for the composer box to reach into */
-  .msgs, .dock { scrollbar-gutter: stable both-edges; scrollbar-width: thin; }
+  /* the scrollbar's gutter is kept on both sides of the messages, and the
+     composer's dock is padded by the same (--gutter, measured off .msgs): the
+     two columns centre in the same width and line up. The dock can't take the
+     gutter itself — that needs overflow hidden, which would clip the @ menu.
+     The column leaves 12px a side for the composer box to reach into */
+  .msgs { scrollbar-gutter: stable both-edges; scrollbar-width: thin; }
   .msgs { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden;
     scrollbar-color: color-mix(in srgb, var(--fg) 22%, transparent) transparent; }
-  .dock { flex: none; overflow: hidden; }
+  .dock { flex: none; padding-inline: var(--gutter, 0px); }
   .msgs .col { display: flex; flex-direction: column; gap: 24px; padding-bottom: 8px; }
   .msg { display: flex; }
   .msg.user { align-self: flex-end; max-width: 85%; }
@@ -1261,9 +1291,10 @@
   .activity.err { color: color-mix(in srgb, var(--activity) 80%, var(--fg)); }
   .composer { display: flex; flex-direction: column; gap: 8px; }
   /* the box reaches past the column by its padding, so typed text lines up with the messages' */
-  .composer textarea { margin-inline: -12px; resize: none; border: 0; border-radius: 8px; padding: 9px 12px; background: color-mix(in srgb, var(--fg) 7%, var(--bg)); color: var(--fg);
-    font: 400 var(--chat-fs)/1.45 var(--font-app); outline: none; }
-  .composer textarea::placeholder { color: color-mix(in srgb, var(--fg) 55%, transparent); opacity: 1; }
+  .composer .input { margin-inline: -12px; position: relative; }
+  .composer .input :global(.editor) { -webkit-user-select: text; user-select: text; min-height: calc(3 * 1.45em + 18px); padding: 9px 12px; border-radius: 8px; background: color-mix(in srgb, var(--fg) 7%, var(--bg)); color: var(--fg);
+    font: 400 var(--chat-fs)/1.45 var(--font-app); }
+  .composer .input :global(.editor:empty::before) { color: color-mix(in srgb, var(--fg) 55%, transparent); }
   .composer .row { display: flex; align-items: center; gap: 8px; }
   .composer .row .k { margin-right: auto; }
   /* the desktop's views take every pixel the chat doesn't */
