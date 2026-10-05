@@ -3,7 +3,7 @@ import {json,readBody} from './httpx';
 import {allowVaultRequest,vaultIdentity} from './vaultBoundary';
 import {connectionStorePath,readConnections,sharedRequest} from './sharedConnections';
 import {contributions,getRule,setRule,sourceKey} from './sharedRules';
-import {readSourceInsertionLog} from './insertionLog';
+import {readSourceInsertionLog,type SourceInsertion} from './insertionLog';
 import {sharedRuleScope,type InclusionSource} from './inclusionPolicy';
 import {getReview,startReview,reviewState,rateReview,pickReview,searchReviewSources,editReview,retryReview,finishReview,type ReviewContext} from './inclusionReview';
 import {ruleCandidateFilter,searchRuleEntities} from './sharedRuleMentions';
@@ -27,8 +27,8 @@ export async function inclusionReviewApi(req:IncomingMessage,res:ServerResponse,
     const check=()=>{if(!readConnections(store).some(x=>x.id===c.id&&x.token===c.token)||getRule(store,c.id)?.version!==version)throw Error('The shared connection or rule changed. Reopen its review.');};
     // "Include these?" asks only about notes not yet in the shared vault, whatever their age.
     const shared=new Set((await contributions(c)).map(x=>x.source_id));
-    const unshared=()=>{const all=new Map<string,ReturnType<typeof readSourceInsertionLog>[number]>();for(const s of readSourceInsertionLog(root,{strict:true}))all.set(s.source_id,s);return [...all.values()].reverse().filter(s=>!shared.has('origin:'+sourceKey(s)));};
-    const asSource=(s:ReturnType<typeof readSourceInsertionLog>[number]):InclusionSource=>({id:s.id,title:s.title,body:s.body,origin:`Personal · ${(s.received_at??'').slice(0,10)}`});
+    const unshared=()=>{const all=new Map<string,SourceInsertion>();for(const s of readSourceInsertionLog(root,{strict:true}))all.set(s.source_id,s);return [...all.values()].reverse().filter(s=>!shared.has('origin:'+sourceKey(s)));};
+    const asSource=(s:SourceInsertion):InclusionSource=>({id:s.id,title:s.title,body:s.body,origin:['Personal',(s.received_at??'').slice(0,10)].filter(Boolean).join(' · ')});
     context={root,store,scope:sharedRuleScope(c.id),text:body.text??getRule(store,c.id)?.text??'',sources:unshared().map(asSource),select:text=>unshared().filter(ruleCandidateFilter(root,text)).map(asSource),check,save:text=>setRule(store,c.id,text,root)};
    }else throw Error('Choose a shared vault.');
    if(typeof context.text!=='string'||!context.text.trim()||context.text.length>8000)throw Error('Write an inclusion rule first.');

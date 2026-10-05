@@ -24,9 +24,16 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
   const card=page.locator('article').first();const title=await card.locator('.title').innerText();await card.getByRole('button',{name:(title.startsWith('Include')?'Include: ':'Exclude: ')+title,exact:true}).click();
   await page.waitForFunction(old=>!Array.from(document.querySelectorAll('article .title')).some(e=>e.textContent===old),title);
  }
+ // A note the rule missed, added by hand: shown with its thumbs up chosen, and kept in the existing matches.
+ await page.getByRole('button',{name:'Add something manually',exact:true}).click();await page.getByLabel('Find a note to include',{exact:true}).fill('sentinel');
+ await page.getByRole('listbox',{name:'Notes',exact:true}).getByRole('option').filter({hasText:'Personal sentinel'}).click();
+ const picked=page.locator('article.picked').filter({hasText:'Personal sentinel'});await picked.waitFor();assert.equal(await picked.getByRole('button',{name:'Included: Personal sentinel',exact:true}).getAttribute('aria-pressed'),'true');
+ await page.waitForFunction(()=>!document.querySelector('.done:disabled'));
  await done.click();
  // Saving opens the existing-matches list; "Not now" leaves without adding anything.
- await page.getByRole('group',{name:'Existing matches',exact:true}).waitFor();await page.getByRole('button',{name:'Not now',exact:true}).click();
+ const existing=page.getByRole('group',{name:'Existing matches',exact:true});await existing.waitFor();
+ await existing.getByRole('button',{name:'Keep: Personal sentinel',exact:true}).waitFor();assert.equal(await existing.getByRole('button',{name:'Keep: Personal sentinel',exact:true}).getAttribute('aria-pressed'),'true');
+ mkdirSync('artifacts',{recursive:true});await page.screenshot({path:'artifacts/inclusion-manual-add.png',fullPage:true});await page.getByRole('button',{name:'Not now',exact:true}).click();
  await page.getByText('Automatically adding new matches',{exact:true}).waitFor();assert.equal(await page.getByRole('button',{name:'Add existing matches',exact:true}).count(),1);assert.equal(await page.getByRole('button',{name:'Test rule',exact:true}).count(),0);
  await page.getByRole('button',{name:'Remove rule',exact:true}).click();await page.getByRole('button',{name:'Use suggestion',exact:true}).waitFor();
  await page.getByRole('button',{name:'Added by you',exact:false}).click();await page.getByRole('button',{name:'Withdraw',exact:true}).click();await page.getByText('No shared sources.',{exact:true}).waitFor();assert.equal(await page.getByRole('button',{name:'Shared launch decision',exact:true}).count(),0);assert.equal(await page.getByRole('button',{name:'Restore',exact:true}).count(),0);
