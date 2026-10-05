@@ -39,6 +39,10 @@ export interface V2Scene {
   search(state: { matches: number[]; active: number | null; text?: string; caption?: string; move: "frame" | "glide" | "none" } | null): void;
   /** A hovered feed row: what it mentions. */
   hover(entities: number[] | null): void;
+  /** The feed row in hand, as a node of its own: a ring over what it
+   * mentions, tied to each. Sources aren't in the field at rest; this one
+   * is there only while it's in hand, and glides to the next as you walk. */
+  source(s: { label: string; entities: number[] } | null): void;
   /** Beside one of the opened entity's ties: how it relates to that entity,
    * after its name; "" is a spinner, null takes it away. The entity keeps
    * its own text: the relation finds room around its tie. */
@@ -146,7 +150,42 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
       end() { g.setDrawRange(0, k * 2); g.attributes.position!.needsUpdate = true; g.attributes.color!.needsUpdate = true; },
     };
   };
-  const ties = dynamic(160);
+  const ties = dynamic(160 + 64);
+
+  // ── the source in hand: a ring, not a point, over what it mentions ───────
+  const srcGeo = new THREE.BufferGeometry();
+  srcGeo.setAttribute("position", new THREE.Float32BufferAttribute([0, 0, 0], 3));
+  const srcMat = new THREE.ShaderMaterial({
+    uniforms: { uPx: { value: 1 }, uRef: { value: 36 }, uSize: { value: 9 }, uColor: { value: new THREE.Color() }, uAlpha: { value: 0 } },
+    vertexShader: /* glsl */`
+      uniform float uPx, uRef, uSize;
+      void main() {
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        gl_Position = projectionMatrix * mv;
+        gl_PointSize = max(6.0, uSize * uPx * uRef / -mv.z);
+      }`,
+    fragmentShader: /* glsl */`
+      uniform vec3 uColor; uniform float uAlpha;
+      void main() {
+        float d = length(gl_PointCoord - 0.5) * 2.0;
+        float ring = smoothstep(0.52, 0.62, d) * (1.0 - smoothstep(0.84, 0.96, d));
+        float dot = 1.0 - smoothstep(0.14, 0.24, d);
+        gl_FragColor = vec4(uColor, uAlpha * max(ring, dot));
+        #include <colorspace_fragment>
+      }`,
+    transparent: true, depthWrite: false,
+  });
+  const srcPoint = new THREE.Points(srcGeo, srcMat);
+  srcPoint.renderOrder = 5;
+  srcPoint.frustumCulled = false;
+  srcPoint.visible = false;
+  scene.add(srcPoint);
+  const srcLabel = document.createElement("div") as HTMLDivElement & { w?: number; h?: number; op?: number };
+  srcLabel.className = "v2-lab v2-source";
+  labelLayer.append(srcLabel);
+  /** `to` is where it's headed; `at` glides there; `vis` fades it in and out. */
+  const src = { want: null as { label: string; entities: number[] } | null, shown: [] as number[], at: new THREE.Vector3(), to: new THREE.Vector3(), vis: 0 };
+  const nameOfSource = (s: string) => (s.length > 48 ? s.slice(0, 47).trimEnd() + "…" : s);
 
   // ── glass: memory topics ─────────────────────────────────────────────────
   const octa = new THREE.OctahedronGeometry(1, 0);
@@ -480,7 +519,8 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
       c1.copy(n.named || r > 0.5 ? col.fg : dust).lerp(col.act, h * 0.9).toArray(colors, i * 3);
     }
     aSize.needsUpdate = true; aColor.needsUpdate = true; aAlpha.needsUpdate = true;
-    (strong.material as THREE.LineBasicMaterial).opacity = 0.14 * searchDim * (1 - 0.5 * dim);
+    // a source in hand: the field's own lines step back so its ties read
+    (strong.material as THREE.LineBasicMaterial).opacity = 0.14 * searchDim * (1 - 0.5 * dim) * (1 - 0.6 * src.vis);
 
     // memory glass recedes with everything else when something is in play
     for (const g of memory) {
@@ -514,8 +554,20 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
       pl.glass.mat.opacity = 0.96 * pl.glass.vis;
     }
 
+    // the source in hand: it fades in where it lands, then glides from row
+    // to row; going, it fades where it stands, still tied to what it named
+    src.vis += ((src.want ? 1 : 0) - src.vis) * ease(src.want ? 10 : 7);
+    src.at.lerp(src.to, ease(7));
+    srcPoint.position.copy(src.at);
+    srcPoint.visible = src.vis > 0.01;
+    srcMat.uniforms["uColor"]!.value.copy(col.fg);
+    srcMat.uniforms["uAlpha"]!.value = src.vis;
+    srcMat.uniforms["uPx"]!.value = renderer.getPixelRatio();
+    srcMat.uniforms["uSize"]!.value = hubSize * 2;
+
     // the ties of an opened entity; each pilot's lines to what it's working on
     ties.begin();
+    if (src.vis > 0.01) for (const j of src.shown) ties.add(src.at, P[j]!, c1.copy(col.bg).lerp(col.fg, 0.85 * src.vis), c2.copy(col.bg).lerp(col.fg, 0.5 * src.vis));
     if (ent) for (const j of ent.ties) ties.add(P[ent.i]!, P[j]!, c1.copy(col.bg).lerp(col.fg, 0.55), c2.copy(col.bg).lerp(col.fg, 0.4));
     for (const pl of pilots.values()) {
       const on = focus === pl.d.id, tint = pl.d.phase === "working" ? col.act : col.fg;
@@ -556,6 +608,16 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
         placed.push([s1.x - R, s1.y - R, s1.x + R, s1.y + R]);
       }
     }
+    // the source's title over its ring, ahead of every entity's name
+    tA.copy(src.at); tA.y += 0.35;
+    toScreen(tA, s1);
+    if (srcPoint.visible && s1.ok) {
+      if (srcLabel.w == null) { srcLabel.w = srcLabel.offsetWidth; srcLabel.h = srcLabel.offsetHeight; }
+      srcLabel.style.transform = `translate3d(${s1.x.toFixed(1)}px,${s1.y.toFixed(1)}px,0) translate(-50%,-100%)`;
+      placed.push([s1.x - srcLabel.w / 2 - 6, s1.y - srcLabel.h! - 4, s1.x + srcLabel.w / 2 + 6, s1.y + 4]);
+    }
+    const so = Math.round((srcPoint.visible && s1.ok ? src.vis : 0) * 40) / 40;
+    if (so !== srcLabel.op) { srcLabel.style.opacity = String(so); srcLabel.style.visibility = so <= 0 ? "hidden" : "visible"; srcLabel.op = so; }
     const cand: Cand[] = [];
     const inHand = srch ? srch.active : ent ? ent.i : null;
     const handText = srch ? srch.text : ent?.text;
@@ -647,6 +709,20 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
       else if (state.move === "frame") frameAround(state.matches.map((m) => P[m]!), 0.55, 3.2, 7, OVERVIEW.dist);
     },
     hover(entities) { hot = entities ? new Set(entities) : null; },
+    source(s) {
+      src.want = s && s.entities.length ? s : null;
+      if (!src.want) return;
+      // over the middle of what it mentions, lifted clear of it (one mention:
+      // just above that dot, a little aside, so the tie reads as a line)
+      const c = new THREE.Vector3();
+      for (const j of src.want.entities) c.add(P[j]!);
+      c.divideScalar(src.want.entities.length);
+      src.to.set(c.x + (src.want.entities.length === 1 ? 0.6 : 0), c.y + 1.6, c.z);
+      if (src.vis < 0.05) src.at.copy(src.to);
+      src.shown = src.want.entities;
+      const name = nameOfSource(src.want.label);
+      if (srcLabel.textContent !== name) { srcLabel.textContent = name; srcLabel.w = undefined; }
+    },
     relate(j, text) {
       if (j == null || text === undefined) return unrelate();
       if (rl && rl.j !== j) unrelate();

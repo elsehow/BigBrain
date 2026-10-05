@@ -66,6 +66,8 @@
   let writing: V2Feed | null = $state(null);
   let error = $state("");
   let scene: V2Scene | null = null;
+  /** Bumped when the scene is drawn anew, so what it's showing is handed back. */
+  let sceneRev = $state(0);
   let twins = new Map<number, number[]>();
 
   let ent: number | null = $state(null);
@@ -587,6 +589,7 @@
       onHover: relateTie,
     });
     scene.setPilots(placePilots(field, bar));
+    sceneRev++;
   }
   /** The vault changed (the engine's /api/events ping, as the app's views
    * hear it): the feed and the record re-read at once; a changed graph is
@@ -666,6 +669,20 @@
   function closeSource(): void { if (src) { src = null; scene?.search(null); } }
   const feedEntities = (r: V2SortedRow) => r.entities.map((id) => field!.byId.get(id)).filter((x): x is number => x != null);
   const cursorRow = () => sorted.find((r) => r.source === cursor) ?? null;
+  /** The feed row under the pointer. */
+  let rowOver: V2SortedRow | null = $state(null);
+  /** The source in hand — a draft's, an opened one, the row under the
+   * pointer, else the walk's — drawn in the field while it's held. */
+  const sourceInHand = $derived.by((): V2SortedRow | null => {
+    if (drafting(openPilot)) return draft?.row ?? null;
+    if (openPilot || ent != null || searching) return null;
+    return src?.row ?? rowOver ?? cursorRow();
+  });
+  $effect(() => {
+    void sceneRev;
+    const r = sourceInHand;
+    scene?.source(r && field ? { label: r.title ?? r.headline, entities: feedEntities(r) } : null);
+  });
   /** Light what the row in hand mentions, where it sits in the field. */
   const lightCursor = () => { const r = cursorRow(); scene?.hover(r ? feedEntities(r) : null); };
   /** j (down, newer) and k (up, older): the first press takes the newest row;
@@ -673,6 +690,7 @@
   function stepFeed(dir: 1 | -1): void {
     if (!sorted.length) return;
     if (ent != null || src) overview();
+    rowOver = null;
     const at = sorted.findIndex((r) => r.source === cursor);
     cursor = sorted[at < 0 ? 0 : Math.max(0, Math.min(sorted.length - 1, at - dir))]!.source;
     lightCursor();
@@ -691,6 +709,7 @@
     if (r.path && !data) return openDraft(r, r.path);
     if (ent != null) { ent = null; entRows = null; }
     cursor = r.source;
+    rowOver = null;
     src = { row: r, text: r.path && !data ? "" : undefined };
     scene?.hover(null);
     scene?.search({ matches: feedEntities(r), active: null, move: "frame" });
@@ -1028,8 +1047,8 @@
       {#each sortedShown as r (r.source)}
         <div class="row s-{r.section}" class:at={r.source === cursor} class:open={r.source === src?.row.source} role="button" tabindex="-1"
           title={r.title && r.title !== r.headline ? r.title : undefined}
-          onmouseenter={() => { if (!src) scene?.hover(feedEntities(r)); }}
-          onmouseleave={() => { if (!src) lightCursor(); }}
+          onmouseenter={() => { rowOver = r; if (!src) scene?.hover(feedEntities(r)); }}
+          onmouseleave={() => { rowOver = null; if (!src) lightCursor(); }}
           onclick={() => openSource(r)} onkeydown={() => {}}>
           <span class="w" title="When it entered your feed">{when(r.added)}</span>
           <span class="x">{r.headline}{#if r.due}<span class="due">{dueOn(r.due)}</span>{/if}</span>
@@ -1175,6 +1194,7 @@
   .stage :global(.v2-node:hover .t) { color: var(--fg); }
   .stage :global(.v2-pilot) { font: 500 11px/1 var(--font-mono); color: var(--v2-muted); }
   .stage :global(.v2-pilot:hover) { color: var(--fg); }
+  .stage :global(.v2-source) { font: 500 11.5px/1.2 var(--font-app); color: var(--fg); pointer-events: none; }
   .stage :global(.v2-pilot.working) { color: color-mix(in srgb, var(--activity) 80%, var(--fg)); }
   .stage :global(.v2-node.memory .t) { font: 500 12px/1.2 var(--font-app); color: var(--fg); }
   .stage :global(.v2-node .q), .stage :global(.v2-node .c) { display: none; }
