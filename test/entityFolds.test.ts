@@ -6,6 +6,7 @@
  * re-forms, and nothing is written when the model wrote no answer.
  */
 import { describe, expect, test } from "bun:test";
+import { MEMORY_PROTOCOL_VERSION, writeMemoryStamp } from "../lib/memory";
 import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -414,6 +415,7 @@ describe("on the memory clock", () => {
       author: MODEL, confidence: "direct", created_at: "2026-08-20T10:00:00.000Z", produced_by: PRODUCED,
     }, new Map([[ins.id, ins]]));
     appendAssertionEvent(root, ev);
+    writeMemoryStamp(root, { protocolVersion: MEMORY_PROTOCOL_VERSION }); // a current tree: no rebuild
     const prompts: string[] = [];
     const loadPi: PiLoader = fakePi((prompt) => {
       prompts.push(prompt);
