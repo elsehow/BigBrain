@@ -159,7 +159,7 @@ describe("the loop", () => {
     const months = readdirSync(join(root, "journal", "tend"));
     const files = readdirSync(join(root, "journal", "tend", months[0]!));
     const j = JSON.parse(readFileSync(join(root, "journal", "tend", months[0]!, files[0]!), "utf8"));
-    expect(j.prompt_version).toBe("tend/v4");
+    expect(j.prompt_version).toBe("tend/v5");
     expect(j.staged_ids).toEqual(["fixture-00000000000000000001"]);
     expect(j.insertion_ids).toEqual([]); // the admitted insertion was not due when the round began
   });
