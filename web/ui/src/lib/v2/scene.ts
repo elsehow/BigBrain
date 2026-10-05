@@ -39,12 +39,12 @@ export interface V2Scene {
   search(state: { matches: number[]; active: number | null; text?: string; caption?: string; move: "frame" | "glide" | "none" } | null): void;
   /** A hovered feed row: what it mentions. */
   hover(entities: number[] | null): void;
-  /** The feed row in hand, as a node of its own: a ring over what it
-   * mentions, tied to each. Sources aren't in the field at rest; this one
-   * is there only while it's in hand. `reveal`: when it or what it mentions
-   * is out of view, the camera pans (zooming out only if it must) just far
-   * enough to bring them in; in view, the camera stays put. */
-  source(s: { label: string; entities: number[]; reveal?: boolean } | null): void;
+  /** The feed row in hand, as a node of its own: over what it mentions, tied
+   * to each (mentioning nothing in the field, it sits mid-view, tied to
+   * nothing). Sources aren't in the field at rest; this one is there only
+   * while it's in hand. `open`: opened as an entity is — framed, the rest
+   * steps back, `text` beside it. */
+  source(s: { label: string; entities: number[]; open?: boolean; text?: string } | null): void;
   /** Beside one of the opened entity's ties: how it relates to that entity,
    * after its name; "" is a spinner, null takes it away. The entity keeps
    * its own text: the relation finds room around its tie. */
@@ -127,15 +127,23 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
   // ── sources: hidden at rest; the one in hand is a node like any other ────
   // It sits over the middle of what it mentions, tied to each, and comes and
   // goes as a pointed dot's name does: fading in where it is, out where it was.
-  type Src = { key: string; label: string; ties: number[]; at: THREE.Vector3; vis: number; want: boolean; L: HTMLDivElement & { w?: number; h?: number; op?: number } };
+  type Src = { key: string; ties: number[]; at: THREE.Vector3; vis: number; want: boolean; open: boolean; L: HTMLDivElement & { w?: number; h?: number; op?: number } };
   const sources: Src[] = Array.from({ length: SOURCES }, () => {
     const L = document.createElement("div") as Src["L"];
     L.className = "v2-lab v2-node v2-source";
-    const t = document.createElement("span");
-    t.className = "t";
-    L.append(t);
-    return { key: "", label: "", ties: [], at: new THREE.Vector3(), vis: 0, want: false, L };
+    const t = document.createElement("span"), q = document.createElement("span");
+    t.className = "t"; q.className = "q";
+    L.append(t, q);
+    return { key: "", ties: [], at: new THREE.Vector3(), vis: 0, want: false, open: false, L };
   });
+  /** Its name, or opened, its text where an opened entity's goes. */
+  const sourceLabel = (s: Src, name: string, text: string | undefined) => {
+    const full = s.open && !!text;
+    s.L.classList.toggle("full", full);
+    s.L.children[0]!.textContent = srcName(name);
+    s.L.children[1]!.textContent = full ? text! : "";
+    s.L.w = undefined;
+  };
   for (const s of sources) labelLayer.append(s.L);
   const srcName = (s: string) => (s.length > 48 ? s.slice(0, 47).trimEnd() + "…" : s);
 
@@ -296,47 +304,6 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
     let R = 0;
     for (const p of pts) R = Math.max(R, p.distanceTo(c));
     setGoal({ el, dist: THREE.MathUtils.clamp(R * k + 3, lo, hi), target: c });
-  };
-  /** The least move that brings `pts` (and `extra` px of label right of the
-   * first) into the clear part of the window: judged from where the camera is
-   * headed, not where it is mid-flight, so a quick walk doesn't overshoot. */
-  const goalCam = new THREE.PerspectiveCamera();
-  const reveal = (pts: THREE.Vector3[], extra: number) => {
-    // the clear part: the window less the panels along its edges
-    const M = 28;
-    let l = M, t = M, r = W - M, b = H - M;
-    for (const q of hooks.blockers()) {
-      if (q.width > W / 2) { if (q.top > H / 2) b = Math.min(b, q.top - M); else t = Math.max(t, q.bottom + M); }
-      else if (q.height > H / 2) { if (q.left > W / 2) r = Math.min(r, q.left - M); else l = Math.max(l, q.right + M); }
-    }
-    if (r - l < 80 || b - t < 80) return;
-    const d = goal.dist * LENS;
-    goalCam.copy(camera);
-    goalCam.position.set(goal.target.x + Math.sin(goal.az) * Math.cos(goal.el) * d, goal.target.y + Math.sin(goal.el) * d, goal.target.z + Math.cos(goal.az) * Math.cos(goal.el) * d);
-    goalCam.lookAt(goal.target);
-    goalCam.setViewOffset(W, H, W < 700 ? 0 : -shiftGoal, 0, W, H);
-    goalCam.updateMatrixWorld();
-    let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
-    pts.forEach((p, k) => {
-      v3.copy(p).project(goalCam);
-      const x = (v3.x * 0.5 + 0.5) * W, y = (-v3.y * 0.5 + 0.5) * H;
-      x0 = Math.min(x0, x); x1 = Math.max(x1, x + (k === 0 ? extra : 0)); y0 = Math.min(y0, y - 8); y1 = Math.max(y1, y + 8);
-    });
-    if (x0 >= l && x1 <= r && y0 >= t && y1 <= b) return;
-    // too wide or tall for the clear part at this distance: step back first
-    const grow = Math.max(1, (x1 - x0) / (r - l), (y1 - y0) / (b - t));
-    if (grow > 1) {
-      goal.dist = Math.min(OVERVIEW.dist * 1.3, goal.dist * grow * 1.1);
-      const c = new THREE.Vector3();
-      for (const p of pts) c.add(p);
-      goal.target.copy(c.divideScalar(pts.length));
-      return;
-    }
-    // else slide: px off the clear part, as world units at the target's depth
-    const dx = x0 < l ? x0 - l : x1 > r ? x1 - r : 0, dy = y0 < t ? y0 - t : y1 > b ? y1 - b : 0;
-    const perPx = 2 * d * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) / H;
-    tB.setFromMatrixColumn(goalCam.matrixWorld, 0); goal.target.addScaledVector(tB, dx * perPx);
-    tB.setFromMatrixColumn(goalCam.matrixWorld, 1); goal.target.addScaledVector(tB, -dy * perPx);
   };
 
   // ── labels: DOM, placed per frame, culled where they'd collide ──────────
@@ -526,7 +493,8 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
 
     // what is in play
     const fp = focus ? pilots.get(focus) : undefined;
-    const inPlay: Set<number> | null = srch ? null : ent ? new Set([ent.i, ...ent.ties]) : fp ? new Set(fp.d.ctx) : null;
+    const os = sources.find((s) => s.want && s.open);
+    const inPlay: Set<number> | null = srch ? null : ent ? new Set([ent.i, ...ent.ties]) : fp ? new Set(fp.d.ctx) : os ? new Set(os.ties) : null;
     const k = ease(9);
     dim += ((inPlay ? 1 : 0) - dim) * k;
     searchDim += ((srch && srch.matches.size ? 0.12 : srch ? 0.5 : 1) - searchDim) * ease(10);
@@ -736,24 +704,34 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
     },
     hover(entities) { hot = entities ? new Set(entities) : null; },
     source(want) {
-      const key = want && want.entities.length ? `${want.label}\u0000${want.entities.join(",")}` : "";
+      const key = want ? `${want.label}\u0000${want.entities.join(",")}` : "";
       for (const s of sources) s.want = !!key && s.key === key;
-      if (!key) return;
+      if (!want) return;
+      const open = !!want.open;
+      // over the middle of what it mentions, lifted clear of it (over one, a
+      // little aside, so the tie reads); mentioning nothing here, mid-view
+      const frame = (s: Src) => { if (s.ties.length) frameAround([s.at, ...s.ties.map((j) => P[j]!)], 0.5, 2.6, 7, 16); };
       const held = sources.find((s) => s.want);
-      if (held) { if (want!.reveal) reveal([held.at, ...held.ties.map((j) => P[j]!)], held.L.offsetWidth + 9); return; }
+      if (held) {
+        const opening = open && !held.open;
+        held.open = open;
+        sourceLabel(held, want.label, want.text);
+        if (opening) frame(held);
+        return;
+      }
       // a free slot (or the faintest), so the last one fades out where it was
       const s = sources.reduce((a, b) => (b.vis < a.vis ? b : a));
-      const c = new THREE.Vector3();
-      for (const j of want!.entities) c.add(P[j]!);
-      c.divideScalar(want!.entities.length);
-      // lifted clear of what it mentions; over one mention, a little aside, so the tie reads
-      s.at.set(c.x + (want!.entities.length === 1 ? 0.6 : 0), c.y + 1.6, c.z);
+      if (want.entities.length) {
+        const c = new THREE.Vector3();
+        for (const j of want.entities) c.add(P[j]!);
+        c.divideScalar(want.entities.length);
+        s.at.set(c.x + (want.entities.length === 1 ? 0.6 : 0), c.y + 1.6, c.z);
+      } else s.at.copy(goal.target).y += 1.2;
       s.at.toArray(aPos.array, (N + sources.indexOf(s)) * 3);
       aPos.needsUpdate = true;
-      Object.assign(s, { key, label: want!.label, ties: want!.entities, want: true, vis: 0 });
-      s.L.firstChild!.textContent = srcName(want!.label);
-      s.L.w = undefined;
-      if (want!.reveal) reveal([s.at, ...s.ties.map((j) => P[j]!)], s.L.offsetWidth + 9);
+      Object.assign(s, { key, ties: want.entities, want: true, vis: 0, open });
+      sourceLabel(s, want.label, want.text);
+      if (open) frame(s);
     },
     relate(j, text) {
       if (j == null || text === undefined) return unrelate();

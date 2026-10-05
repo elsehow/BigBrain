@@ -552,6 +552,9 @@
   let hud = $derived.by(() => {
     if (!field || !writing || searching || openPilot) return null;
     if (src) return { eyebrow: [src.row.via, when(src.row.added)].filter(Boolean).join(" · "), name: src.row.title ?? src.row.headline, status: src.text ?? "", writing: src.text === "" };
+    // the row walked to: its source's full title, as an opened source's
+    const walked = ent == null ? cursorRow() : null;
+    if (walked) return { eyebrow: [walked.via, when(walked.added)].filter(Boolean).join(" · "), name: walked.title ?? walked.headline, status: "" };
     if (ent != null) {
       const n = field.nodes[ent]!;
       const tw = (twins.get(ent) ?? []).map((j) => field!.nodes[j]!.label);
@@ -648,7 +651,7 @@
   /** Slide the field's centre clear of the panels: right of a left column, left of the sidebar. */
   const shiftFor = () => {
     const chatW = (chatWidth ?? Math.min(1000, Math.max(520, innerWidth * 0.44))) + GUTTER; // .v2's --chat-w, plus a gutter
-    const left = searching ? Math.min(600, innerWidth * 0.4) : openPilot ? chatW : ent != null || src ? Math.min(380, innerWidth * 0.26) : 0;
+    const left = searching ? Math.min(600, innerWidth * 0.4) : openPilot ? chatW : ent != null || src || cursor ? Math.min(380, innerWidth * 0.26) : 0;
     if (openPilot && !showDesktop && !searching) return 0; // the chat stands alone, centred
     const right = showDesktop ? innerWidth - chatW - GUTTER : 0;
     return (left - right) / 2;
@@ -681,11 +684,12 @@
   $effect(() => {
     void sceneRev;
     const r = sourceInHand;
-    // walked to (j/k) or opened, the camera brings it into view; only pointed at, it holds still
-    scene?.source(r && field ? { label: r.title ?? r.headline, entities: feedEntities(r), reveal: r !== rowOver } : null);
+    // walked to (j/k), it opens as an entity does, its headline beside it;
+    // only pointed at, it's named and the camera holds still
+    scene?.source(r && field ? { label: r.title ?? r.headline, entities: feedEntities(r), open: !openPilot && !src && r !== rowOver, text: r.headline } : null);
   });
-  /** Light what the row in hand mentions, where it sits in the field. */
-  const lightCursor = () => { const r = cursorRow(); scene?.hover(r ? feedEntities(r) : null); };
+  /** Back from a row pointed at: the row in hand is drawn opened (above), not lit. */
+  const lightCursor = () => scene?.hover(null);
   /** j (down, newer) and k (up, older): the first press takes the newest row;
    * walking up past the top scrolls the older ones in. */
   function stepFeed(dir: 1 | -1): void {
@@ -695,12 +699,15 @@
     const at = sorted.findIndex((r) => r.source === cursor);
     cursor = sorted[at < 0 ? 0 : Math.max(0, Math.min(sorted.length - 1, at - dir))]!.source;
     lightCursor();
+    scene?.shift(shiftFor());
     void tick().then(() => feedEl?.querySelector(".row.at")?.scrollIntoView({ block: "nearest" }));
   }
   /** Let go of the walk: the strip settles back on the newest. */
   function leaveFeed(): void {
     cursor = null;
     scene?.hover(null);
+    scene?.overview();
+    scene?.shift(shiftFor());
     feedFollowing = true;
     if (feedEl) feedEl.scrollTop = feedEl.scrollHeight;
   }
