@@ -1,11 +1,8 @@
 /**
  * emailItem.ts — the email door's decisions that need no network and no
- * model (#744): what a message looks like as a head line, which scopes a
- * rule may name, how a body loses its quoted history, and what a message
- * lands as. The poller (integrations/email/run.ts) fetches; lib/stage.ts
- * holds what it staged; the gardener decides — one model, one queue
- * (Nick, 2026-09-04): this module used to carry a tool-less triage round
- * of its own, and that round is gone.
+ * model (#744): what a message looks like as a head line, how a body loses
+ * its quoted history, and what a message lands as. The poller
+ * (integrations/email/run.ts) fetches; lib/stage.ts holds what it staged.
  */
 
 import { frontmatter, slugify } from "./fsx";
@@ -38,18 +35,8 @@ export interface Head {
   reply: boolean;
   /** Gmail's thread id (X-GM-THRID), when the server is Gmail. */
   threadId?: string;
-  /** The sender is already a person in the record — a rule on them is
-   * refused (the staged head's `protect`). */
+  /** The sender is already a person in the record: the head says `known`. */
   known: boolean;
-}
-
-// ── scopes ───────────────────────────────────────────────────────────────────
-
-/** The exact strings a skip rule may name for this message: the sender's
- * address (never the display name — a spoofed name must not drop a real
- * person) and the List-Id when there is one. */
-export function emailScopes(h: Head): Record<string, string> {
-  return { sender: h.from.toLowerCase(), ...(h.listId ? { list: h.listId.toLowerCase() } : {}) };
 }
 
 // ── the head line ────────────────────────────────────────────────────────────

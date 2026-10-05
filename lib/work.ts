@@ -1,5 +1,3 @@
-import { stagedAccount } from "./stage";
-import { rememberingRule } from "./integrationAccess";
 /** work.ts — the queue is a VIEW over the logs (#520, work-as-a-view,
  * docs/plans/2026-08-23-work-as-a-view.md).
  *
@@ -252,7 +250,7 @@ export interface MemoryInputs {
 }
 
 /** A staged head IS its inputs: the body comes only through `open`. */
-export type StagedInputs = { remembering_rule?: string };
+export type StagedInputs = Record<string, never>;
 
 export type WorkItem =
   | { job: IntakeJob; inputs: IntakeInputs }
@@ -411,10 +409,7 @@ export function nextWork(root: string, opts: Omit<DueWorkOpts, "limit"> & { limi
     } finally { db.close(); }
   }
   for (const job of jobs) {
-    if (job.kind === "staged") {
-      const rule = rememberingRule(root, job.source, stagedAccount(root,job));
-      items.push({ job, inputs: rule ? { remembering_rule: rule } : {} });
-    }
+    if (job.kind === "staged") items.push({ job, inputs: {} });
     if (job.kind !== "memory") continue;
     items.push({
       job,
@@ -448,13 +443,11 @@ export interface SubmitAdmit {
   staged_ids: string[];
 }
 
-/** Let staged arrivals go, nothing landing; `rule` (one scope of the
- * head) becomes a standing skip rule for that source. */
+/** Let staged arrivals go, nothing landing. */
 export interface SubmitPass {
   submit: "pass";
   staged_ids: string[];
   reason: string;
-  rule?: Record<string, unknown>;
 }
 
 export type SubmitItem = SubmitAssertion | SubmitDecline | SubmitAdmit | SubmitPass;
@@ -510,7 +503,7 @@ export function submitWork(root: string, items: readonly SubmitItem[], opts: Sub
       admitted += rows.filter((r) => r.ok).length;
       results.push({ index, ok: rows.every((r) => r.ok), staged: rows, ...(rows.every((r) => r.ok) ? {} : { error: rows.find((r) => !r.ok)!.error! }) });
     } else if (item.submit === "pass") {
-      const rows = passStaged(root, item.staged_ids, item.reason, item.rule, now());
+      const rows = passStaged(root, item.staged_ids, item.reason, now());
       passed += rows.filter((r) => r.ok).length;
       results.push({ index, ok: rows.every((r) => r.ok), staged: rows, ...(rows.every((r) => r.ok) ? {} : { error: rows.find((r) => !r.ok)!.error! }) });
     }
@@ -644,17 +637,7 @@ export function submitWire(root: string, raw: unknown, opts: SubmitOpts): Submit
         const ids = Array.isArray(r.staged_ids) ? r.staged_ids.map(String).filter(Boolean) : [];
         if (!ids.length) throw new Error(`${r.submit} needs staged_ids`);
         if (r.submit === "admit") items.push({ index, item: { submit: "admit", staged_ids: ids } });
-        else {
-          if (r.rule !== undefined && (!r.rule || typeof r.rule !== "object" || Array.isArray(r.rule)))
-            throw new Error('rule must be an object: {"<scope>": "<value>"}');
-          items.push({
-            index,
-            item: {
-              submit: "pass", staged_ids: ids, reason: str(r.reason),
-              ...(r.rule ? { rule: r.rule as Record<string, unknown> } : {}),
-            },
-          });
-        }
+        else items.push({ index, item: { submit: "pass", staged_ids: ids, reason: str(r.reason) } });
       } else {
         throw new Error('submit must be "assertion", "decline", "admit" or "pass"');
       }

@@ -11,7 +11,8 @@ import {readEnvValues} from '../lib/envFile';
 import {integrationToolCall,integrationCapabilities} from '../lib/integrationTools';
 import {createEmailReadStateAdapter} from '../lib/emailReadState';
 import {liveInboxTool} from '../lib/liveInbox';
-import {stagedHeads,admitStaged,passStaged} from '../lib/stage';
+import {admitStaged,passStaged} from '../lib/stage';
+import {headFiles} from '../lib/stageStorage';
 const roots:string[]=[];
 afterAll(()=>roots.forEach(root=>rmSync(root,{recursive:true,force:true})));
 function vault(){const root=gitVault({files:{'vault.yaml':'{}\n','.gitignore':'.env\n.state/\n.spool/\n'}});roots.push(root);return root;}
@@ -22,7 +23,7 @@ async function account(root:string,address='me@example.com'){
 }
 async function enable(root:string,options:{attachments?:boolean;startAt?:string}={}){
  const api=await account(root);
- await api.update({name:'email',action:'save',account:'me@example.com',liveAccess:true,remembering:{enabled:true,rule:'Remember project decisions.'},attachments:options.attachments??false});
+ await api.update({name:'email',action:'save',account:'me@example.com',liveAccess:true,remembering:{enabled:true},attachments:options.attachments??false});
  const p=accountPolicy(root,'email','me@example.com');
  writeAccountPolicy(root,'email','me@example.com',{...p,email:{...p.email!,startAt:options.startAt??'2026-09-01T00:00:00Z'}});
  return api;
@@ -42,7 +43,7 @@ test('Gmail onboarding verifies before saving; returns no secrets, keeps choices
  const connected=await account(root);expect(calls).toBe(1);
  const state=connected.list();expect(JSON.stringify(state)).not.toContain('abcdefghijklmnop');expect(statSync(join(root,'.env')).mode&0o777).toBe(0o600);
  expect(accountPolicy(root,'email','me@example.com').remembering.enabled).toBe(false);
- await connected.update({name:'email',action:'save',account:'me@example.com',liveAccess:true,remembering:{enabled:false,rule:''},attachments:false});
+ await connected.update({name:'email',action:'save',account:'me@example.com',liveAccess:true,remembering:{enabled:false},attachments:false});
  expect(integrationCapabilities(root,{kind:'pilot'}).email.operations).not.toContain('inbox_set_unread');
  expect(()=>requireIntegrationWrite(root,'email','me@example.com',{kind:'pilot'})).toThrow();
  await expect(connected.update({name:'email',action:'add',address:'me@example.com',password:'ponmlkjihgfedcba'})).rejects.toThrow('already exists');
@@ -76,14 +77,14 @@ test('the viewer may flip only \\Seen on a Gmail message; agents stay read-only'
 test('real runner preserves stable identity across UID reset, labels and duplicate Message-IDs; attachment retention is opt-in',async()=>{
  const root=vault();await enable(root);
  await poll(root,{count:2,sameMessageId:true});
- const heads=stagedHeads(root);expect(heads.length).toBe(2);
+ const heads=headFiles(root);expect(heads.length).toBe(2);
  for(const head of heads){expect(body(root,head.id).attachments).toEqual([]);expect(body(root,head.id).content).toContain('provider_message_id:');}
  expect(admitStaged(root,[heads[0]!.id])[0]!.ok).toBe(true);expect(passStaged(root,[heads[1]!.id],'Skip')[0]!.ok).toBe(true);
  await poll(root,{count:3,validity:2,sameMessageId:true,identities:{1:100003,2:100001,3:100002},labels:["Archive project"]});
- expect(stagedHeads(root).length).toBe(1);
+ expect(headFiles(root).length).toBe(1);
  const policy=accountPolicy(root,'email','me@example.com');writeAccountPolicy(root,'email','me@example.com',{...policy,email:{...policy.email!,attachments:true}});
  await poll(root,{count:4,validity:2});
- expect(stagedHeads(root).some(h=>body(root,h.id).attachments.length===1)).toBe(true);
+ expect(headFiles(root).some(h=>body(root,h.id).attachments.length===1)).toBe(true);
  const trace=readFileSync(join(root,'trace.jsonl'),'utf8');expect(trace).toContain('EXAMINE');expect(trace).not.toContain('STORE');
 },30000);
 test('real runner resumes >5000-message backfill without skipping the tail',async()=>{
@@ -94,22 +95,22 @@ test('real runner resumes >5000-message backfill without skipping the tail',asyn
  expect(readEmailState(root).inboxes['me@example.com']!.lastUid).toBe(5000);
  await poll(root,{count:5001});
  expect(readEmailState(root).inboxes['me@example.com']!.lastUid).toBe(5001);
- expect(stagedHeads(root).length).toBe(1);expect(accountPolicy(root,'email','me@example.com').fingerprint).toBe(p.fingerprint);
+ expect(headFiles(root).length).toBe(1);expect(accountPolicy(root,'email','me@example.com').fingerprint).toBe(p.fingerprint);
 },30000);
 test('real runner retries bodies and headers beyond three attempts, survives .state deletion, and honors remembering-off',async()=>{
  const root=vault();await enable(root);
  for(let i=0;i<4;i++)await poll(root,{count:2,failBody:1,missingHeader:2});
  expect(readEmailState(root).inboxes['me@example.com']!.retry).toHaveLength(2);
  rmSync(join(root,'.state'),{recursive:true,force:true});
- await poll(root,{count:2});expect(stagedHeads(root).length).toBe(2);expect(readEmailState(root).inboxes['me@example.com']!.retry).toEqual([]);
+ await poll(root,{count:2});expect(headFiles(root).length).toBe(2);expect(readEmailState(root).inboxes['me@example.com']!.retry).toEqual([]);
  const p=accountPolicy(root,'email','me@example.com');writeAccountPolicy(root,'email','me@example.com',{...p,remembering:{...p.remembering,enabled:false}});
  const before=readFileSync(join(root,'.spool/email.json'),'utf8');await poll(root,{count:3});expect(readFileSync(join(root,'.spool/email.json'),'utf8')).toBe(before);
 },30000);
 test('real runner honors exact initial start and UI backfill request across ticks',async()=>{
  const root=vault();const api=await enable(root,{startAt:'2026-09-25T13:00:00Z'});
- await poll(root,{count:1});expect(stagedHeads(root)).toHaveLength(0);
- await api.update({name:'email',account:'me@example.com',action:'save',liveAccess:false,remembering:{enabled:true,rule:'Remember decisions'},backfillSince:'2026-09-01'});
- await poll(root,{count:1});expect(stagedHeads(root)).toHaveLength(1);
+ await poll(root,{count:1});expect(headFiles(root)).toHaveLength(0);
+ await api.update({name:'email',account:'me@example.com',action:'save',liveAccess:false,remembering:{enabled:true},backfillSince:'2026-09-01'});
+ await poll(root,{count:1});expect(headFiles(root)).toHaveLength(1);
  expect(readEmailState(root).inboxes['me@example.com']!.backfillRequest).toBe(accountPolicy(root,'email','me@example.com').email!.backfill!.request);
 },30000);
 test('Gmail installation preserves a legacy account policy and does not overwrite a colliding credential key',async()=>{
@@ -137,5 +138,5 @@ test('provider identity is account-scoped, missing RFC Message-ID is safe, and l
  expect(emailDiscovered(root)(head,changed.id,changed.content)).toBe(false);
  const other=emailItem({...head,inbox:'other@example.com',emailId:'18446744073709551614'},body,new Date());expect(other.id).not.toBe(modern.id);
  expect(emailDiscovered(root)({...head,inbox:'other@example.com'},other.id,other.content)).toBe(false);
- await poll(root,{count:1,noMessageId:true});expect(stagedHeads(root)).toHaveLength(1);
+ await poll(root,{count:1,noMessageId:true});expect(headFiles(root)).toHaveLength(1);
 });

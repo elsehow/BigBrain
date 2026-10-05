@@ -268,7 +268,7 @@
                 {#if i.name === "that-tracks"}
                   <p class="about">In That Tracks, open Settings → Account &amp; sync → API keys.
                     Create a read-only key named BigBrain and paste it here. All history and future
-                    entries the key permits can be considered under your remembering rule. Turning this off
+                    entries the key permits can be remembered. Turning this off
                     stops syncing and live reads; previously imported history stays in your vault.</p>
                 {/if}
                 {#if i.env.length && !i.activation}

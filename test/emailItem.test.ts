@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { emailItem, emailScopes, gmailThreadUrl, headLine, trimQuotes, type Head } from "../lib/emailItem";
+import { emailItem, gmailThreadUrl, headLine, trimQuotes, type Head } from "../lib/emailItem";
 
 // The pure half of the email integration (#744): no network, no vault. What
 // a message looks like as the head line the gardener sees first, which
@@ -39,13 +39,6 @@ describe("headLine — a few dozen tokens per message", () => {
 
   test("an empty subject is said, not blank", () => {
     expect(headLine(head({ subject: "" }), 1)).toContain('"(no subject)"');
-  });
-});
-
-describe("emailScopes — what a rule may name", () => {
-  test("the sender address, lowercased, and the List-Id when there is one; never the display name", () => {
-    expect(emailScopes(head({ from: "Evan@FRI.example.org" }))).toEqual({ sender: "evan@fri.example.org" });
-    expect(emailScopes(head({ listId: "Repo.org.github.com" }))).toEqual({ sender: "evan@fri.example.org", list: "repo.org.github.com" });
   });
 });
 

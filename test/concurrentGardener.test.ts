@@ -86,7 +86,7 @@ test('a failed lane cannot release the lock while its sibling still runs; unfini
 test('staged admission is owned before next can expose the new insertion to another lane', async () => {
   const { root, call } = fixture();
   fakeIntegrationActivation(root);
-  stage(root, { id: 'example', source: 'email', at: '2026-09-20T00:00:00Z', line: 'Example', scopes: {}, name: 'example.md', content: '---\nid: staged-example\nkind: mail\n---\n\nUseful new information about Atlas.' });
+  stage(root, { id: 'example', source: 'fixture', at: '2026-09-20T00:00:00Z', line: 'Example', name: 'example.md', content: '---\nid: staged-example\nkind: mail\n---\n\nUseful new information about Atlas.' });
   const result = await runConcurrentGardener(root, testManifest(root), async () => {
     const lane = gardenerLane.getStore()!;
     if (lane === 0) {

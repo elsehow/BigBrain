@@ -235,7 +235,7 @@ export interface ConfigInfo {
 // vault.yaml entries first (manifest order), then integrations/ dirs not yet
 // listed.
 export interface IntegrationInfo {
-  activation?: { rule: string; accounts: string[]; callers: {id:string;label:string}[]; grants: {caller:string;accounts:string[]}[]; checkedAt?: string };
+  activation?: { accounts: string[]; callers: {id:string;label:string}[]; grants: {caller:string;accounts:string[]}[]; checkedAt?: string };
   name: string;
   enabled: boolean;
   hasCode: boolean; // integrations/<name>/ exists
@@ -274,7 +274,6 @@ export interface IntegrationSource {
 // `enabled: false` (config keys survive off-and-on). Takes effect on the
 // integration's next poll.
 export interface IntegrationOp {
-  remember?: string;
   activate?: boolean;
   checkAccess?: boolean;
   readers?: {caller:string;accounts:string[]}[];

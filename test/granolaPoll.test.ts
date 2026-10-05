@@ -1,6 +1,6 @@
 import { sha256hex } from "../lib/hash";
 import { deactivateIntegration } from "../lib/integrationAccess";
-import { stagedHeads } from "../lib/stage";
+import { headFiles } from "../lib/stageStorage";
 import { fakeIntegrationActivation } from "./support/integrationActivation";
 /** Drive the shipped entry point, with only fetch replaced in its process.
  * The fixture cannot read a real vault or make a network request. */
@@ -49,7 +49,7 @@ test("Granola's actual runner reports quiet checks, arrivals, errors, recovery a
     expect(integrationStatus(root, "granola", true, true)).toMatchObject({ state: "ok", label: "Up to date" });
     expect(await run("arrival")).toBe(0);
     expect(readSourceInsertionLog(root)).toHaveLength(0);
-    expect(stagedHeads(root)).toHaveLength(1);
+    expect(headFiles(root)).toHaveLength(1);
     expect(integrationStatus(root, "granola", true, true).lastArrivalAt).toBeTruthy();
     const cursor = readFileSync(join(root, ".spool/integration-cursors/granola-mcp-"+sha256hex("granola").slice(0,24)+".json"), "utf8");
     expect(await run("error")).not.toBe(0);

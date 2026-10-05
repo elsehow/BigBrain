@@ -108,7 +108,7 @@ export interface Manifest {
   gate?: GateConfig;
 }
 
-/** `gate:` — "worth gardening?" for sources that include everything
+/** `gate:` — "worth gardening?" for what integrations find
  * (lib/worthGate.ts, #80). Its cut-off starts at 0 and moves with the
  * gardener's verdicts. */
 export interface GateConfig {
@@ -120,8 +120,8 @@ export interface GateConfig {
   min: number;
   /** What is worth gardening, in words; the gardener's verdicts teach the rest. */
   rule: string;
-  /** The integrations it gates. Email by default: meetings are never dropped unless named here. */
-  sources: string[];
+  /** The integrations it gates; absent is every one. */
+  sources?: string[];
 }
 
 /** `feed:` — the classic chain's third stage: it sorts what the gardener
@@ -293,10 +293,10 @@ function parseGate(raw: unknown): GateConfig {
   const min = Number(block["min"] ?? 40);
   if (!Number.isInteger(min) || min < 1) throw new Error("vault.yaml: gate.min must be a positive integer");
   const rule = typeof block["rule"] === "string" && block["rule"].trim() ? block["rule"].trim() : GATE_RULE;
-  const sources = block["sources"] ?? ["email"];
-  if (!Array.isArray(sources) || !sources.length || !sources.every((s) => typeof s === "string" && s.trim()))
+  const sources = block["sources"];
+  if (sources !== undefined && (!Array.isArray(sources) || !sources.length || !sources.every((s) => typeof s === "string" && s.trim())))
     throw new Error("vault.yaml: gate.sources must be a list of integration names");
-  return { sample: share("sample", 0.05), recall: share("recall", 0.98), min, rule, sources: sources.map((s) => String(s).trim()) };
+  return { sample: share("sample", 0.05), recall: share("recall", 0.98), min, rule, ...(sources ? { sources: sources.map((s) => String(s).trim()) } : {}) };
 }
 
 function parseFeed(raw: unknown, fallbackAgent: AgentId): FeedConfig | undefined {

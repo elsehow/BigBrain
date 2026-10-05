@@ -11,7 +11,8 @@
 import { requireVaultRoot } from "../lib/engine";
 import { hasFlag } from "../lib/cliflags";
 import { loadManifest } from "../lib/manifest";
-import { currentGate, gateDecisions } from "../lib/worthGate";
+import { MANAGED_INTEGRATIONS } from "../lib/integrationAccess";
+import { currentGate, gateDecisions, gated } from "../lib/worthGate";
 
 const root = requireVaultRoot();
 const cfg = loadManifest(root).gate;
@@ -21,7 +22,7 @@ if (!cfg) {
 }
 
 const all = gateDecisions(root);
-const status = cfg.sources.map((source) => {
+const status = [...MANAGED_INTEGRATIONS].filter((source) => gated(cfg, source)).map((source) => {
   const decisions = all.filter((d) => d.source === source);
   const { threshold, kept } = currentGate(root, cfg, source);
   const answered = decisions.filter((d) => d.insertion_id && kept.has(d.insertion_id));

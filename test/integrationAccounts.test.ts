@@ -5,8 +5,8 @@ import {nativeVault,gitVault} from './support/vault';
 import {readEnvValues} from '../lib/envFile';
 import {IntegrationAccounts} from '../lib/integrationAccounts';
 import {accountPolicy,integrationActive,readableIntegrationAccounts,requireIntegrationWrite} from '../lib/integrationAccess';
-import {stagedHeads,admitStaged} from '../lib/stage';
-import {stage} from '../lib/stageStorage';
+import {admitStaged} from '../lib/stage';
+import {stage,stagedItems} from '../lib/stageStorage';
 import {nextWork} from '../lib/work';
 const roots:string[]=[];afterEach(()=>roots.splice(0).forEach(r=>rmSync(r,{recursive:true,force:true})));
 function fixture(){const root=nativeVault({files:{'vault.yaml':'integrations:\n  email:\n    inboxes:\n      - address: personal@example.com\n        host: imap.example.com\n      - address: work@example.com\n        host: imap.example.com\n','.env':'BIGBRAIN_IMAP_PASSWORD__PERSONAL_EXAMPLE_COM=one\nBIGBRAIN_IMAP_PASSWORD__WORK_EXAMPLE_COM=two\n'}});roots.push(root);const calls:string[]=[];return {root,calls,accounts:new IntegrationAccounts(root,{email:async i=>{calls.push(i.address);}})};}
@@ -15,14 +15,14 @@ test('two inboxes independently connect, remember, grant live access, and discon
  const act=(account:string,action:string,extra={})=>accounts.update({name:'email',account,action,...extra});
  await act(a,'connect');await act(b,'connect');expect(calls).toEqual([a,b]);
  expect(integrationActive(root,'email')).toBe(false);expect(readableIntegrationAccounts(root,'email',{kind:'pilot'})).toEqual([]);
- await act(a,'save',{remembering:{enabled:false,rule:''},grants:[{caller:'pilot',access:'read-write'}]});
- await act(b,'save',{remembering:{enabled:true,rule:'Remember work decisions only.'},grants:[]});
+ await act(a,'save',{remembering:{enabled:false},grants:[{caller:'pilot',access:'read-write'}]});
+ await act(b,'save',{remembering:{enabled:true},grants:[]});
  expect(readableIntegrationAccounts(root,'email',{kind:'pilot'})).toEqual([a]);expect(()=>requireIntegrationWrite(root,'email',a,{kind:'pilot'})).not.toThrow();expect(()=>requireIntegrationWrite(root,'email',b,{kind:'pilot'})).toThrow();
- for(const account of [a,b])stage(root,{id:account===a?'personal':'work',source:'email',account,at:'2026-09-23',line:'Decision',scopes:{},name:'mail.md',content:'---\nsource: email\n---\nA decision.'});
- expect(stagedHeads(root).map(h=>h.account)).toEqual([b]);expect(nextWork(root,{kinds:['staged']})[0]?.inputs).toEqual({remembering_rule:'Remember work decisions only.'});
- await act(b,'save',{remembering:{enabled:false,rule:'Remember work decisions only.'},grants:[]});expect(stagedHeads(root)).toHaveLength(0);expect(admitStaged(root,['work'])[0]?.ok).toBe(false);
+ for(const account of [a,b])stage(root,{id:account===a?'personal':'work',source:'email',account,at:'2026-09-23',line:'Decision',name:'mail.md',content:'---\nsource: email\n---\nA decision.'});
+ expect(integrationActive(root,'email',a)).toBe(false);expect(integrationActive(root,'email',b)).toBe(true);expect(nextWork(root,{kinds:['staged']})).toEqual([]);
+ await act(b,'save',{remembering:{enabled:false},grants:[]});expect(stagedItems(root,'email')).toHaveLength(2);expect(admitStaged(root,['work'])[0]?.ok).toBe(false);
  expect(readableIntegrationAccounts(root,'email',{kind:'pilot'})).toEqual([a]);
- await act(a,'disconnect');expect(readableIntegrationAccounts(root,'email',{kind:'pilot'})).toEqual([]);expect(accountPolicy(root,'email',b).remembering.rule).toBe('Remember work decisions only.');
+ await act(a,'disconnect');expect(readableIntegrationAccounts(root,'email',{kind:'pilot'})).toEqual([]);expect(accountPolicy(root,'email',b).remembering).toEqual({enabled:false});
 });
 test('changing one password invalidates only that account, and a late connection check cannot undo disconnect',async()=>{
  const {root,accounts}=fixture();for(const account of ['personal@example.com','work@example.com'])await accounts.update({name:'email',account,action:'connect'});
@@ -40,7 +40,7 @@ test('additional accounts have independent keys and never inherit legacy default
  expect(work.connected).toBe(false);expect(work.remembering.enabled).toBe(false);expect(work.grants).toEqual([]);
  for(const account of [work.account,personal.account])await accounts.update({name:'that-tracks',account,action:'connect'});
  expect(keys).toEqual(['work-key','personal-key']);
- await accounts.update({name:'that-tracks',account:work.account,action:'save',remembering:{enabled:true,rule:'Remember work decisions.'},grants:[]});
+ await accounts.update({name:'that-tracks',account:work.account,action:'save',remembering:{enabled:true},grants:[]});
  expect(integrationActive(root,'that-tracks',work.account)).toBe(true);expect(integrationActive(root,'that-tracks',personal.account)).toBe(false);
  await accounts.update({name:'that-tracks',account:personal.account,action:'credentials',key:'replacement'});
  expect(accountPolicy(root,'that-tracks',personal.account).connected).toBe(false);expect(accountPolicy(root,'that-tracks',work.account).connected).toBe(true);
@@ -51,7 +51,7 @@ test('additional accounts have independent keys and never inherit legacy default
  expect(removed.accounts.map(a=>a.account)).not.toContain(personal.account);expect(removed.accounts.map(a=>a.account)).toContain(work.account);
  expect(readEnvValues(root)[`THAT_TRACKS_API_KEY__${personal.account.replaceAll('-','_').toUpperCase()}`]??'').toBe('');
  expect(readEnvValues(root)[`THAT_TRACKS_API_KEY__${work.account.replaceAll('-','_').toUpperCase()}`]).toBe('work-key');
- expect(accountPolicy(root,'that-tracks',work.account).remembering.rule).toBe('Remember work decisions.');
+ expect(accountPolicy(root,'that-tracks',work.account).remembering.enabled).toBe(true);
  await expect(accounts.update({name:'that-tracks',account:personal.account,action:'connect'})).rejects.toThrow('configured account');
  expect(JSON.stringify(accounts.list())).not.toContain('work-key');
  await expect(accounts.update({name:'that-tracks',account:work.account,action:'grant',caller:'pilot',access:'read-write'})).rejects.toThrow('supported');
@@ -61,11 +61,11 @@ test('desktop scheduling follows per-account remembering even without a legacy s
  const added=await accounts.update({name:'that-tracks',action:'add',label:'Meetings',key:'synthetic'}),account=added.accounts.find(a=>a.label==='Meetings')!.account;
  const plan=async()=>{const child=Bun.spawn([process.execPath,'bin/desktop.ts','--dry-run'],{env:{...process.env,BIGBRAIN_VAULT:root,BIGBRAIN_DEV:'1',HOME:root},stdout:'pipe',stderr:'pipe'});const output=await new Response(child.stdout).text();expect(await child.exited).toBe(0);return output;};
  await accounts.update({name:'that-tracks',account,action:'connect'});expect(await plan()).not.toContain('integrations/that-tracks/run.ts');
- await accounts.update({name:'that-tracks',account,action:'save',remembering:{enabled:true,rule:'Remember decisions.'},grants:[]});expect(await plan()).toContain('integrations/that-tracks/run.ts');
+ await accounts.update({name:'that-tracks',account,action:'save',remembering:{enabled:true},grants:[]});expect(await plan()).toContain('integrations/that-tracks/run.ts');
  await accounts.update({name:'that-tracks',account,action:'disconnect'});expect(await plan()).not.toContain('integrations/that-tracks/run.ts');
 });
 
-test('adding Granola opts in once; existing policies and custom rules survive re-add and reads',async()=>{
+test('adding Granola opts in once; existing policies survive re-add and reads',async()=>{
  const {root,accounts}=fixture();
  expect(accounts.list().library.find(i=>i.id==='granola')?.added).toBe(false);
  expect(accountPolicy(root,'granola','granola').remembering.enabled).toBe(false);
@@ -74,9 +74,9 @@ test('adding Granola opts in once; existing policies and custom rules survive re
  const added=accountPolicy(root,'granola','granola');
  expect(added.liveAccess).toBe(true);expect(added.remembering.enabled).toBe(true);expect(added.connected).toBe(false);
  const {writeAccountPolicy}=await import('../lib/integrationAccess');
- writeAccountPolicy(root,'granola','granola',{...added,liveAccess:false,remembering:{enabled:false,rule:'My existing rule'}});
+ writeAccountPolicy(root,'granola','granola',{...added,liveAccess:false,remembering:{enabled:false}});
  await accounts.update({name:'granola',action:'install'});
- expect(accountPolicy(root,'granola','granola')).toMatchObject({liveAccess:false,remembering:{enabled:false,rule:'My existing rule'}});
+ expect(accountPolicy(root,'granola','granola')).toMatchObject({liveAccess:false,remembering:{enabled:false}});
  expect(accounts.list().accounts.find(a=>a.name==='email')?.remembering.enabled).toBe(false);
  const result=await accounts.update({name:'granola',action:'add',label:'Work'});
  expect(result.accounts.find(a=>a.label==='Work')).toMatchObject({connected:false,liveAccess:true,remembering:{enabled:true}});

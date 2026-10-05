@@ -10,7 +10,6 @@ export function fakeIntegrationActivation(root: string, name = "email") {
   cfg.integrations ??= {}; cfg.integrations[name] ??= {};
   if(name === "email" && !cfg.integrations.email.inboxes?.length)cfg.integrations.email.inboxes=[{address:"fixture@example.com",host:"imap.example.com"}];
   cfg.integrations[name].enabled = true;
-  cfg.integrations[name].remember = "Remember useful project decisions; skip promotional messages.";
   writeFileSync(path, stringify(cfg));
   if(name==='granola')writeAtomic(join(root,'.spool/source-mcp/granola',sha256hex(name)+'.json'),JSON.stringify({generation:'fixture',connected:true,redirect:'http://127.0.0.1/callback',tokens:{access_token:'synthetic',token_type:'Bearer'},identity:{workspace:'fixture'}}),0o600);
   saveIntegrationActivation(root, name, [], integrationFingerprint(root, name));

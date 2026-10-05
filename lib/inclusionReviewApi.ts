@@ -4,9 +4,7 @@ import {allowVaultRequest,vaultIdentity} from './vaultBoundary';
 import {connectionStorePath,readConnections,sharedRequest} from './sharedConnections';
 import {getRule,setRule} from './sharedRules';
 import {readSourceInsertionLog} from './insertionLog';
-import {stageItemsForReview} from './inclusionStages';
-import {accountPolicy,writeAccountPolicy,integrationAccounts,MANAGED_INTEGRATIONS,accountFingerprint} from './integrationAccess';
-import {sharedRuleScope,integrationRuleScope,type InclusionSource} from './inclusionPolicy';
+import {sharedRuleScope,type InclusionSource} from './inclusionPolicy';
 import {getReview,startReview,reviewState,rateReview,editReview,retryReview,finishReview,type ReviewContext} from './inclusionReview';
 import {ruleCandidateFilter,searchRuleEntities} from './sharedRuleMentions';
 import {ruleQueries} from './inclusionQueries';
@@ -29,13 +27,7 @@ export async function inclusionReviewApi(req:IncomingMessage,res:ServerResponse,
     const latest=new Map<string,ReturnType<typeof readSourceInsertionLog>[number]>();for(const s of readSourceInsertionLog(root,{strict:true}))latest.set(s.source_id,s);
     const sources:InclusionSource[]=[...latest.values()].reverse().map(s=>({id:s.id,title:s.title,body:s.body,origin:`Personal · ${(s.received_at??'').slice(0,10)}`}));
     context={root,store,scope:sharedRuleScope(c.id),text:body.text??getRule(store,c.id)?.text??'',sources,select:text=>{const all=new Map<string,ReturnType<typeof readSourceInsertionLog>[number]>();for(const s of readSourceInsertionLog(root,{strict:true}))all.set(s.source_id,s);return [...all.values()].reverse().filter(ruleCandidateFilter(root,text)).map(s=>({id:s.id,title:s.title,body:s.body,origin:`Personal · ${(s.received_at??'').slice(0,10)}`}));},check,save:text=>setRule(store,c.id,text,root)};
-   }else if(target?.kind==='integration'){
-    const {name,account}=target;if(!MANAGED_INTEGRATIONS.has(name)||!integrationAccounts(root,name).includes(account))throw Error('Choose a configured integration account.');
-    const prior=accountPolicy(root,name,account),fingerprint=accountFingerprint(root,name,account);
-    if(!prior.connected)throw Error('Connect this account before reviewing its rule.');
-    const check=()=>{if(!accountPolicy(root,name,account).connected||accountFingerprint(root,name,account)!==fingerprint||accountPolicy(root,name,account).remembering.rule!==prior.remembering.rule)throw Error('Account or rule changed. Reopen its review.');};
-    context={root,store,scope:integrationRuleScope(name,account),text:body.text??prior.remembering.rule,sources:stageItemsForReview(root,name,account),select:()=>stageItemsForReview(root,name,account),check,save:text=>{const p=accountPolicy(root,name,account);writeAccountPolicy(root,name,account,{...p,remembering:{...p.remembering,rule:text}});}};
-   }else throw Error('Choose a shared vault or integration.');
+   }else throw Error('Choose a shared vault.');
    if(typeof context.text!=='string'||!context.text.trim()||context.text.length>8000)throw Error('Write an inclusion rule first.');
    context.queries=(text,entities)=>ruleQueries(root,store,text,entities);
    json(res,202,startReview(context));return true;

@@ -11,9 +11,8 @@ import { readEnvValues } from "../lib/envFile";
 import { loadManifest } from "../lib/manifest";
 
 // The email integration's configuration surface (#744): inboxes in
-// vault.yaml, app passwords in .env under a derived key, the standing skip
-// rules it reads (written by the gardener — test/skipRules.test.ts), and the
-// row the settings screen is told.
+// vault.yaml, app passwords in .env under a derived key, and the row the
+// settings screen is told.
 
 /** A scratch vault (the config.test.ts recipe): git-initialized so the
  * config path can commit, editor lock held by THIS process so the
@@ -37,7 +36,7 @@ const vault = (yaml: string): string => {
 const BASE = ["# hand-written — comments must survive machine edits", "integrations:", "  granola: {}", ""].join("\n");
 
 describe("emailConfig — the block, read tolerantly", () => {
-  test("inboxes and rules; malformed entries drop, addresses lowercase", () => {
+  test("inboxes; malformed entries drop, addresses lowercase; a retired skip list is ignored", () => {
     const cfg = emailConfig({
       inboxes: [
         { address: "Alpha@Example.com", host: "imap.gmail.com" },
@@ -52,11 +51,8 @@ describe("emailConfig — the block, read tolerantly", () => {
       { address: "alpha@example.com", host: "imap.gmail.com", port: 993 },
       { address: "b@example.org", host: "imap.example.org", port: 143 },
     ]);
-    expect(cfg.skip).toEqual([
-      { sender: "noreply@github.com", reason: "CI", at: "2026-09-04" },
-      { list: "l.example", reason: "", at: "" },
-    ]);
-    expect(emailConfig(undefined)).toEqual({ inboxes: [], skip: [] });
+    expect(cfg).not.toHaveProperty("skip");
+    expect(emailConfig(undefined)).toEqual({ inboxes: [] });
   });
 
   test("passwordEnvKey derives a valid env name from the address", () => {
@@ -198,7 +194,7 @@ test("two account checkpoints and pending bodies survive legacy preservation and
     const state = { inboxes: { "a@example.com": { lastUid: 17 }, "b@example.com": { lastUid: 91, retry: [{ uid: 92, tries: 2 }] } } };
     writeFileSync(join(root, ".state", "email.json"), JSON.stringify(state));
     mkdirSync(join(root, ".state", "stage", "email"), { recursive: true });
-    const item = { id: "pending-b", source: "email", account: "b@example.com", content: "Invented pending message", name: "pending.md", at: "2026-09-26", line: "Sample", scopes: {} };
+    const item = { id: "pending-b", source: "email", account: "b@example.com", content: "Invented pending message", name: "pending.md", at: "2026-09-26", line: "Sample" };
     writeFileSync(join(root, ".state", "stage", "email", "pending-b.json"), JSON.stringify(item));
     expect(readEmailState(root)).toEqual(state);
     rmSync(join(root, ".state"), { recursive: true });

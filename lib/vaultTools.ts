@@ -273,7 +273,7 @@ export const VAULT_TOOLS: VaultToolDef[] = [
   {
     name: "submit",
     description:
-      "Settle work, per item, idempotent. assertion: a claim with [[label]] or [[ent_id|display]] links, citing insertion ids (ids minted host-side; a label an entity carries or resembles is refused with candidates: link one, or [[new:label]]). decline: settles insertions. admit: lands staged arrivals, answering insertion_ids. pass: lets staged arrivals go; rule = one scope from the head.",
+      "Settle work, per item, idempotent. assertion: a claim with [[label]] or [[ent_id|display]] links, citing insertion ids (ids minted host-side; a label an entity carries or resembles is refused with candidates: link one, or [[new:label]]). decline: settles insertions. admit: lands staged arrivals, answering insertion_ids. pass: lets staged arrivals go.",
     inputSchema: {
       type: "object",
       properties: {
@@ -289,7 +289,6 @@ export const VAULT_TOOLS: VaultToolDef[] = [
               insertion_ids: { type: "array", items: { type: "string" }, description: "decline" },
               reason: { type: "string", description: "decline, pass" },
               staged_ids: { type: "array", items: { type: "string" }, description: "admit, pass" },
-              rule: { type: "object", description: "pass: {\"<scope>\": \"<value>\"}" },
             },
             required: ["submit"],
           },

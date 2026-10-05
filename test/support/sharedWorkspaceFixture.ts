@@ -1,5 +1,3 @@
-import {stage} from '../../lib/stageStorage';
-import {stagedInclusionSource} from '../../lib/inclusionStages';
 import {accountPolicy,writeAccountPolicy,accountFingerprint} from '../../lib/integrationAccess';
 import {addLibraryIntegration} from '../../lib/integrationLibrary';
 /** Synthetic full-shell fixture. Secrets stay in its temporary directory. */
@@ -43,8 +41,7 @@ saveJevKey(connections,'example-only-key');
 const mention=serializeMentions([{mention:searchRuleEntities(personal,'Example project')[0]!}]);
 writeFileSync(join(personal,'vault.yaml'),'integrations:\n  email:\n    inboxes:\n      - address: fixture@example.test\n        host: imap.example.test\n');
 writeFileSync(join(personal,'.env'),'BIGBRAIN_IMAP_PASSWORD__FIXTURE_EXAMPLE_TEST=fabricated\n',{mode:0o600});
-writeAccountPolicy(personal,'email','fixture@example.test',{...accountPolicy(personal,'email','fixture@example.test'),connected:true,fingerprint:accountFingerprint(personal,'email','fixture@example.test'),remembering:{enabled:true,rule:'Sources about Example project.'}});addLibraryIntegration(personal,'email');
-const staged=[];for(let i=0;i<8;i++){const item={id:'integration-review-'+i,source:'email',account:'fixture@example.test',at:new Date().toISOString(),line:(i<4?'Include':'Exclude')+' integration '+i,name:'example.md',scopes:{},content:'---\nid: integration-review-'+i+'\nsource: email\nkind: email\ntitle: '+(i<4?'Include':'Exclude')+' integration '+i+'\n---\nComplete fabricated Example project message.'};stage(personal,item);staged.push(item);}
+writeAccountPolicy(personal,'email','fixture@example.test',{...accountPolicy(personal,'email','fixture@example.test'),connected:true,fingerprint:accountFingerprint(personal,'email','fixture@example.test'),remembering:{enabled:true}});addLibraryIntegration(personal,'email');
 const fetchOriginal=globalThis.fetch;
 globalThis.fetch=(async(_input,init)=>{const request=JSON.parse(String(init?.body));return Response.json({answers:{relevant:{noul:request.state.source.title.startsWith('Include')?.94:.15}}});}) as typeof fetch;
 async function prime(rule:string,rows:import('../../lib/inclusionPolicy').InclusionSource[]){
@@ -54,7 +51,6 @@ async function prime(rule:string,rows:import('../../lib/inclusionPolicy').Inclus
 try{
  const rows=readSourceInsertionLog(personal).map(s=>({id:s.id,title:s.title,body:s.body,origin:'Personal'}));
  for(const rule of ['Sources that mention '+mention+'. Audience: project collaborators.','Sources about '+mention])await prime(rule,rows);
- await prime('Sources about Example project.',staged.map(stagedInclusionSource));
 }finally{globalThis.fetch=fetchOriginal;}
 const invite=issueSharedInvite(members,'owner',endpoint);
 const readonly = await saveConnection(connections,{name:'Example read only',endpoint,token:reader.token});

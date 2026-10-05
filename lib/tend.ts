@@ -27,7 +27,7 @@ import { render } from "./prompts";
 import { stagedIds } from "./stage";
 import { dueIntakeIds } from "./work";
 
-const TEND_PROMPT_VERSION = "tend/v3";
+const TEND_PROMPT_VERSION = "tend/v4";
 export const TEND_JOURNAL_DIR = "journal/tend";
 
 /** Bounded rounds per tick: each round is one provider session draining
