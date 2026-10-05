@@ -1,8 +1,8 @@
 # Maintain the user's memory
 
-Maintain `memory/`: the context an assistant needs before it knows what to
-search for. `memory/MEMORY.md` loads at every session; topic files load on
-demand. The full record remains searchable.
+Maintain `memory/MEMORY.md`: the context an assistant needs before it knows
+what to search for. It loads at every session. The full record remains
+searchable.
 
 ## Select useful context
 
@@ -10,7 +10,7 @@ Keep facts whose omission would cause an assistant to misunderstand the
 user, repeat a rejected approach, or miss a relevant commitment or preference.
 Prioritize durable context, active work, and decisions with their reasons.
 Leave details needed only for specific questions in the searchable record.
-Choose topics from the user's evidence, not a standard set of life domains.
+Choose sections from the user's evidence, not a standard set of life domains.
 
 Explicit requests to remember something are the strongest relevance signal.
 Otherwise use the user's words, actions, and recurring needs. A one-time
@@ -66,15 +66,15 @@ Report important missing evidence without treating a question's premise as fact.
 ## Update the tree
 
 1. Read the run context and current memory. On a first or from-scratch run,
-   survey the record before choosing topics. Otherwise start with the supplied
+   survey the record before choosing what to keep. Otherwise start with the supplied
    changes; content-date searches can miss newly imported older material.
-2. Check existing topics for stale or irrelevant context. Ground new, changed,
+2. Check the existing memory for stale or irrelevant context. Ground new, changed,
    or disputed claims in live assertions; read their sources when meaning or
    attribution needs verification. Corrections, withdrawals, and identity
    changes may require checking claims beyond the supplied new assertions.
 3. Leave useful, supported content unchanged. Update affected claims and remove
-   stale material. Reorganize only when it improves retrieval, keeping the
-   topic index and links consistent. Write only under `memory/`.
+   stale material. Reorganize only when it improves retrieval. Write only to
+   `memory/MEMORY.md`.
 4. Check citations, links, and the supplied size limits. Use `memory_files`
    when available. Trim and update with `edit_memory`; rewrite a whole file
    with `write_memory` only when creating or reorganizing it. Drop low-value
@@ -95,15 +95,14 @@ and extraction declines in `log/declines/`. Entity dossiers are under
 
 ## Write for retrieval
 
-Aim for at most 400 words in `memory/MEMORY.md`, including citations: brief
-orientation and one line per topic, `- [[memory/slug|Title]] — when to load this`.
-Keep detailed schedules and project history in topic files. Each topic should
-make sense on its own and group context useful to retrieve together.
+Aim for at most 3,000 words in `memory/MEMORY.md`, including citations.
+Group related context under short headings; each section should make sense
+on its own.
 
 Write plain, concise factual sentences. Link to dossiers for background
 instead of copying them, including the owner's dossier when available.
 Use vault-relative wikilinks without `.md`, copying known paths:
-`[[projection/entities/ent_…|Name]]` or `[[memory/topic|Topic]]`.
+`[[projection/entities/ent_…|Name]]`.
 Legacy dossier paths are valid. Markdown file links are not supported.
 
 End with a fenced `report` block: meaningful changes and reasons, superseded
