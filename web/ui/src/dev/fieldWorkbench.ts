@@ -2,15 +2,18 @@
 // name here is invented). The rest of the engine is fakeApi's, through the
 // graph fixture; this answers what only Field asks: the entity graph, the
 // record, the sorted feed and the coding desktops. `?empty` is a new vault;
-// `?view=field` shows Field whatever this browser chose.
+// `?view=field` shows Field whatever this browser chose; `?update` shows the
+// update banner, `?credits=out` a provider out of usage credits beside it.
 import { mount } from "svelte";
 import "../design/tokens.css";
 import "../app.css";
 import Base from "../components/Base.svelte";
 import { installGraphFixture } from "./graphFixture";
 import { watchSystemTheme } from "../lib/theme";
+import { update } from "../lib/update.svelte";
 
 const empty = new URLSearchParams(location.search).has("empty");
+if (new URLSearchParams(location.search).has("update")) update.available = { version: "0.7.24", notes: "Preview update" };
 await installGraphFixture();
 
 const NAMES = ["Orrery repair", "Atlas survey", "Kit Brennan", "Briar Lowe", "Harbor lab", "Ridgeway trail", "Lantern grant", "Quill press", "Tidewater review", "Marlow studio"];

@@ -10,7 +10,7 @@
   import HomeView from "./components/HomeView.svelte";
   import SettingsScreens from "./components/SettingsScreens.svelte";
   import TopBar from "./components/TopBar.svelte";
-  import UpdateNudge from "./components/UpdateNudge.svelte";
+  import TopStrips from "./components/TopStrips.svelte";
   import { cursor, kbdTakes, mouseTakes } from "./lib/cursor.svelte";
   import { editable } from "./lib/dom";
   import { openExternalLinks } from "./lib/links";
@@ -66,7 +66,7 @@
 <!-- one column: the top bar is the whole chrome (the 236px nav rail went
      on 2026-08-10, with the last view it could switch between) -->
 <div id="main">
-  <UpdateNudge />
+  <TopStrips />
   <TopBar />
   {#if sidebar || app.view === "home" || app.view === "top" || app.view === "graph" || app.view === "search" || app.view === "vault"}
     <!-- THE screen (HomeView): the graph as the ground and the text tab
