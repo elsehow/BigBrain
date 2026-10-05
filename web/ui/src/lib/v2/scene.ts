@@ -19,6 +19,8 @@ export interface SceneHooks {
   onPick(i: number | null): void;
   /** A click on a pilot's glass or its name. */
   onPickPilot(id: string): void;
+  /** The node under the pointer (a point, a memory topic, a label) changed. */
+  onHover?(i: number | null): void;
 }
 export interface V2Scene {
   /** Back to the whole field. */
@@ -37,6 +39,10 @@ export interface V2Scene {
   search(state: { matches: number[]; active: number | null; text?: string; caption?: string; move: "frame" | "glide" | "none" } | null): void;
   /** A hovered feed row: what it mentions. */
   hover(entities: number[] | null): void;
+  /** Beside one of the opened entity's ties: how it relates to that entity,
+   * after its name; "" is a spinner, null takes it away. The entity keeps
+   * its own text: the relation finds room around its tie. */
+  relate(j: number | null, text?: string): void;
   /** Pixels to slide the scene's centre right, clear of a left panel. */
   shift(px: number): void;
   dispose(): void;
@@ -243,6 +249,7 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
   let ent: { i: number; ties: number[]; text?: string; caption?: string } | null = null;
   let srch: { matches: Set<number>; active: number | null; text?: string; caption?: string } | null = null;
   let hot: Set<number> | null = null;
+  let rl: { j: number; text: string } | null = null;
   let shiftGoal = 0, shiftNow = 0;
   const rel = new Float32Array(N), heat = new Float32Array(N), match = new Float32Array(N);
   let dim = 0, searchDim = 1;
@@ -284,6 +291,12 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
       labels.set(i, L);
     }
     return L;
+  };
+  /** Drop a relation: its label goes back to its name. */
+  const unrelate = () => {
+    const lab = rl ? labels.get(rl.j) : undefined;
+    if (lab) { lab.full = undefined; lab.w = undefined; }
+    rl = null;
   };
   const say = (L: HTMLDivElement, name: string, text: string | undefined, caption?: string) => {
     L.querySelector(".c")!.textContent = text ? caption ?? "" : "";
@@ -337,8 +350,15 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
     return best;
   };
   const onDown = (e: PointerEvent) => { drag = { x: e.clientX, y: e.clientY, moved: 0 }; canvas.setPointerCapture(e.pointerId); };
+  let under: number | null = null;
+  const hoverAt = (i: number | null) => { if (i !== under) { under = i; hooks.onHover?.(i); } };
   const onMove = (e: PointerEvent) => {
-    if (!drag) { canvas.style.cursor = pickAt(e.clientX, e.clientY) == null ? "" : "pointer"; return; }
+    if (!drag) {
+      const hit = pickAt(e.clientX, e.clientY);
+      canvas.style.cursor = hit == null ? "" : "pointer";
+      hoverAt(typeof hit === "number" ? hit : null);
+      return;
+    }
     const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
     drag.moved += Math.abs(dx) + Math.abs(dy); drag.x = e.clientX; drag.y = e.clientY;
     goal.az -= dx * 0.005; goal.el = THREE.MathUtils.clamp(goal.el + dy * 0.004, 0.08, 1.35);
@@ -358,6 +378,13 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
     if (L?.dataset["i"]) hooks.onPick(Number(L.dataset["i"]));
   };
   labelLayer.addEventListener("click", onLabel);
+  const onLabelOver = (e: PointerEvent) => {
+    const L = (e.target as HTMLElement).closest<HTMLElement>(".v2-node");
+    hoverAt(L?.dataset["i"] ? Number(L.dataset["i"]) : null);
+  };
+  const onLeave = () => { if (!drag) hoverAt(null); };
+  labelLayer.addEventListener("pointerover", onLabelOver);
+  canvas.addEventListener("pointerleave", onLeave);
   const onWheel = (e: WheelEvent) => { e.preventDefault(); goal.dist = THREE.MathUtils.clamp(goal.dist * Math.exp(e.deltaY * 0.0012), 4, 40); };
   canvas.addEventListener("pointerdown", onDown);
   canvas.addEventListener("pointermove", onMove);
@@ -533,38 +560,52 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
     const handCaption = srch ? srch.caption : ent?.caption;
     for (let i = 0; i < N; i++) {
       const n = field.nodes[i]!;
-      const full = i === inHand && handText !== undefined;
+      const related = rl?.j === i;
+      const full = related || (i === inHand && handText !== undefined);
       const restOp = n.named && (field.hubs.has(i) || n.memory) ? 1 : 0;
       let op = srch && srch.matches.size ? match[i]! : Math.max(heat[i]!, THREE.MathUtils.lerp(restOp, rel[i]!, dim)) * (srch ? searchDim : 1);
-      if (i === inHand) op = 1;
+      if (i === inHand || related) op = 1;
       const L = labels.get(i);
       if (op < 0.04 && !full) { if (L && L.op !== 0) place(L, -999, -999, 0); continue; }
       const lab = labelOf(i);
       if (lab.full !== full) {
         lab.full = full;
         lab.classList.toggle("full", full);
-        say(lab, n.label, full ? handText : undefined, handCaption);
+        say(lab, n.label, related ? rl!.text : full ? handText : undefined, related ? undefined : handCaption);
         lab.w = undefined;
       }
       toScreen(P[i]!, s1);
       if (!s1.ok) { place(lab, -999, -999, 0); continue; }
-      cand.push({ L: lab, x: s1.x + 9, y: s1.y, op, full, pri: (full ? 1e4 : 0) + heat[i]! * 2e3 + match[i]! * 400 + Math.log1p(n.degree) * 5 + (n.named ? 20 : 0) });
+      // the opened entity's caption is placed first and never moves; a
+      // relation then finds room around its tie, ahead of every plain name
+      cand.push({ L: lab, x: s1.x + 9, y: s1.y, op, full, pri: (related ? 9e3 : full ? 1e4 : 0) + heat[i]! * 2e3 + match[i]! * 400 + Math.log1p(n.degree) * 5 + (n.named ? 20 : 0) });
     }
     cand.sort((a, b) => b.pri - a.pri);
+    const rect = (x: number, y: number, w: number, h: number) => [x - 4, y - h / 2 - 3, x + w + 4, y + h / 2 + 3];
+    const free = (r: number[]) => !placed.some((p) => r[0]! < p[2]! && r[2]! > p[0]! && r[1]! < p[3]! && r[3]! > p[1]!);
     for (const c of cand) {
       if (c.L.w == null) { c.L.w = c.L.offsetWidth; c.L.h = c.L.offsetHeight; }
-      const r = [c.x - 4, c.y - c.L.h! / 2 - 3, c.x + c.L.w + 4, c.y + c.L.h! / 2 + 3];
-      let ok = true;
-      for (const p of placed) if (r[0]! < p[2]! && r[2]! > p[0]! && r[1]! < p[3]! && r[3]! > p[1]!) { ok = false; break; }
-      if (ok) placed.push(r);
-      place(c.L, c.x, c.y, ok ? c.op : 0);
+      const w = c.L.w, h = c.L.h!;
+      // a caption tries right of its dot, then left, then above and below
+      // either side, within the window; one with no room anywhere waits
+      let at: [number, number][] = [[c.x, c.y]];
+      if (c.full) {
+        const left = c.x - 18 - w, up = c.y - h / 2 - 10, down = c.y + h / 2 + 10;
+        at = ([[c.x, c.y], [left, c.y], [c.x - 9, up], [c.x - 9, down], [left + 9, up], [left + 9, down]] as [number, number][])
+          .filter(([x]) => x >= 12 && x + w <= W - 12);
+        if (!at.length) at = [[Math.max(12, Math.min(c.x, W - 12 - w)), c.y]];
+      }
+      const spot = at.find(([x, y]) => free(rect(x, y, w, h)));
+      const [x, y] = spot ?? at[0]!;
+      if (spot) placed.push(rect(x, y, w, h));
+      place(c.L, x, y, spot ? c.op : 0);
     }
   };
   frame();
   void document.fonts?.ready.then(() => { for (const L of labels.values()) L.w = undefined; });
 
   return {
-    overview() { ent = null; focus = null; setGoal({ ...OVERVIEW, az: rig.az }); },
+    overview() { ent = null; focus = null; unrelate(); setGoal({ ...OVERVIEW, az: rig.az }); },
     setPilots(list) {
       const keep = new Set(list.map((d) => d.id));
       for (const [id, pl] of pilots) if (!keep.has(id)) { scene.remove(pl.glass.mesh); pl.label.remove(); pilots.delete(id); }
@@ -582,9 +623,10 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
       if (pl) frameAround([new THREE.Vector3(...pl.d.p), ...pl.d.ctx.map((j) => P[j]!)], 0.5, 2.6, 16, 24);
     },
     openEntity(i, tiesTo = [], text, caption) {
-      if (i == null) { ent = null; return; }
+      if (i == null) { ent = null; unrelate(); return; }
       focus = null;
       const same = ent?.i === i;
+      if (!same) unrelate();
       ent = { i, ties: tiesTo, text, caption };
       const lab = labels.get(i);
       if (lab) { lab.full = undefined; lab.w = undefined; }
@@ -600,13 +642,21 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
       else if (state.move === "frame") frameAround(state.matches.map((m) => P[m]!), 0.55, 3.2, 7, OVERVIEW.dist);
     },
     hover(entities) { hot = entities ? new Set(entities) : null; },
+    relate(j, text) {
+      if (j == null || text === undefined) return unrelate();
+      if (rl && rl.j !== j) unrelate();
+      rl = { j, text };
+      const lab = labels.get(j);
+      if (lab) { lab.full = undefined; lab.w = undefined; }
+    },
     shift(px) { shiftGoal = px; },
     dispose() {
       cancelAnimationFrame(raf);
       ro.disconnect(); mo.disconnect(); schemeMQ.removeEventListener("change", theme);
       canvas.removeEventListener("pointerdown", onDown); canvas.removeEventListener("pointermove", onMove);
       canvas.removeEventListener("pointerup", onUp); canvas.removeEventListener("wheel", onWheel);
-      labelLayer.removeEventListener("click", onLabel);
+      labelLayer.removeEventListener("click", onLabel); labelLayer.removeEventListener("pointerover", onLabelOver);
+      canvas.removeEventListener("pointerleave", onLeave);
       scene.traverse((o) => { const m = o as THREE.Mesh; m.geometry?.dispose(); const mat = m.material as THREE.Material | THREE.Material[] | undefined; if (Array.isArray(mat)) mat.forEach((x) => x.dispose()); else mat?.dispose(); });
       glowTex.dispose();
     scene.environment?.dispose(); pmrem.dispose(); renderer.dispose();
