@@ -196,6 +196,8 @@
     }
     return sanitizeHtml(out.body.innerHTML);
   }
+  /** The source in front, whose original ⌘O opens: a draft desktop's, or the panel's. */
+  const original = (): string | undefined => data ? undefined : draft?.path ?? src?.row.path;
   /** ⌘O: the open source's origin, handed to the OS (lib/origin.ts): its page
    * in the browser, a dropped file in the app that reads it, a text-only drop
    * as a Markdown copy. Field draws none of them itself. */
@@ -862,7 +864,7 @@
     // ⌘, (ctrl+, elsewhere): settings, the same view the app's gear opens
     if (paused) return false;
     if ((e.metaKey || e.ctrlKey) && e.key === ",") { take(e); openSettings(); return true; }
-    if ((e.metaKey || e.ctrlKey) && (e.key === "o" || e.key === "O") && !e.shiftKey && src?.row.path && !data) { take(e); void openOriginal(src.row.path); return true; }
+    if ((e.metaKey || e.ctrlKey) && (e.key === "o" || e.key === "O") && !e.shiftKey && original()) { take(e); void openOriginal(original()!); return true; }
     if (e.metaKey || e.ctrlKey || e.altKey || !field) return false;
     if ((e.metaKey || e.ctrlKey) && (e.key === "n" || e.key === "N") && !e.shiftKey) { take(e); void createPilot([]); return true; }
     if (e.target === composerEl) {
@@ -970,7 +972,7 @@
 
   {#if hud}
     <header class="hud" bind:this={hudEl}>
-      <span class="eyebrow">{[hud.eyebrow, src?.row.path && !data && "⌘O Open"].filter(Boolean).join(" · ")}</span>
+      <span class="eyebrow">{[hud.eyebrow, original() && "⌘O Open"].filter(Boolean).join(" · ")}</span>
       <h1>{hud.name}</h1>
       {#if hud.writing}<p><span class="spin" aria-label="Writing a summary"></span></p>{:else if hud.status}<p>{hud.status}</p>{/if}
     </header>
@@ -1070,7 +1072,7 @@
         <div class="row">
           <span class="k">{coding(detail.id) && detail.phase === "working" ? "↵ Steer" : "↵ Send"} · ⇧↵ New line · Esc Back</span>
           {#if detail.phase === "working"}<button type="button" class="find" onclick={() => void stopPilot()}>Stop</button>{/if}
-          {#if drafting(detail.id)}<span class="k">Not kept until you send</span>
+          {#if drafting(detail.id)}<span class="k">Not kept until you send{#if original()} · ⌘O Open original{/if}</span>
           {:else if coding(detail.id)}<button type="button" class="find" onclick={() => void archiveDesktop()} title="Stop its processes; its files and conversation stay">Archive</button>{/if}
         </div>
       </div></div>

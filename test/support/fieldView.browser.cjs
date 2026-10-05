@@ -21,17 +21,20 @@ const assert = require('node:assert/strict');
     assert.match(await page.locator('.feed.sorted .row.at').innerText(), /orrery repair estimate/);
     await page.keyboard.press('k');
     assert.match(await page.locator('.feed.sorted .row.at').innerText(), /Atlas survey/);
+    // Enter opens the source as a draft desktop: the source beside an empty chat
     await page.keyboard.press('Enter');
-    await page.locator('.hud h1', { hasText: 'Atlas survey update' }).waitFor();
+    const draft = page.getByText('Not kept until you send');
+    await draft.waitFor();
     // ⌘O hands the source's origin to the OS: a page goes to the browser (a new tab here)
-    assert.match(await page.locator('.hud .eyebrow').innerText(), /⌘O OPEN/i);
+    assert.match(await draft.innerText(), /⌘O Open original/i);
     const [popup] = await Promise.all([page.waitForEvent('popup'), page.keyboard.press(process.platform === 'darwin' ? 'Meta+o' : 'Control+o')]);
     await popup.waitForEvent('domcontentloaded').catch(() => {});
     assert.equal(popup.url(), 'https://example.com/ins_b');
     await popup.close();
-    await page.locator('.hud h1', { hasText: 'Atlas survey update' }).waitFor();
+    await draft.waitFor();
+    // Esc before a first message goes back to the feed, on the same row
     await page.keyboard.press('Escape');
-    await page.locator('.hud').waitFor({ state: 'detached' });
+    await draft.waitFor({ state: 'detached' });
 
     // settings: a panel over the field; Esc closes it and the field has its keys again
     await page.keyboard.press(process.platform === 'darwin' ? 'Meta+,' : 'Control+,');
