@@ -1,4 +1,5 @@
-# The merge checks: `ci:checks`, split into two jobs that run side by side.
+# The merge checks: `ci:checks`, split into jobs that run side by side —
+# the static checks, and the unit suite in two balanced parts.
 # The browser suites (macOS and Linux) and repeated stress run nightly and
 # by hand in compatibility.yml.
 name: ci
@@ -25,6 +26,10 @@ jobs:
   tests:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [1, 2]
     steps:
       - uses: actions/checkout@v5
       - uses: oven-sh/setup-bun@v2
@@ -33,4 +38,4 @@ jobs:
       - run: bun install --frozen-lockfile
       # Tests import viewer modules, which resolve against web/ui's own deps.
       - run: bun install --frozen-lockfile --cwd web/ui
-      - run: bun run test
+      - run: bun run test -- --part ${{ matrix.part }}/2

@@ -9,7 +9,8 @@
  * (test/timings.json; `--record` re-measures them, a file at a time). Each
  * gets its own preload scratch vault, and one still running after five
  * minutes is killed and the file it was in named, instead of holding the
- * job to its timeout. BIGBRAIN_TEST_JOBS sets the process count. */
+ * job to its timeout. BIGBRAIN_TEST_JOBS sets the process count, and
+ * `--part k/n` runs the k-th of n balanced parts — one per CI runner. */
 import { availableParallelism } from "node:os";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -112,7 +113,15 @@ if (import.meta.main && process.argv.includes("--record")) {
 } else if (import.meta.main) {
   const jobs = Math.max(1, testJobs() || availableParallelism());
   const started = performance.now();
-  const shards = deal(testFiles(ENGINE_ROOT), jobs, readTimings(ENGINE_ROOT));
+  const timings = readTimings(ENGINE_ROOT);
+  let files = testFiles(ENGINE_ROOT);
+  const part = process.argv[process.argv.indexOf("--part") + 1];
+  if (process.argv.includes("--part")) {
+    const [k, n] = (part ?? "").split("/").map(Number);
+    if (!k || !n || k > n) throw new Error(`--part wants k/n with 1 <= k <= n, got ${part}`);
+    files = deal(files, n, timings)[k - 1] ?? [];
+  }
+  const shards = deal(files, jobs, timings);
   const results = await Promise.all(shards.map(files => runShard(ENGINE_ROOT, files)));
   results.forEach((r, i) => {
     if (r.ok) return;

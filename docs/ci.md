@@ -9,7 +9,8 @@ Every PR and main push runs `bun run ci:checks` as two Linux jobs, side by side:
 
 - `checks` (`ci:static`): generated plugins, lint, TypeScript, production viewer
   build, and Svelte checks.
-- `tests` (`bun run test`): the full unit suite. The ordinary filesystem watcher
+- `tests (1)` and `tests (2)` (`bun run test -- --part k/2`): the full unit suite,
+  in two halves balanced by recorded duration. The ordinary filesystem watcher
   regression remains part of it.
 
 `bun run test` is the full unit suite: `bin/test-parallel.ts` splits the test files
