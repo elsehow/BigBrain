@@ -11,8 +11,9 @@
  * only journal/feed/ (lib/feedJournal.ts) and never an assertion, so nothing
  * it judges comes back to any pass as evidence.
  *
- * A scheduled stage by the one rule (lib/chain.ts scheduledVerdict): due
- * when sources are waiting and the interval since the last call has passed.
+ * Reactive: due whenever the gardener has filed claims it hasn't sorted, so
+ * tend sorts what it just filed in the same run. Only a failed call waits,
+ * one interval, so ticks never bill retries back to back.
  * `feed.since` bounds the backlog, so turning it on never bills the history. */
 
 import { join } from "node:path";
@@ -81,11 +82,11 @@ export function feedWork(root: string, cfg: FeedConfig, records: FeedRecord[] = 
   return [...groups].filter(([, claims]) => claims.some((a) => !read.has(a.id)));
 }
 
-/** The last call, failed or not, plus the interval: a failure waits a full
- * interval too, so ticks never bill retries back to back. */
+/** Now, unless the last call failed: then one interval after it. */
 export function feedNextRunAt(cfg: FeedConfig, records: FeedRecord[]): string {
   const last = records.at(-1);
-  return last ? new Date(Date.parse(last.completed_at) + cfg.intervalMs).toISOString() : `${cfg.since}T00:00:00.000Z`;
+  if (!last) return `${cfg.since}T00:00:00.000Z`;
+  return last.error ? new Date(Date.parse(last.completed_at) + cfg.intervalMs).toISOString() : last.completed_at;
 }
 
 export function feedDue(root: string, cfg: FeedConfig | undefined, opts: { force?: boolean; now?: Date } = {}): StageVerdict {

@@ -28,7 +28,8 @@ export interface V2Scene {
   /** Focus one pilot: it fills in, its context comes forward. Null lets go. */
   focusPilot(id: string | null): void;
   /** Open an entity: it and its ties come forward. `text` sits beside it,
-   * under `caption` — which says what the text is (a summary, the latest assertion). */
+   * under `caption` when one says what it is; "" is text still being
+   * written, shown as a spinner beside the name. */
   openEntity(i: number | null, ties?: number[], text?: string, caption?: string): void;
   /** Search state: null closes it; matches light up; `active` is in hand.
    * `move`: frame every match (a new query), glide to the active one (an
@@ -220,12 +221,23 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
   const memory = field.nodes.filter((n) => n.memory).map((n) => {
     const g = glass(octa);
     g.mesh.position.set(...n.p);
-    g.mesh.scale.setScalar(0.42);
     // its own slight tilt: hashed from the id, so it holds across loads
     const h = [...n.id].reduce((acc, c) => (acc * 31 + c.charCodeAt(0)) >>> 0, 7);
     g.mesh.rotation.set(((h % 97) / 97 - 0.5) * 0.35, 0.4 + ((h % 89) / 89) * 0.9, ((h % 83) / 83 - 0.5) * 0.25);
     return { ...g, i: n.i };
   });
+
+  // A memory topic is drawn the size of an important node: a hub's dot. A
+  // point's size is set in pixels at a reference distance (uRef), so in world
+  // units its visible core depends only on the viewport's height.
+  const hubSize = (() => {
+    const s = [...field.hubs].map((i) => baseSize[i]!).sort((a, b) => a - b);
+    return s.length ? s[s.length >> 1]! : 6;
+  })();
+  const sizeMemory = () => {
+    const core = 0.47 * hubSize * pMat.uniforms["uRef"]!.value * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) / H;
+    for (const g of memory) g.mesh.scale.setScalar(core);
+  };
 
   // ── state ────────────────────────────────────────────────────────────────
   let ent: { i: number; ties: number[]; text?: string; caption?: string } | null = null;
@@ -276,10 +288,16 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
   const say = (L: HTMLDivElement, name: string, text: string | undefined, caption?: string) => {
     L.querySelector(".c")!.textContent = text ? caption ?? "" : "";
     const q = L.querySelector(".q")!;
-    if (!text) { q.textContent = ""; return; }
-    const at = text.toLowerCase().indexOf(name.toLowerCase());
-    q.replaceChildren();
+    if (text === undefined) { q.textContent = ""; return; }
     const b = document.createElement("b");
+    q.replaceChildren();
+    if (!text) {
+      const spin = document.createElement("span");
+      b.textContent = name; spin.className = "spin"; spin.setAttribute("aria-label", "Writing a summary");
+      q.append(b, spin);
+      return;
+    }
+    const at = text.toLowerCase().indexOf(name.toLowerCase());
     if (at >= 0) { b.textContent = text.slice(at, at + name.length); q.append(text.slice(0, at), b, text.slice(at + name.length)); }
     else { b.textContent = name; q.append(b, " · " + text); }
   };
@@ -352,6 +370,7 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
     renderer.setSize(W, H, false);
     camera.aspect = W / H;
     camera.updateProjectionMatrix();
+    sizeMemory();
     // the overview fits the field's width (radius 15, plus room) to the window
     const fit = THREE.MathUtils.clamp(17 / (LENS * Math.tan(THREE.MathUtils.degToRad(10)) * camera.aspect), 22, 46);
     const atRest = !ent && !srch && !focus;
@@ -514,7 +533,7 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
     const handCaption = srch ? srch.caption : ent?.caption;
     for (let i = 0; i < N; i++) {
       const n = field.nodes[i]!;
-      const full = i === inHand && !!handText;
+      const full = i === inHand && handText !== undefined;
       const restOp = n.named && (field.hubs.has(i) || n.memory) ? 1 : 0;
       let op = srch && srch.matches.size ? match[i]! : Math.max(heat[i]!, THREE.MathUtils.lerp(restOp, rel[i]!, dim)) * (srch ? searchDim : 1);
       if (i === inHand) op = 1;
@@ -529,7 +548,7 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
       }
       toScreen(P[i]!, s1);
       if (!s1.ok) { place(lab, -999, -999, 0); continue; }
-      cand.push({ L: lab, x: s1.x + (n.memory ? 16 : 9), y: s1.y, op, full, pri: (full ? 1e4 : 0) + heat[i]! * 2e3 + match[i]! * 400 + Math.log1p(n.degree) * 5 + (n.named ? 20 : 0) });
+      cand.push({ L: lab, x: s1.x + 9, y: s1.y, op, full, pri: (full ? 1e4 : 0) + heat[i]! * 2e3 + match[i]! * 400 + Math.log1p(n.degree) * 5 + (n.named ? 20 : 0) });
     }
     cand.sort((a, b) => b.pri - a.pri);
     for (const c of cand) {

@@ -132,6 +132,39 @@ export function buildV2Feed(src: V2Source): V2Feed {
   return { authors: [...authors.values()].sort((a, b) => b.lastAt.localeCompare(a.lastAt) || a.id.localeCompare(b.id)), feed };
 }
 
+/** One source on the sorted feed (lib/feedStage.ts), joined to the live record. */
+export interface V2SortedRow {
+  source: string;
+  section: "needs-you" | "agent" | "know";
+  /** The stage's headline, written for the owner. */
+  headline: string;
+  /** The deadline or event date (the stage's `expires`), or null. */
+  due: string | null;
+  /** When it entered the feed. */
+  added: string;
+  entities: string[];
+}
+
+/** What the sorted feed is built from: the stage's current entries (lib/feedJournal.ts currentFeed). */
+export interface SortedEntry { source: string; section: string; headline: string; expires: string | null; assertions: string[]; added: string }
+
+const SECTIONS: readonly V2SortedRow["section"][] = ["needs-you", "agent", "know"];
+
+/** The stage's entries, most pressing first (needs you, then an agent could,
+ * then worth knowing; latest added first within each). An entry whose claims have
+ * all been revoked since it was sorted drops out: the record no longer says it. */
+export function buildSortedFeed(src: V2Source, entries: readonly SortedEntry[]): V2SortedRow[] {
+  const live = new Map(src.rows.map((row) => [row.id, row]));
+  const out: V2SortedRow[] = [];
+  for (const e of entries) {
+    const section = SECTIONS.find((s) => s === e.section);
+    const rows = e.assertions.map((id) => live.get(id)).filter((r): r is AssertionEvent => !!r).map((r) => feedRow(src, r));
+    if (!section || !rows.length) continue;
+    out.push({ source: e.source, section, headline: e.headline, due: e.expires, added: e.added, entities: [...new Set(rows.flatMap((r) => r.entities))] });
+  }
+  return out.sort((a, b) => SECTIONS.indexOf(a.section) - SECTIONS.indexOf(b.section) || b.added.localeCompare(a.added) || a.source.localeCompare(b.source));
+}
+
 /** One entity's latest assertions (aliases folded), dated the same way. */
 export function buildEntityFeed(src: V2Source, entityId: string, limit = 6): V2FeedRow[] {
   const id = src.aliases.canonical.get(entityId)?.id ?? entityId;

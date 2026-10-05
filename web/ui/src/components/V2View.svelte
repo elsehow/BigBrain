@@ -14,7 +14,7 @@
   import { md, sanitizeHtml } from "../lib/markdown";
   import { pageDoc, themeSheet, themeVars } from "../lib/pageTheme";
   import type { V2Scene } from "../lib/v2/scene";
-  import { plainText as plain } from "../../../../lib/v2Feed";
+  import { plainText as plain, type V2SortedRow } from "../../../../lib/v2Feed";
   import type { DesktopTile, DesktopView } from "../../../../lib/pilotDesktop";
 
   /** Where the app lives, for settings and pilot conversations: beside this
@@ -64,6 +64,9 @@
 
   let ent: number | null = $state(null);
   let entRows: V2FeedRow[] | null = $state(null);
+  /** The sorted feed (lib/feedStage.ts), when the vault has one. */
+  let sorted: V2SortedRow[] = $state([]);
+  let allSorted = $state(false);
   let searching = $state(false);
   let query = $state("");
   let matches: number[] = $state([]);
@@ -333,6 +336,11 @@
   /** Who wrote the recent feed rows that mention an entity. */
   const writersOf = (id: string) => [...new Set(writing!.feed.filter((r) => r.entities.includes(id) && r.author).map((r) => authorName(r.author)))];
 
+  const dueOn = (day: string) => `due ${new Date(`${day}T00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`;
+  // most pressing at the bottom, nearest the eye
+  const SORTED_ROWS = 8;
+  let sortedShown = $derived((allSorted ? sorted : sorted.slice(0, SORTED_ROWS)).toReversed());
+
   // the feed: an opened entity's own record, else the vault's latest
   let rows = $derived.by(() => (!writing ? [] : ent != null && entRows ? entRows.slice(-6) : writing.feed.slice(-6)));
   let hud = $derived.by(() => {
@@ -353,6 +361,7 @@
     try {
       const [graph, sq] = data ? [data.graph, data.v2] : await Promise.all([api.graph(), api.v2()]);
       writing = sq;
+      if (!data) void api.v2Sorted().then((f) => { sorted = f.rows; }).catch(() => {});
       field = buildField(graph);
       twins = twinsOf(field);
       const { createV2Scene } = await import("../lib/v2/scene");
@@ -483,14 +492,15 @@
     scene?.shift(shiftFor());
     const n = field.nodes[i]!;
     const ties = neighbours(field, i);
-    // beside it, at once: the memory's own opening lines, or the latest assertion;
-    // then Quick's summary as it arrives, if the engine will give one
-    const first: Said = n.memory
-      ? (data || !n.path ? undefined : await memorySummary(n.path).then((t) => (t ? { text: t, caption: "From the memory note" } : undefined)))
-      : await latestWord(i);
+    // beside it: Quick's summary, written live, with a spinner until its first
+    // words (a memory shows its own opening lines meanwhile). Never the latest
+    // assertion: one claim out of many reads as the whole story.
+    const path = data ? undefined : n.path;
+    const first = n.memory && path ? await memorySummary(path) : undefined;
     if (ent !== i) return;
-    scene?.openEntity(i, ties, first?.text, first?.caption);
-    if (!data && n.path) void briefing(n.path, (text) => { if (ent === i) scene?.openEntity(i, ties, text, "Summary · Quick"); });
+    scene?.openEntity(i, ties, first ?? (path ? "" : undefined));
+    if (path) void briefing(path, (text) => { if (ent === i) scene?.openEntity(i, ties, text); })
+      .then((ok) => { if (!ok && !first && ent === i) scene?.openEntity(i, ties); });
     if (n.memory) {
       // a memory topic is a note, not an entity: its feed is about what it cites
       const cites = new Set(neighbours(field, i, 24).map((j) => field!.nodes[j]!.id));
@@ -683,7 +693,19 @@
     </div>
   {/if}
 
-  {#if rows.length && !openPilot}
+  {#if sorted.length && ent == null && !openPilot}
+    <div class="feed sorted" class:all={allSorted} bind:this={feedEl} aria-label="Your feed">
+      {#if sorted.length > SORTED_ROWS}<button type="button" class="more" onclick={() => (allSorted = !allSorted)}>{allSorted ? "Fewer" : `All ${sorted.length}`}</button>{/if}
+      {#each sortedShown as r (r.source)}
+        <div class="row s-{r.section}" role="presentation"
+          onmouseenter={() => scene?.hover(r.entities.map((id) => field!.byId.get(id)).filter((x): x is number => x != null))}
+          onmouseleave={() => scene?.hover(null)}>
+          <span class="w" title="When it entered your feed">{when(r.added)}</span>
+          <span class="x">{r.headline}{#if r.due}<span class="due">{dueOn(r.due)}</span>{/if}</span>
+        </div>
+      {/each}
+    </div>
+  {:else if rows.length && !openPilot}
     <div class="feed" bind:this={feedEl} aria-label="Latest assertions">
       {#each rows as r (r.id)}
         <div class="row" role="presentation"
@@ -805,6 +827,10 @@
   .stage :global(.v2-node.full .q) { display: block; white-space: normal; width: max-content; max-width: 32ch;
     font: 400 13px/1.45 var(--font-app); color: color-mix(in srgb, var(--fg) 82%, var(--bg)); }
   .stage :global(.v2-node .q b) { font-weight: 600; color: var(--fg); }
+  .stage :global(.v2-node .q .spin) { display: inline-block; width: 9px; height: 9px; margin-left: 9px; vertical-align: -1px; border-radius: 50%;
+    border: 1.5px solid color-mix(in srgb, var(--fg) 22%, transparent); border-top-color: var(--fg); animation: v2spin .8s linear infinite; }
+  @keyframes v2spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .stage :global(.v2-node .q .spin) { animation-duration: 2.4s; } }
 
   .strip { position: absolute; top: 18px; left: var(--app-gutter, 34px); right: var(--app-gutter, 34px); display: flex; gap: 4px; min-width: 0; z-index: 2; }
   .strip > :global(*) { flex: 0 1 auto; min-width: 0; }
@@ -988,6 +1014,13 @@
   .row:nth-last-child(2) { opacity: .7; } .row:nth-last-child(3) { opacity: .5; } .row:nth-last-child(4) { opacity: .36; }
   .row:nth-last-child(5) { opacity: .25; } .row:nth-last-child(6) { opacity: .16; }
   .feed:hover .row { opacity: .45; } .feed .row:hover { opacity: 1; } .row:hover .x { color: var(--fg); }
+  /* the sorted feed: weight by section, not age */
+  .sorted .row { opacity: 1; grid-template-columns: 92px minmax(0, 1fr); } .sorted .row.s-agent { opacity: .78; } .sorted .row.s-know { opacity: .55; }
+  .sorted .due { margin-left: 10px; font: 500 9.5px/1 var(--font-mono); letter-spacing: .06em; text-transform: uppercase; color: var(--activity); }
+  .sorted.all { max-height: 52vh; overflow-y: auto; text-shadow: none; background: color-mix(in srgb, var(--bg) 88%, transparent); border-radius: 8px; }
+  .more { align-self: flex-start; margin: 0 0 4px; padding: 0; border: 0; background: none; cursor: pointer;
+    font: 600 9.5px/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--v2-faint); }
+  .more:hover { color: var(--fg); }
   .hints { position: absolute; right: var(--app-gutter, 34px); bottom: 26px; margin: 0; display: flex; gap: 18px; pointer-events: none;
     font: 600 10px/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--v2-faint); }
   .notice { position: absolute; right: var(--app-gutter, 34px); bottom: 50px; max-width: 46ch; margin: 0; padding: 9px 12px; border-radius: 8px;

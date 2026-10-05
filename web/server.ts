@@ -55,7 +55,8 @@ import { walkMarkdown } from "../lib/vaultRead";
 import { parseBlobRef, readBlob } from "../lib/blobs";
 import { recentSourcePageAsync } from "../lib/sourceFeed";
 import { primaryGraphWithLayoutAsync, primaryGraphAsync } from "../lib/graphCache";
-import { buildEntityFeed, buildV2Feed, type V2Source } from "../lib/v2Feed";
+import { buildEntityFeed, buildSortedFeed, buildV2Feed, type V2Source } from "../lib/v2Feed";
+import { addedAt, currentFeed, feedRecords } from "../lib/feedJournal";
 import { readV2Source } from "../lib/v2Read";
 import { withVaultSnapshot } from "../lib/vaultReadModel";
 import { frozenMessagesForRefs, sortFrozenDesc } from "../lib/frozenQueue";
@@ -538,6 +539,20 @@ function v2Entity({ res, url }: Ctx): void {
   }
 }
 
+// The sorted feed (lib/feedStage.ts): what needs the owner, what an agent
+// could do, what is worth knowing. Empty without a feed: block, and the view
+// keeps showing the latest assertions.
+function v2Sorted({ res }: Ctx): void {
+  try {
+    const records = loadManifest(ROOT).feed ? feedRecords(ROOT) : [];
+    const added = addedAt(records);
+    const entries = currentFeed(records, new Date().toLocaleDateString("en-CA")).map((e) => ({ ...e, added: added.get(e.source)! }));
+    json(res, 200, { rows: buildSortedFeed(v2Source(), entries) });
+  } catch (error) {
+    json(res, 500, { error: errText(error) });
+  }
+}
+
 // Serve the graph as a FINISHED PICTURE: structure plus settled positions,
 // computed once per structure by lib/graphLayout.ts and cached in .state.
 // The client used to receive only the structure and simulate it itself on
@@ -740,6 +755,7 @@ export const ROUTES: readonly Route[] = [
   { method: "GET", path: "/api/graph", handler: graph },
   { method: "GET", path: "/api/v2", handler: v2 },
   { method: "GET", path: "/api/v2/entity", handler: v2Entity },
+  { method: "GET", path: "/api/v2/sorted", handler: v2Sorted },
   { method: "GET", path: "/v2", handler: serveV2 },
   { method: "GET", path: "/api/note-log", handler: noteLogRoute },
   { method: "GET", path: "/api/note-messages", handler: noteMessages },
