@@ -20,6 +20,7 @@ import {rankCandidates} from './inclusionCandidates';
 import {ruleQueries} from './inclusionQueries';
 import {readInclusionPolicy,writeInclusionPolicy,sharedRuleScope,sourceDigest,type InclusionPolicy,type InclusionSource} from './inclusionPolicy';
 import {resolveRuleMentions,ruleCandidateFilter} from './sharedRuleMentions';
+import {OutOfCredits} from './sharedJev';
 
 /** How many ranked sources are scored at most; a broad rule's matches beyond this wait for new arrivals. */
 export const POOL=200;
@@ -56,7 +57,7 @@ export function getBackfill(root:string,id:string){const b=sessions.get(id);if(!
 
 async function scoreAll(b:Backfill,items:InclusionSource[],evaluator:Evaluator,generation:number,count=true){
  let next=0;
- await Promise.all(Array.from({length:CONCURRENCY},async()=>{while(next<items.length&&b.generation===generation){const s=items[next++]!;try{const score=await evaluator.score(s);if(b.generation===generation){b.scores.set(s.id,score);if(count)b.scanned++;}}catch{if(b.generation===generation&&count)b.scanned++;}}}));
+ await Promise.all(Array.from({length:CONCURRENCY},async()=>{while(next<items.length&&b.generation===generation){const s=items[next++]!;try{const score=await evaluator.score(s);if(b.generation===generation){b.scores.set(s.id,score);if(count)b.scanned++;}}catch(e){if(e instanceof OutOfCredits)throw e;if(b.generation===generation&&count)b.scanned++;}}}));
 }
 
 export interface BackfillDeps {factory?:typeof inclusionEvaluator;queries?:typeof ruleQueries;existing?:()=>Promise<Set<string>>}
@@ -75,7 +76,7 @@ export async function startBackfill(root:string,store:string,connection:SharedCo
   const q=await queries(root,store,rule.text,mentioned);
   b.pool=rankCandidates(candidates,rule.text,q?.subjects??mentioned,q?.phrases??[]).slice(0,POOL);
   await scoreAll(b,b.pool,factory(root,store,rule.text,policy.labels),generation);
- }catch(e){if(b.generation===generation)b.error=e instanceof Error?e.message:'Could not find matches.';}
+ }catch(e){if(b.generation===generation)b.error=e instanceof OutOfCredits?'Out of usage credits. (You need credits to find matches for your inclusion rule.)':e instanceof Error?e.message:'Could not find matches.';}
  finally{if(b.generation===generation)b.busy=false;}})();
  return backfillState(b);
 }
