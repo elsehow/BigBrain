@@ -5,8 +5,7 @@
   import { onMount } from "svelte";
   import FieldView from "./FieldView.svelte";
   import FirstRunGate from "./FirstRunGate.svelte";
-  import VaultSwitcher from "./VaultSwitcher.svelte";
-  import { selectedWorkspace, switchWorkspace } from "../lib/vaultScope";
+  import { selectedWorkspace, leaveWorkspace } from "../lib/vaultScope";
   import { sharedWorkspace, checkSharedWorkspace } from "../lib/sharedWorkspace.svelte";
   import { init } from "../lib/store.svelte";
   import { startTelemetryPresence } from "../lib/telemetry";
@@ -40,8 +39,7 @@
   </FirstRunGate>
 {:else}
   <div style="padding: 32px; color: var(--text); font: var(--type-meta)">
-    <VaultSwitcher />
     <p role="status">{sharedWorkspace.error || "Connecting to shared vault…"}</p>
-    {#if sharedWorkspace.error}<button onclick={() => void checkSharedWorkspace()}>Retry</button> <button onclick={() => switchWorkspace(null)}>Personal vault</button>{/if}
+    {#if sharedWorkspace.error}<button onclick={() => void checkSharedWorkspace()}>Retry</button> <button onclick={leaveWorkspace}>Your vault</button>{/if}
   </div>
 {/if}

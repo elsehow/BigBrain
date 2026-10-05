@@ -12,16 +12,16 @@ export const workspaceURL = (path: string) => selectedWorkspace ? `${path}${path
 /** A record a connected shared vault serves (lib/sharedReadUnion.ts paths
  * them shared/<connection>/… and ids them shared:<connection>:…). */
 export const isSharedRecord = (ref: string): boolean => ref.startsWith("shared/") || ref.startsWith("shared:");
-export function switchVaults(ids: string[]): void {
+/** Leave a legacy direct-workspace link for the unified vault: every
+ * connected vault is read together (lib/sharedReadUnion.ts). */
+export function leaveWorkspace(): void {
   const url = new URL(location.href);
   url.searchParams.delete("workspace");
-  if (ids.length) url.searchParams.set("vaults", [...new Set(ids)].sort().join(',')); else url.searchParams.delete("vaults");
-  url.searchParams.set("vaultMenu","1");
+  url.searchParams.delete("vaults");
   url.hash = "#/home";
   // A new query replaces the document even when the hash route is unchanged.
   location.replace(url.href);
 }
-export function switchWorkspace(id: string | null): void { switchVaults(id ? [id] : []); }
 export function sharedUnavailable(): void {
   if (!selectedWorkspace) return;
   // Drop persisted response caches before restarting the document's auth gate.

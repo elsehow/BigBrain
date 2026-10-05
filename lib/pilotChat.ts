@@ -10,7 +10,7 @@ import { PilotCategories, type PilotCategoryOptions } from "./pilotCategories";
 import { validateChatImages, saveChatImage, readChatImage, modelImages } from "./chatImages";
 import type { ChatImage } from "./chatImageTypes";
 import { PilotAccess, PILOT_LOCAL_TOOLS } from "./pilotAccess";
-import { DESKTOP_TOOLS, DesktopError, arrangeDesktop, closeView, desktopReference, emptyDesktop, openView, type DesktopView, type PilotDesktop } from "./pilotDesktop";
+import { DESKTOP_TOOLS, DesktopError, arrangeDesktop, closeView, desktopReference, emptyDesktop, noteTitle, openView, type DesktopView, type PilotDesktop } from "./pilotDesktop";
 import { existsSync, unlinkSync, rmSync, readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
@@ -478,8 +478,7 @@ export class PilotChats {
     const p = path.trim();
     const note = await this.callShared("read_note", { path: p, chars: 1 }, signal) as { title?: unknown; error?: unknown } | null;
     if (!note || typeof note !== "object" || note.error) throw new PilotError("That note could not be read; open_view needs an exact vault path.");
-    const title = typeof note.title === "string" && note.title.trim() ? note.title.trim() : p.split("/").pop()!.replace(/\.md$/, "");
-    return { kind: "note", path: p, title, at: new Date(this.now()).toISOString() };
+    return { kind: "note", path: p, title: noteTitle(p, note), at: new Date(this.now()).toISOString() };
   }
   /** The agent's hand on its desktop (lib/pilotDesktop.ts holds the rules). */
   private async agentDesktop(s: PilotChatSession, name: string, a: Record<string, unknown>, signal: AbortSignal): Promise<unknown> {

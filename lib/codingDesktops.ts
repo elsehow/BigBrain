@@ -16,7 +16,7 @@ import { Agents, type Desktop, type HostTool, type LandHow, type OpenOptions, ty
 import { agentHost } from "./agentHost";
 import { writeAtomic } from "./fsx";
 import { pilotToolCall } from "./pilot";
-import { arrangeDesktop, closeView, desktopDetail, desktopReference, DESKTOP_TOOLS, DesktopError, emptyDesktop, loopbackUrl, MAX_PAGE_HTML, MAX_VIEWS, openView, SHOW_HTML_TOOL, SHOW_PAGE_TOOL, type DesktopView, type PilotDesktop } from "./pilotDesktop";
+import { arrangeDesktop, closeView, desktopDetail, desktopReference, DESKTOP_TOOLS, DesktopError, emptyDesktop, loopbackUrl, MAX_PAGE_HTML, MAX_VIEWS, noteTitle, openView, SHOW_HTML_TOOL, SHOW_PAGE_TOOL, type DesktopView, type PilotDesktop } from "./pilotDesktop";
 import { namingMoment, type TaskNamer } from "./pilotTaskName";
 import { DEFAULT_PILOT_BACKEND } from "./pilotBackendTypes";
 import { spoolDir } from "./spool";
@@ -232,7 +232,7 @@ export class CodingDesktops {
 
   /** The person's hand on the views: open a note (a citation they followed), close one, or arrange the tiles. */
   async view(id: unknown, action: unknown, body: Record<string, unknown>): Promise<CodingDesktopRecord> {
-    this.get(id);
+    this.get(id); // an unknown desktop fails before the note is read
     const view = action === "open" ? await this.noteView(body.path) : undefined;
     const r = this.get(id);
     const d = r.desktop ?? emptyDesktop();
@@ -251,8 +251,7 @@ export class CodingDesktops {
     const p = path.trim();
     const note = await pilotToolCall(this.root, "read_note", { path: p, chars: 1 }).catch(() => null) as { title?: unknown } | null;
     if (!note) throw new CodingDesktopError("That note could not be read; open_view needs an exact vault path.");
-    const title = typeof note.title === "string" && note.title.trim() ? note.title.trim() : p.split("/").pop()!.replace(/\.md$/, "");
-    return { kind: "note", path: p, title, at: new Date().toISOString() };
+    return { kind: "note", path: p, title: noteTitle(p, note), at: new Date().toISOString() };
   }
 
   private get themePath(): string { return join(this.agents.ws.root, "bigbrain.css"); }

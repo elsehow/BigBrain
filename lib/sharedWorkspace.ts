@@ -27,7 +27,7 @@ export function sharedProjection(sources: SharedSource[], views: AssertionView[]
   const byId = new Map(sources.map(s => [s.id, s]));
   const entities = new Map(assertions.flatMap(a => a.entities.map(e => [e.id, e] as const)));
   const nodes: GraphNode[] = sources.map(s => ({ id: `source:${s.id}`, title: s.title, path: insertionEventRel(s), group: 'source', degree: 0, ...insertionFiler(s) }));
-  nodes.push(...[...entities.values()].map(e => ({ id: e.id, title: e.label, path: entityPath(e.id), group: 'entity', degree: 0 })));
+  nodes.push(...[...entities.values()].map(e => ({ id: e.id, title: e.label, path: entityPath(e.id), group: 'entity', entity: true as const, degree: 0 })));
   const edges: GraphEdge[] = [];
   for (const a of assertions) for (const e of a.entities) for (const ref of assertionSourceReferences(a)) {
     if (byId.has(ref.insertion_id) && !edges.some(edge => edge.source === e.id && edge.target === `source:${ref.insertion_id}`))

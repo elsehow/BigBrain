@@ -66,7 +66,7 @@ const assert=require('node:assert/strict');
  await page.setViewportSize({width:600,height:1000});await page.screenshot({path:'/tmp/bb-first-run-integrations.png'});
  assert.deepEqual(choices,[]);assert.equal(metrics.enabled,false);
  await page.getByRole('button',{name:'Next →',exact:true}).click();await page.getByRole('heading',{name:'Help improve BigBrain',exact:true}).waitFor();assert.equal(step,'analytics');
- await page.getByRole('button',{name:'No thanks',exact:true}).click();await page.waitForURL(url=>url.searchParams.get('vaults')==='fixture-team'&&url.searchParams.has('vaultMenu')&&url.hash==='#/home');
+ await page.getByRole('button',{name:'No thanks',exact:true}).click();assert(!new URL(page.url()).searchParams.has('vaults'),'joining during setup changes no view');
  await page.waitForFunction(()=>!document.querySelector('[aria-label="Set up BigBrain"]'));assert.equal(step,'complete');assert.deepEqual(choices,[false]);
  // An existing configured vault has no progress marker and goes straight to its app.
  step=undefined;await page.reload();await page.waitForFunction(()=>!!document.querySelector('.v2'));assert.equal(await page.getByRole('dialog',{name:'Set up BigBrain'}).count(),0);assert.equal(account.liveAccess,false);
