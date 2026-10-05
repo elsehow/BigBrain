@@ -1,19 +1,26 @@
+# bigbrain-shared.service — one shared vault behind TLS (deploy/shared-vault/README.md).
+# Set BIGBRAIN_SHARED_PUBLIC_URL to your https:// origin before enabling.
+# Behind a platform proxy instead of Caddy (README step 4, option B), change
+# --host/--port to what the proxy reaches and add --remote.
 [Unit]
-Description=BigBrain authenticated shared vault
+Description=BigBrain shared vault
 After=network-online.target
 Wants=network-online.target
 [Service]
-User=exedev
-Group=exedev
-WorkingDirectory=/home/exedev/shared-vault-private
-ExecStart=/home/exedev/bigbrain-shared-server serve --vault /home/exedev/shared-vault-private/vault --members /home/exedev/shared-vault-private/members.json --host 0.0.0.0 --port 8000 --remote
+User=bigbrain
+Group=bigbrain
+WorkingDirectory=/var/lib/bigbrain-shared
+Environment=BIGBRAIN_SHARED_PUBLIC_URL=https://vault.example.com
+# Google sign-in (optional): BIGBRAIN_SHARED_GOOGLE_CLIENT_ID / _SECRET, mode 0600.
+EnvironmentFile=-/etc/bigbrain-shared.env
+ExecStart=/usr/local/bin/bigbrain-shared serve --vault /var/lib/bigbrain-shared/vault --members /var/lib/bigbrain-shared/members.json --host 127.0.0.1 --port 4749
 Restart=on-failure
 RestartSec=5
 UMask=0077
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
-ProtectHome=read-only
-ReadWritePaths=/home/exedev/shared-vault-private
+ProtectHome=true
+ReadWritePaths=/var/lib/bigbrain-shared
 [Install]
 WantedBy=multi-user.target

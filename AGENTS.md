@@ -1,5 +1,8 @@
 # Development baseline and UI previews
 
+Setting up a shared vault on a server, not developing? Follow
+`deploy/shared-vault/README.md` and stop reading here.
+
 - Read `CLAUDE.md` for repository workflow and architecture. Work in an isolated
   worktree; the shared checkout may be parked on an experiment, not main.
 - Before creating a worktree, inspect the current branch and fetch `origin/main`.

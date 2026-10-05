@@ -26,7 +26,10 @@ main() {
   SHA256="{{ZIP_SHA256}}"
   BASE="${BIGBRAIN_BASE_URL:-{{SITE_URL}}}"
 
-  [ "$(uname -s)" = Darwin ] || die "this installer is for macOS — BigBrain for Mac is the only build so far"
+  # Linux visitors are usually setting up a shared vault: send them (and their
+  # agents) to the runbook rather than a dead end.
+  [ "$(uname -s)" = Darwin ] || die "this installer is for macOS — BigBrain for Mac is the only build so far.
+  Setting up a shared vault on a server? Follow https://github.com/elsehow/BigBrain/blob/main/deploy/shared-vault/README.md"
   [ "$(uname -m)" = arm64 ] || die "this build is for Apple silicon (arm64); this Mac is $(uname -m)"
   command -v curl >/dev/null 2>&1 || die "curl is required"
   if ! xcode-select -p >/dev/null 2>&1; then
