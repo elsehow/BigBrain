@@ -1,7 +1,8 @@
 import {test,expect} from 'bun:test';
-import {rmSync,readdirSync,statSync,writeFileSync} from 'node:fs';
-import {join} from 'node:path';
+import {mkdirSync,rmSync,readdirSync,statSync,writeFileSync} from 'node:fs';
+import {dirname,join} from 'node:path';
 import {nativeVault} from './support/vault';
+import {sha256hex} from '../lib/hash';
 import {startGranolaSignIn,granolaSignInStatus,cancelGranolaSignIn,granolaConnection,disconnectGranola,withGranola,mcpData} from '../lib/granolaMcp';
 
 function fake(onCall?:(name:string)=>unknown|Promise<unknown>,onToken?:()=>Promise<void>){
@@ -117,6 +118,24 @@ test('a connected Granola stages independently of live access, deduplicates, cap
   revision++;disable=true;await expect(poll()).rejects.toThrow('not connected');expect(headFiles(root)).toHaveLength(2);
   disable=false;setConnected(true);
   expect(headFiles(root)).toHaveLength(2); // Material pending while disconnected was retained, not admitted or discarded.
+ }finally{disconnectGranola(root,'granola');f.server.stop(true);rmSync(root,{recursive:true,force:true});}
+});
+test('a reconnect resumes from the last poll: a meeting held while it was down still arrives',async()=>{
+ const root=nativeVault();
+ const f=fake(async name=>{
+  if(name==='list_meetings')return result(`<meetings_data count="1"><meeting id="${meetingId}" title="Orrery review" date="2026-09-24T12:00:00Z" url="https://notes.granola.ai/d/${meetingId}"></meeting></meetings_data>`);
+  if(name==='get_meetings')return result(`<meetings_data count="1"><meeting id="${meetingId}"><summary>Kit signs off</summary></meeting></meetings_data>`);
+  return result(JSON.stringify({id:meetingId,transcript:'Microphone: The orrery is repaired.',recording_context:{microphone_sharing:'unknown'}}));
+ });
+ const service=new IntegrationAccounts(root,{granolaSignIn:(r,a,cb)=>startGranolaSignIn(r,a,cb,{endpoint:f.endpoint})});
+ const run=<T>(fn:Parameters<typeof withGranola<T>>[2])=>withGranola(root,'granola',fn,{endpoint:f.endpoint});
+ try{
+  await connect(service,root);
+  // the previous connection last polled at 11:00; this one is new
+  const file=join(root,'.spool','integration-cursors','granola-mcp-'+sha256hex('granola').slice(0,24)+'.json');
+  mkdirSync(dirname(file),{recursive:true});
+  writeFileSync(file,JSON.stringify({version:1,generation:'an-earlier-connection',startedAt:'2026-09-20T00:00:00Z',lastPolledAt:'2026-09-24T11:00:00Z',seen:{}}));
+  expect(await pollGranolaMcp(root,'granola',{now:new Date('2026-09-24T13:00:00Z'),run})).toEqual({arrivals:1});
  }finally{disconnectGranola(root,'granola');f.server.stop(true);rmSync(root,{recursive:true,force:true});}
 });
 test('Granola rejects incomplete lists',()=>{
