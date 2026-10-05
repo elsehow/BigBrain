@@ -30,7 +30,7 @@
     if (scene) { update.available = { version: "0.7.24", notes: "Preview update" }; update.phase = scene === "installing" ? "installing" : scene === "failed" ? "failed" : "idle"; update.error = scene === "failed" ? "Could not reach the download server." : null; }
     return () => clearTimeout(timer);
   });
-  import AppShell from '../components/AppShell.svelte';
+  import Base from '../components/Base.svelte';
   import GraphProfileControls from './GraphProfileControls.svelte';
   import { onboardingPreviewKey } from './onboardingFixture';
   const onboarding = new URLSearchParams(location.search).has('onboarding');
@@ -54,7 +54,8 @@
     history.replaceState(null, '', url);
   }
 </script>
-<AppShell {baseline} debug />
+<!-- the production base, pinned to Classic (its first run and vault gates included) -->
+<Base view="classic" shell={{ baseline, debug: true }} />
 {#if new URLSearchParams(location.search).has('gmail')}<aside class="gmail-preview">Sample setup · Use sample@example.com and abcd efgh ijkl mnop. No credentials are saved.</aside>{/if}
 {#if !live && new URLSearchParams(location.search).has('profile')}<GraphProfileControls />{/if}
 <nav class="sidebar-study-switch" class:onboarding aria-label="Workbench previews">

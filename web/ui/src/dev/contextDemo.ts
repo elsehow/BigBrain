@@ -1,7 +1,7 @@
 import { publicPilotFixture } from "./publicPilotFixture";
 // Fictional Atlas specimen: production UI with deterministic sample context.
 import {mount} from 'svelte';
-import AppShell from '../components/AppShell.svelte';
+import Base from '../components/Base.svelte';
 import {app} from '../lib/store.svelte';
 import {chat} from '../lib/pilotChat.svelte';
 import {refreshWork} from '../lib/workSessions.svelte';
@@ -30,7 +30,7 @@ if(import.meta.env.DEV){
     return new Response(JSON.stringify({sessions:[pilot],notifications:[],ok:true}),{headers:{'content-type':'application/json'}});
   }) as typeof window.fetch;
   document.documentElement.dataset.contextRecording='true';document.documentElement.dataset.theme='phosphor';document.documentElement.dataset.typeStudy='proposed';document.documentElement.dataset.studyDock='side';
-  location.hash=`/vault/sessions/${worker.id}.md`;mount(AppShell,{target:document.getElementById('app')!});
+  location.hash=`/vault/sessions/${worker.id}.md`;mount(Base,{target:document.getElementById('app')!,props:{view:'classic'}});
   window.addEventListener('bb:context-cue',(event)=>{
     const {count,answer}= (event as CustomEvent<{count:number;answer:boolean}>).detail;
     worker.context={nodes:ids.slice(0,count),title:'Atlas project'};

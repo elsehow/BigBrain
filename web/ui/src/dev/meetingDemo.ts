@@ -1,7 +1,7 @@
 import { publicPilotFixture } from "./publicPilotFixture";
 // Scripted recording fixture. Production components, fictional Granola content.
 import { mount } from 'svelte';
-import AppShell from '../components/AppShell.svelte';
+import Base from '../components/Base.svelte';
 import { app } from '../lib/store.svelte';
 import { chat } from '../lib/pilotChat.svelte';
 import { refreshWork } from '../lib/workSessions.svelte';
@@ -152,7 +152,7 @@ if (import.meta.env.DEV) {
   if(leftSidebar) document.documentElement.dataset.studyDock='bottom';
   if(textSidebar) {document.documentElement.dataset.textSidebar='true';document.documentElement.dataset.studyDock='bottom';}
   location.hash=textSidebar ? `/vault/${meeting}` : '/';
-  mount(AppShell,{target:document.getElementById('app')!,props:{baseline:leftSidebar || textSidebar}});
+  mount(Base,{target:document.getElementById('app')!,props:{view:'classic',shell:{baseline:leftSidebar || textSidebar}}});
   if(leftSidebar) installLeftSidebar();
   if(textSidebar) {
     const controls=document.createElement('nav');controls.className='study-text-switcher';controls.setAttribute('aria-label','Preview scenes');

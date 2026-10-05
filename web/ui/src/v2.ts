@@ -1,13 +1,11 @@
-// The v2 view's own page (v2.html, served at /v2): the agents
-// writing the vault, in its field. Deliberately NOT a route inside the app
-// shell — the shell owns the window, the keyboard and the ground, and a
-// second full-screen view multiplexed over it fought all three. This page
-// mounts one component and nothing else; the app stays one link away.
+// /v2 (v2.html): the base with Field pinned, whatever this device chose.
+// The app at / is the same base, showing the view chosen in Settings.
 import { mount } from "svelte";
-import V2View from "./components/V2View.svelte";
+import Base from "./components/Base.svelte";
 import { watchSystemTheme } from "./lib/theme";
 import "./design/tokens.css";
+import "./app.css";
 
 watchSystemTheme();
 
-export default mount(V2View, { target: document.getElementById("app")! });
+export default mount(Base, { target: document.getElementById("app")!, props: { view: "field" } });

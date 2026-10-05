@@ -1,5 +1,5 @@
 import { mount } from "svelte";
-import AppShell from "./components/AppShell.svelte";
+import Base from "./components/Base.svelte";
 import faviconPngUrl from "./assets/favicon-128.png";
 import faviconUrl from "./assets/favicon.svg";
 import { watchSystemTheme } from "./lib/theme";
@@ -29,6 +29,6 @@ for (const [rel, type, href] of [
 // dark desktop rather than a cream flash that corrects itself.
 watchSystemTheme();
 
-const app = mount(AppShell, { target: document.getElementById("app")! });
+const app = mount(Base, { target: document.getElementById("app")! });
 
 export default app;

@@ -9,7 +9,7 @@
   // context, and their chat opens here as a flat column over the field.
   import { onMount, tick } from "svelte";
   import { api } from "../lib/api";
-  import { workspaceURL } from "../lib/vaultScope";
+  import { app, goto } from "../lib/store.svelte";
   import type { GraphData } from "../lib/types";
   import { barPilots, buildField, latestPerFamily, neighbours, placePilots, searchNames, twinsOf, type Field, type PilotSummary, type V2Feed, type V2FeedRow } from "../lib/v2/model";
   import { md, sanitizeHtml } from "../lib/markdown";
@@ -18,13 +18,16 @@
   import { plainText as plain, type V2SortedRow } from "../../../../lib/v2Feed";
   import type { DesktopTile, DesktopView } from "../../../../lib/pilotDesktop";
 
-  /** Where the app lives, for settings and pilot conversations: beside this
-   * page in a build; a dev preview can point at the live engine instead
-   * (VITE_V2_APP), since a read-only preview can't hold a conversation. */
-  const APP: string = import.meta.env["VITE_V2_APP"] ?? "./";
+  /** Classic, for what Field doesn't draw (a note's page, an older pilot's
+   * conversation): this page in Classic; a dev preview can point at the live
+   * engine instead (VITE_V2_APP), since a read-only preview can't hold one. */
+  const APP: string = import.meta.env["VITE_V2_APP"] ?? "./?view=classic";
 
-  /** The workbench hands in fabricated data; the app fetches the vault's. */
-  let { data = null }: { data?: { graph: GraphData; v2: V2Feed } | null } = $props();
+  /** The workbench hands in fabricated data; the app fetches the vault's.
+   * `paused`: the base's settings panel is over the field, and has the keys. */
+  let { data = null, paused = false }: { data?: { graph: GraphData; v2: V2Feed } | null; paused?: boolean } = $props();
+  /** Settings: the base's panel, over the field (FieldView); a preview has none. */
+  const openSettings = () => { if (data) location.href = `${APP}#/vaultSettings`; else goto("vaultSettings"); };
 
   let host: HTMLDivElement;
   let hudEl: HTMLElement | undefined = $state();
@@ -418,6 +421,15 @@
   function refreshSorted(): void {
     if (!data) void api.v2Sorted().then((f) => { sorted = f.rows; }).catch(() => {});
   }
+  // pushed, not polled: the base's live stream bumps app.rev when the vault changes
+  let pending: ReturnType<typeof setTimeout> | undefined;
+  let seenRev = app.rev;
+  $effect(() => {
+    const rev = app.rev;
+    if (data || rev === seenRev) return;
+    seenRev = rev;
+    clearTimeout(pending); pending = setTimeout(() => void onVaultChange(), 300);
+  });
   onMount(() => {
     void load();
     void refreshPilots();
@@ -428,11 +440,7 @@
       if (tickN % 4 === 0) void refreshPilots();
       redrawIfIdle(); // a held graph, once you are back at the overview
     }, 1200);
-    // pushed, not polled: the engine pings when the vault changes
-    const es = data ? null : new EventSource(workspaceURL("/api/events"));
-    let pending: ReturnType<typeof setTimeout> | undefined;
-    if (es) es.onmessage = () => { clearTimeout(pending); pending = setTimeout(() => void onVaultChange(), 300); };
-    return () => { clearInterval(timer); es?.close(); clearTimeout(pending); scene?.dispose(); };
+    return () => { clearInterval(timer); clearTimeout(pending); scene?.dispose(); };
   });
 
   /** A click in the field: open what's under it; empty space backs out. */
@@ -647,7 +655,8 @@
   /** True when this view took the key. */
   function onKey(e: KeyboardEvent): boolean {
     // ⌘, (ctrl+, elsewhere): settings, the same view the app's gear opens
-    if ((e.metaKey || e.ctrlKey) && e.key === ",") { take(e); location.href = `${APP}#/vaultSettings`; return true; }
+    if (paused) return false;
+    if ((e.metaKey || e.ctrlKey) && e.key === ",") { take(e); openSettings(); return true; }
     if (e.metaKey || e.ctrlKey || e.altKey || !field) return false;
     if ((e.metaKey || e.ctrlKey) && (e.key === "n" || e.key === "N") && !e.shiftKey) { take(e); void createPilot([]); return true; }
     if (e.target === composerEl) {
@@ -738,12 +747,12 @@
       {/each}
       <button type="button" class="new" onclick={() => void createPilot([])} title="New pilot (⌘N)">+ <span class="k">⌘N</span></button>
       <button type="button" class="find" onclick={openSearch}>Search <span class="k">/</span></button>
-      <a class="gear" href={`${APP}#/vaultSettings`} title="Settings (⌘,)" aria-label="Settings">
+      <button type="button" class="gear" onclick={openSettings} title="Settings (⌘,)" aria-label="Settings">
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
           <circle cx="12" cy="12" r="3" />
           <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.08a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.08a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
         </svg>
-      </a>
+      </button>
     </nav>
   {/if}
 
@@ -888,6 +897,14 @@
   <p class="hints" aria-hidden="true"><span>/ Search</span><span>j k Feed</span>{#if cursor && ent == null}<span>↵ Open</span>{/if}<span>⇧↵ Pilot</span><span>1–9 Pilots</span><span>⌘N New</span>{#if openPilot && desktopViews.length}<span>\ Views</span>{/if}{#if ent != null || src || cursor}<span>Esc Back</span>{/if}</p>
   {#if notice}<p class="notice" role="status">{notice}</p>{/if}
   {#if error}<p class="error">The v2 view couldn’t load: {error}</p>{/if}
+  {#if field && !field.nodes.length && !openPilot}
+    <!-- a new vault: nothing drawn yet, so say how things arrive -->
+    <div class="empty">
+      <h1>Nothing here yet</h1>
+      <p>Drop a file or a link anywhere on this window, or connect your mail, meetings or feeds. What arrives is filed into your vault and shows up here.</p>
+      {#if !data}<button type="button" class="find" onclick={() => goto("integrations")}>Connect an integration</button>{/if}
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -1069,7 +1086,7 @@
   .vbody :global(code) { font: 400 0.86em/1.4 var(--font-mono); } .vbody :global(pre) { white-space: pre-wrap; padding: 10px 12px; border-radius: 8px; background: color-mix(in srgb, var(--fg) 7%, var(--bg)); }
   .vbody :global(blockquote) { margin: 0 0 0.85em; padding-left: 1em; border-left: 2px solid var(--rule); color: var(--v2-muted); }
   .vbody :global(table) { display: block; overflow-x: auto; border-collapse: collapse; font-size: 0.92em; } .vbody :global(th), .vbody :global(td) { border: 1px solid var(--rule); padding: 0.35em 0.6em; }
-  .gear { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 999px; color: var(--v2-muted); }
+  .gear { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; padding: 0; border: 0; border-radius: 999px; background: none; cursor: pointer; color: var(--v2-muted); }
   .gear:hover { color: var(--fg); background: color-mix(in srgb, var(--fg) 7%, var(--bg)); }
 
   .hud { position: absolute; top: 72px; left: var(--app-gutter, 34px); width: min(460px, calc(100% - 32px)); display: flex; flex-direction: column; gap: 9px;
@@ -1118,6 +1135,9 @@
     font: 600 10px/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--v2-faint); }
   .notice { position: absolute; right: var(--app-gutter, 34px); bottom: 50px; max-width: 46ch; margin: 0; padding: 9px 12px; border-radius: 8px;
     background: color-mix(in srgb, var(--fg) 8%, var(--bg)); font: 400 13px/1.4 var(--font-app); color: var(--fg); }
+  .empty { position: absolute; top: 38%; left: 50%; transform: translate(-50%, -50%); width: min(460px, calc(100% - 32px)); display: flex; flex-direction: column; align-items: flex-start; gap: 12px; }
+  .empty p { margin: 0; font: 400 14.5px/1.5 var(--font-app); color: var(--v2-muted); }
+  .empty .find { margin-left: 0; color: var(--fg); background: color-mix(in srgb, var(--fg) 7%, var(--bg)); }
   .error { position: absolute; top: 80px; left: var(--app-gutter, 34px); font: 400 13px/1.5 var(--font-app); color: var(--v2-muted); }
   @media (max-width: 700px) {
     .row { grid-template-columns: 72px minmax(0, 1fr); } .row .w { display: none; }

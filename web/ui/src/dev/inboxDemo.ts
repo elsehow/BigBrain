@@ -1,6 +1,6 @@
 // Fictional inbox triage fixture, kept out of production builds.
 import {mount} from 'svelte';
-import AppShell from '../components/AppShell.svelte';
+import Base from '../components/Base.svelte';
 import {app} from '../lib/store.svelte';
 import {chat} from '../lib/pilotChat.svelte';
 import {newPilotChatSession,type PilotChatSession} from '../../../../lib/pilotChatTypes';
@@ -61,7 +61,7 @@ if(import.meta.env.DEV){
     return json({error:'Outside this demo fixture'},409);
   }) as typeof window.fetch;
   document.documentElement.dataset.theme=new URLSearchParams(location.search).get('theme')==='default'?'default':'web';document.documentElement.dataset.typeStudy='proposed';document.documentElement.dataset.studyDock='side';
-  location.hash='/';mount(AppShell,{target:document.getElementById('app')!});
+  location.hash='/';mount(Base,{target:document.getElementById('app')!,props:{view:'classic'}});
   let opened=false;
   new MutationObserver(()=>{if(!document.querySelector('.pilot-panel')){opened=false;return;}if(!opened){opened=true;if(new URLSearchParams(location.search).has('assembly'))return;document.querySelector<HTMLButtonElement>('button[aria-label="Expand text tab"]')?.click();}}).observe(document.body,{childList:true,subtree:true});
 }
