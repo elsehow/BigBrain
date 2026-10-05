@@ -15,8 +15,7 @@ test('only the production shell can import the bare App', () => {
   expect(callers).toEqual([join(root, 'components/AppShell.svelte')]);
 });
 
-test('desktop and sidebar workbench share AppShell', () => {
-  for (const path of ['main.ts', 'dev/SidebarWorkbench.svelte']) {
-    expect(readFileSync(join(root, path), 'utf8')).toContain('components/AppShell.svelte');
-  }
+test('the desktop and the sidebar workbench mount the same base, whose Classic view is the AppShell', () => {
+  for (const path of ['main.ts', 'dev/SidebarWorkbench.svelte']) expect(readFileSync(join(root, path), 'utf8')).toContain('components/Base.svelte');
+  expect(readFileSync(join(root, 'components/Base.svelte'), 'utf8')).toContain('./AppShell.svelte');
 });

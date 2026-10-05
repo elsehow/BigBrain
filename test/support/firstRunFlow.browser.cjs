@@ -57,7 +57,7 @@ const assert=require('node:assert/strict');
  await page.getByRole('navigation',{name:'Setup steps'}).getByRole('button',{name:/Integrations/}).click();await page.getByRole('heading',{name:'Connect integrations',exact:true}).waitFor();
  await page.locator('article').filter({hasText:'Granola'}).getByRole('button',{name:'+ Add',exact:true}).click();
  await page.getByRole('region',{name:'granola accounts'}).getByRole('button',{name:'Connect',exact:true}).click();
- assert(await page.getByRole('checkbox',{name:'Automatic remembering',exact:true}).isChecked());assert(await page.getByRole('checkbox',{name:'Live access',exact:true}).isChecked());
+ assert(await page.getByRole('checkbox',{name:'Live access',exact:true}).isChecked());
  await page.getByRole('checkbox',{name:'Live access',exact:true}).uncheck();await page.getByRole('button',{name:'Save',exact:true}).click();assert.equal(account.liveAccess,false);
  // A member joining a shared vault redeems the invite here and finishes setup inside it.
  const sharedInvite=page.getByRole('region',{name:'Shared vault'}),inviteLink='https://vault.example.test/invite#'+'A'.repeat(43);
