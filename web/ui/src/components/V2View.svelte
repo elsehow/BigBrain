@@ -361,7 +361,7 @@
     try {
       const [graph, sq] = data ? [data.graph, data.v2] : await Promise.all([api.graph(), api.v2()]);
       writing = sq;
-      if (!data) void api.v2Sorted().then((f) => { sorted = f.rows; }).catch(() => {});
+      refreshSorted();
       field = buildField(graph);
       twins = twinsOf(field);
       const { createV2Scene } = await import("../lib/v2/scene");
@@ -374,6 +374,10 @@
       error = errText(e);
     }
   }
+  /** The feed changes in the background as tend sorts what it files. */
+  function refreshSorted(): void {
+    if (!data) void api.v2Sorted().then((f) => { sorted = f.rows; }).catch(() => {});
+  }
   onMount(() => {
     void load();
     void refreshPilots();
@@ -382,6 +386,7 @@
       tickN++;
       if (openPilot && (detail?.phase === "working" || tickN % 3 === 0)) void loadDetail();
       if (tickN % 4 === 0) void refreshPilots();
+      if (tickN % 25 === 0) refreshSorted(); // every 30 s
     }, 1200);
     return () => { clearInterval(timer); scene?.dispose(); };
   });
