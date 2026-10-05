@@ -51,7 +51,14 @@ const assert = require('node:assert/strict');
     await page.getByRole('button', { name: 'Connect an integration' }).click();
     await page.locator('aside.panel .settings').waitFor();
 
+    // out of usage credits: the base says so over the view, and Retry clears it
+    await page.goto(`${base}/field-workbench.html?view=field&credits`);
+    await page.getByText('Out of usage credits with Anthropic.').waitFor();
+    assert.match(await page.locator('.credits').innerText(), /Paused: filing, summaries/);
+    await page.getByRole('button', { name: 'Retry', exact: true }).click();
+    await page.locator('.credits').waitFor({ state: 'detached' });
+
     assert.deepEqual(errors, []);
-    console.log('PASS: Field walks and opens the feed, settings sit over it and return its keys, the view switches both ways, and a new vault says what to do.');
+    console.log('PASS: Field walks and opens the feed, settings sit over it and return its keys, the view switches both ways, and a new vault says what to do, and running out of credits is said once.');
   } finally { await browser.close(); }
 })().catch(e => { console.error(e); process.exit(1); });

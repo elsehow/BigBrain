@@ -35,7 +35,7 @@
 {/if}
 
 <style>
-  .credits { position: fixed; z-index: 90; left: 50%; bottom: 18px; transform: translateX(-50%); width: max-content; max-width: min(760px, calc(100% - 32px));
+  .credits { position: fixed; z-index: 90; left: 50%; top: 12px; transform: translateX(-50%); width: max-content; max-width: min(760px, calc(100% - 32px));
     display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; padding: 9px 14px; border-radius: 10px;
     font: var(--type-meta); color: var(--text); background: color-mix(in srgb, var(--err, #c33) 10%, var(--bg));
     box-shadow: 0 0 0 1px color-mix(in srgb, var(--err, #c33) 30%, transparent), 0 12px 40px -18px color-mix(in srgb, var(--fg) 45%, transparent); }
