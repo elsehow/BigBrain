@@ -391,6 +391,7 @@
       blockers: () => [hudEl, feedEl, searching ? searchEl : undefined, chatEl, sidebarEl].filter((e): e is HTMLElement => !!e).map((e) => e.getBoundingClientRect()).filter((r) => r.height > 0),
       onPick,
       onPickPilot: (id) => (openPilot === id ? closePilot() : openPilotChat(id)),
+      onHover: relateTie,
     });
     scene.setPilots(placePilots(field, bar));
   }
@@ -399,6 +400,7 @@
    * redrawn when you are at the overview, so nothing moves under a hand. */
   let graphStale = false;
   async function onVaultChange(): Promise<void> {
+    relations.clear();
     refreshSorted();
     void api.v2().then((v) => { writing = v; }).catch(() => {});
     try {
@@ -557,6 +559,35 @@
       }
       return false;
     } catch { return false; }
+  }
+  /** How a hovered tie relates to the opened entity, in Quick's words beside
+   * the tie's name. It is asked for once the pointer settles, so passing over
+   * a tie doesn't ask; a pair already told is shown at once. */
+  const relations = new Map<string, string>();
+  let relateTimer: ReturnType<typeof setTimeout> | undefined;
+  let relating: number | null = null;
+  function relateTie(j: number | null): void {
+    clearTimeout(relateTimer);
+    const i = ent, focus = i == null ? undefined : field?.nodes[i]?.path, hovered = j == null ? undefined : field?.nodes[j]?.path;
+    if (data || i == null || j == null || j === i || !focus || !hovered || !neighbours(field!, i).includes(j)) {
+      if (relating != null) { relating = null; scene?.relate(null); }
+      return;
+    }
+    relating = j;
+    const pair = JSON.stringify([focus, hovered]);
+    const known = relations.get(pair);
+    if (known) { scene?.relate(j, known); return; }
+    scene?.relate(null);
+    const still = () => ent === i && relating === j;
+    relateTimer = setTimeout(() => {
+      if (!still()) return;
+      scene?.relate(j, "");
+      void fetch("/api/note/relation", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ focus, hovered }) })
+        .then(async (r) => { const body = await r.json() as { relation?: { text: string } }; if (!r.ok || !body.relation) throw new Error(); return plain(body.relation.text); })
+        .then((text) => { relations.set(pair, text); if (still()) scene?.relate(j, text); })
+        // no relation to give: the tie keeps its plain name
+        .catch(() => { if (still()) scene?.relate(null); });
+    }, 300);
   }
   async function openEntity(i: number): Promise<void> {
     if (!field || !writing) return;
