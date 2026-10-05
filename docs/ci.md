@@ -11,12 +11,12 @@ Every PR and main push runs one job:
   the full unit suite, and Svelte checks. The ordinary filesystem watcher regression
   remains part of the full suite.
 
-`bun run test` is the full unit suite: `bin/test-parallel.ts` gives each test file
-its own `bun test` process, one per CPU (`BIGBRAIN_TEST_JOBS` overrides). Plain
-`bun test` runs the files one after another in one process, and about 100s of the
-check was that process waiting. A file still running after three minutes is
-killed and named, rather than holding the job until its timeout. Every file
-must pass on its own, without depending on files that ran before it in the same
+`bun run test` is the full unit suite: `bin/test-parallel.ts` splits the test files
+by size across one `bun test` process per CPU (`BIGBRAIN_TEST_JOBS` overrides).
+Plain `bun test` runs the files one after another in one process, and about 100s
+of the check was that process waiting. A process still running after five
+minutes is killed, and the file it was in is named, rather than holding the job
+until its timeout. Every file must pass on its own, whatever files share its
 process. `bun test <file>` is still how to run one file.
 
 Aim for ordinary PR feedback within five minutes, excluding runner queue time.
