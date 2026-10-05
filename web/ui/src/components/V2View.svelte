@@ -9,6 +9,7 @@
   // context, and their chat opens here as a flat column over the field.
   import { onMount, tick } from "svelte";
   import { api } from "../lib/api";
+  import { workspaceURL } from "../lib/vaultScope";
   import type { GraphData } from "../lib/types";
   import { barPilots, buildField, latestPerFamily, neighbours, placePilots, searchNames, twinsOf, type Field, type PilotSummary, type V2Feed, type V2FeedRow } from "../lib/v2/model";
   import { md, sanitizeHtml } from "../lib/markdown";
@@ -237,12 +238,16 @@
     const f = field, b = bar;
     if (f && scene) scene.setPilots(placePilots(f, b));
   });
-  // keep the scroll at the newest message
+  // keep the scroll at the newest message, unless you have scrolled up to
+  // read: it follows again once you are back at the bottom
+  let following = true;
+  const onMsgsScroll = () => { if (msgsEl) following = msgsEl.scrollHeight - msgsEl.scrollTop - msgsEl.clientHeight < 48; };
   $effect(() => {
     void detail?.messages.length; void live;
-    void tick().then(() => { if (msgsEl) msgsEl.scrollTop = msgsEl.scrollHeight; });
+    void tick().then(() => { if (msgsEl && following) msgsEl.scrollTop = msgsEl.scrollHeight; });
   });
   function openPilotChat(id: string): void {
+    following = true;
     if (searching) { searching = false; scene?.search(null); }
     ent = null; entRows = null;
     openPilot = id; detail = (pilotsAll.find((p) => p.id === id) as PilotDetail | undefined) ?? null;
@@ -280,6 +285,7 @@
     }
   }
   async function sendDraft(): Promise<void> {
+    following = true;
     const id = openPilot, text = draftText.trim();
     if (!id || !text) return;
     draftText = "";
@@ -368,17 +374,45 @@
       const [graph, sq] = data ? [data.graph, data.v2] : await Promise.all([api.graph(), api.v2()]);
       writing = sq;
       refreshSorted();
-      field = buildField(graph);
-      twins = twinsOf(field);
-      const { createV2Scene } = await import("../lib/v2/scene");
-      scene = createV2Scene(host, field, {
-        blockers: () => [hudEl, feedEl, searching ? searchEl : undefined, chatEl, sidebarEl].filter((e): e is HTMLElement => !!e).map((e) => e.getBoundingClientRect()).filter((r) => r.height > 0),
-        onPick,
-        onPickPilot: (id) => (openPilot === id ? closePilot() : openPilotChat(id)),
-      });
+      await drawField(graph);
     } catch (e) {
       error = errText(e);
     }
+  }
+  let graphHash = "";
+  /** The field from /api/graph, drawn anew (a fresh scene: indices change). */
+  async function drawField(graph: GraphData): Promise<void> {
+    graphHash = graph.hash;
+    field = buildField(graph);
+    twins = twinsOf(field);
+    const { createV2Scene } = await import("../lib/v2/scene");
+    scene?.dispose();
+    scene = createV2Scene(host, field, {
+      blockers: () => [hudEl, feedEl, searching ? searchEl : undefined, chatEl, sidebarEl].filter((e): e is HTMLElement => !!e).map((e) => e.getBoundingClientRect()).filter((r) => r.height > 0),
+      onPick,
+      onPickPilot: (id) => (openPilot === id ? closePilot() : openPilotChat(id)),
+    });
+    scene.setPilots(placePilots(field, bar));
+  }
+  /** The vault changed (the engine's /api/events ping, as the app's views
+   * hear it): the feed and the record re-read at once; a changed graph is
+   * redrawn when you are at the overview, so nothing moves under a hand. */
+  let graphStale = false;
+  async function onVaultChange(): Promise<void> {
+    refreshSorted();
+    void api.v2().then((v) => { writing = v; }).catch(() => {});
+    try {
+      const g = await api.graph();
+      if (g.hash !== graphHash) { graphStale = true; heldGraph = g; }
+    } catch { /* the next ping tries again */ }
+    redrawIfIdle();
+  }
+  let heldGraph: GraphData | null = null;
+  function redrawIfIdle(): void {
+    if (!graphStale || !heldGraph || ent != null || src || searching || openPilot) return;
+    graphStale = false;
+    void drawField(heldGraph).then(lightCursor);
+    heldGraph = null;
   }
   /** The feed changes in the background as tend sorts what it files. */
   function refreshSorted(): void {
@@ -392,9 +426,13 @@
       tickN++;
       if (openPilot && (detail?.phase === "working" || tickN % 3 === 0)) void loadDetail();
       if (tickN % 4 === 0) void refreshPilots();
-      if (tickN % 25 === 0) refreshSorted(); // every 30 s
+      redrawIfIdle(); // a held graph, once you are back at the overview
     }, 1200);
-    return () => { clearInterval(timer); scene?.dispose(); };
+    // pushed, not polled: the engine pings when the vault changes
+    const es = data ? null : new EventSource(workspaceURL("/api/events"));
+    let pending: ReturnType<typeof setTimeout> | undefined;
+    if (es) es.onmessage = () => { clearTimeout(pending); pending = setTimeout(() => void onVaultChange(), 300); };
+    return () => { clearInterval(timer); es?.close(); clearTimeout(pending); scene?.dispose(); };
   });
 
   /** A click in the field: open what's under it; empty space backs out. */
@@ -796,7 +834,7 @@
         {/if}
       </header>
       <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-      <div class="msgs" bind:this={msgsEl} onclick={citation}><div class="col">
+      <div class="msgs" bind:this={msgsEl} onscroll={onMsgsScroll} onclick={citation}><div class="col">
         {#each detail.messages as m (m.id)}
           {#if m.role === "activity"}<p class="act" class:bad={m.ok === false}>{m.text}</p>
           {:else}<div class="msg {m.role}"><div class="body">{@html render(m.text)}</div></div>{/if}
