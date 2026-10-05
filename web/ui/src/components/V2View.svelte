@@ -865,8 +865,9 @@
     if (paused) return false;
     if ((e.metaKey || e.ctrlKey) && e.key === ",") { take(e); openSettings(); return true; }
     if ((e.metaKey || e.ctrlKey) && (e.key === "o" || e.key === "O") && !e.shiftKey && original()) { take(e); void openOriginal(original()!); return true; }
+    // ⌘N before the modifier bail-out below, which swallowed it
+    if ((e.metaKey || e.ctrlKey) && !e.altKey && (e.key === "n" || e.key === "N") && !e.shiftKey && field) { take(e); void createPilot([]); return true; }
     if (e.metaKey || e.ctrlKey || e.altKey || !field) return false;
-    if ((e.metaKey || e.ctrlKey) && (e.key === "n" || e.key === "N") && !e.shiftKey) { take(e); void createPilot([]); return true; }
     if (e.target === composerEl) {
       // the composer: Enter sends, Shift+Enter is a new line, Esc leaves it
       if (e.key === "Enter" && !e.shiftKey) { take(e); void sendDraft(); return true; }
