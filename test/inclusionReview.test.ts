@@ -143,3 +143,13 @@ test('a note added by hand is included, shown with its thumbs up, teaches the ru
   expect(await decideInclusion(c.root,c.store,c.scope,c.text,missed)).toBe(false);
  }finally{rmSync(c.root,{recursive:true,force:true});}
 });
+test('a source that cannot be scored keeps its reason, and an empty review says how many sources it had',async()=>{
+ const c=fixture();try{
+  const one={...c,sources:[c.sources[0]!]};
+  const failing:typeof inclusionEvaluator=(root,store,text,labels)=>({identity:inclusionEvaluator(root,store,text,labels).identity,score:async()=>{throw Error('Quick model is not connected');}});
+  const s=await idle(c.root,startReview(one,failing).id),view=reviewState(s);
+  expect(view.unresolved).toBe(1);expect(view.failures).toEqual(['Quick model is not connected']);
+  expect(view.sources).toBe(1);expect(view.untried).toBe(0);expect(view.narrowed).toBe(false);expect(view.exhausted).toBe(true);
+  expect(view.error).toContain('could not be evaluated');
+ }finally{rmSync(c.root,{recursive:true,force:true});}
+});
