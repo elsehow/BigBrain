@@ -12,6 +12,7 @@ import { canonicalGraphView, type GraphViewState } from "./graphView";
 import { isUserNode } from "./userNote";
 import { sha256hex } from "./hash";
 import { json, readBody, type Route } from "./httpx";
+import { modelErrText } from "./errText";
 import { loadManifest } from "./manifest";
 import { type ConnectionEvidence } from "./markdownGraph";
 
@@ -321,7 +322,7 @@ export function noteBriefingRoutes(root: string, generate = createNoteBriefingSe
         if (streaming) emit({ type: "complete", briefing });
         else if (!res.destroyed) json(res, 200, { briefing });
       } catch (error) {
-        const message = error instanceof Error ? error.message : "The briefing is unavailable. Try again.";
+        const message = error instanceof Error ? modelErrText(error) : "The briefing is unavailable. Try again.";
         if (streaming) emit({ type: "error", error: message });
         else if (!res.destroyed) json(res, 400, { error: message });
       } finally { res.off("close", close); if (streaming && !res.destroyed) res.end(); }

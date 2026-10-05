@@ -113,5 +113,5 @@ test('a scoring failure is reported as failed, not as no matches',async()=>{
  const state=backfillState(b);
  expect(state.matches).toEqual([]);
  expect(state.failed).toBe(state.total);
- expect(state.failure).toContain('429');
+ expect(state.failure).toContain('rate-limiting');
 });

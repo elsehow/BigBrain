@@ -15,6 +15,7 @@
  * rank. A note whose scoring failed is counted as `failed`, never silently as a miss.
  */
 import {randomUUID} from 'node:crypto';
+import {modelErrText} from './errText';
 import {readSourceInsertionLog,type SourceInsertion} from './insertionLog';
 import {sharedRequest,type SharedConnection} from './sharedConnections';
 import {contributions,getRule,sendSources,sourceKey} from './sharedRules';
@@ -61,7 +62,7 @@ export function getBackfill(root:string,id:string){const b=sessions.get(id);if(!
 
 async function scoreAll(b:Backfill,items:InclusionSource[],evaluator:Evaluator,generation:number,count=true){
  let next=0;
- await Promise.all(Array.from({length:CONCURRENCY},async()=>{while(next<items.length&&b.generation===generation){const s=items[next++]!;try{const score=await evaluator.score(s);if(b.generation===generation){b.scores.set(s.id,score);if(count)b.scanned++;}}catch(e){if(e instanceof OutOfCredits)throw e;if(b.generation===generation&&count){b.scanned++;b.failed++;b.failure=e instanceof Error?e.message:String(e);}}}}));
+ await Promise.all(Array.from({length:CONCURRENCY},async()=>{while(next<items.length&&b.generation===generation){const s=items[next++]!;try{const score=await evaluator.score(s);if(b.generation===generation){b.scores.set(s.id,score);if(count)b.scanned++;}}catch(e){if(e instanceof OutOfCredits)throw e;if(b.generation===generation&&count){b.scanned++;b.failed++;b.failure=modelErrText(e);}}}}));
 }
 
 export interface BackfillDeps {factory?:typeof inclusionEvaluator;queries?:typeof ruleQueries;existing?:()=>Promise<Set<string>>}
