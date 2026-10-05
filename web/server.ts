@@ -65,7 +65,7 @@ import { noteLog } from "../lib/noteLog";
 import type { NoteMeta } from "../lib/viewTypes";
 import { errText } from "../lib/errText";
 import { hasAssertionEvents } from "../lib/assertionLog";
-import { syncAssertionProjection } from "../lib/assertionProjection";
+import { projectedSourceHeads, syncAssertionProjection } from "../lib/assertionProjection";
 import { insertionFiler, sourceInsertionMarkdown } from "../lib/sourceFeed";
 import { assertionsFromSource, projectedEntityMarkdown, truncatedEntityView, sourceThreadForInsertion, sourceInsertionCached } from "../lib/assertionEntityView";
 import { insertionEventRel, sourceMoment } from "../lib/insertionLog";
@@ -547,7 +547,12 @@ function v2Sorted({ res }: Ctx): void {
     const records = loadManifest(ROOT).feed ? feedRecords(ROOT) : [];
     const added = addedAt(records);
     const entries = currentFeed(records, new Date().toLocaleDateString("en-CA")).map((e) => ({ ...e, added: added.get(e.source)! }));
-    json(res, 200, { rows: buildSortedFeed(v2Source(), entries) });
+    const rows = buildSortedFeed(v2Source(), entries);
+    const heads = projectedSourceHeads(ROOT, rows.map((r) => r.source));
+    json(res, 200, { rows: rows.map((r) => {
+      const h = heads.get(r.source);
+      return h ? { ...r, title: h.title, path: insertionEventRel(h), ...(h.source ? { via: h.source } : {}) } : r;
+    }) });
   } catch (error) {
     json(res, 500, { error: errText(error) });
   }
