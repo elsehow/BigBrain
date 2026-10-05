@@ -705,30 +705,35 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
     hover(entities) { hot = entities ? new Set(entities) : null; },
     source(want) {
       const key = want ? `${want.label}\u0000${want.entities.join(",")}` : "";
-      for (const s of sources) s.want = !!key && s.key === key;
+      // one let go is no longer open, so walking back to it frames it again
+      for (const s of sources) { s.want = !!key && s.key === key; if (!s.want) s.open = false; }
       if (!want) return;
       const open = !!want.open;
       // over the middle of what it mentions, lifted clear of it (over one, a
       // little aside, so the tie reads); mentioning nothing here, mid-view
       const frame = (s: Src) => { if (s.ties.length) frameAround([s.at, ...s.ties.map((j) => P[j]!)], 0.5, 2.6, 7, 16); };
+      const settle = (s: Src) => {
+        if (want.entities.length) {
+          const c = new THREE.Vector3();
+          for (const j of want.entities) c.add(P[j]!);
+          c.divideScalar(want.entities.length);
+          s.at.set(c.x + (want.entities.length === 1 ? 0.6 : 0), c.y + 1.6, c.z);
+        } else s.at.copy(goal.target).y += 1.2;
+        s.at.toArray(aPos.array, (N + sources.indexOf(s)) * 3);
+        aPos.needsUpdate = true;
+      };
       const held = sources.find((s) => s.want);
       if (held) {
         const opening = open && !held.open;
         held.open = open;
         sourceLabel(held, want.label, want.text);
-        if (opening) frame(held);
+        // walked back to: placed anew (one tied to nothing comes to where you are)
+        if (opening) { settle(held); frame(held); }
         return;
       }
       // a free slot (or the faintest), so the last one fades out where it was
       const s = sources.reduce((a, b) => (b.vis < a.vis ? b : a));
-      if (want.entities.length) {
-        const c = new THREE.Vector3();
-        for (const j of want.entities) c.add(P[j]!);
-        c.divideScalar(want.entities.length);
-        s.at.set(c.x + (want.entities.length === 1 ? 0.6 : 0), c.y + 1.6, c.z);
-      } else s.at.copy(goal.target).y += 1.2;
-      s.at.toArray(aPos.array, (N + sources.indexOf(s)) * 3);
-      aPos.needsUpdate = true;
+      settle(s);
       Object.assign(s, { key, ties: want.entities, want: true, vis: 0, open });
       sourceLabel(s, want.label, want.text);
       if (open) frame(s);

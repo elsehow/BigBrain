@@ -672,7 +672,8 @@
   function closeSource(): void { if (src) { src = null; scene?.search(null); } }
   const feedEntities = (r: V2SortedRow) => r.entities.map((id) => field!.byId.get(id)).filter((x): x is number => x != null);
   const cursorRow = () => sorted.find((r) => r.source === cursor) ?? null;
-  /** The feed row under the pointer. */
+  /** The feed row under the pointer: set as the pointer moves, not on enter,
+   * so a row the walk scrolls under a resting pointer isn't taken for one pointed at. */
   let rowOver: V2SortedRow | null = $state(null);
   /** The source in hand — a draft's, an opened one, the row under the
    * pointer, else the walk's — drawn in the field while it's held. */
@@ -1055,7 +1056,7 @@
       {#each sortedShown as r (r.source)}
         <div class="row s-{r.section}" class:at={r.source === cursor} class:open={r.source === src?.row.source} role="button" tabindex="-1"
           title={r.title && r.title !== r.headline ? r.title : undefined}
-          onmouseenter={() => { rowOver = r; if (!src) scene?.hover(feedEntities(r)); }}
+          onmousemove={() => { if (rowOver !== r) { rowOver = r; if (!src) scene?.hover(feedEntities(r)); } }}
           onmouseleave={() => { rowOver = null; if (!src) lightCursor(); }}
           onclick={() => openSource(r)} onkeydown={() => {}}>
           <span class="w" title="When it entered your feed">{when(r.added)}</span>
