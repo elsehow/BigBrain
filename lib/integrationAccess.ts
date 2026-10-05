@@ -90,10 +90,13 @@ export function requireIntegrationRead(root: string, name: string, account: stri
     throw new Error("This account is not available to this caller. Update access in Settings → Integrations.");
 }
 
+/** "Import earlier …" in Settings: a poller honors each request once. */
+export interface Backfill { since: string; request: string }
 export type LiveAccess = "off" | "read" | "read-write";
 export interface AccountPolicy {
   version:2; connected:boolean; fingerprint:string; checkedAt:string|null; liveAccess?:boolean;
-  email?: { startAt: string; attachments: boolean; backfill?: { since: string; request: string } };
+  email?: { startAt: string; attachments: boolean; backfill?: Backfill };
+  granola?: { backfill?: Backfill };
   grants:{caller:string;access:LiveAccess}[];
 }
 function accountPolicyFile(root:string,name:string,account:string):string {

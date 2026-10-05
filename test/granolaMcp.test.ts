@@ -5,7 +5,7 @@ import {nativeVault} from './support/vault';
 import {sha256hex} from '../lib/hash';
 import {startGranolaSignIn,granolaSignInStatus,cancelGranolaSignIn,granolaConnection,disconnectGranola,withGranola,mcpData} from '../lib/granolaMcp';
 
-function fake(onCall?:(name:string)=>unknown|Promise<unknown>,onToken?:()=>Promise<void>){
+function fake(onCall?:(name:string,args:any)=>unknown|Promise<unknown>,onToken?:()=>Promise<void>){
  let base='',registrations=0,calls:string[]=[];
  const server=Bun.serve({hostname:'127.0.0.1',port:0,async fetch(req){
   const u=new URL(req.url),json=(v:unknown,status=200,headers={})=>Response.json(v,{status,headers});
@@ -21,7 +21,7 @@ function fake(onCall?:(name:string)=>unknown|Promise<unknown>,onToken?:()=>Promi
    let result:unknown={};
    if(message.method==='initialize')result={protocolVersion:'2025-03-26',capabilities:{tools:{}},serverInfo:{name:'fixture',version:'1'}};
    if(message.method==='tools/list')result={tools:[{name:'get_account_info',inputSchema:{type:'object'}},...['list_meetings','get_meetings','get_meeting_transcript'].map(name=>({name,inputSchema:{type:'object'}}))]};
-   if(message.method==='tools/call'){calls.push(message.params.name);result=message.params.name!=='get_account_info'&&onCall?await onCall(message.params.name):{content:[{type:'text',text:JSON.stringify({email:token.includes('personal')?'personal@example.test':'work@example.test',workspace:'fixture'})}]};}
+   if(message.method==='tools/call'){calls.push(message.params.name);result=message.params.name!=='get_account_info'&&onCall?await onCall(message.params.name,message.params.arguments):{content:[{type:'text',text:JSON.stringify({email:token.includes('personal')?'personal@example.test':'work@example.test',workspace:'fixture'})}]};}
    return json({jsonrpc:'2.0',id:message.id,result});
   }
   return new Response('missing',{status:404});
@@ -136,6 +136,33 @@ test('a reconnect resumes from the last poll: a meeting held while it was down s
   mkdirSync(dirname(file),{recursive:true});
   writeFileSync(file,JSON.stringify({version:1,generation:'an-earlier-connection',startedAt:'2026-09-20T00:00:00Z',lastPolledAt:'2026-09-24T11:00:00Z',seen:{}}));
   expect(await pollGranolaMcp(root,'granola',{now:new Date('2026-09-24T13:00:00Z'),run})).toEqual({arrivals:1});
+ }finally{disconnectGranola(root,'granola');f.server.stop(true);rmSync(root,{recursive:true,force:true});}
+});
+test('"Import earlier meetings" brings in history a window at a time, once per request',async()=>{
+ const root=nativeVault();
+ const ids=['22222222-2222-4222-8222-222222222222','33333333-3333-4333-8333-333333333333',meetingId];
+ const dates=['2026-07-10T15:00:00Z','2026-08-05T09:00:00Z','2026-09-24T12:00:00Z'];
+ const f=fake(async(name,args)=>{
+  if(name==='list_meetings'){const hits=ids.flatMap((id,i)=>dates[i]!.slice(0,10)>=args.custom_start&&dates[i]!.slice(0,10)<=args.custom_end?[`<meeting id="${id}" title="Meeting ${i}" date="${dates[i]}"></meeting>`]:[]);return result(`<meetings_data count="${hits.length}">${hits.join('')}</meetings_data>`);}
+  if(name==='get_meetings')return result(`<meetings_data count="1"><meeting id="${args.meeting_ids[0]}"><summary>Notes</summary></meeting></meetings_data>`);
+  return result(JSON.stringify({id:args.meeting_id,transcript:'Microphone: A verbatim turn.'}));
+ });
+ const service=new IntegrationAccounts(root,{granolaSignIn:(r,a,cb)=>startGranolaSignIn(r,a,cb,{endpoint:f.endpoint})});
+ const run=<T>(fn:Parameters<typeof withGranola<T>>[2])=>withGranola(root,'granola',fn,{endpoint:f.endpoint});
+ const poll=()=>pollGranolaMcp(root,'granola',{now:new Date('2026-09-24T13:00:00Z'),run});
+ const lists=()=>f.calls.filter(c=>c==='list_meetings').length;
+ try{
+  await connect(service,root);
+  expect(await poll()).toEqual({arrivals:0});
+  await service.update({name:'granola',account:'granola',action:'save',liveAccess:false,backfillSince:'2026-07-01'});
+  expect(accountPolicy(root,'granola','granola').granola?.backfill?.since).toBe('2026-07-01T00:00:00.000Z');
+  const before=lists();
+  expect(await poll()).toEqual({arrivals:3});
+  expect(lists()-before).toBeGreaterThan(4); // ~12 weeks in 14-day windows
+  expect(headFiles(root)).toHaveLength(3);
+  const after=lists();
+  expect(await poll()).toEqual({arrivals:0}); // honored once; back to the usual window
+  expect(lists()-after).toBe(1);
  }finally{disconnectGranola(root,'granola');f.server.stop(true);rmSync(root,{recursive:true,force:true});}
 });
 test('Granola rejects incomplete lists',()=>{

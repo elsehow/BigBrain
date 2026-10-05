@@ -4,7 +4,7 @@ import type { CallToolResult, Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { join } from 'node:path';
 import { withGranola, granolaConnection, mcpText } from './granolaMcp';
-import { integrationActive } from './integrationAccess';
+import { accountPolicy, integrationActive } from './integrationAccess';
 import { readCursorJson } from './integrationCursor';
 import { frontmatter, writeAtomic } from './fsx';
 import { sha256hex } from './hash';
@@ -40,7 +40,10 @@ export function granolaMcpContent(account:string,identity:unknown,meeting:McpMee
  const body=`# ${meeting.title}\n\nAttendees: ${attendeeText}\n\n## Verbatim transcript\n\n${data.transcript}\n`;
  return frontmatter([['format','granola-transcript-v1'],['id',stream+':'+meeting.id+':'+sha256hex(body).slice(0,20)],['source','granola'],['from','granola'],['from_kind','service'],['kind','meeting'],['type','reference'],['title',meeting.title],['date',meeting.date],['url',meeting.url],['stream',stream],['key',meeting.id]])+'\n'+body;
 }
-interface Cursor {version:1;generation:string;startedAt:string;lastPolledAt:string;seen:Record<string,string>}
+interface Cursor {version:1;generation:string;startedAt:string;lastPolledAt:string;seen:Record<string,string>;backfillRequest?:string}
+/** A long reach back is listed a window at a time, so no single list is too long to
+ * trust, and one poll stages at most a budget of meetings before handing on. */
+const WINDOW_MS=14*24*3600_000,MEETINGS_PER_POLL=100;
 export async function pollGranolaMcp(root:string,account:string,options:{now?:Date;since?:string;run?:<T>(fn:(client:Client,tools:Tool[])=>Promise<T>)=>Promise<T>}={}):Promise<{arrivals:number}> {
  let generation:string|undefined;
  const check=()=>{if(!integrationActive(root,'granola',account))throw Error('Granola is not connected.');if(generation&&granolaConnection(root,account)?.generation!==generation)throw Error('Granola connection changed.');};check();
@@ -52,27 +55,43 @@ export async function pollGranolaMcp(root:string,account:string,options:{now?:Da
  // A new connection (a reconnect) picks up where the last one's polls left off, so what
  // happened while it was down still arrives; only a first connection starts now.
  const resume=raw?.version===1&&Number.isFinite(Date.parse(raw.lastPolledAt))?raw.lastPolledAt:now.toISOString();
- const cursor:Cursor=valid?raw!:{version:1,generation:connection.generation,startedAt:resume,lastPolledAt:resume,seen:{}};
- // --since reaches back that far on this poll, past the usual 48-hour overlap
+ const cursor:Cursor=valid?raw!:{version:1,generation:connection.generation,startedAt:resume,lastPolledAt:resume,seen:{},backfillRequest:raw?.backfillRequest};
+ // --since reaches back that far on this poll, past the usual 48-hour overlap;
+ // "Import earlier meetings" in Settings does the same once per request.
+ const requested=accountPolicy(root,'granola',account).granola?.backfill;
  if(options.since)cursor.startedAt=cursor.lastPolledAt=new Date(options.since).toISOString();
- const floor=Math.max(Date.parse(cursor.startedAt),Date.parse(cursor.lastPolledAt)-48*3600_000);
+ else if(requested&&requested.request!==cursor.backfillRequest){
+  const at=new Date(requested.since).toISOString();
+  if(at<cursor.startedAt)cursor.startedAt=at;
+  cursor.lastPolledAt=at;cursor.backfillRequest=requested.request;
+ }
  const run=options.run??(<T>(fn:(client:Client,tools:Tool[])=>Promise<T>)=>withGranola(root,account,fn));
  return run(async(client,tools)=>{
   for(const name of ['list_meetings','get_meetings','get_meeting_transcript'])if(!tools.some(t=>t.name===name))throw Error('Granola does not offer the tools BigBrain reads meetings with.');
   const call=async(name:string,args:Record<string,unknown>)=>{check();const r=await client.callTool({name,arguments:args}) as CallToolResult;check();return r;};
-  const listed=granolaMeetingList(await call('list_meetings',{time_range:'custom',custom_start:new Date(floor-24*3600_000).toISOString().slice(0,10),custom_end:new Date(now.getTime()+24*3600_000).toISOString().slice(0,10)}));
-  const meetings=listed.filter(m=>Date.parse(m.date)>=Date.parse(cursor.startedAt)).sort((a,b)=>a.date.localeCompare(b.date));
-  let arrivals=0;
-  if(meetings.length>100)throw Error('Granola returned too many meetings for one poll. Narrow the remembering start date.');
-  for(const meeting of meetings){
-   const notes=await call('get_meetings',{meeting_ids:[meeting.id]});
-   const transcript=await call('get_meeting_transcript',{meeting_id:meeting.id});
-   const content=granolaMcpContent(account,connection.identity,meeting,notes,transcript),hash=sha256hex(content);
-   if(cursor.seen[meeting.id]!==hash){check();if(await stageGranolaContent(root,account,content))arrivals++;cursor.seen[meeting.id]=hash;}
-   check();writeAtomic(file,JSON.stringify(cursor)+'\n');
+  const day=(ms:number)=>new Date(ms).toISOString().slice(0,10),save=()=>{check();writeAtomic(file,JSON.stringify(cursor)+'\n');};
+  let arrivals=0,staged=0;const current=new Set<string>();
+  // Each window is listed with a day's margin (dates are calendar days), then cut exactly.
+  for(let start=Math.max(Date.parse(cursor.startedAt),Date.parse(cursor.lastPolledAt)-48*3600_000);;){
+   const last=start+WINDOW_MS>=now.getTime(),end=last?Infinity:start+WINDOW_MS;
+   const listed=granolaMeetingList(await call('list_meetings',{time_range:'custom',custom_start:day(start-24*3600_000),custom_end:day(Math.min(end,now.getTime())+24*3600_000)}));
+   const meetings=listed.filter(m=>{const t=Date.parse(m.date);return t>=start&&t<end;}).sort((a,b)=>a.date.localeCompare(b.date));
+   if(meetings.length>MEETINGS_PER_POLL)throw Error('Granola returned too many meetings for one poll. Narrow the remembering start date.');
+   // Out of budget: the next poll resumes at this window.
+   if(staged&&staged+meetings.length>MEETINGS_PER_POLL)break;
+   for(const meeting of meetings){
+    current.add(meeting.id);
+    const notes=await call('get_meetings',{meeting_ids:[meeting.id]});
+    const transcript=await call('get_meeting_transcript',{meeting_id:meeting.id});
+    const content=granolaMcpContent(account,connection.identity,meeting,notes,transcript),hash=sha256hex(content);
+    if(cursor.seen[meeting.id]!==hash){check();if(await stageGranolaContent(root,account,content))arrivals++;cursor.seen[meeting.id]=hash;}
+    staged++;save();
+   }
+   if(last){cursor.lastPolledAt=now.toISOString();break;}
+   // +48h so the next poll's usual overlap starts exactly at the next window.
+   cursor.lastPolledAt=new Date(end+48*3600_000).toISOString();save();start=end;
   }
-  cursor.lastPolledAt=now.toISOString();
-  const current=new Set(meetings.map(m=>m.id));cursor.seen=Object.fromEntries(Object.entries(cursor.seen).filter(([id])=>current.has(id)));
-  check();writeAtomic(file,JSON.stringify(cursor)+'\n');return {arrivals};
+  cursor.seen=Object.fromEntries(Object.entries(cursor.seen).filter(([id])=>current.has(id)));
+  save();return {arrivals};
  });
 }
