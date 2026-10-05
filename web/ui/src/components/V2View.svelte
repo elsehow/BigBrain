@@ -447,18 +447,11 @@
   const errText = (e: unknown): string => (e instanceof Error ? e.message : String(e));
   function flash(text: string): void { notice = text; clearTimeout(noticeTimer); noticeTimer = setTimeout(() => { notice = ""; }, 4200); }
 
-  type Said = { text: string; caption: string } | undefined;
-  const day = (iso: string) => new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
   /** An entity's own latest assertions, dated by when each claim was first recorded. */
   async function entityRows(i: number): Promise<V2FeedRow[]> {
     const n = field!.nodes[i]!;
     if (data) return writing!.feed.filter((r) => r.entities.includes(n.id));
     try { return (await api.v2Entity(n.id)).rows; } catch { return writing!.feed.filter((r) => r.entities.includes(n.id)); }
-  }
-  /** An entity's latest assertion. */
-  async function latestWord(i: number): Promise<Said> {
-    const last = (await entityRows(i)).at(-1);
-    return last ? { text: last.text, caption: `Latest assertion · ${day(last.at)}` } : undefined;
   }
   /** Quick's briefing on a note — the summary the app shows when you select it.
    * Cached by the engine per note and evidence; a fresh one streams as it's written. */
@@ -520,29 +513,37 @@
   }
   function closeSearch(): void {
     searching = false;
+    clearTimeout(sayTimer);
     scene?.search(null);
     scene?.shift(shiftFor());
     if (ent != null) void openEntity(ent); else scene?.overview();
   }
-  async function runQuery(): Promise<void> {
+  function runQuery(): void {
     if (!field) return;
     matches = searchNames(field, query);
     active = 0;
     scene?.search({ matches, active: matches[0] ?? null, move: "frame" });
-    await sayActive();
+    sayActive();
   }
-  async function setActive(k: number): Promise<void> {
+  function setActive(k: number): void {
     if (!matches.length) return;
     active = (k + Math.min(matches.length, 9)) % Math.min(matches.length, 9);
     scene?.search({ matches, active: matches[active]!, move: "glide" });
-    await sayActive();
+    sayActive();
   }
-  /** The active match's latest word, once it arrives; the camera holds still. */
-  async function sayActive(): Promise<void> {
+  let sayTimer: ReturnType<typeof setTimeout> | undefined;
+  /** The active match's summary, as a clicked node has it: a spinner, then
+   * Quick's words as they arrive. It starts once the arrow keys settle, so
+   * passing over a match doesn't ask for one. The camera holds still. */
+  function sayActive(): void {
+    clearTimeout(sayTimer);
     const i = matches[active];
     if (i == null) return;
-    const said = await latestWord(i);
-    if (searching && matches[active] === i) scene?.search({ matches, active: i, text: said?.text, caption: said?.caption, move: "none" });
+    const path = data ? undefined : field!.nodes[i]!.path;
+    const show = (text?: string) => { if (searching && matches[active] === i) scene?.search({ matches, active: i, text, move: "none" }); };
+    if (!path) return show();
+    show("");
+    sayTimer = setTimeout(() => void briefing(path, show).then((ok) => { if (!ok) show(); }), 350);
   }
   function commit(k = active): void {
     const i = matches[k];
@@ -576,8 +577,8 @@
     }
     if (searching && e.target === qEl) {
       // typing in the search box is ours entirely; the characters still land
-      if (e.key === "ArrowDown") { take(e); void setActive(active + 1); }
-      else if (e.key === "ArrowUp") { take(e); void setActive(active - 1); }
+      if (e.key === "ArrowDown") { take(e); setActive(active + 1); }
+      else if (e.key === "ArrowUp") { take(e); setActive(active - 1); }
       else if (e.key === "Enter" && e.shiftKey) { take(e); void startPilot(); }
       else if (e.key === "Enter") { take(e); commit(); }
       else if (e.key === "Escape") { take(e); closeSearch(); }
@@ -674,7 +675,7 @@
   {#if searching && field}
     <div class="search" bind:this={searchEl} role="dialog" aria-label="Search by name">
       <div class="field">
-        <input bind:this={qEl} bind:value={query} oninput={() => void runQuery()} placeholder="Find anything by name…" aria-label="Find by name" autocomplete="off" spellcheck="false" />
+        <input bind:this={qEl} bind:value={query} oninput={() => runQuery()} placeholder="Find anything by name…" aria-label="Find by name" autocomplete="off" spellcheck="false" />
         <span class="k">Esc</span>
       </div>
       {#if query.trim()}
@@ -682,7 +683,7 @@
         <ul role="listbox" aria-label="Matches">
           {#each matches.slice(0, 9) as i, k (i)}
             {@const parts = marked(field.nodes[i]!.label)}
-            <li role="option" aria-selected={k === active} onmouseenter={() => void setActive(k)} onclick={() => commit(k)} onkeydown={() => {}}>
+            <li role="option" aria-selected={k === active} onmouseenter={() => setActive(k)} onclick={() => commit(k)} onkeydown={() => {}}>
               <span class="dot" style:--r={`${2.2 + Math.min(3.6, Math.log1p(field.nodes[i]!.degree) * 0.62)}px`}></span>
               <span class="ttl">{parts[0]}<mark>{parts[1]}</mark>{parts[2]}</span>
               <span class="meta">{metaOf(i)}</span>
