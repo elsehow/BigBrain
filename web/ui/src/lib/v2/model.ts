@@ -40,7 +40,11 @@ function unit(s: string): number {
 }
 
 export function buildField(graph: GraphData): Field {
-  const drawn = graph.nodes.filter((n) => (n.entity || n.group === "memory") && n.x != null && n.y != null);
+  // MEMORY.md with no topic files beside it would be one glass labelled
+  // "Memory" over the whole field, which shows the user nothing.
+  const memories = graph.nodes.filter((n) => n.group === "memory");
+  const loneIndex = memories.length === 1 && /(^|\/)MEMORY\.md$/.test(memories[0]!.path ?? memories[0]!.id);
+  const drawn = graph.nodes.filter((n) => (n.entity || (n.group === "memory" && !loneIndex)) && n.x != null && n.y != null);
   // the engine's settled 2D layout is the floor plan; height is a small,
   // stable lift so the field reads as a volume without inventing structure
   const xs = drawn.map((n) => n.x!), ys = drawn.map((n) => n.y!);
