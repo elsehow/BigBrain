@@ -71,6 +71,7 @@ import { assertionsFromSource, projectedEntityMarkdown, truncatedEntityView, sou
 import { insertionEventRel, sourceMoment } from "../lib/insertionLog";
 import { foldsRoutes } from "../lib/entityFolds";
 import { noteBriefingRoutes } from "../lib/noteBriefing";
+import { noteRelationRoutes } from "../lib/noteRelation";
 import { sourceReadStateRoutes, graphWithReadState } from "../lib/sourceReadStateApi";
 import { sourceOrigin } from "../lib/sourceOrigin";
 import { setupRoutes, setupState } from "../lib/firstRun";
@@ -764,6 +765,7 @@ export const ROUTES: readonly Route[] = [
   { method: "GET", path: "/api/notes", handler: noteList },
   { method: "GET", path: "/api/note", handler: noteRead },
   ...noteBriefingRoutes(ROOT),
+  ...noteRelationRoutes(ROOT),
   ...sourceReadStateRoutes(ROOT, undefined, applicationActions),
   { method: "GET", path: "/api/file", handler: fileRead },
   { method: "GET", path: "/api/recent", handler: recentFeed },

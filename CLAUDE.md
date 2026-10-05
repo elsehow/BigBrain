@@ -84,7 +84,7 @@ retired `/srv/site` or upload this repo over the website.**
 shared vault is several people's, so it has to run somewhere they can all
 reach: its operator compiles `bin/shared.ts` (`bun build --compile`) and runs
 it as a service on a machine of their own, one vault per server, behind TLS
-(`deploy/shared-vault/`, `docs/shared-vault-connector.md`). That is an
+(`deploy/shared-vault/README.md` is the runbook; `docs/shared-vault-connector.md`). That is an
 operator's deployment of one vault, not a BigBrain host: nothing here deploys
 it, and no other engine code runs there.
 

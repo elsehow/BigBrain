@@ -111,7 +111,9 @@ rebuildable caches in `.state/`; pending integration arrivals and their
 source checkpoints, conversations, and action receipts in `.spool/`. Back up `.spool/` and `.blobs/` along with
 the git record (see [Backup](docs/self-host.md#backup)). The
 app is macOS-only; `bun bin/desktop.ts` runs the supervisor from a checkout.
-Other platforms still need end-to-end verification.
+Other platforms still need end-to-end verification. A **shared vault** —
+one record several people and their agents use — is the exception that runs
+on a Linux server: [deploy/shared-vault/README.md](deploy/shared-vault/README.md).
 
 Licensed [AGPL-3.0](LICENSE).
 

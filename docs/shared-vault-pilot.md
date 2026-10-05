@@ -36,7 +36,7 @@ create invites, list private invitations, change access, or remove others. The o
 their credentials but leaves attributed contributions intact. Already downloaded
 content cannot be recalled. Invite secrets are retained in a private mode-0600
 sidecar until use or cancellation so the owner can copy pending links.
-See `deploy/shared-vault/bigbrain-shared.service` for a persistent Linux service.
+To run the server on Linux, follow the runbook in `deploy/shared-vault/README.md`.
 
 ## Rules and contributions
 

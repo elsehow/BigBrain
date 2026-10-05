@@ -1,8 +1,8 @@
 # The shared vault — one record, several authenticated members
 
-*MVP, backend/CLI slice. A separate [local owner UI](shared-vault-v0.md) is also available. `bin/shared.ts`, `lib/sharedMembers.ts`,
-`lib/sharedVault.ts`, `lib/sharedVaultApi.ts`. No UI, no deployment
-target, nothing installed. Governing principles:
+*The design. To run one on a server, follow the runbook,
+[deploy/shared-vault/README.md](../deploy/shared-vault/README.md). A separate [local owner UI](shared-vault-v0.md) is also available. `bin/shared.ts`, `lib/sharedMembers.ts`,
+`lib/sharedVault.ts`, `lib/sharedVaultApi.ts`. Nothing here deploys itself. Governing principles:
 [design-principles.md](design-principles.md) §1 and §2.*
 
 A shared vault is **one authoritative BigBrain vault directory** whose
@@ -154,7 +154,8 @@ Never publish `:4749` directly, never put the unauthenticated web viewer
 (`:4747`) in front of a shared vault, and never point the desktop app's
 `BIGBRAIN_VAULT` at the shared directory — the viewer trusts localhost and
 would show the whole record to anyone on that machine. Nothing here
-deploys anything; the runbook for a host is the operator's.
+deploys anything; the operator follows
+[deploy/shared-vault/README.md](../deploy/shared-vault/README.md).
 
 ## What this slice does not do
 

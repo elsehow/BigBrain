@@ -228,6 +228,11 @@ export function noteBriefingPreview(text: string): string | undefined {
   } catch { /* Wait for a split escape sequence to finish. */ }
 }
 
+/** Where a selection's briefing is cached, keyed by membership alone. */
+export function briefingCacheFile(root: string, ids: string[], excluded: string[], purpose?: string): string {
+  return join(root, ".state", "note-briefings", `${sha256hex(JSON.stringify([ids, excluded, purpose]))}.json`);
+}
+
 export type NoteBriefingEvent = { type: "preview"; text: string } | { type: "complete"; briefing: NoteBriefing } | { type: "error"; error: string };
 
 async function readNoteBriefingInput(root: string, request: NoteBriefingRequest): Promise<NoteBriefingInput> {
@@ -246,7 +251,7 @@ export function createNoteBriefingService(run: BriefingModel = runBriefingModel,
     // Include the whole connection/evidence set, even passages shortened for
     // the prompt: additions, removals and corrections invalidate this view.
     const key = sha256hex(JSON.stringify([14, DESCRIBED_LINKS, quick.adapter, quick.provider, quick.model, quick.reasoning, purpose, today, full]));
-    const file = join(root, ".state", "note-briefings", `${sha256hex(JSON.stringify([full.items.map(item => item.id), full.excluded, purpose]))}.json`);
+    const file = briefingCacheFile(root, full.items.map(item => item.id), full.excluded, purpose);
     try {
       const cached = JSON.parse(readFileSync(file, "utf8"));
       if (cached.key === key && typeof cached.summary === "string" && Array.isArray(cached.links)) {

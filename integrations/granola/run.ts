@@ -1,6 +1,6 @@
 /** Granola MCP poller: stage current meeting material for the worth gate.
- * A first connection starts now unless --since is given; a reconnect resumes
- * from the last poll. */
+ * A first connection starts now unless --since is given or Settings asks to
+ * import earlier meetings; a reconnect resumes from the last poll. */
 import {VAULT_ROOT} from '../../lib/vaultRoot';
 import {integrationActive,integrationAccounts} from '../../lib/integrationAccess';
 import {requireIntegrationEnabled} from '../../lib/integrationPoll';
