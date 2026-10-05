@@ -143,6 +143,11 @@ export interface V2SortedRow {
   /** When it entered the feed. */
   added: string;
   entities: string[];
+  /** The source itself, as the projection names it (the route adds these):
+   * its title, its note path, and the integration it came through. */
+  title?: string;
+  path?: string;
+  via?: string;
 }
 
 /** What the sorted feed is built from: the stage's current entries (lib/feedJournal.ts currentFeed). */

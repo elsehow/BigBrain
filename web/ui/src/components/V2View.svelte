@@ -2,8 +2,8 @@
   // /v2 (its own page, v2.html) — the vault as a field, and the record
   // read as it lands, each assertion with its author. The canvas is
   // lib/v2/scene.ts (three.js, loaded on demand); everything with words
-  // is here. Keys: / search by name, j/k step through the memory topics,
-  // Shift+Enter starts a pilot on what's in hand ("Re: …"), ⌘N (or n) a blank
+  // is here. Keys: / search by name, j/k walk the feed (Enter opens a row's
+  // source), Shift+Enter starts a pilot on what's in hand ("Re: …"), ⌘N (or n) a blank
   // one the pilot names itself, \ shows or hides the desktop's views, Esc back out.
   // Pilots are the real agents: /api/pilot/chat sessions, placed over their
   // context, and their chat opens here as a flat column over the field.
@@ -66,7 +66,10 @@
   let entRows: V2FeedRow[] | null = $state(null);
   /** The sorted feed (lib/feedStage.ts), when the vault has one. */
   let sorted: V2SortedRow[] = $state([]);
-  let allSorted = $state(false);
+  /** The feed row j/k has in hand (by source), and the source opened from it
+   * with Quick's summary of it ("" while it is written). */
+  let cursor: string | null = $state(null);
+  let src: { row: V2SortedRow; text?: string } | null = $state(null);
   let searching = $state(false);
   let query = $state("");
   let matches: number[] = $state([]);
@@ -337,14 +340,15 @@
   const writersOf = (id: string) => [...new Set(writing!.feed.filter((r) => r.entities.includes(id) && r.author).map((r) => authorName(r.author)))];
 
   const dueOn = (day: string) => `due ${new Date(`${day}T00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`;
-  // newest at the bottom, nearest the eye; needs-you rows keep their weight
-  const SORTED_ROWS = 8;
-  let sortedShown = $derived((allSorted ? sorted : sorted.slice(0, SORTED_ROWS)).toReversed());
+  // newest at the bottom, nearest the eye; older above, a scroll (or k) away;
+  // needs-you rows keep their weight
+  let sortedShown = $derived(sorted.toReversed());
 
   // the feed: an opened entity's own record, else the vault's latest
   let rows = $derived.by(() => (!writing ? [] : ent != null && entRows ? entRows.slice(-6) : writing.feed.slice(-6)));
   let hud = $derived.by(() => {
     if (!field || !writing || searching || openPilot) return null;
+    if (src) return { eyebrow: [src.row.via, when(src.row.added)].filter(Boolean).join(" · "), name: src.row.title ?? src.row.headline, status: src.text ?? "", writing: src.text === "" };
     if (ent != null) {
       const n = field.nodes[ent]!;
       const tw = (twins.get(ent) ?? []).map((j) => field!.nodes[j]!.label);
@@ -393,7 +397,7 @@
 
   /** A click in the field: open what's under it; empty space backs out. */
   function onPick(i: number | null): void {
-    if (i == null) { if (openPilot) closePilot(); else if (ent != null && !searching) overview(); return; }
+    if (i == null) { if (openPilot) closePilot(); else if ((ent != null || src) && !searching) overview(); return; }
     if (searching) { searching = false; scene?.search(null); }
     if (openPilot) { openPilot = null; detail = null; scene?.focusPilot(null); }
     if (i !== ent) void openEntity(i);
@@ -401,7 +405,7 @@
   /** Slide the field's centre clear of the panels: right of a left column, left of the sidebar. */
   const shiftFor = () => {
     const chatW = (chatWidth ?? Math.min(1000, Math.max(520, innerWidth * 0.44))) + GUTTER; // .v2's --chat-w, plus a gutter
-    const left = searching ? Math.min(600, innerWidth * 0.4) : openPilot ? chatW : ent != null ? Math.min(380, innerWidth * 0.26) : 0;
+    const left = searching ? Math.min(600, innerWidth * 0.4) : openPilot ? chatW : ent != null || src ? Math.min(380, innerWidth * 0.26) : 0;
     if (openPilot && !showDesktop && !searching) return 0; // the chat stands alone, centred
     const right = showDesktop ? innerWidth - chatW - GUTTER : 0;
     return (left - right) / 2;
@@ -413,21 +417,46 @@
   }
   function overview(): void {
     ent = null; entRows = null;
+    closeSource();
     scene?.overview();
     scene?.shift(shiftFor());
   }
 
-  /** The memory topics, left to right across the field: j/k's order. */
-  let memories: number[] = $derived.by(() => {
-    const f: Field | null = field;
-    return f ? f.nodes.filter((n) => n.memory).sort((a, b) => a.p[0] - b.p[0]).map((n) => n.i) : [];
-  });
-  function stepMemory(dir: 1 | -1): void {
-    if (!memories.length) return;
-    const at = ent == null ? -1 : memories.indexOf(ent);
-    const next = at < 0 ? (dir > 0 ? 0 : memories.length - 1) : (at + dir + memories.length) % memories.length;
-    void openEntity(memories[next]!);
+  // ── walking the feed ──────────────────────────────────────────────────
+  function closeSource(): void { if (src) { src = null; scene?.search(null); } }
+  const feedEntities = (r: V2SortedRow) => r.entities.map((id) => field!.byId.get(id)).filter((x): x is number => x != null);
+  const cursorRow = () => sorted.find((r) => r.source === cursor) ?? null;
+  /** Light what the row in hand mentions, where it sits in the field. */
+  const lightCursor = () => { const r = cursorRow(); scene?.hover(r ? feedEntities(r) : null); };
+  /** j (down, newer) and k (up, older): the first press takes the newest row;
+   * walking up past the top scrolls the older ones in. */
+  function stepFeed(dir: 1 | -1): void {
+    if (!sorted.length) return;
+    if (ent != null || src) overview();
+    const at = sorted.findIndex((r) => r.source === cursor);
+    cursor = sorted[at < 0 ? 0 : Math.max(0, Math.min(sorted.length - 1, at - dir))]!.source;
+    lightCursor();
+    void tick().then(() => feedEl?.querySelector(".row.at")?.scrollIntoView({ block: "nearest" }));
   }
+  /** Let go of the walk: the strip settles back on the newest. */
+  function leaveFeed(): void {
+    cursor = null;
+    scene?.hover(null);
+    if (feedEl) feedEl.scrollTop = feedEl.scrollHeight;
+  }
+  /** Open a feed row's source: its entities lit and framed, the source and
+   * Quick's summary of it where an opened entity's name goes. */
+  function openSource(r: V2SortedRow): void {
+    if (ent != null) { ent = null; entRows = null; }
+    cursor = r.source;
+    src = { row: r, text: r.path && !data ? "" : undefined };
+    scene?.hover(null);
+    scene?.search({ matches: feedEntities(r), active: null, move: "frame" });
+    scene?.shift(shiftFor());
+    if (r.path && !data) void briefing(r.path, (text) => { if (src?.row.source === r.source) src = { row: r, text }; })
+      .then((ok) => { if (!ok && src?.row.source === r.source && !src.text) src = { row: r }; });
+  }
+  $effect(() => { if (sorted.length && feedEl && cursor == null) feedEl.scrollTop = feedEl.scrollHeight; });
   /** A memory topic's own first paragraph: citations dropped, links read as labels. */
   async function memorySummary(path: string): Promise<string | undefined> {
     try {
@@ -439,13 +468,19 @@
     } catch { return undefined; }
   }
 
-  /** What Shift+Enter starts a pilot on: the active search result, else the opened thing. */
-  const inHand = () => (searching ? matches[active] ?? null : ent);
+  /** What Shift+Enter starts a pilot on: the active search result, else the
+   * feed row in hand (its source), else the opened thing. */
+  function inHand(): { path: string; label: string } | null {
+    const r = !searching && ent == null ? cursorRow() : null;
+    if (r?.path) return { path: r.path, label: r.title ?? r.headline };
+    const i = searching ? matches[active] ?? null : ent;
+    const n = i == null ? null : field?.nodes[i];
+    return n?.path ? { path: n.path, label: n.label } : null;
+  }
   /** A pilot on the thing in hand, as the app's lists start one, titled "Re: …". */
   async function startPilot(): Promise<void> {
-    const i = inHand();
-    const n = i == null ? null : field?.nodes[i];
-    if (!n?.path) { flash("Open something first — Shift+Enter starts a pilot on it."); return; }
+    const n = inHand();
+    if (!n) { flash("Open something first — Shift+Enter starts a pilot on it."); return; }
     await createPilot([n.path], `Re: ${n.label}`, [n.label]);
   }
   let noticeTimer: ReturnType<typeof setTimeout> | undefined;
@@ -485,6 +520,7 @@
   }
   async function openEntity(i: number): Promise<void> {
     if (!field || !writing) return;
+    closeSource();
     ent = i; entRows = null;
     scene?.openEntity(i, neighbours(field, i));
     scene?.shift(shiftFor());
@@ -594,13 +630,15 @@
     if (e.key === "/") { take(e); openSearch(); return true; }
     if (e.key === "Escape" && pickerOpen) { take(e); pickerOpen = false; return true; }
     if (e.key === "Escape" && openPilot) { take(e); closePilot(); return true; }
-    if (e.key === "Escape" && ent != null) { take(e); overview(); return true; }
+    if (e.key === "Escape" && (ent != null || src)) { take(e); overview(); lightCursor(); return true; }
+    if (e.key === "Escape" && cursor) { take(e); leaveFeed(); return true; }
     if (e.key === "n") { take(e); void createPilot([]); return true; }
     const slot = Number(e.key);
     if (slot >= 1 && slot <= bar.length) { take(e); const p = bar[slot - 1]!; if (openPilot === p.id) closePilot(); else openPilotChat(p.id); return true; }
     if (e.key === "\\" && openPilot) { take(e); toggleDesktop(); return true; }
-    if (e.key === "j" || e.key === "k") { take(e); stepMemory(e.key === "j" ? 1 : -1); return true; }
+    if (e.key === "j" || e.key === "k") { take(e); stepFeed(e.key === "j" ? 1 : -1); return true; }
     if (e.key === "Enter" && e.shiftKey) { take(e); void startPilot(); return true; }
+    if (e.key === "Enter" && cursor && ent == null) { const r = cursorRow(); if (r) { take(e); openSource(r); return true; } }
     return false;
   }
   function take(e: KeyboardEvent): void { e.preventDefault(); e.stopPropagation(); }
@@ -673,7 +711,7 @@
     <header class="hud" bind:this={hudEl}>
       <span class="eyebrow">{hud.eyebrow}</span>
       <h1>{hud.name}</h1>
-      {#if hud.status}<p>{hud.status}</p>{/if}
+      {#if hud.writing}<p><span class="spin" aria-label="Writing a summary"></span></p>{:else if hud.status}<p>{hud.status}</p>{/if}
     </header>
   {/if}
 
@@ -700,12 +738,13 @@
   {/if}
 
   {#if sorted.length && ent == null && !openPilot}
-    <div class="feed sorted" class:all={allSorted} bind:this={feedEl} aria-label="Your feed">
-      {#if sorted.length > SORTED_ROWS}<button type="button" class="more" onclick={() => (allSorted = !allSorted)}>{allSorted ? "Fewer" : `All ${sorted.length}`}</button>{/if}
+    <div class="feed sorted" class:walking={cursor} bind:this={feedEl} aria-label="Your feed">
       {#each sortedShown as r (r.source)}
-        <div class="row s-{r.section}" role="presentation"
-          onmouseenter={() => scene?.hover(r.entities.map((id) => field!.byId.get(id)).filter((x): x is number => x != null))}
-          onmouseleave={() => scene?.hover(null)}>
+        <div class="row s-{r.section}" class:at={r.source === cursor} class:open={r.source === src?.row.source} role="button" tabindex="-1"
+          title={r.title && r.title !== r.headline ? r.title : undefined}
+          onmouseenter={() => { if (!src) scene?.hover(feedEntities(r)); }}
+          onmouseleave={() => { if (!src) lightCursor(); }}
+          onclick={() => openSource(r)} onkeydown={() => {}}>
           <span class="w" title="When it entered your feed">{when(r.added)}</span>
           <span class="x">{r.headline}{#if r.due}<span class="due">{dueOn(r.due)}</span>{/if}</span>
         </div>
@@ -802,7 +841,7 @@
     </aside>
   {/if}
 
-  <p class="hints" aria-hidden="true"><span>/ Search</span><span>j k Memories</span><span>⇧↵ Pilot</span><span>1–9 Pilots</span><span>⌘N New</span>{#if openPilot && desktopViews.length}<span>\ Views</span>{/if}{#if ent != null}<span>Esc Back</span>{/if}</p>
+  <p class="hints" aria-hidden="true"><span>/ Search</span><span>j k Feed</span>{#if cursor && ent == null}<span>↵ Open</span>{/if}<span>⇧↵ Pilot</span><span>1–9 Pilots</span><span>⌘N New</span>{#if openPilot && desktopViews.length}<span>\ Views</span>{/if}{#if ent != null || src || cursor}<span>Esc Back</span>{/if}</p>
   {#if notice}<p class="notice" role="status">{notice}</p>{/if}
   {#if error}<p class="error">The v2 view couldn’t load: {error}</p>{/if}
 </div>
@@ -833,10 +872,10 @@
   .stage :global(.v2-node.full .q) { display: block; white-space: normal; width: max-content; max-width: 32ch;
     font: 400 13px/1.45 var(--font-app); color: color-mix(in srgb, var(--fg) 82%, var(--bg)); }
   .stage :global(.v2-node .q b) { font-weight: 600; color: var(--fg); }
-  .stage :global(.v2-node .q .spin) { display: inline-block; width: 9px; height: 9px; margin-left: 9px; vertical-align: -1px; border-radius: 50%;
+  .stage :global(.v2-node .q .spin), .hud .spin { display: inline-block; width: 9px; height: 9px; margin-left: 9px; vertical-align: -1px; border-radius: 50%;
     border: 1.5px solid color-mix(in srgb, var(--fg) 22%, transparent); border-top-color: var(--fg); animation: v2spin .8s linear infinite; }
   @keyframes v2spin { to { transform: rotate(360deg); } }
-  @media (prefers-reduced-motion: reduce) { .stage :global(.v2-node .q .spin) { animation-duration: 2.4s; } }
+  @media (prefers-reduced-motion: reduce) { .stage :global(.v2-node .q .spin), .hud .spin { animation-duration: 2.4s; } }
 
   .strip { position: absolute; top: 18px; left: var(--app-gutter, 34px); right: var(--app-gutter, 34px); display: flex; gap: 4px; min-width: 0; z-index: 2; }
   .strip > :global(*) { flex: 0 1 auto; min-width: 0; }
@@ -1023,10 +1062,14 @@
   /* the sorted feed: weight by section, not age */
   .sorted .row { opacity: 1; grid-template-columns: 92px minmax(0, 1fr); } .sorted .row.s-agent { opacity: .78; } .sorted .row.s-know { opacity: .55; }
   .sorted .due { margin-left: 10px; font: 500 9.5px/1 var(--font-mono); letter-spacing: .06em; text-transform: uppercase; color: var(--activity); }
-  .sorted.all { max-height: 52vh; overflow-y: auto; text-shadow: none; background: color-mix(in srgb, var(--bg) 88%, transparent); border-radius: 8px; }
-  .more { align-self: flex-start; margin: 0 0 4px; padding: 0; border: 0; background: none; cursor: pointer;
-    font: 600 9.5px/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--v2-faint); }
-  .more:hover { color: var(--fg); }
+  /* about eight rows tall; older ones scroll in above, fading at the top edge */
+  .feed.sorted { display: block; max-height: 156px; overflow-y: auto; scrollbar-width: none; overscroll-behavior: contain;
+    mask-image: linear-gradient(to bottom, transparent, #000 40px); }
+  .feed.sorted::-webkit-scrollbar { display: none; }
+  .sorted .row { cursor: pointer; }
+  .sorted .row.at, .sorted .row.open { opacity: 1; } .sorted .row.at .x, .sorted .row.open .x { color: var(--fg); }
+  .sorted .row.at .w { color: var(--activity); }
+  .sorted.walking:not(:hover) .row:not(.at):not(.open) { opacity: .4; }
   .hints { position: absolute; right: var(--app-gutter, 34px); bottom: 26px; margin: 0; display: flex; gap: 18px; pointer-events: none;
     font: 600 10px/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--v2-faint); }
   .notice { position: absolute; right: var(--app-gutter, 34px); bottom: 50px; max-width: 46ch; margin: 0; padding: 9px 12px; border-radius: 8px;
