@@ -124,3 +124,22 @@ Rules:
 ${report || "(none)"}
 `;
 }
+
+/** The citation repair turn's prompt (#113): runner-owned like trimPrompt.
+ * The citations below resolve to no record; the run is discarded unless
+ * each is corrected or removed. One turn, then the gate decides. */
+export function citationRepairPrompt(unknown: string[]): string {
+  return `# Memory pass — citation repair
+
+The memory tree cites records that do not exist. The runner discards the
+result unless each citation below is corrected or removed.
+
+${unknown.map((c) => `- \`[[${c}]]\``).join("\n")}
+
+For each: find the record the line meant (\`assertions\`, \`shared_assertions\`)
+and correct the id. A joined shared vault's claim is cited as
+\`[[shared:<vault>:ast_…]]\`, exactly as \`shared_assertions\` gives it. If no
+record supports the line, remove the citation and the claim it carried.
+Change nothing else, and end with a \`report\` block saying what you changed.
+`;
+}

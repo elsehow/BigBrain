@@ -24,13 +24,14 @@ import { sha256hex } from "./hash";
 import { clip } from "./text";
 import { proposeEntityFolds, readEntityFolds } from "./entityFolds";
 import { readMemorySnapshot, renderMemoryContext, type MemorySnapshot } from "./memoryContext";
-import { unknownSharedCitations, type SharedMemory } from "./sharedMemory";
+import { sharedCite, unknownSharedCitations, type SharedMemory } from "./sharedMemory";
 import {
   describeBudget,
   measureTree,
   memoryTreeFiles,
   overBudget,
   trimPrompt,
+  citationRepairPrompt,
   MEMORY_TRIM_ATTEMPTS,
 } from "./memoryTree";
 import {
@@ -232,7 +233,12 @@ async function enforceBudget(args: {
  * Runs AFTER the rewriters so it sees the committed bytes (the
  * canonicalizer leaves an unresolvable ast link exactly as written).
  * Returns the failure, or undefined when the tree is clean. */
-function citationFailure(root: string, foldedAssertions: number, shared: SharedMemory): string | undefined {
+interface CitationCheck {
+  failure?: string;
+  /** citations that resolve nowhere, as written — what a repair turn is shown */
+  unknown: string[];
+}
+function citationCheck(root: string, foldedAssertions: number, shared: SharedMemory): CitationCheck {
   const citedAsts = new Set<string>();
   const citedShared: [string, string][] = [];
   for (const f of memoryTreeFiles(root)) {
@@ -241,25 +247,63 @@ function citationFailure(root: string, foldedAssertions: number, shared: SharedM
     for (const m of text.matchAll(SHARED_AST_CITE)) citedShared.push([m[1]!, m[2]!]);
   }
   if (!citedAsts.size && !citedShared.length)
-    return foldedAssertions
-      ? `uncited tree: ${foldedAssertions} new assertion(s) folded and no memory line cites any [[ast_…]] or [[shared:…:ast_…]]`
-      : undefined;
+    return {
+      unknown: [],
+      ...(foldedAssertions
+        ? { failure: `uncited tree: ${foldedAssertions} new assertion(s) folded and no memory line cites any [[ast_…]] or [[shared:…:ast_…]]` }
+        : {}),
+    };
   // A joined vault's claims resolve against its last-read view; one this
   // machine no longer joins resolves nowhere (lib/sharedMemory.ts).
   const unknownShared = unknownSharedCitations(shared, citedShared);
-  if (unknownShared.length) return `unknown shared-vault citation(s): ${unknownShared.join(", ")}`;
-  if (!citedAsts.size) return undefined;
-  try {
-    // .state/ is gitignored, so a fresh clone has no projection; the gate
-    // must not fail a valid run over missing derived state. Sync is
-    // incremental — a current projection pays two id scans.
-    syncAssertionProjection(root);
-    const known = assertionIdsExist(root, [...citedAsts]);
-    const missing = [...citedAsts].filter((id) => !known.has(id)).sort();
-    return missing.length ? `unknown assertion citation(s): ${missing.join(", ")}` : undefined;
-  } catch (e) {
-    return `citation check failed: ${e instanceof Error ? e.message : e}`;
+  let missing: string[] = [];
+  if (citedAsts.size) {
+    try {
+      // .state/ is gitignored, so a fresh clone has no projection; the gate
+      // must not fail a valid run over missing derived state. Sync is
+      // incremental — a current projection pays two id scans.
+      syncAssertionProjection(root);
+      const known = assertionIdsExist(root, [...citedAsts]);
+      missing = [...citedAsts].filter((id) => !known.has(id)).sort();
+    } catch (e) {
+      return { unknown: [], failure: `citation check failed: ${e instanceof Error ? e.message : e}` };
+    }
   }
+  const failure = [
+    missing.length ? `unknown assertion citation(s): ${missing.join(", ")}` : "",
+    unknownShared.length ? `unknown shared-vault citation(s): ${unknownShared.join(", ")}` : "",
+  ].filter(Boolean).join("; ");
+  return { unknown: [...missing, ...unknownShared], ...(failure ? { failure } : {}) };
+}
+
+/** A bare `[[ast_…]]` that is no assertion of this vault but is exactly one
+ * joined vault's claim is that claim, cited without its vault: name the
+ * vault (`[[shared:<vault>:ast_…]]`). Ids are content hashes, so the match
+ * is never a guess; an id no vault or several vaults hold is left as
+ * written, for the repair turn. Returns the citations rewritten. */
+function qualifySharedCitations(root: string, shared: SharedMemory, edits: MemoryEdits): number {
+  const holders = new Map<string, string[]>();
+  for (const v of shared.vaults) for (const a of v.assertions) holders.set(a.id, [...(holders.get(a.id) ?? []), v.id]);
+  if (!holders.size) return 0;
+  const files = memoryTreeFiles(root);
+  const bare = new Set<string>();
+  for (const f of files) for (const m of readFileSync(join(root, "memory", f), "utf8").matchAll(AST_CITE)) if (holders.get(m[1]!)?.length === 1) bare.add(m[1]!);
+  if (!bare.size) return 0;
+  syncAssertionProjection(root);
+  const personal = assertionIdsExist(root, [...bare]);
+  let rewritten = 0;
+  edits.capture(files.map((f) => `memory/${f}`), () => {
+    for (const f of files) {
+      const path = join(root, "memory", f), text = readFileSync(path, "utf8");
+      const next = text.replace(AST_CITE, (cite: string, id: string) => {
+        if (personal.has(id) || holders.get(id)?.length !== 1) return cite;
+        rewritten++;
+        return `[[${sharedCite(holders.get(id)![0]!, id)}${cite.slice(2 + id.length)}`;
+      });
+      if (next !== text) writeAtomic(path, next);
+    }
+  });
+  return rewritten;
 }
 
 /** The run's journal record. Its FIELDS are the run's own knowledge; this
@@ -411,25 +455,57 @@ export async function runMemory(opts: MemoryRunOpts): Promise<MemoryRunResult> {
     // strands its siblings' links exactly the way a renamed dossier used
     // to strand the record's. Both run after the budget check, so a
     // reverted tree is never rewritten, and neither ever guesses.
-    if (!error) {
+    const rewrite = () => {
       // Inspect renames through a private index; both rewriters stay in memory.
       const paths = memoryTreeFiles(root).map(f => `memory/${f}`);
       edits.capture(paths, () => {
-      movesFollowed = followRenames(root, MEMORY_ROLE, ["memory"]);
-      canonicalized = canonicalizeScope(
-        root,
-        MEMORY_ROLE,
-        paths
-      );
+        movesFollowed += followRenames(root, MEMORY_ROLE, ["memory"]);
+        canonicalized += canonicalizeScope(root, MEMORY_ROLE, paths);
       });
-    }
+    };
+    if (!error) rewrite();
 
-    // Enforced like the budget: revert, journal, loud — the spool stays
-    // pending and the next due tick retries.
+    // The citation gate. A bare citation of a joined vault's claim is named
+    // mechanically; what still resolves nowhere — a mistyped id, most often —
+    // is handed back once with the list (#113), as the budget hands back an
+    // overage. Still unresolved, it is enforced like the budget: revert,
+    // journal, loud — the spool stays pending and the next due tick retries.
+    let qualified = 0;
+    let citationRepair: Record<string, unknown> | undefined;
+    let repairUsage: RunUsage | undefined;
     if (!error) {
-      const failure = citationFailure(root, astDelta.length + sharedFresh.length, { vaults: snapshot.sharedVaults });
-      if (failure) {
-        error = `${failure} — run reverted`;
+      const shared: SharedMemory = { vaults: snapshot.sharedVaults };
+      const folded = astDelta.length + sharedFresh.length;
+      qualified += qualifySharedCitations(root, shared, edits);
+      let check = citationCheck(root, folded, shared);
+      if (check.unknown.length) {
+        console.warn(`${MEMORY_ROLE}: ${check.failure}; handing the tree back to repair them`);
+        const t3 = Date.now();
+        try {
+          const fix = await runModel(
+            { prompt: citationRepairPrompt(check.unknown), root, role: MEMORY_ROLE, target: manifest.memory, memoryEdits: edits, auth: manifest.auth },
+            opts.loadPi
+          );
+          repairUsage = fix.usage;
+          rewrite();
+          qualified += qualifySharedCitations(root, shared, edits);
+          const after = citationCheck(root, folded, shared);
+          report += `\n\n## Citation repair\n\n${lastReport(fix.text)}`;
+          citationRepair = { unknown: check.unknown, ...(after.unknown.length ? { unresolved: after.unknown } : {}), wallMs: Date.now() - t3, ...(fix.usage ? { usage: fix.usage } : {}) };
+          check = after;
+          // the repair holds to the budget too
+          const remeasured = measureTree(root);
+          measured = { files: remeasured.files.length, words: remeasured.words };
+          if (!check.failure && overBudget(remeasured)) check = { unknown: [], failure: `over budget after the citation repair: ${describeBudget(remeasured)}` };
+        } catch (e) {
+          citationRepair = { unknown: check.unknown, error: e instanceof Error ? e.message : String(e), wallMs: Date.now() - t3 };
+          check = { ...check, failure: `${check.failure}; the repair turn failed` };
+        }
+        wallMs += Date.now() - t3;
+        console.log(`${MEMORY_ROLE}: citation repair — ${check.failure ?? "every citation resolves"}`);
+      }
+      if (check.failure) {
+        error = `${check.failure} — run reverted`;
         edits.rollback();
       }
     }
@@ -505,7 +581,9 @@ export async function runMemory(opts: MemoryRunOpts): Promise<MemoryRunResult> {
       // closes after the last of them, and each is listed with what it
       // was asked to cut and what it cut
       ...(trims.length ? { trims } : {}),
-      ...(trims.length || foldsUsage ? journalTotals(run, trims, foldsUsage) : {}),
+      // a citation repair turn (#113) is part of the run the same way
+      ...(citationRepair ? { citationRepair } : {}),
+      ...(trims.length || foldsUsage || repairUsage ? journalTotals(run, trims, sumUsage([foldsUsage, repairUsage])) : {}),
       ...(folds ? { folds } : {}),
       // the tree as the run left it, before any revert — the size
       // trajectory is answerable from the journal, run by run
@@ -521,6 +599,7 @@ export async function runMemory(opts: MemoryRunOpts): Promise<MemoryRunResult> {
       // journal is where that is answerable
       ...(movesFollowed ? { movesFollowed } : {}),
       ...(canonicalized ? { canonicalized } : {}),
+      ...(qualified ? { qualified } : {}),
       ...(report ? { report } : {}),
       ...(error ? { error } : {}),
     });

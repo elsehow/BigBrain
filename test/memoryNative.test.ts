@@ -462,6 +462,26 @@ describe("citation validation — strict, like the budget", () => {
     expect(journal.error).toContain("unknown assertion citation");
   });
 
+  test("a mistyped id is handed back once; the repair turn's fix is committed and journaled", async () => {
+    const { root, asts } = nativeVault(1);
+    const real = asts[0]!.id, typo = `${real.slice(0, -4)}dead`;
+    const prompts: string[] = [];
+    const res = await runMemory({ root, manifest: memManifest(root), force: true, loadPi: fakePi((prompt) => {
+      prompts.push(prompt);
+      const cite = prompts.length === 1 ? typo : real;
+      writeFileSync(join(root, "memory", "MEMORY.md"), `${SEED_INDEX}\nInvented claim. [[${cite}]]\n`);
+      return { result: "```report\nfixed\n```\n" };
+    }) });
+    expect(res.error).toBeUndefined();
+    expect(prompts).toHaveLength(2);
+    expect(prompts[1]).toContain("citation repair");
+    expect(prompts[1]).toContain(`[[${typo}]]`);
+    expect(read(root, "memory/MEMORY.md")).toContain(`[[${real}]]`);
+    const journal = JSON.parse(read(root, `journal/memory/${res.run}.json`));
+    expect(journal.citationRepair.unknown).toEqual([typo]);
+    expect(journal.citationRepair.unresolved).toBeUndefined();
+  });
+
   test("a native run that folds new assertions but cites nothing is rejected", async () => {
     const { root } = nativeVault(1);
     const res = await run(root, () => {

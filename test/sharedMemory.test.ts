@@ -3,7 +3,7 @@
  * an empty personal vault depends on, the run's context and citation gate, and
  * the refresh against a real shared door. Invented names throughout. */
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { assertionEntityId } from "../lib/assertionLog";
@@ -88,6 +88,20 @@ describe("a member whose personal vault is empty", () => {
     expect(captured.prompt).toContain("sources: Budget thread");
     expect(readMemoryStamp(root).checkpoint?.shared).toEqual({ team: { head: 4, assertions: [claim(1).id, claim(2).id] } });
     expect(memoryDue(root).due).toBe(false);
+  });
+
+  test("a joined vault's claim cited bare is named mechanically, with no repair turn", async () => {
+    const root = freshVault();
+    writeCache(root, { vaults: [team()] });
+    let turns = 0;
+    const res = await runMemory({ root, manifest: manifest(root), force: true, loadPi: fakeMemoryPi(() => {
+      turns++;
+      writeTree(root, `- Example project has two milestones. [[${claim(1).id}|milestones]]`)();
+      return { result: "```report\nx\n```\n" };
+    }) });
+    expect(res.error).toBeUndefined();
+    expect(turns).toBe(1);
+    expect(readFileSync(join(root, "memory", "MEMORY.md"), "utf8")).toContain(`[[shared:team:${claim(1).id}|milestones]]`);
   });
 
   test("a shared citation the vault does not hold reverts the run", async () => {
