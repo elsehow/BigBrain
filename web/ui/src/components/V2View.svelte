@@ -884,6 +884,8 @@
     }
     const t = e.target as HTMLElement | null;
     if (t?.tagName === "INPUT" || t?.tagName === "TEXTAREA" || t?.isContentEditable) return false;
+    // Esc always lets go of a selection, whatever else it backs out of
+    if (e.key === "Escape") getSelection()?.removeAllRanges();
     if (e.key === "/") { take(e); openSearch(); return true; }
     if (e.key === "Escape" && pickerOpen) { take(e); pickerOpen = false; return true; }
     if (e.key === "Escape" && openPilot) { take(e); closePilot(); return true; }
@@ -1129,7 +1131,13 @@
     --v2-faint: color-mix(in srgb, var(--fg) 45%, var(--bg));
     position: fixed; inset: 0; background: var(--bg);
     font-family: var(--font-app); color: var(--fg); overflow: hidden;
+    /* the field is a picture, not a page: neither a drag across its names nor
+       ⌘A may paint a selection over it. What's there to read — a chat, the
+       desktop, the opened thing's summary, anything typed — selects as usual.
+       (WebKit, the desktop app's, needs the prefix.) */
+    -webkit-user-select: none; user-select: none;
   }
+  .chat, .side, .hud, .v2 :global(input), .v2 :global(textarea) { -webkit-user-select: text; user-select: text; }
   .stage { position: absolute; inset: 0; }
   .stage :global(.v2-canvas) { display: block; width: 100%; height: 100%; touch-action: none; }
   .stage :global(.v2-labels) { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
