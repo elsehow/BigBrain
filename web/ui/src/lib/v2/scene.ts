@@ -251,7 +251,8 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
   let hot: Set<number> | null = null;
   let rl: { j: number; text: string } | null = null;
   let shiftGoal = 0, shiftNow = 0;
-  const rel = new Float32Array(N), heat = new Float32Array(N), match = new Float32Array(N);
+  // point: the dot under the pointer, eased so its name fades in and out
+  const rel = new Float32Array(N), heat = new Float32Array(N), match = new Float32Array(N), point = new Float32Array(N);
   let dim = 0, searchDim = 1;
 
   // camera: springs toward a goal, a long lens from further back
@@ -469,6 +470,7 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
       rel[i]! += ((inPlay?.has(i) ? 1 : 0) - rel[i]!) * k;
       heat[i]! += ((hot?.has(i) ? 1 : 0) - heat[i]!) * ease(hot?.has(i) ? 18 : 10);
       match[i]! += ((srch?.matches.has(i) ? 1 : 0) - match[i]!) * ease(12);
+      point[i]! += ((i === under ? 1 : 0) - point[i]!) * ease(i === under ? 18 : 10);
       if (n.memory) { alphas[i] = 0; continue; }
       const h = Math.max(heat[i]!, match[i]!);
       const r = rel[i]!;
@@ -526,7 +528,7 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
     placeLabels();
   };
 
-  type Cand = { L: HTMLDivElement & { w?: number; h?: number; full?: boolean; op?: number }; x: number; y: number; op: number; full: boolean; pri: number };
+  type Cand = { L: HTMLDivElement & { w?: number; h?: number; full?: boolean; op?: number }; x: number; y: number; op: number; full: boolean; pri: number; pointed: boolean };
   const placed: number[][] = [];
   const placeLabels = () => {
     placed.length = 0;
@@ -565,6 +567,9 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
       const restOp = n.named && (field.hubs.has(i) || n.memory) ? 1 : 0;
       let op = srch && srch.matches.size ? match[i]! : Math.max(heat[i]!, THREE.MathUtils.lerp(restOp, rel[i]!, dim)) * (srch ? searchDim : 1);
       if (i === inHand || related) op = 1;
+      // the dot under the pointer always says its name
+      const pointed = point[i]! > 0.04;
+      op = Math.max(op, point[i]!);
       const L = labels.get(i);
       if (op < 0.04 && !full) { if (L && L.op !== 0) place(L, -999, -999, 0); continue; }
       const lab = labelOf(i);
@@ -578,7 +583,7 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
       if (!s1.ok) { place(lab, -999, -999, 0); continue; }
       // the opened entity's caption is placed first and never moves; a
       // relation then finds room around its tie, ahead of every plain name
-      cand.push({ L: lab, x: s1.x + 9, y: s1.y, op, full, pri: (related ? 9e3 : full ? 1e4 : 0) + heat[i]! * 2e3 + match[i]! * 400 + Math.log1p(n.degree) * 5 + (n.named ? 20 : 0) });
+      cand.push({ L: lab, x: s1.x + 9, y: s1.y, op, full, pointed, pri: (related ? 9e3 : full ? 1e4 : pointed ? 8e3 : 0) + heat[i]! * 2e3 + match[i]! * 400 + Math.log1p(n.degree) * 5 + (n.named ? 20 : 0) });
     }
     cand.sort((a, b) => b.pri - a.pri);
     const rect = (x: number, y: number, w: number, h: number) => [x - 4, y - h / 2 - 3, x + w + 4, y + h / 2 + 3];
@@ -598,7 +603,7 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
       const spot = at.find(([x, y]) => free(rect(x, y, w, h)));
       const [x, y] = spot ?? at[0]!;
       if (spot) placed.push(rect(x, y, w, h));
-      place(c.L, x, y, spot ? c.op : 0);
+      place(c.L, x, y, spot || c.pointed ? c.op : 0);
     }
   };
   frame();
