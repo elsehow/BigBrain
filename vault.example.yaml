@@ -124,6 +124,16 @@ memory:
   debounce: 30m # observations settle this long before a run
   interval: 1d # the scheduled sweep cadence
 
+# The feed (optional; absent is off). After memory, the classic chain sorts
+# what the gardener filed: what needs you, what an agent could do, what's
+# worth knowing, each with a one-line headline. `bigbrain feed` prints it.
+# Assertions before `since` are never sorted.
+# feed:
+#   since: 2026-10-01
+#   model: claude-sonnet-5-5
+#   interval: 1h # how often it runs when new assertions are waiting
+#   batch: 10 # sources per model call
+
 # Fast, bounded orientation notes.
 quick:
   adapter: claude

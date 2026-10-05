@@ -102,6 +102,25 @@ export interface Manifest {
   /** A disposable, read-only orientation sentence for an entity node. */
   quick: RoleConfig;
   modelPreferences: Record<"gardener" | "memory" | "quick", ModelPreference>;
+  /** The classic chain's feed stage (lib/feedStage.ts). Absent is off. */
+  feed?: FeedConfig;
+}
+
+/** `feed:` — the classic chain's third stage: it sorts what the gardener
+ * filed into what needs the owner, what an agent could do, and what is worth
+ * knowing, each with a one-line headline (lib/feedStage.ts). */
+export interface FeedConfig {
+  /** Assertions written before this date (YYYY-MM-DD) are never sorted, so
+   * turning the stage on never bills the whole history. */
+  since: string;
+  target: ModelChoice;
+  /** How often the stage runs when new assertions are waiting. */
+  interval: string;
+  intervalMs: number;
+  /** Sources per model call. */
+  batch: number;
+  /** Sources one run sorts at most; the rest wait for the next run. */
+  max: number;
 }
 
 export interface PassConfig extends RoleConfig {
@@ -233,8 +252,30 @@ export function loadManifest(root: string): Manifest {
       const explicit = !!curation || !!block && ["adapter", "agent", "model"].some(key => block[key] !== undefined);
       return [role, modelPreference(block?.preference, explicit ? "pinned" : "recommended")];
     })) as Manifest["modelPreferences"],
+    ...(raw["feed"] != null ? { feed: parseFeed(raw["feed"], fallbackAgent) } : {}),
     ...(curation ? { curation } : {}),
     ...(firewall ? { firewall } : {}),
+  };
+}
+
+const FEED_DEFAULT = { model: "claude-sonnet-5-5" };
+
+function parseFeed(raw: unknown, fallbackAgent: AgentId): FeedConfig | undefined {
+  if (raw == null) return undefined;
+  if (typeof raw !== "object" || Array.isArray(raw)) throw new Error("vault.yaml: feed must be a mapping");
+  const block = raw as Record<string, unknown>;
+  const since = String(block["since"] ?? "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(since) || !Number.isFinite(Date.parse(since)))
+    throw new Error("vault.yaml: feed.since must be a date (YYYY-MM-DD); assertions before it are never sorted");
+  const interval = String(block["interval"] ?? "1h");
+  const batch = Number(block["batch"] ?? 10);
+  if (!Number.isInteger(batch) || batch < 1 || batch > 50) throw new Error("vault.yaml: feed.batch must be 1-50");
+  const max = Number(block["max"] ?? 100);
+  if (!Number.isInteger(max) || max < 1) throw new Error("vault.yaml: feed.max must be a positive integer");
+  return {
+    since, interval, intervalMs: parseDuration(interval), batch, max,
+    target: readRole({ ...FEED_DEFAULT, ...block, since: undefined, interval: undefined, batch: undefined, max: undefined },
+      fallbackAgent, blockModel(block) ?? FEED_DEFAULT.model),
   };
 }
 
