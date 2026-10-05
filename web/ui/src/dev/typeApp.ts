@@ -1,7 +1,7 @@
 import { publicPilotFixture } from "./publicPilotFixture";
 // Full production App with fabricated data. Only loaded by the dev-only HTML entry.
 import { mount } from 'svelte';
-import AppShell from '../components/AppShell.svelte';
+import Base from '../components/Base.svelte';
 import { app } from '../lib/store.svelte';
 import { chat } from '../lib/pilotChat.svelte';
 import { newPilotChatSession } from '../../../../lib/pilotChatTypes';
@@ -44,5 +44,5 @@ if (import.meta.env.DEV) {
   location.hash = `/session/${session.id}`;
   // Parent controls switch between these real routes, without rebuilding the App.
   document.documentElement.dataset.pilotRoute = `/session/${session.id}`;
-  mount(AppShell,{target:document.getElementById('app')!});
+  mount(Base,{target:document.getElementById('app')!,props:{view:'classic'}});
 }

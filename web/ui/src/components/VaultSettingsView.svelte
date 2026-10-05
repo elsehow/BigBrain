@@ -6,6 +6,8 @@
   import { guardNotice, type Notice } from "../lib/notice";
   import { pickVault, setupStatus, shortPath, type SetupState } from "../lib/setup";
   import { app } from "../lib/store.svelte";
+  import { chooseView, viewChoice, type ViewKind } from "../lib/viewChoice.svelte";
+  const VIEWS: { kind: ViewKind; label: string }[] = [{ kind: "field", label: "FIELD" }, { kind: "classic", label: "CLASSIC" }];
 
   // Settings → vault: where the notes live. The first thing first run asks
   // and the one setting everything else hangs off, so it heads the rail.
@@ -59,6 +61,16 @@
     {/if}
   </div>
 
+  <!-- the view that sits on the base (Base.svelte), on this device -->
+  <div class="item">
+    <span class="name">View</span>
+    <div class="acts" role="group" aria-label="View">
+      {#each VIEWS as v (v.kind)}
+        <button class={viewChoice.saved === v.kind ? "btn-save" : "btn-ghost"} aria-pressed={viewChoice.saved === v.kind} onclick={() => chooseView(v.kind)}>{v.label}</button>
+      {/each}
+    </div>
+  </div>
+
   <ThemeView />
 
   <ShortcutsView />
@@ -69,4 +81,5 @@
   .name { font: var(--type-heading); letter-spacing: var(--ls-heading); color: var(--text-strong); }
   .empty { font: var(--type-body); color: var(--text-faint); margin: 0; max-width: 520px; }
   code { font-family: var(--font-mono); }
+  .acts { display: flex; gap: var(--sp-3); }
 </style>

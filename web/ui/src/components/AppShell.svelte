@@ -1,19 +1,7 @@
 <script lang="ts">
-  import { selectedWorkspace, switchWorkspace } from '../lib/vaultScope';
-  import { sharedWorkspace, checkSharedWorkspace } from '../lib/sharedWorkspace.svelte';
-  import VaultSwitcher from './VaultSwitcher.svelte';
-  onMount(() => {
-    const unavailable = () => {
-      sharedWorkspace.ready = false;
-      sharedWorkspace.error = 'The shared vault is unavailable. Reconnecting…';
-    };
-    window.addEventListener('shared-unavailable', unavailable);
-    void checkSharedWorkspace();
-    const timer = selectedWorkspace ? setInterval(() => void checkSharedWorkspace(), 3000) : undefined;
-    return () => { clearInterval(timer); window.removeEventListener('shared-unavailable', unavailable); };
-  });
   import { onMount, setContext, tick, untrack } from 'svelte';
   import App from '../App.svelte';
+  import type { SetupState } from '../lib/setup';
   import ActionHistory from './ActionHistory.svelte';
   import { actionHistory } from '../lib/actionHistory.svelte';
   import { initializeApplicationCoordination } from '../lib/applicationCoordinator';
@@ -37,7 +25,10 @@
   import { quietSidebar } from '../lib/graphPresentation';
   import { searchPresentation } from '../lib/floatingSearch.svelte';
 
-  const options: { baseline?: boolean; debug?: boolean } = $props();
+  // The classic view: the graph ground, the sidebar and its keys. It sits
+  // on the base (Base.svelte), which holds the vault, first run and the
+  // live stream; `setup` is the base's answer, handed to App.
+  const options: { baseline?: boolean; debug?: boolean; setup?: SetupState | null } = $props();
   // The comparison workbench chooses its shell once, before children mount.
   const baseline = untrack(() => options.baseline ?? false);
   const debug = untrack(() => options.debug ?? false);
@@ -258,8 +249,7 @@
   });
 </script>
 
-{#if sharedWorkspace.ready}
-<App />
+<App setup={options.setup ?? null} />
 {#if actionHistory.open}<ActionHistory />{/if}
 <Feedback bind:this={feedback} bind:open={feedbackOpen} visible={baseline || (!uiHidden && (sidebar.open || toolbarAwake))}
   panel={isSettingsView(app.view) ? 'settings' : chat.open ? 'conversation' : sidebar.tab === 'document' ? 'document' : sidebar.searchVisible ? 'search' : sidebar.open && sidebar.tab === 'recents' ? 'recents' : app.view === 'home' ? 'home' : app.view === 'graph' ? 'graph' : 'other'}
@@ -278,10 +268,3 @@
 
 {/if}
 
-{:else}
-  <div style="padding: 32px; color: var(--text); font: var(--type-meta)">
-    <VaultSwitcher />
-    <p role="status">{sharedWorkspace.error || 'Connecting to shared vault…'}</p>
-    {#if sharedWorkspace.error}<button onclick={() => void checkSharedWorkspace()}>Retry</button> <button onclick={() => switchWorkspace(null)}>Personal vault</button>{/if}
-  </div>
-{/if}
