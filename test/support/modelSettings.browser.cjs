@@ -8,7 +8,7 @@ const assert = require('node:assert/strict');
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
     async function fixture() {
-      await page.waitForFunction(() => document.documentElement.dataset.sidebarWorkbench === 'closed');
+      await page.locator('.v2').waitFor();
       await page.evaluate(() => {
         const original = window.fetch.bind(window);
         const saved = JSON.parse(localStorage.getItem('fixture-model-choices') || 'null');

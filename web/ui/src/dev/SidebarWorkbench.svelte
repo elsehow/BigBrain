@@ -15,9 +15,7 @@
     window.dispatchEvent(event);
   }
   import { onMount } from "svelte";
-  import { refreshNotifications } from "../lib/notifications.svelte";
-  import { refreshChats } from "../lib/pilotChat.svelte";
-  async function notifyAgent() { window.dispatchEvent(new Event("workbench-agent-notification")); await refreshChats(); await refreshNotifications(); }
+  async function notifyAgent() { window.dispatchEvent(new Event("workbench-agent-notification")); }
   import { update } from "../lib/update.svelte";
   onMount(() => {
     const params = new URLSearchParams(location.search);
@@ -31,7 +29,6 @@
     return () => clearTimeout(timer);
   });
   import Base from '../components/Base.svelte';
-  import GraphProfileControls from './GraphProfileControls.svelte';
   import { onboardingPreviewKey } from './onboardingFixture';
   const onboarding = new URLSearchParams(location.search).has('onboarding');
   function restartOnboarding() { localStorage.removeItem(onboardingPreviewKey); location.hash = ''; location.reload(); }
@@ -54,10 +51,9 @@
     history.replaceState(null, '', url);
   }
 </script>
-<!-- the production base, pinned to Classic (its first run and vault gates included) -->
-<Base view="classic" shell={{ baseline, debug: true }} />
+<!-- the production base and Field (its first run and vault gates included) -->
+<Base />
 {#if new URLSearchParams(location.search).has('gmail')}<aside class="gmail-preview">Sample setup · Use sample@example.com and abcd efgh ijkl mnop. No credentials are saved.</aside>{/if}
-{#if !live && new URLSearchParams(location.search).has('profile')}<GraphProfileControls />{/if}
 <nav class="sidebar-study-switch" class:onboarding aria-label="Workbench previews">
   {#if scenario}<label>Application scenario <select aria-label="Application scenario" value={scenario} onchange={chooseScenario}>{#each traces as trace}<option value={trace.id}>{trace.title}</option>{/each}</select></label><span>Read-only · seed {traces[0].seed}</span>{/if}
   {#if onboarding}<span>Onboarding preview · Analytics and connections simulated</span><button onclick={restartOnboarding}>Restart preview</button>

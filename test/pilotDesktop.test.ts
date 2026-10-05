@@ -77,9 +77,13 @@ describe("the agent's desktop tools", () => {
     const [a, b] = s.desktop!.views.map((v) => v.id);
     expect((await run("arrange_desktop", { layout: { dir: "col", weights: [2, 1], kids: [{ view: a }, { view: b }] } })).arrangedBy).toBe("agent");
 
-    sessions.desktop(s.id, "close", { view: b });
+    await sessions.desktop(s.id, "close", { view: b });
     expect((await run("open_view", { path: "notes/gears.md" })).error).toMatch(/person closed/);
     expect((await run("close_view", { view: a })).views).toEqual([]);
+
+    // the person following a citation: the note opens, even one they closed
+    expect((await sessions.desktop(s.id, "open", { path: "notes/gears.md" })).desktop!.views.map((v) => [v.path, v.title])).toEqual([["notes/gears.md", "Title of notes/gears.md"]]);
+    await expect(sessions.desktop(s.id, "open", { path: "missing/thing.md" })).rejects.toThrow(/could not be read/);
     sessions.close();
   });
 });

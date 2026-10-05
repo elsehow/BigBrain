@@ -69,6 +69,6 @@ const assert=require('node:assert/strict');
  await page.getByRole('button',{name:'No thanks',exact:true}).click();await page.waitForURL(url=>url.searchParams.get('vaults')==='fixture-team'&&url.searchParams.has('vaultMenu')&&url.hash==='#/home');
  await page.waitForFunction(()=>!document.querySelector('[aria-label="Set up BigBrain"]'));assert.equal(step,'complete');assert.deepEqual(choices,[false]);
  // An existing configured vault has no progress marker and goes straight to its app.
- step=undefined;await page.reload();await page.waitForFunction(()=>!!document.querySelector('#main'));assert.equal(await page.getByRole('dialog',{name:'Set up BigBrain'}).count(),0);assert.equal(account.liveAccess,false);
+ step=undefined;await page.reload();await page.waitForFunction(()=>!!document.querySelector('.v2'));assert.equal(await page.getByRole('dialog',{name:'Set up BigBrain'}).count(),0);assert.equal(account.liveAccess,false);
  assert.deepEqual(errors,[]);console.log('Production wizard: explicit navigation, providers, client configuration, library defaults/save, reload, failure recovery, and existing-vault bypass passed');
 }finally{await browser.close();}})().catch(e=>{console.error(e);process.exitCode=1;});

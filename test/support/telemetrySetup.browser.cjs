@@ -56,7 +56,7 @@ const base = process.env.VIEWER_URL || 'http://127.0.0.1:5305';
   const navigate = async target => { await page.waitForLoadState('networkidle'); await page.goto(target); };
   const reload = async () => { await page.waitForLoadState('networkidle'); await page.reload(); };
   const prompt = page.getByRole('heading', { name: 'Help improve BigBrain', exact: true });
-  const absent = async () => { await page.locator('#main').waitFor(); assert.equal(await prompt.count(), 0); };
+  const absent = async () => { await page.locator('.v2').waitFor(); assert.equal(await prompt.count(), 0); };
   await navigate(url);
   await page.getByRole('heading', { name: 'Connect integrations', exact: true }).waitFor();
   await page.waitForLoadState('networkidle');

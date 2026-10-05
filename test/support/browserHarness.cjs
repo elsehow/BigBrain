@@ -15,9 +15,6 @@ function instrument(browser) {
     const options = process.env.CI_BROWSER_REDUCED_MOTION === 'reduce'
       ? { reducedMotion: 'reduce', ...args[0] } : args[0];
     const context = await createContext(options);
-    // The suite covers the Classic view, which only `?view=classic` reaches
-    // (lib/viewChoice.ts): add it to any page that doesn't name a view.
-    await context.addInitScript(() => { try { const u = new URL(location.href); if (!u.searchParams.has('view')) { u.searchParams.set('view', 'classic'); history.replaceState(history.state, '', u); } } catch {} });
     const id = ++sequence;
     // Continuous DOM recording and screencasting compete with software WebGL.
     // Linux retains action traces, logs and a final image; macOS also records

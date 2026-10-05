@@ -30,7 +30,7 @@ const base = process.env.FEEDBACK_PREVIEW_URL || process.env.VIEWER_URL || 'http
       });
     }
     await page.goto(`${base}/${production ? 'feedback-built.html' : 'sidebar-workbench.html'}`);
-    await page.locator('.lg-wrap').waitFor();
+    await page.locator('.v2').waitFor();
     await page.evaluate(() => {
       const fake = window.fetch;
       window.feedbackRequests = []; window.feedbackMode = 'offline';

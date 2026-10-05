@@ -31,7 +31,7 @@ const assert = require('node:assert/strict');
   await page.getByRole('button', { name: 'Opt-in!', exact: true }).click();
   await page.waitForFunction(() => !document.querySelector('[aria-label="Set up BigBrain"]'));
   await page.reload();
-  await page.locator('#main').waitFor();
+  await page.locator('.v2').waitFor();
   const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('bb-preview-onboarding-v1')));
   assert.equal(saved.metrics.enabled, true); assert.equal(saved.setup.onboarding, 'complete');
   const feedback = page.getByRole('button', { name: 'Feedback', exact: true });

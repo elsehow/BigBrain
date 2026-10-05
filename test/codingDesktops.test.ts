@@ -62,7 +62,12 @@ test("a coding desktop: its agent shows a local page, the transcript reads back,
   expect(desktops.get(made.id)).toMatchObject({ title: "My orrery", titleSource: "human" });
 
   const view = detail.desktop!.views[0]!.id;
-  expect(desktops.view(made.id, "close", { view }).desktop?.closed).toEqual(["http://127.0.0.1:5173/"]);
+  expect((await desktops.view(made.id, "close", { view })).desktop?.closed).toEqual(["http://127.0.0.1:5173/"]);
+  // the person following a citation: a note that reads opens beside the chat
+  mkdirSync(join(root, "memory"), { recursive: true });
+  writeFileSync(join(root, "memory", "gears.md"), "# Gears\n\nThe orrery's gear train.\n");
+  expect((await desktops.view(made.id, "open", { path: "memory/gears.md" })).desktop?.views.map(v => [v.kind, v.path, v.title])).toEqual([["note", "memory/gears.md", "Gears"]]);
+  await expect(desktops.view(made.id, "open", { path: "memory/missing.md" })).rejects.toThrow(/could not be read/);
 
   // the live stream replays what came before
   const written: string[] = [];

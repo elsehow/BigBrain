@@ -3,10 +3,8 @@ import { mount } from 'svelte';
 import '../design/tokens.css';
 import '../app.css';
 import SidebarWorkbench from './SidebarWorkbench.svelte';
-import { searchPresentation } from '../lib/floatingSearch.svelte';
 import { watchSystemTheme, setChoice, type BuiltIn } from '../lib/theme';
 
-searchPresentation.includeAgents = new URLSearchParams(location.search).get('layout') === 'original';
 // Captured before any fixture replaces the page's transport.
 const networkFetch = window.fetch.bind(window);
 
