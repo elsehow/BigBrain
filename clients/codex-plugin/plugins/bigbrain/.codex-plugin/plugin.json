@@ -1,6 +1,6 @@
 {
   "name": "bigbrain",
-  "version": "0.1.23",
+  "version": "0.1.24",
   "description": "Search, contribute to, and remember your BigBrain vault from Codex.",
   "skills": "./skills/",
   "mcpServers": "./.mcp.json",

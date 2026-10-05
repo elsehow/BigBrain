@@ -7,7 +7,7 @@ import { ENGINE_ROOT } from "../lib/engine";
 
 export function buildAgentPlugins(root = ENGINE_ROOT, check = false): void {
   const outputs = new Map<string, string>();
-  const version = "0.1.23";
+  const version = "0.1.24";
   for (const agent of ["claude", "codex"] as const) {
     const target = agent === "claude" ? "clients/claude-plugin" : "clients/codex-plugin/plugins/bigbrain";
     const hookRoot = agent === "claude" ? "${CLAUDE_PLUGIN_ROOT}" : "${PLUGIN_ROOT}";

@@ -71,12 +71,10 @@ test("public dispatch refuses maintenance tools even for a machine caller", () =
 });
 
 describe("load_memory", () => {
-  test("returns the index, a topic, and refuses what is not there", () => {
+  test("returns the working set, whatever else is asked", () => {
     const root = vault();
     expect(handleMcpTool(ctx(root), "load_memory", {})).toContain("# Memory index");
-    expect(handleMcpTool(ctx(root), "load_memory", { topic: "ridgeways" })).toContain("The topic body");
-    expect(() => handleMcpTool(ctx(root), "load_memory", { topic: "nope" })).toThrow(McpToolError);
-    expect(() => handleMcpTool(ctx(root), "load_memory", { topic: "../.env" })).toThrow(McpToolError);
+    expect(handleMcpTool(ctx(root), "load_memory", { topic: "../.env" })).toContain("# Memory index");
   });
 });
 

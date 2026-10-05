@@ -120,6 +120,8 @@ function nativeVault(
     asts.push(a);
   }
   commitAll(root);
+  // the seeded tree is current: only the protocol tests seed an older one
+  if (opts.tree !== false) writeMemoryStamp(root, { protocolVersion: MEMORY_PROTOCOL_VERSION });
   return { root, sources, asts };
 }
 
@@ -217,6 +219,7 @@ describe("native due-ness — assertions trigger, raw arrivals do not", () => {
   test("the frozen done ledger drives nothing, on any vault", () => {
     const { root, asts } = nativeVault(1);
     writeMemoryStamp(root, {
+      protocolVersion: MEMORY_PROTOCOL_VERSION,
       nextRunAt: "2026-08-18T09:00:00.000Z",
       assertionCursor: cursorAt(asts[0]!),
     });
@@ -327,6 +330,7 @@ describe("runMemory on a native vault", () => {
     appendSourceInsertionEvent(root, uncited);
     commitAll(root);
     writeMemoryStamp(root, {
+      protocolVersion: MEMORY_PROTOCOL_VERSION,
       nextRunAt: "2026-08-18T09:00:00.000Z",
       assertionCursor: cursorAt(asts[0]!),
       insertionCursor: insCursorAt(sources[0]!),
@@ -365,6 +369,7 @@ describe("runMemory on a native vault", () => {
       extra.push(a);
     }
     writeMemoryStamp(root, {
+      protocolVersion: MEMORY_PROTOCOL_VERSION,
       nextRunAt: "2026-08-18T09:00:00.000Z",
       assertionCursor: cursorAt(asts[0]!),
     });
@@ -605,7 +610,7 @@ describe("voice on a from-scratch run", () => {
 
 
 describe("memory protocol upgrade notices", () => {
-  test("old memory recommends a rebuild without scheduling one or upgrading on an incremental pass", async () => {
+  test("old memory recommends a rebuild without scheduling one, and its next run rebuilds from scratch", async () => {
     const { root, asts, sources } = nativeVault(1);
     writeMemoryStamp(root, {
       nextRunAt: at(3), checkpoint: readMemoryInputs(root).checkpoint,
@@ -619,8 +624,20 @@ describe("memory protocol upgrade notices", () => {
     const result = await run(root, () => writeFileSync(join(root, "memory", "MEMORY.md"),
       `Updated. [[${asts[0]!.id}]]\n`));
     expect(result.error).toBeUndefined();
-    expect(result.backup).toBeUndefined();
-    expect(memoryNeedsRebuild(root)).toBe(true);
+    expect(result.backup).toMatch(/^journal\/memory\/pre-native-backup-/);
+    expect(readMemoryStamp(root).protocolVersion).toBe(MEMORY_PROTOCOL_VERSION);
+    expect(memoryNeedsRebuild(root)).toBe(false);
+  });
+
+  test("a v1 tree of topic files is rebuilt as one file, the topics backed up", async () => {
+    const { root, asts } = nativeVault(1);
+    writeFileSync(join(root, "memory", "atlas.md"), "# Atlas\n\nA v1 topic file.\n");
+    writeMemoryStamp(root, { ...readMemoryStamp(root), protocolVersion: 1 });
+    const result = await run(root, () => writeFileSync(join(root, "memory", "MEMORY.md"), `# Memory\n\nAtlas. [[${asts[0]!.id}]]\n`));
+    expect(result.error).toBeUndefined();
+    expect(readdirSync(join(root, "memory"))).toEqual(["MEMORY.md"]);
+    expect(existsSync(join(root, result.backup!, "atlas.md"))).toBe(true);
+    expect(memoryNeedsRebuild(root)).toBe(false);
   });
 
   test("fresh rebuild clears the notice and journal recovery retains its version", async () => {
@@ -655,6 +672,7 @@ describe("memory protocol upgrade notices", () => {
 
   test("retaining the old tree does not clear a notice; newer protocols are not downgraded", async () => {
     const { root, asts } = nativeVault(1);
+    writeMemoryStamp(root, {}); // unversioned: v0
     const write = () => writeFileSync(join(root, "memory", "MEMORY.md"), `Context. [[${asts[0]!.id}]]\n`);
     const kept = await run(root, write, { fromScratch: true, keepTree: true });
     expect(kept.error).toBeUndefined();

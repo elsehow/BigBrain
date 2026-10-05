@@ -20,8 +20,11 @@ export { pastCursor, type LogCursor } from "./memoryInputs";
 export const MEMORY_ROLE = "memory";
 
 /** Bump only when existing memory must be selected again from the record.
- * Routine prompt edits do not require a rebuild. Unversioned trees are v0. */
-export const MEMORY_PROTOCOL_VERSION = 1;
+ * Routine prompt edits do not require a rebuild. Unversioned trees are v0.
+ * A tree behind it is rebuilt from scratch by its next run (lib/memoryRun.ts).
+ * v2: memory is one file, memory/MEMORY.md — v1 trees were an index and
+ * topic files. */
+export const MEMORY_PROTOCOL_VERSION = 2;
 
 // ── the pass's state stamp ──────────────────────────────────────────────────
 

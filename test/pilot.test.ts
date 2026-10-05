@@ -169,7 +169,6 @@ describe("the tool table", () => {
   test("readers delegate to lib/mcp.ts: load_memory reads the working set", async () => {
     const root = vault();
     expect(await pilotToolCall(root, "load_memory", {})).toContain("[[memory/ridgeways]]");
-    expect(await pilotToolCall(root, "load_memory", { topic: "ridgeways" })).toContain("Where the ridgeways stood");
   });
 
   test("an unknown tool, and a reader's refusal, come back as PilotError for the model", async () => {
