@@ -36,6 +36,10 @@ const assert = require('node:assert/strict');
     await page.keyboard.press('Escape');
     await draft.waitFor({ state: 'detached' });
 
+    // ⌘N starts a new desktop (the workbench counts it rather than starting one)
+    await page.keyboard.press(process.platform === 'darwin' ? 'Meta+n' : 'Control+n');
+    await page.waitForFunction(() => window.desktopsCreated === 1);
+
     // settings: a panel over the field; Esc closes it and the field has its keys again
     await page.keyboard.press(process.platform === 'darwin' ? 'Meta+,' : 'Control+,');
     await page.locator('aside.panel .settings').waitFor();

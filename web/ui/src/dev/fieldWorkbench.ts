@@ -43,6 +43,12 @@ const fake = window.fetch;
   if (url.pathname === "/api/v2/sorted") return json({ rows: sorted });
   if (url.pathname === "/api/v2/entity") return json({ rows: feed.filter((r) => r.entities.includes(url.searchParams.get("id") ?? "")) });
   if (url.pathname === "/api/desktops") return json({ desktops: [] });
+  // a new desktop is counted (the browser suite reads it), not started
+  if (url.pathname === "/api/desktops/create") {
+    const w = window as unknown as { desktopsCreated?: number };
+    w.desktopsCreated = (w.desktopsCreated ?? 0) + 1;
+    return json({ error: "The workbench starts no desktops." }, 501);
+  }
   // `?credits`: the gardener's provider is out of usage credits until Retry
   if (url.pathname === "/api/credits/retry") { outOfCredits = false; return json({ providers: {} }); }
   if (url.pathname === "/api/credits") return json({ providers: outOfCredits ? { anthropic: { since: at(0), at: at(5), roles: ["tend", "quick"], detail: "Your credit balance is too low." } } : {} });
