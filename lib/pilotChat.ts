@@ -37,6 +37,7 @@ import { DEFAULT_PILOT_BACKEND, migratePilotBackend, type PilotBackend, type Pil
 import { readEnvValues, writeEnvValues } from "./envFile";
 
 import { NOTIFICATION_CHARS, NOTIFICATION_HARD_CHARS, PILOT_NOTIFICATION_TOOLS, type PilotNotification } from "./pilotNotifications";
+import { withCredits } from "./providerCredits";
 
 const READERS = new Set(["load_memory", "search_vault", "read_note", "recent", "email_search", "email_read", "inbox_list", "inbox_read", "granola_tools", "granola_read", "source_read_state", "integration_capabilities"]);
 const UNTITLED = ["New session", "Draft session"];
@@ -689,7 +690,9 @@ export class PilotChats {
       const pending = unresolved.length ? `Unresolved application actions (reference data; inspect with read_action, never repeat them to find out): ${JSON.stringify(unresolved)}` : "";
       const client = this.runtime(s);
       if (!client) throw new PilotError("Pilot backend is unavailable.");
-      const text = await client.turn({ signal, delta,
+      // Out of usage credits raises the base's banner like any job (lib/providerCredits.ts).
+      const provider = (s.backend ?? this.defaultBackend()).provider ?? "openai-codex";
+      const text = await withCredits(this.root, provider, "pilot", () => client.turn({ signal, delta,
         input: fresh => {
           const messages = s.messages.slice(fresh ? -40 : state.through).map(m => ({ role: m.role, content: m.text }));
           return `${reference()}\n${fresh || state.memory !== memoryText ? memoryReference : "Main memory is unchanged since the previous turn."}\n${fresh ? evidence : pending}\n${fresh ? "Conversation history" : "New messages"} (role-labelled):\n${JSON.stringify(messages)}`;
@@ -716,7 +719,7 @@ export class PilotChats {
           if (name === "dispatch") timing.setupMs = elapsed();
           if (name === "usage") timing.usage = value;
           if (name === "apiRequest") timing.apiRequests.push({ startMs: elapsed() - (value as { durationMs: number }).durationMs, endMs: elapsed() });
-        }, tool });
+        }, tool }));
       signal.throwIfAborted();
       if (text === null) throw new PilotError("The selected Pilot backend could not connect or apply the requested model. Check its connection or explicitly change the backend in Pilot settings.", 409);
       complete(text);

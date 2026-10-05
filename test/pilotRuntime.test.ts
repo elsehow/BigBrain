@@ -8,6 +8,7 @@ import { readConversation } from "../lib/pilotConversation";
 import { writeAtomic } from "../lib/fsx";
 import type { PilotBackendTurn } from "../lib/pilotBackendTypes";
 import { nativeVault } from "./support/vault";
+import { creditsState } from "../lib/providerCredits";
 
 const cleanup: (() => void)[] = [];
 afterEach(() => { for (const close of cleanup.splice(0).reverse()) close(); });
@@ -72,4 +73,26 @@ test("warm process count is bounded, and closing a Pilot releases its process wh
   chats.deactivate(s.id); expect(f.live()).toBe(PILOT_RUNTIME.maxWarmSessions - 1);
   expect(readConversation(f.root, s.id).runtimeId).toBe(thread);
   expect(chats.get(s.id).messages).toHaveLength(2);
+});
+test("a Pilot turn that runs out of usage credits raises the base's credits banner; a later answer clears it", async () => {
+  const root = nativeVault({ files: { ".env": "BIGBRAIN_PILOT_ENABLED=true\n" } });
+  cleanup.push(() => rmSync(root, { recursive: true, force: true }));
+  let broke = true;
+  const chats = new PilotChats(root, { graph: () => [], backend: () => ({
+    broken: false, transport: "subscription" as const, prepare: async () => true, close: () => {},
+    turn: async (args: PilotBackendTurn) => {
+      args.connected(); args.dispatched?.();
+      if (broke) throw new Error("Your credit balance is too low to access the Anthropic API.");
+      return "Answer";
+    },
+  }) });
+  cleanup.push(() => chats.close());
+  const s = chats.create([]);
+  chats.setBackend(s.id, { adapter: "pi", provider: "anthropic", model: "claude-sonnet-5-5", reasoning: "low" });
+  chats.send(s.id, "Question"); await chats.settled(s.id);
+  expect(creditsState(root).anthropic?.roles).toEqual(["pilot"]);
+  expect(chats.get(s.id).error ?? JSON.stringify(chats.get(s.id))).toContain("Out of usage credits");
+  broke = false;
+  chats.send(s.id, "Again"); await chats.settled(s.id);
+  expect(creditsState(root).anthropic).toBeUndefined();
 });

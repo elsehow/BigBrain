@@ -4,7 +4,7 @@
   // running beneath, and gets its keys back when the panel closes.
   import DropZone from "./DropZone.svelte";
   import Feedback from "./Feedback.svelte";
-  import UpdateNudge from "./UpdateNudge.svelte";
+  import TopStrips from "./TopStrips.svelte";
   import NotificationStack from "./NotificationStack.svelte";
   import SettingsScreens from "./SettingsScreens.svelte";
   import V2View from "./V2View.svelte";
@@ -27,7 +27,7 @@
 
 <svelte:window onkeydowncapture={onKey} onpointermove={wake} />
 
-<div class="update"><UpdateNudge /></div>
+<div class="update"><TopStrips /></div>
 <DropZone />
 <V2View paused={open || feedbackOpen} />
 {#if open}

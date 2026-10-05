@@ -6,7 +6,6 @@
   // Classic loads only when chosen, so its global sidebar styles never
   // reach Field.
   import { onMount } from "svelte";
-  import CreditsBanner from "./CreditsBanner.svelte";
   import FieldView from "./FieldView.svelte";
   import FirstRunGate from "./FirstRunGate.svelte";
   import VaultSwitcher from "./VaultSwitcher.svelte";
@@ -22,7 +21,7 @@
   const kind = $derived(view ?? viewChoice.kind);
 
   // every view's services: whether a newer build is out (each view places
-  // the banner, UpdateNudge), and the usage presence a running app reports
+  // the banner in its TopStrips), and the usage presence a running app reports
   $effect(() => startTelemetryPresence());
   onMount(() => {
     init();
@@ -48,8 +47,6 @@
       {:else}
         <FieldView />
       {/if}
-      <!-- the base's own word, over whichever view: a provider out of usage credits -->
-      <CreditsBanner />
     {/snippet}
   </FirstRunGate>
 {:else}
