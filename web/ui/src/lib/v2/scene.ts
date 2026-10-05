@@ -40,7 +40,8 @@ export interface V2Scene {
   /** A hovered feed row: what it mentions. */
   hover(entities: number[] | null): void;
   /** Beside one of the opened entity's ties: how it relates to that entity,
-   * after its name; "" is a spinner, null takes it away. */
+   * after its name, in place of the entity's own text; "" is a spinner
+   * beside the tie (the entity keeps its text meanwhile), null takes it away. */
   relate(j: number | null, text?: string): void;
   /** Pixels to slide the scene's centre right, clear of a left panel. */
   shift(px: number): void;
@@ -560,7 +561,9 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
     for (let i = 0; i < N; i++) {
       const n = field.nodes[i]!;
       const related = rl?.j === i;
-      const full = related || (i === inHand && handText !== undefined);
+      // one caption at a time: a written relation stands in for the opened
+      // entity's own, which returns when the pointer moves off
+      const full = related || (i === inHand && handText !== undefined && !rl?.text);
       const restOp = n.named && (field.hubs.has(i) || n.memory) ? 1 : 0;
       let op = srch && srch.matches.size ? match[i]! : Math.max(heat[i]!, THREE.MathUtils.lerp(restOp, rel[i]!, dim)) * (srch ? searchDim : 1);
       if (i === inHand || related) op = 1;
@@ -581,6 +584,8 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
     cand.sort((a, b) => b.pri - a.pri);
     for (const c of cand) {
       if (c.L.w == null) { c.L.w = c.L.offsetWidth; c.L.h = c.L.offsetHeight; }
+      // a caption that would run off the right edge reads leftward from its dot
+      if (c.full && c.x + c.L.w > W - 12) c.x = Math.max(12, c.x - 18 - c.L.w);
       const r = [c.x - 4, c.y - c.L.h! / 2 - 3, c.x + c.L.w + 4, c.y + c.L.h! / 2 + 3];
       let ok = true;
       for (const p of placed) if (r[0]! < p[2]! && r[2]! > p[0]! && r[1]! < p[3]! && r[3]! > p[1]!) { ok = false; break; }

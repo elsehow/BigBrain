@@ -1,13 +1,14 @@
 /** One disposable Quick-model gloss: how a hovered note relates to the open one. */
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { assertionGraphEvidenceAsync, assertionGraphEvidenceCached } from "./graphCache";
 import { runBriefingModel, type BriefingModel } from "./entityBriefing";
+import { writeAtomic } from "./fsx";
 import { findNode } from "./graphIdentity";
 import { sha256hex } from "./hash";
 import { json, readBody, type Route } from "./httpx";
 import { loadManifest } from "./manifest";
-import { briefingCacheFile, noteBriefingInput, type BriefingConnection, type BriefingItem } from "./noteBriefing";
+import { briefingCacheFile, noteBriefingInput, type BriefingItem } from "./noteBriefing";
 import { plainText } from "./v2Feed";
 
 export interface NoteRelationInput {
@@ -52,8 +53,7 @@ export function noteRelationInput(root: string, focus: string, hovered: string):
   const f = full.items.find(item => item.id === id(focus)), h = full.items.find(item => item.id === id(hovered));
   if (!f || !h || f.id === h.id) throw new Error("Hover a different note to see how it relates.");
   const direct = spread(full.relationships.flatMap(r => r.evidence.map(e => plainText(e.text).slice(0, 1200))), DIRECT_ROWS);
-  const both = (link: BriefingConnection) => (link.selected ?? []).length === 2;
-  const shared = direct.length ? [] : full.links.filter(both).slice(0, 3)
+  const shared = direct.length ? [] : full.links.filter(link => link.selected?.length === 2).slice(0, 3)
     .map(link => ({ title: link.title, evidence: link.evidence.slice(0, 2).map(e => plainText(e.text).slice(0, 600)) }));
   const headline = cachedHeadline(root, f.id, h.id);
   return { focus: f, hovered: h, direct, shared, ...(headline ? { headline } : {}) };
@@ -73,12 +73,11 @@ export function noteRelationPrompt(input: NoteRelationInput): string {
     direct: input.direct.map((text, i) => ({ row: i + 1, text })), shared: input.shared });
 }
 
-export function noteRelationSchema(): Record<string, unknown> {
-  return { type: "object", additionalProperties: false, required: ["tie", "relation"], properties: {
+export const NOTE_RELATION_SCHEMA: Record<string, unknown> = {
+  type: "object", additionalProperties: false, required: ["tie", "relation"], properties: {
     // tie only steers the model to one row; an out-of-range index costs nothing
     tie: { type: "integer", minimum: 0 },
     relation: { type: "string", minLength: 1, maxLength: 240, pattern: "^(?![\\s\\S]*(?:[\\[\\]<>]|https?://))(?=[\\s\\S]*\\S)[\\s\\S]*$" } } };
-}
 
 export function parseNoteRelation(text: string): string {
   let value: { relation?: unknown };
@@ -102,7 +101,7 @@ export function createNoteRelationService(run: BriefingModel = runBriefingModel,
   return async (root: string, focus: string, hovered: string): Promise<NoteRelation> => {
     const input = await read(root, focus, hovered);
     const quick = loadManifest(root).quick;
-    const key = sha256hex(JSON.stringify([1, quick.adapter, quick.provider, quick.model, quick.reasoning, input]));
+    const key = sha256hex(JSON.stringify([NOTE_RELATION_SYSTEM, quick.adapter, quick.provider, quick.model, quick.reasoning, input]));
     const file = join(root, ".state", "note-relations", `${sha256hex(JSON.stringify([input.focus.id, input.hovered.id]))}.json`);
     try {
       const cached = JSON.parse(readFileSync(file, "utf8")) as NoteRelation;
@@ -114,13 +113,10 @@ export function createNoteRelationService(run: BriefingModel = runBriefingModel,
       // A hover that moves on leaves its call running: it fills the cache.
       job = (async () => {
         const result = await run(root, noteRelationPrompt(input), () => {}, NOTE_RELATION_SYSTEM,
-          { ...NOTE_RELATION_MODEL_OPTIONS, outputSchema: noteRelationSchema() });
+          { ...NOTE_RELATION_MODEL_OPTIONS, outputSchema: NOTE_RELATION_SCHEMA });
         const relation: NoteRelation = { key, model: result.model, generatedAt: new Date().toISOString(),
           text: parseNoteRelation(result.text), ...(result.costUsd !== undefined ? { costUsd: result.costUsd } : {}) };
-        mkdirSync(join(root, ".state", "note-relations"), { recursive: true });
-        const temp = `${file}.${crypto.randomUUID()}.tmp`;
-        try { writeFileSync(temp, JSON.stringify(relation)); renameSync(temp, file); }
-        finally { rmSync(temp, { force: true }); }
+        writeAtomic(file, JSON.stringify(relation));
         return relation;
       })().finally(() => pending.delete(jobKey));
       pending.set(jobKey, job);
