@@ -15,9 +15,7 @@
     window.dispatchEvent(event);
   }
   import { onMount } from "svelte";
-  import { refreshNotifications } from "../lib/notifications.svelte";
-  import { refreshChats } from "../lib/pilotChat.svelte";
-  async function notifyAgent() { window.dispatchEvent(new Event("workbench-agent-notification")); await refreshChats(); await refreshNotifications(); }
+  async function notifyAgent() { window.dispatchEvent(new Event("workbench-agent-notification")); }
   import { update } from "../lib/update.svelte";
   onMount(() => {
     const params = new URLSearchParams(location.search);
@@ -31,7 +29,6 @@
     return () => clearTimeout(timer);
   });
   import Base from '../components/Base.svelte';
-  import GraphProfileControls from './GraphProfileControls.svelte';
   import { onboardingPreviewKey } from './onboardingFixture';
   const onboarding = new URLSearchParams(location.search).has('onboarding');
   function restartOnboarding() { localStorage.removeItem(onboardingPreviewKey); location.hash = ''; location.reload(); }
@@ -54,10 +51,9 @@
     history.replaceState(null, '', url);
   }
 </script>
-<!-- the production base, pinned to Classic (its first run and vault gates included) -->
-<Base view="classic" shell={{ baseline, debug: true }} />
+<!-- the production base and Field (its first run and vault gates included) -->
+<Base />
 {#if new URLSearchParams(location.search).has('gmail')}<aside class="gmail-preview">Sample setup · Use sample@example.com and abcd efgh ijkl mnop. No credentials are saved.</aside>{/if}
-{#if !live && new URLSearchParams(location.search).has('profile')}<GraphProfileControls />{/if}
 <nav class="sidebar-study-switch" class:onboarding aria-label="Workbench previews">
   {#if scenario}<label>Application scenario <select aria-label="Application scenario" value={scenario} onchange={chooseScenario}>{#each traces as trace}<option value={trace.id}>{trace.title}</option>{/each}</select></label><span>Read-only · seed {traces[0].seed}</span>{/if}
   {#if onboarding}<span>Onboarding preview · Analytics and connections simulated</span><button onclick={restartOnboarding}>Restart preview</button>
@@ -73,6 +69,8 @@
 
 <style>
 .gmail-preview{position:fixed;bottom:12px;left:50%;transform:translateX(-50%);z-index:1000;background:var(--bg);color:var(--text-muted);border:1px solid var(--rule);padding:8px 14px;border-radius:6px;font:var(--type-meta);max-width:90vw}
+.sidebar-study-switch { position:fixed; right:16px; z-index:40; display:flex; gap:14px; align-items:center; font:var(--type-meta); color:var(--text-muted); }
+.sidebar-study-switch a { font:inherit; color:inherit; }
 .sidebar-study-switch { top:16px; bottom:auto; max-width:calc(100vw - 32px); flex-wrap:wrap; justify-content:flex-end; }
 @media(min-width:800px) { .sidebar-study-switch { max-width:calc(100vw - 580px); } }
 .sidebar-study-switch.onboarding { top:auto; bottom:36px; right:140px; max-width:calc(100% - 156px); flex-wrap:wrap; background:var(--bg); border:1px solid var(--rule); padding:8px; }

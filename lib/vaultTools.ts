@@ -93,9 +93,8 @@ function readNoteTool(ctx: VaultToolContext, args: Record<string, unknown>): unk
   return sliceNote(p.note, args);
 }
 
-function loadMemoryTool(ctx: VaultToolContext, args: Record<string, unknown>): unknown {
-  const topic = str(args["topic"]).trim();
-  const r = memoryRead(ctx.root, topic);
+function loadMemoryTool(ctx: VaultToolContext): unknown {
+  const r = memoryRead(ctx.root);
   if (r.status !== 200)
     throw new VaultToolError(r.status === 404 ? "no such memory file" : "forbidden path");
   return r.text;
@@ -180,11 +179,8 @@ export const VAULT_TOOLS: VaultToolDef[] = [
   {
     name: "load_memory",
     description:
-      "The vault's curated working set: memory/MEMORY.md, or one topic file. Call this first.",
-    inputSchema: {
-      type: "object",
-      properties: { topic: { type: "string", description: "topic slug, e.g. a [[memory/slug]] target" } },
-    },
+      "The vault's curated working set: memory/MEMORY.md. Call this first.",
+    inputSchema: { type: "object", properties: {} },
     handler: loadMemoryTool,
   },
   {

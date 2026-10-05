@@ -16,7 +16,7 @@ import { Agents, type Desktop, type HostTool, type LandHow, type OpenOptions, ty
 import { agentHost } from "./agentHost";
 import { writeAtomic } from "./fsx";
 import { pilotToolCall } from "./pilot";
-import { arrangeDesktop, closeView, desktopDetail, desktopReference, DESKTOP_TOOLS, DesktopError, emptyDesktop, loopbackUrl, MAX_PAGE_HTML, MAX_VIEWS, openView, SHOW_HTML_TOOL, SHOW_PAGE_TOOL, type PilotDesktop } from "./pilotDesktop";
+import { arrangeDesktop, closeView, desktopDetail, desktopReference, DESKTOP_TOOLS, DesktopError, emptyDesktop, loopbackUrl, MAX_PAGE_HTML, MAX_VIEWS, noteTitle, openView, SHOW_HTML_TOOL, SHOW_PAGE_TOOL, type DesktopView, type PilotDesktop } from "./pilotDesktop";
 import { namingMoment, type TaskNamer } from "./pilotTaskName";
 import { DEFAULT_PILOT_BACKEND } from "./pilotBackendTypes";
 import { spoolDir } from "./spool";
@@ -230,16 +230,28 @@ export class CodingDesktops {
     return this.save(r);
   }
 
-  /** The person's hand on the views: close one, or arrange the tiles. */
-  view(id: unknown, action: unknown, body: Record<string, unknown>): CodingDesktopRecord {
+  /** The person's hand on the views: open a note (a citation they followed), close one, or arrange the tiles. */
+  async view(id: unknown, action: unknown, body: Record<string, unknown>): Promise<CodingDesktopRecord> {
+    this.get(id); // an unknown desktop fails before the note is read
+    const view = action === "open" ? await this.noteView(body.path) : undefined;
     const r = this.get(id);
     const d = r.desktop ?? emptyDesktop();
     r.desktop = rule(() => {
+      if (view) return openView(d, view, `v-${crypto.randomUUID().slice(0, 6)}`, { userAsked: true });
       if (action === "close" && typeof body.view === "string") return closeView(d, body.view, "human");
       if (action === "arrange") return arrangeDesktop(d, body.layout, "human");
-      throw new CodingDesktopError('Choose "close" with a view, or "arrange" with a layout.');
+      throw new CodingDesktopError('Choose "open" with a path, "close" with a view, or "arrange" with a layout.');
     });
     return this.save(r);
+  }
+
+  /** A note view, named by reading it: only a note that reads can be shown. */
+  private async noteView(path: unknown): Promise<Omit<DesktopView, "id">> {
+    if (typeof path !== "string" || !path.trim()) throw new CodingDesktopError("Give the note's exact vault path.");
+    const p = path.trim();
+    const note = await pilotToolCall(this.root, "read_note", { path: p, chars: 1 }).catch(() => null) as { title?: unknown } | null;
+    if (!note) throw new CodingDesktopError("That note could not be read; open_view needs an exact vault path.");
+    return { kind: "note", path: p, title: noteTitle(p, note), at: new Date().toISOString() };
   }
 
   private get themePath(): string { return join(this.agents.ws.root, "bigbrain.css"); }
@@ -285,12 +297,8 @@ export class CodingDesktops {
       ({ name, description: def(name).description, parameters: def(name).parameters as Record<string, unknown>, execute: a => run(a), label });
     return [
       tool("open_view", async a => {
-        if (typeof a.path !== "string" || !a.path.trim()) throw new Error("Give the note's exact vault path.");
-        const path = a.path.trim();
-        const note = await pilotToolCall(this.root, "read_note", { path, chars: 1 }).catch(() => null) as { title?: unknown } | null;
-        if (!note) throw new Error("That note could not be read; open_view needs an exact vault path.");
-        const title = typeof note.title === "string" && note.title.trim() ? note.title.trim() : path.split("/").pop()!.replace(/\.md$/, "");
-        return change(d => openView(d, { kind: "note", path, title, at: new Date().toISOString() }, viewId(), { userAsked: a.user_asked === true }));
+        const view = await this.noteView(a.path);
+        return change(d => openView(d, view, viewId(), { userAsked: a.user_asked === true }));
       }, a => `Showed ${String(a.path ?? "a note")}`),
       tool("show_page", async a => {
         const url = rule(() => loopbackUrl(a.url));

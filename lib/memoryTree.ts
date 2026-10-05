@@ -5,7 +5,7 @@
  * it, reverting it and describing the overage were four closures inside a
  * 620-line function — each needing only `root`, none needing the run.
  *
- * The budget: MEMORY.md + 8 topic files; ~3,000 words is what the prompt
+ * The budget: MEMORY.md alone; ~3,000 words is what the prompt
  * aims at, 3,300 is the line the code holds — 10% slack for a model that
  * counts exactly but writes by feel.
  *
@@ -28,7 +28,7 @@ import { existsSync, readFileSync, readdirSync, lstatSync } from "node:fs";
 import { join } from "node:path";
 import { machinePath } from "./run/machineTools";
 
-export const MEMORY_MAX_FILES = 9;
+export const MEMORY_MAX_FILES = 1;
 export const MEMORY_TARGET_WORDS = 3_000;
 export const MEMORY_MAX_WORDS = 3_300;
 /** How many times an over-budget tree is handed back for trimming before
@@ -114,9 +114,7 @@ Rules:
   everything, and a memory line that is gone is one search away.
 - Keep the citation on every claim you keep; a claim that would lose its
   \`[[ast_…]]\` is a claim to drop.
-- Keep MEMORY.md's index in step with the files: a merged or deleted
-  topic leaves the index.
-- Write ONLY under memory/.
+- Write ONLY to memory/MEMORY.md.
 - Re-measure before you finish — \`cat memory/**/*.md | wc -w\` under
   ${MEMORY_MAX_WORDS} — and end your final message with a \`\`\`report block:
   what you cut and why.

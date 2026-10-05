@@ -4,7 +4,6 @@ import { join } from "node:path";
 import { spoolDir } from "../lib/spool";
 import { PilotChats } from "./support/pilotSession";
 import { PILOT_TEXT_MODEL, pilotContextLabel } from "../lib/pilotChatTypes";
-import { withPilotChats } from "../web/ui/src/lib/pilotChatGraph";
 import { nativeVault } from "./support/vault";
 
 const roots: string[] = [];
@@ -20,22 +19,17 @@ test("mention context additions are additive, canonical, idempotent and durable"
   sessions.addContext(s.id, ["arbor", s.id]); expect(s.viewRevision).toBe(revision);
   expect(() => sessions.setContext(s.id, [], "Stale", revision - 1)).toThrow("context changed");
   sessions.addContext(s.id, [other.id]);
-  const graph = withPilotChats({ nodes, edges: [], hash: "test" }, [s, other], s.id)!;
-  expect(graph.edges).toContainEqual({ source: other.id, target: s.id, pilotContext: true });
   expect(() => sessions.addContext(s.id, ["../../private"])).toThrow();
   sessions.close();
   const resumed = new PilotChats(root, { graph: () => nodes, fetch });
   expect(resumed.get(s.id).context).toEqual(["dana", "arbor", other.id]);
   resumed.close();
 });
-test("valid mentions outside the base graph get a durable context node", () => {
+test("valid mentions outside the base graph are kept as context", () => {
   const root = nativeVault({ files: { "memory/extra.md": "# Extra context\nA useful note." } }); roots.push(root);
   const sessions = new PilotChats(root, { graph: () => [], fetch });
   const s = sessions.create([]); sessions.addContext(s.id, ["memory/extra.md"]);
   expect(s.context).toEqual(["memory/extra.md"]);
-  const graph = withPilotChats({ nodes: [], edges: [], hash: "empty" }, [s], s.id)!;
-  expect(graph.nodes.some(n => n.id === "memory/extra.md")).toBe(true);
-  expect(graph.edges).toContainEqual({ source: "memory/extra.md", target: s.id, pilotContext: true });
   sessions.setContext(s.id, ["memory/extra.md"], "Context", s.viewRevision);
   sessions.close();
 });
@@ -196,12 +190,10 @@ describe("text Pilot sessions", () => {
   const s=sessions.create([]);sessions.send(s.id,"Try a worker");await sessions.settled(s.id);
   expect(hits).toBe(0);expect(s.phase).toBe("answered");
  });
- test("graph context stays exact; isolated sessions and multi-selection labels", () => {
+ test("context stays exact; multi-selection labels", () => {
   const sessions=new PilotChats(vault(),{graph:()=>nodes,fetch:fetch});const s=sessions.create([]);
-  const graph={nodes,edges:[{source:"dana",target:"arbor"}],hash:"base"};
-  expect(withPilotChats(graph,[s],s.id)?.nodes.map(n=>n.id)).toEqual([s.id]);expect(withPilotChats(graph,[s],s.id)?.edges).toEqual([]);
-  sessions.setContext(s.id,["arbor"],"Arbor",0);const joined=withPilotChats(graph,[s],s.id)!;
-  expect(joined.edges.filter(e=>e.pilotContext)).toEqual([{source:"arbor",target:s.id,pilotContext:true}]);
+  expect(s.context).toEqual([]);
+  sessions.setContext(s.id,["arbor"],"Arbor",0);expect(s.context).toEqual(["arbor"]);
   expect(pilotContextLabel({seed:["dana","arbor"],context:["dana","arbor"]},id=>id)).toBe("2 selected");
   expect(pilotContextLabel({seed:["dana"],context:["arbor","dana"]},id=>id)).toBe("dana + 1 selected");
   expect(pilotContextLabel({seed:["dana"],context:["arbor"]},id=>id)).toBe("1 selected");

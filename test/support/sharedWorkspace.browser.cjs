@@ -12,7 +12,7 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
  for(let i=0;i<100;i++){try{if((await fetch(fixture.base+'/api/vault')).ok)break}catch{}await pause(100)}
  browser=await chromium.launch({channel:process.env.PLAYWRIGHT_CHANNEL||'chrome',headless:true});const page=await browser.newPage({viewport:{width:1440,height:1000}});page.setDefaultTimeout(15000);const pageErrors=[];page.on('pageerror',e=>{pageErrors.push(e.message);console.error('Browser error:',e.message)});
  await page.goto(fixture.base+'/#sharedVaultSettings');
- await page.getByRole('button',{name:'+ Connect vault',exact:true}).click();const dialog=page.getByRole('dialog');await dialog.waitFor();assert.equal(await dialog.locator('input').count(),1);await page.getByLabel('Invite link',{exact:true}).fill(fixture.invite);await dialog.getByRole('button',{name:'Connect',exact:true}).click();await page.waitForURL(url=>url.searchParams.has('vaults'));await page.goto(fixture.base+'/#sharedVaultSettings');await page.getByRole('button',{name:'Example team',exact:true}).last().click();
+ await page.getByRole('button',{name:'+ Connect vault',exact:true}).click();const dialog=page.getByRole('dialog');await dialog.waitFor();assert.equal(await dialog.locator('input').count(),1);await page.getByLabel('Invite link',{exact:true}).fill(fixture.invite);await dialog.getByRole('button',{name:'Connect',exact:true}).click();await dialog.waitFor({state:'detached'});assert(!new URL(page.url()).searchParams.has('vaults'),'connecting changes no view');await page.goto(fixture.base+'/#sharedVaultSettings');await page.getByRole('button',{name:'Example team',exact:true}).last().click();
  await page.getByRole('button',{name:'Use suggestion',exact:true}).click();const editor=page.getByRole('textbox',{name:'Inclusion rule',exact:true});await editor.waitFor();assert((await editor.innerText()).includes('Example project'));assert.equal(await editor.locator('[data-mention]').count(),1);
  // Exercise the real @ picker independently of the suggested draft.
  await editor.fill('Sources about @Example');await page.getByRole('option').filter({hasText:'Example project'}).click();assert.equal(await editor.locator('[data-mention]').count(),1);
@@ -55,24 +55,7 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
  await page.getByText('Quick',{exact:true}).first().waitFor();
  assert(!(await page.evaluate(()=>JSON.stringify({local:{...localStorage},session:{...sessionStorage}}))).includes('example-browser-key'));
  await page.screenshot({path:'artifacts/jev-model-settings.png',fullPage:true});
- // A shared vault can contain only unorganized sources, with no memory pass yet.
- await fetch(fixture.endpoint+'/v1/evidence',{method:'POST',headers:{authorization:'Bearer '+fixture.token,'content-type':'application/json'},body:JSON.stringify({title:'Shared source without memories',body:'Fabricated evidence for the remote-only graph.'})});
- await page.goto(fixture.base+'/?workspace='+fixture.readonly);
- const tags=page.getByRole('navigation',{name:'Vaults',exact:true});await tags.waitFor();
- await page.getByLabel('Knowledge graph',{exact:true}).waitFor();
- assert.equal(await tags.getByRole('button',{name:'All vaults',exact:true}).count(),0);
- // Start in one remote scope, add Personal, then remove Personal again.
- await tags.getByRole('button',{name:'Personal',exact:true}).click();
- await page.waitForURL(url=>url.searchParams.get('vaults')?.split(',').includes('personal'));
- await tags.waitFor();assert.equal(await tags.getByRole('button',{name:'Personal',exact:true}).getAttribute('aria-pressed'),'true');
- await tags.getByRole('button',{name:'Personal',exact:true}).click();
- await page.waitForURL(url=>url.searchParams.get('vaults')===fixture.readonly);
- await page.getByLabel('Knowledge graph',{exact:true}).waitFor();
- await page.getByRole('button',{name:'Settings',exact:true}).waitFor({state:'attached'});
- await page.getByRole('button',{name:'Shared source without memories',exact:true}).waitFor();
- await page.getByRole('button',{name:'Shared source without memories',exact:true}).click();
- // A shared record opens on its text: no click to unfold, and no briefing to fail.
- await page.getByText('Fabricated evidence for the remote-only graph.',{exact:false}).waitFor();assert.equal(await page.getByText('This note is not available for a briefing.').count(),0);
- await page.goto(fixture.base+'/?workspace='+fixture.readonly);await page.getByText('Read only',{exact:true}).waitFor();
- assert.deepEqual(pageErrors,[]);console.log('PASS: real AppShell invite-only connection, remote suggestion, entity chips/picker, explicit activation/removal, withdrawal persistence and hidden rows, read-only, Jev key settings and no browser secrets.');
+ // A legacy direct link to the read-only vault still opens the app.
+ await page.goto(fixture.base+'/?workspace='+fixture.readonly);await page.locator('.v2').waitFor();
+ assert.deepEqual(pageErrors,[]);console.log('PASS: real base and Field invite-only connection, remote suggestion, entity chips/picker, explicit activation/removal, withdrawal persistence and hidden rows, read-only, Jev key settings and no browser secrets.');
 }finally{if(browser)await browser.close();child.kill()}})().catch(e=>{console.error(e);process.exitCode=1});

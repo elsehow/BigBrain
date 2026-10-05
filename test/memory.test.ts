@@ -5,7 +5,6 @@ import {
   mkdtempSync,
   mkdirSync,
   readFileSync,
-  renameSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -269,8 +268,7 @@ describe("runMemory: the mechanical contract", () => {
       files: {
         "prompts/memory.md": "MEMORY PASS TEMPLATE\n",
         "entities/evan-keller.md": "---\ntitle: Evan\n---\n\nx\n",
-        "memory/MEMORY.md": "# Memory index\n\n- [[memory/fri-work|FRI work]]\n",
-        "memory/fri-work.md": "---\ntitle: FRI\n---\n\nunder [[entities/evan-keller|Evan]]\n",
+        "memory/MEMORY.md": "---\ntitle: Memory\n---\n\nunder [[entities/evan-keller|Evan]]\n",
       },
       identity: { name: "t", email: "t@t" },
       commit: "seed",
@@ -298,30 +296,18 @@ describe("runMemory: the mechanical contract", () => {
   const run = (root: string, write: () => void) =>
     runMemory({ root, manifest: memManifest(root), force: true, loadPi: memoryModel(write) });
 
-  test("a renamed topic drags its siblings' links with it — the hole memory→memory linking opened", async () => {
-    const root = memVault();
-    const res = await run(root, () => {
-      renameSync(join(root, "memory", "fri-work.md"), join(root, "memory", "forecasting.md"));
-    });
-    expect(res.error).toBeUndefined();
-    expect(res.movesFollowed).toBe(1);
-    // the index pointed at the old name and the model never touched it
-    expect(read(root, "memory/MEMORY.md")).toContain("[[memory/forecasting|FRI work]]");
-  });
-
-  test("the model may write a bare or markdown link; the tree keeps canonical ones", async () => {
+  test("the model may write a bare link; the tree keeps canonical ones", async () => {
     const root = memVault();
     const res = await run(root, () => {
       writeFileSync(
         join(root, "memory", "MEMORY.md"),
-        "# Memory index\n\n- [FRI work](fri-work.md) — load this\n- run by [[evan-keller]]\n"
+        "# Memory\n\n- run by [[evan-keller]]\n"
       );
     });
     expect(res.error).toBeUndefined();
     const body = read(root, "memory/MEMORY.md");
-    expect(body).toContain("[[memory/fri-work|FRI work]]"); // markdown → wikilink
     expect(body).toContain("[[entities/evan-keller|evan-keller]]"); // bare → path
-    expect(res.canonicalized).toBe(2);
+    expect(res.canonicalized).toBe(1);
   });
 
   test("an over-budget run is reverted and never rewritten — order matters", async () => {
@@ -342,8 +328,8 @@ describe("runMemory: the mechanical contract", () => {
     const root = memVault();
     const res = await run(root, () => {
       writeFileSync(
-        join(root, "memory", "fri-work.md"),
-        "---\ntitle: FRI\n---\n\nunder [[evan-keller]]\n"
+        join(root, "memory", "MEMORY.md"),
+        "---\ntitle: Memory\n---\n\nunder [[evan-keller]]\n"
       );
     });
     const journal = JSON.parse(read(root, `journal/memory/${res.run}.json`));
@@ -460,10 +446,10 @@ describe("runMemory: the mechanical contract", () => {
       return { loadPi, prompts };
     };
     const prose = (n: number): string => Array.from({ length: n }, (_, i) => `w${i}`).join(" ");
-    /** fri-work.md at `n` words of body — 4 more for its frontmatter, and
-     * MEMORY.md's 6 on top: the tree measures n + 10. */
+    /** MEMORY.md at `n` words of body — 4 more for its frontmatter: the
+     * tree measures n + 4. */
     const bloat = (root: string, n: number): void =>
-      writeFileSync(join(root, "memory", "fri-work.md"), `---\ntitle: FRI\n---\n\n${prose(n)}\n`);
+      writeFileSync(join(root, "memory", "MEMORY.md"), `---\ntitle: Memory\n---\n\n${prose(n)}\n`);
     const go = (root: string, loadPi: PiLoader) =>
       runMemory({ root, manifest: memManifest(root), force: true, loadPi });
 
@@ -474,27 +460,26 @@ describe("runMemory: the mechanical contract", () => {
       expect(res.error).toBeUndefined();
       expect(res.committed).toBe(true);
       expect(res.trims).toBe(1);
-      expect(res.words).toBe(2910);
+      expect(res.words).toBe(2904);
       expect(prompts).toHaveLength(2);
       const trim = prompts[1]!;
       expect(trim).toContain(`trim turn 1 of ${MEMORY_TRIM_ATTEMPTS}`);
-      expect(trim).toContain("now: 3410 words in 2 files");
-      expect(trim).toContain(`cut: at least ${3410 - MEMORY_MAX_WORDS} words`);
-      expect(trim).toContain("- memory/fri-work.md — 3404 words");
-      expect(trim).toContain("- memory/MEMORY.md — 6 words");
+      expect(trim).toContain("now: 3404 words in 1 files");
+      expect(trim).toContain(`cut: at least ${3404 - MEMORY_MAX_WORDS} words`);
+      expect(trim).toContain("- memory/MEMORY.md — 3404 words");
       expect(trim).toContain("turn 1"); // the run's own report rides along
       const journal = JSON.parse(read(root, `journal/memory/${res.run}.json`));
       expect(journal.trims).toEqual([
         expect.objectContaining({
           attempt: 1,
-          before: { files: 2, words: 3410 },
-          after: { files: 2, words: 2910 },
+          before: { files: 1, words: 3404 },
+          after: { files: 1, words: 2904 },
           usage: expect.objectContaining({ cost_usd: null, turns: 1 }),
         }),
       ]);
       // the trim's spend is the run's spend — econ sums `usage`
       expect(journal.usage).toMatchObject({ cost_usd: null, turns: 2, input_tokens: 20 });
-      expect(journal.tree).toEqual({ files: 2, words: 2910 });
+      expect(journal.tree).toEqual({ files: 1, words: 2904 });
       expect(journal.report).toContain("## Trim 1");
       expect(journal.report).toContain("turn 2");
     });
@@ -510,18 +495,18 @@ describe("runMemory: the mechanical contract", () => {
       const res = await go(root, loadPi);
       expect(prompts).toHaveLength(1 + MEMORY_TRIM_ATTEMPTS);
       expect(res.error).toBe(
-        `over budget: 2 file(s) (max ${MEMORY_MAX_FILES}), 3330 word(s) (max ${MEMORY_MAX_WORDS}) after ${MEMORY_TRIM_ATTEMPTS} trim turn(s) — run reverted`
+        `over budget: 1 file(s) (max ${MEMORY_MAX_FILES}), 3324 word(s) (max ${MEMORY_MAX_WORDS}) after ${MEMORY_TRIM_ATTEMPTS} trim turn(s) — run reverted`
       );
       expect(res.trims).toBe(MEMORY_TRIM_ATTEMPTS);
-      expect(read(root, "memory/fri-work.md")).toContain("under [[entities/evan-keller|Evan]]");
+      expect(read(root, "memory/MEMORY.md")).toContain("under [[entities/evan-keller|Evan]]");
       expect(prompts[2]).toContain(`trim turn 2 of ${MEMORY_TRIM_ATTEMPTS}`);
-      expect(prompts[2]).toContain("now: 3360 words");
+      expect(prompts[2]).toContain("now: 3354 words");
       // the journal keeps what each turn was asked and what it did
       const journal = JSON.parse(read(root, `journal/memory/${res.run}.json`));
       expect(journal.trims.map((t: { after: { words: number } }) => t.after.words)).toEqual([
-        3360, 3330,
+        3354, 3324,
       ]);
-      expect(journal.tree).toEqual({ files: 2, words: 3330 });
+      expect(journal.tree).toEqual({ files: 1, words: 3324 });
 
       // the retry is not blind: it is told the last run died, and where the tree stands
       const again = turns([() => {}]);
@@ -530,7 +515,7 @@ describe("runMemory: the mechanical contract", () => {
       const ctx = again.prompts[0]!;
       expect(ctx).toContain(`The previous run (${res.run}) was discarded — over budget:`);
       expect(ctx).toContain(
-        `The tree stands at 12 words in 2 files now — ${MEMORY_MAX_WORDS - 12} words of headroom.`
+        `The tree stands at 6 words in 1 files now — ${MEMORY_MAX_WORDS - 6} words of headroom.`
       );
       expect(ctx).toContain(`${MEMORY_MAX_WORDS} words and ${MEMORY_MAX_FILES} files`);
       // …and a run that succeeded says nothing about a previous one
@@ -566,7 +551,7 @@ describe("runMemory: the mechanical contract", () => {
       expect(prompts).toHaveLength(2);
       expect(res.error).toMatch(/^trim 1 failed: claude fell over — run reverted$/);
       expect(res.trims).toBe(0);
-      expect(read(root, "memory/fri-work.md")).toContain("under [[entities/evan-keller|Evan]]");
+      expect(read(root, "memory/MEMORY.md")).toContain("under [[entities/evan-keller|Evan]]");
       expect(gitOut(root, ["status", "--porcelain", "--", "memory"])).toBe("");
     });
 
@@ -576,13 +561,13 @@ describe("runMemory: the mechanical contract", () => {
       const res = await go(root, loadPi);
       expect(res.error).toBeUndefined();
       expect(res.trims).toBe(0);
-      expect(res.words).toBe(3010);
+      expect(res.words).toBe(3004);
       expect(prompts).toHaveLength(1);
       expect(prompts[0]).toContain("aim for 3000 words or fewer");
       expect(prompts[0]).toContain("trimming attempts before discarding an oversized result.");
       const journal = JSON.parse(read(root, `journal/memory/${res.run}.json`));
       expect(journal.trims).toBeUndefined();
-      expect(journal.tree).toEqual({ files: 2, words: 3010 });
+      expect(journal.tree).toEqual({ files: 1, words: 3004 });
       expect(journal.usage).toMatchObject({ cost_usd: null, turns: 1 });
     });
   });

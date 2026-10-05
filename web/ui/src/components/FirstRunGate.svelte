@@ -1,14 +1,14 @@
 <script lang="ts">
   // The base's first gate after the vault: until the engine answers, a quiet
-  // line; through first run, its screens; then whichever view sits on the
-  // base, handed the setup state (Base.svelte).
+  // line; through first run, its screens; then the view on the base
+  // (Base.svelte).
   import type { Snippet } from "svelte";
   import FirstRun from "./FirstRun.svelte";
   import { connectClaude, declareName, pickVault, setupDone, setupStatus, type SetupState } from "../lib/setup";
   import { telemetryState, type TelemetrySnapshot } from "../lib/telemetry";
   import { app } from "../lib/store.svelte";
 
-  const { children }: { children: Snippet<[SetupState | null]> } = $props();
+  const { children }: { children: Snippet } = $props();
 
   // FIRST RUN (#575). The setup door answers /api/setup under the desktop
   // app. Vault, identity and provider setup precede the installation-local
@@ -99,7 +99,7 @@
 {:else if firstRun && setup}
   <FirstRun {setup} {onPick} {onConnect} {onName} {telemetryPending} {onConsent} />
 {:else}
-  {@render children(setup ?? null)}
+  {@render children()}
 {/if}
 
 <style>
