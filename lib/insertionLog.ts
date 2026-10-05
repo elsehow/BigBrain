@@ -94,13 +94,23 @@ export function insertionAuthor(envelope: Record<string, unknown>): EventAuthor 
   };
 }
 
+/** The title a source is listed under: its own `title:`, else its first
+ * `# ` heading, else the filename it arrived as, and only then its id — an
+ * id is identity, not a name. */
+function insertionTitle(envelope: Envelope & Record<string, unknown>, body: string, sourceId: string): string {
+  return scalar(envelope.title)
+    ?? /^#[ \t]+(.+?)[ \t#]*$/m.exec(body)?.[1]
+    ?? scalar(envelope.filename)?.replace(/\.[a-z0-9]+$/i, "")
+    ?? sourceId;
+}
+
 export function sourceInsertion(envelope: Envelope & Record<string, unknown>, body: string): SourceInsertion {
   const sourceId = scalar(envelope.id);
   if (!sourceId) throw new Error("insertion-log: source id is required");
   const contentSha256 = sha256hex(`${JSON.stringify(envelope)}\n${body}`);
   return {
     event: "source.inserted", id: `ins_${sha256hex(`${sourceId}\u0000${contentSha256}`).slice(0, 24)}`,
-    source_id: sourceId, author: insertionAuthor(envelope), title: scalar(envelope.title) ?? sourceId,
+    source_id: sourceId, author: insertionAuthor(envelope), title: insertionTitle(envelope, body, sourceId),
     body, envelope,
     ...(scalar(envelope.date) ? { occurred_at: scalar(envelope.date) } : {}),
     ...(scalar(envelope.received) ? { received_at: scalar(envelope.received) } : {}),

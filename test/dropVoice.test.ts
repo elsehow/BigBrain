@@ -3,7 +3,7 @@
 // contract is what the server honors, not what the client writes.
 import { describe, expect, test } from "bun:test";
 import { stampIntake } from "../lib/intake";
-import { AGENT_VOICE, claimAgentVoice } from "../web/ui/src/lib/dropVoice";
+import { AGENT_VOICE, claimAgentVoice, claimTitle } from "../web/ui/src/lib/dropVoice";
 
 // The edge credential as /api/drop passes it: a verified person.
 const EDGE = {
@@ -81,5 +81,32 @@ describe("through stampIntake (the server's honoring of the claim)", () => {
     const fm = fmOf(stampIntake("---\ntitle: A thought\n---\nMy own words.\n", EDGE));
     expect(fm).toContain("from: nick@example.com");
     expect(fm).toContain("from_kind: person");
+  });
+});
+
+// A dropped .md with no title landed titled by its item id ("api-2026-…").
+describe("claimTitle", () => {
+  const titled = (text: string, name: string) => fmOf(claimTitle(claimAgentVoice(text), name));
+
+  test("a bare file is titled by its filename, without the extension", () => {
+    const fm = titled("Notes from the trial.\n", "garden trial run.md");
+    expect(fm).toContain('title: "garden trial run"');
+    expect(fm).toContain('filename: "garden trial run.md"');
+  });
+
+  test("a first-level heading beats the filename", () => {
+    expect(titled("Intro.\n\n## Aside\n\n# Seed Swap Plan\n\nBody.\n", "x.md")).toContain('title: "Seed Swap Plan"');
+  });
+
+  test("an existing frontmatter title is kept", () => {
+    const fm = titled("---\ntitle: Essay\n---\n# Other\n", "essay-draft.md");
+    expect(fm).toContain("title: Essay");
+    expect(fm).not.toContain("Other");
+    expect(fm).toContain('filename: "essay-draft.md"');
+  });
+
+  test("the title survives the server's stamp", () => {
+    const stamped = stampIntake(claimTitle(claimAgentVoice("Body.\n"), "seed swap.md"), EDGE);
+    expect(fmOf(stamped)).toContain("seed swap");
   });
 });
