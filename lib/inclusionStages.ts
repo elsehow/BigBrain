@@ -10,6 +10,8 @@ import {integrationRuleScope,readInclusionPolicy,writeInclusionStatus,type Inclu
 import {decideInclusion} from './inclusionEvaluation';
 import {connectionStorePath} from './sharedConnections';
 import {recordInclusionPermit} from './inclusionStagePermit';
+import {loadManifest} from './manifest';
+import {gateDecide,recordGateDecision} from './worthGate';
 export function stagedInclusionSource(s:StagedItem):InclusionSource {let title=s.line;try{title=String(parseEnvelope(s.content).envelope.title??s.line);}catch{}return {id:s.id,title,body:s.content,origin:`${s.source} · ${s.at.slice(0,10)}`};}
 export function stageItemsForReview(root:string,name:string,account:string):InclusionSource[]{
  const pending=stagedItems(root,name).filter(s=>stagedAccount(root,s)===account).map(stagedInclusionSource);
@@ -27,9 +29,16 @@ export async function tickIntegrationInclusion(root:string,store=connectionStore
    const retryKey=JSON.stringify([root,scope,policy?.version,item.id]);if((retryAfter.get(retryKey)??0)>Date.now())continue;
    try{
     const include=await decideInclusion(root,store,scope,text,stagedInclusionSource(item));
+    // the worth gate (#80): an include-everything source it names is still scored, and may be passed
+    const gate=include&&includesEverything(text)?loadManifest(root).gate:undefined;
+    const gated=gate?.sources.includes(name)?await gateDecide({root,store,cfg:gate,source:name,item:stagedInclusionSource(item)}):undefined;
     if(!integrationActive(root,name,account)||accountFingerprint(root,name,account)!==fingerprint||readInclusionPolicy(root,store,scope)?.version!==policy?.version||accountPolicy(root,name,account).remembering.rule!==text)break;
     recordInclusionPermit(root,store,scope,policy?.version??'include-everything',text,item,include);
-    const result=include?admitStaged(root,[item.id]):passStaged(root,[item.id],'Excluded by the reviewed inclusion rule.');
+    if(gated&&!gated.admitted)recordGateDecision(root,gated); // first: it is the permit to pass
+    const admitted=include&&(gated?.admitted??true)?admitStaged(root,[item.id]):undefined;
+    const result=admitted??passStaged(root,[item.id],gated?`Under the worth gate's cut-off (${gated.score?.toFixed(2)} < ${gated.threshold}).`:'Excluded by the reviewed inclusion rule.');
+    const insertion_id=admitted?.[0]?.insertion_id;
+    if(gated?.admitted)recordGateDecision(root,{...gated,...(insertion_id?{insertion_id}:{})});
     if(!result[0]?.ok)throw Error(result[0]?.error??'Could not apply inclusion decision');
     writeInclusionStatus(root,store,scope);retryAfter.delete(retryKey);
    }catch(e){retryAfter.set(retryKey,Date.now()+15*60000);writeInclusionStatus(root,store,scope,e instanceof Error?e.message:'Could not evaluate an incoming source.');}
