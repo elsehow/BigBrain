@@ -242,7 +242,7 @@
   });
 
   // Keep original Markdown available below the generated reading aid.
-  const body = $derived(loaded && (selectedWorkspace || (!projectedEntity && !sourceRecord)) ? unwrap(parsed.body.trim()) : "");
+  const body = $derived(loaded && (selectedWorkspace || !projectedEntity) ? unwrap(parsed.body.trim()) : "");
   /** memory is hard-wrapped at eighty columns (written for a terminal); a
    * paragraph's line breaks are not breaks here — a newline into anything
    * but a blank line or a block's first character joins with a space */
@@ -442,7 +442,7 @@
             <p class="briefing-summary">{#if summaryTitle}<strong>{summaryTitle}</strong>{summary.slice(summaryTitle.length)}{:else}{summary}{/if}</p>
           {/if}
           {#if briefingError}
-            <p class="briefing-error" class:with-summary={!!summary} role="status">{summary ? "Couldn’t finish the descriptions." : briefingError} <button class="retry" onclick={() => briefingAttempt++}>Retry</button></p>
+            <p class="briefing-error" class:with-summary={!!summary} role="status">{summary ? "Couldn’t finish the descriptions." : `No summary yet. ${briefingError}`} <button class="retry" onclick={() => briefingAttempt++}>Retry</button></p>
           {:else if briefingLoading && (!summary || briefingAttempt > 0)}
             <span class="briefing-spinner" class:with-summary={!!summary} role="status" aria-label={summary ? "Retrying descriptions" : "Generating summary and relationships"}></span>
           {/if}
@@ -461,7 +461,7 @@
             </div>
           {/if}
           {#if body && !multiple}
-            <details class="original-note" class:shared-record={sharedRecord} open={!!selectedWorkspace || sharedRecord}>
+            <details class="original-note" class:shared-record={sharedRecord} open={!!selectedWorkspace || sharedRecord || (!!briefingError && !summary)}>
               <summary>Read note</summary>
               <div class="note-body body"><div class="body-cell">
                 <div class="body-text md-body prose" use:wikilinks>{@html renderBody(body)}</div>
