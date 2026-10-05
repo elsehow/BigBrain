@@ -3,7 +3,7 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { appendAssertionEvent, createAssertionEvent, type AssertionEvent } from "../lib/assertionLog";
 import { chainHasWork } from "../lib/chain";
-import { currentFeed, feedRecords, sortedAssertions } from "../lib/feedJournal";
+import { addedAt, currentFeed, feedRecords, sortedAssertions } from "../lib/feedJournal";
 import { feedDue, feedWork, runFeed } from "../lib/feedStage";
 import type { SourceInsertion } from "../lib/insertionLog";
 import { loadManifest } from "../lib/manifest";
@@ -132,6 +132,10 @@ describe("the feed stage", () => {
     await runFeed({ root, manifest: loadManifest(root), runner: second.runner, now: () => new Date("2026-08-25T02:00:00.000Z") });
     expect(second.calls[0]!.prompt).toContain("- Kit proposed a call.\n- Kit now needs an answer by Monday.");
     expect(currentFeed(feedRecords(root), "2026-08-25").map((e) => e.section)).toEqual(["needs-you"]);
+    // it entered the feed with the first call; being judged again doesn't re-date it
+    const records = feedRecords(root);
+    expect(addedAt(records).get(a.id)).toBe(records[0]!.completed_at);
+    expect(records[1]!.completed_at).not.toBe(records[0]!.completed_at);
   });
 
   test("a failed call journals its error, sorts nothing, and waits a full interval", async () => {

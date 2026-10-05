@@ -66,6 +66,14 @@ export function feedRecords(root: string): FeedRecord[] {
 export const sortedAssertions = (records: FeedRecord[]): Set<string> =>
   new Set(records.filter((r) => !r.error).flatMap((r) => r.assertions));
 
+/** When each source entered the feed: the first call that put it in a
+ * section other than skip. A later re-judgment keeps that time. */
+export function addedAt(records: FeedRecord[]): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const r of records) if (!r.error) for (const e of r.entries) if (e.section !== "skip" && !out.has(e.source)) out.set(e.source, r.completed_at);
+  return out;
+}
+
 /** The feed as it stands: each source's newest entry, without skips and
  * without entries whose date has passed. `today` is a local YYYY-MM-DD. */
 export function currentFeed(records: FeedRecord[], today: string): FeedEntry[] {

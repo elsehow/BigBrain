@@ -14,7 +14,7 @@
   import { md, sanitizeHtml } from "../lib/markdown";
   import { pageDoc, themeSheet, themeVars } from "../lib/pageTheme";
   import type { V2Scene } from "../lib/v2/scene";
-  import { plainText as plain } from "../../../../lib/v2Feed";
+  import { plainText as plain, type V2SortedRow } from "../../../../lib/v2Feed";
   import type { DesktopTile, DesktopView } from "../../../../lib/pilotDesktop";
 
   /** Where the app lives, for settings and pilot conversations: beside this
@@ -64,6 +64,9 @@
 
   let ent: number | null = $state(null);
   let entRows: V2FeedRow[] | null = $state(null);
+  /** The sorted feed (lib/feedStage.ts), when the vault has one. */
+  let sorted: V2SortedRow[] = $state([]);
+  let allSorted = $state(false);
   let searching = $state(false);
   let query = $state("");
   let matches: number[] = $state([]);
@@ -333,6 +336,11 @@
   /** Who wrote the recent feed rows that mention an entity. */
   const writersOf = (id: string) => [...new Set(writing!.feed.filter((r) => r.entities.includes(id) && r.author).map((r) => authorName(r.author)))];
 
+  const dueOn = (day: string) => `due ${new Date(`${day}T00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`;
+  // most pressing at the bottom, nearest the eye
+  const SORTED_ROWS = 8;
+  let sortedShown = $derived((allSorted ? sorted : sorted.slice(0, SORTED_ROWS)).toReversed());
+
   // the feed: an opened entity's own record, else the vault's latest
   let rows = $derived.by(() => (!writing ? [] : ent != null && entRows ? entRows.slice(-6) : writing.feed.slice(-6)));
   let hud = $derived.by(() => {
@@ -353,6 +361,7 @@
     try {
       const [graph, sq] = data ? [data.graph, data.v2] : await Promise.all([api.graph(), api.v2()]);
       writing = sq;
+      if (!data) void api.v2Sorted().then((f) => { sorted = f.rows; }).catch(() => {});
       field = buildField(graph);
       twins = twinsOf(field);
       const { createV2Scene } = await import("../lib/v2/scene");
@@ -683,7 +692,19 @@
     </div>
   {/if}
 
-  {#if rows.length && !openPilot}
+  {#if sorted.length && ent == null && !openPilot}
+    <div class="feed sorted" class:all={allSorted} bind:this={feedEl} aria-label="Your feed">
+      {#if sorted.length > SORTED_ROWS}<button type="button" class="more" onclick={() => (allSorted = !allSorted)}>{allSorted ? "Fewer" : `All ${sorted.length}`}</button>{/if}
+      {#each sortedShown as r (r.source)}
+        <div class="row s-{r.section}" role="presentation"
+          onmouseenter={() => scene?.hover(r.entities.map((id) => field!.byId.get(id)).filter((x): x is number => x != null))}
+          onmouseleave={() => scene?.hover(null)}>
+          <span class="w" title="When it entered your feed">{when(r.added)}</span>
+          <span class="x">{r.headline}{#if r.due}<span class="due">{dueOn(r.due)}</span>{/if}</span>
+        </div>
+      {/each}
+    </div>
+  {:else if rows.length && !openPilot}
     <div class="feed" bind:this={feedEl} aria-label="Latest assertions">
       {#each rows as r (r.id)}
         <div class="row" role="presentation"
@@ -988,6 +1009,13 @@
   .row:nth-last-child(2) { opacity: .7; } .row:nth-last-child(3) { opacity: .5; } .row:nth-last-child(4) { opacity: .36; }
   .row:nth-last-child(5) { opacity: .25; } .row:nth-last-child(6) { opacity: .16; }
   .feed:hover .row { opacity: .45; } .feed .row:hover { opacity: 1; } .row:hover .x { color: var(--fg); }
+  /* the sorted feed: weight by section, not age */
+  .sorted .row { opacity: 1; grid-template-columns: 92px minmax(0, 1fr); } .sorted .row.s-agent { opacity: .78; } .sorted .row.s-know { opacity: .55; }
+  .sorted .due { margin-left: 10px; font: 500 9.5px/1 var(--font-mono); letter-spacing: .06em; text-transform: uppercase; color: var(--activity); }
+  .sorted.all { max-height: 52vh; overflow-y: auto; text-shadow: none; background: color-mix(in srgb, var(--bg) 88%, transparent); border-radius: 8px; }
+  .more { align-self: flex-start; margin: 0 0 4px; padding: 0; border: 0; background: none; cursor: pointer;
+    font: 600 9.5px/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--v2-faint); }
+  .more:hover { color: var(--fg); }
   .hints { position: absolute; right: var(--app-gutter, 34px); bottom: 26px; margin: 0; display: flex; gap: 18px; pointer-events: none;
     font: 600 10px/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--v2-faint); }
   .notice { position: absolute; right: var(--app-gutter, 34px); bottom: 50px; max-width: 46ch; margin: 0; padding: 9px 12px; border-radius: 8px;
