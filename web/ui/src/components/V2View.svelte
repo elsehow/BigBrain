@@ -1145,7 +1145,8 @@
     text-shadow: 0 0 3px var(--bg), 0 0 8px var(--bg), 0 0 16px var(--bg); }
   .stage :global(.v2-node .t) { font: 400 11px/1.2 var(--font-mono); letter-spacing: -0.01em; color: var(--v2-muted); }
   .stage :global(.v2-node:hover .t) { color: var(--fg); }
-  .stage :global(.v2-pilot) { font: 500 11px/1 var(--font-mono); color: var(--v2-muted); }
+  /* Desktop names in the sans, a size up from the mono names of the field */
+  .stage :global(.v2-pilot) { font: 500 12px/1 var(--font-app); color: var(--v2-muted); }
   .stage :global(.v2-pilot:hover) { color: var(--fg); }
   .stage :global(.v2-pilot.working) { color: color-mix(in srgb, var(--activity) 80%, var(--fg)); }
   .stage :global(.v2-node.memory .t) { font: 500 12px/1.2 var(--font-app); color: var(--fg); }

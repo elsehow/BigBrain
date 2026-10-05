@@ -79,6 +79,8 @@ export async function installGraphFixture() {
   const sample = newPilotChatSession([scene.graph.nodes[0]!.id]);
   sample.id = 'pilot-11111111111111111111111111111111';
   sample.title = 'Atlas planning'; sample.phase = 'answered'; sample.lifecycle = 'active';
+  // `?working`: this Desktop is mid-turn, so Field's working motion can be seen
+  if (new URLSearchParams(location.search).has('working')) sample.phase = 'working';
   sample.messages = [
     { id: 'sample-question', role: 'user', text: 'What connects these project notes?', at: sample.created },
     { id: 'sample-answer', role: 'assistant', text: 'The [[sources/shared-design-review.md|Shared design review]] connects the Atlas update and project notebook. It captures the decisions behind the planned expansion.', at: sample.created },
