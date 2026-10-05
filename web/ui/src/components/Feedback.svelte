@@ -32,7 +32,7 @@
     open = false; wake();
     trigger.focus();
   }
-  // AppShell calls this before global navigation shortcuts. Native dialog focus
+  // FieldView calls this before global navigation shortcuts. Native dialog focus
   // behavior varies between WebKit and Chrome, so wrap Tab explicitly.
   export function key(event: KeyboardEvent) {
     event.stopImmediatePropagation();

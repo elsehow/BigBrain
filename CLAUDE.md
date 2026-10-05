@@ -117,27 +117,18 @@ only. See `docs/development-data.md` for fixture and history-cleanup boundaries.
 
 ## Looking at UI without a vault
 
-`bun run web:dev` then open **`/dev.html`** — the workbench. It mounts a
-component against fabricated state, with a scene picker, a width slider
-and a dark toggle. No vault, no server, no queue.
-
-The scenes live in `web/ui/src/dev/fixtures.ts` and are shared with
-`test/queueView.test.ts`, so a state you can LOOK at is the same state the
-tests assert on. Add a component by giving it scenes there and one entry
-in `Workbench.svelte`. Nothing under `src/dev/` is reachable from
-`index.html`, so none of it enters the shipped bundle.
-
-A scene rides the query string (`?c=LinkGraph&s=weighted`), so a state can
-be linked to and screenshotted headlessly. Two more parameters for the
-graph: `?t=skin-dusk` wears one of this machine's skins (the dev proxy
-reaches the live engine's `/api/themes`), and `?g=/some.json` draws a graph
-of your own — a vault's `/api/graph` saved under `web/ui/public/` (never
-committed) — in place of the fabricated scene, which is the only way to
-judge the canvas at the size of a real vault.
+`bun run web:dev` then open **`/field-workbench.html`**: the production
+base and Field over a fabricated vault (`web/ui/src/dev/fieldWorkbench.ts`,
+every name invented). `?empty` is a new vault. `/sidebar-workbench.html`
+is the same base over the larger fake API (`web/ui/src/dev/fakeApi.ts`),
+whose query flags (`?onboarding`, `?vaultScope`, `?gmail`, …) stage
+settings, first-run and shared-vault states; the browser suite drives it.
+Nothing under `src/dev/` is reachable from `index.html`, so none of it
+enters the shipped bundle.
 
 Reach for it whenever the question is visual or geometric, and MEASURE
 rather than squint — `getComputedStyle` in the browser is what caught an
-18px grid column silently rendering 11.5px. Scenes should skew toward
+18px grid column silently rendering 11.5px. Fixtures should skew toward
 what a live vault won't produce on demand: failures, absurd label
 lengths, both passes running at once.
 
@@ -208,7 +199,7 @@ Two linters, each only where it is competent. Keep it that way.
   `Logomark.svelte` draws it, and video of it moving — for CapCut, any
   theme, with or without the wordmark — is cut with `bun run
   logomark:render` (`brand/README.md`, "The mark, moving"). Look at it
-  in the workbench: `/dev.html?c=logomark`. The shipped SVG and icons
+  at `/logomark.html`. The shipped SVG and icons
   remain unchanged.
 - `site/` — the static site (`bun run site:build` → `site/dist/`): the
   extension downloads page at `/plugins/` with the builds cut from

@@ -2,7 +2,6 @@ import { expect, test } from "bun:test";
 import { newPilotChatSession } from "../lib/pilotChatTypes";
 import { pilotChatSummary, pilotChatDetail, matchesPilotQuery } from "../lib/pilotChatSummary";
 import { mergePilotSummary, fullPilotView } from "../web/ui/src/lib/pilotChatSync";
-import { isStoppedEmptyPilot } from "../web/ui/src/lib/pilotAttention";
 
 test("an unfiltered status read never scans transcript text", () => {
   const s = newPilotChatSession([]);
@@ -31,7 +30,6 @@ test("summary refresh keeps loaded detail and closed history distinguishable fro
   const unloaded = mergePilotSummary(pilotChatSummary(s));
   expect(unloaded.messages).toBeUndefined();
   expect(unloaded.detail.status).toBe("unloaded");
-  expect(isStoppedEmptyPilot(unloaded)).toBe(false);
   const loaded = fullPilotView(pilotChatDetail(s)); s.revision++; s.title = "Renamed";
   const refreshed = mergePilotSummary(pilotChatSummary(s), loaded);
   expect(refreshed.messages).toEqual(pilotChatDetail(s).messages);

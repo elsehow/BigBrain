@@ -1,4 +1,4 @@
-/** Fabricated traces shared by bun tests and the production AppShell workbench.
+/** Fabricated traces shared by bun tests and the sidebar workbench.
  * Only the clock, persistence and effect delivery are controlled here. */
 import { newPilotChatSession, type PilotChatSession } from "../../../../lib/pilotChatTypes";
 import { transitionPilot, type PilotEvent, type PilotEffect } from "../../../../lib/pilotTransitions";

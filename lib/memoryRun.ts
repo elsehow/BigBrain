@@ -40,6 +40,7 @@ import {
   MEMORY_ROLE,
   MEMORY_PROTOCOL_VERSION,
   memoryDue,
+  memoryNeedsRebuild,
   readMemoryStamp,
   releaseMemoryLock,
   writeMemoryStamp,
@@ -298,7 +299,11 @@ export async function runMemory(opts: MemoryRunOpts): Promise<MemoryRunResult> {
   try {
     const template = readFileSync(templatePath, "utf8");
     const stamp = readMemoryStamp(root);
-    const fromScratch = Boolean(opts.fromScratch);
+    // A tree from an older protocol is selected again from the record: the
+    // run that finds it rebuilds, the same posture as --from-scratch.
+    const upgrade = !opts.fromScratch && memoryNeedsRebuild(root, stamp);
+    if (upgrade) console.log(`${MEMORY_ROLE}: memory protocol ${stamp.protocolVersion ?? 0} → ${MEMORY_PROTOCOL_VERSION}; rebuilding from scratch`);
+    const fromScratch = Boolean(opts.fromScratch) || upgrade;
     if (fromScratch && !hasAssertionEvents(root)) {
       const reason =
         "--from-scratch is the native regeneration posture — this vault has no assertion events to regenerate from";
