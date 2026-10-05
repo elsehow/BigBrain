@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, jest, test } from "bun:test";
 import {
   commandKey,
   composeCapture,
@@ -130,7 +130,18 @@ describe("composeCapture", () => {
 });
 
 describe("createSearchRunner (#456)", () => {
-  const tick = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+  // Fake time, a millisecond at a time with the promise queue drained between
+  // steps: the runner's order of events, not the machine's speed. On real
+  // timers a busy CI runner let a 30ms wait elapse before a 1ms debounce and
+  // a 5ms reply had both fired.
+  beforeEach(() => jest.useFakeTimers());
+  afterEach(() => jest.useRealTimers());
+  const tick = async (ms: number) => {
+    for (let i = 0; i < ms; i++) {
+      jest.advanceTimersByTime(1);
+      for (let turn = 0; turn < 10; turn++) await Promise.resolve();
+    }
+  };
 
   test("rapid keystrokes execute one search, not one per keystroke", async () => {
     const calls: string[] = [];
