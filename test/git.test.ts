@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { commitAs, commitPathsOnly } from "../lib/git";
@@ -49,5 +50,33 @@ describe("machine commits neutralize git hooks (§4.2d host-side half)", () => {
     writeFileSync(join(root, "entities", "note.md"), "y\n");
     expect(commitPathsOnly(root, "editor", "partial machine commit", ["entities"])).toBe(true);
     expect(existsSync(sentinel)).toBe(false);
+  });
+});
+
+// A user whose global git config signs every commit (commit.gpgsign=true) with
+// a key the engine can't reach got "git commit failed: No private key found …"
+// on every machine commit — a model change in settings surfaced it. Machine
+// commits are the machine's, never signed with the user's key.
+describe("machine commits ignore the user's commit signing", () => {
+  function signingRepo(): string {
+    const root = repo();
+    const cfg = (k: string, v: string) =>
+      spawnSync("git", ["config", k, v], { cwd: root, encoding: "utf8" });
+    cfg("commit.gpgsign", "true");
+    cfg("gpg.format", "ssh");
+    cfg("user.signingkey", join(root, "no-such-key"));
+    return root;
+  }
+
+  test("commitAs commits despite an unusable signing key", () => {
+    const root = signingRepo();
+    writeFileSync(join(root, "entities", "note.md"), "x\n");
+    expect(commitAs(root, "editor", "machine commit", ["entities"])).toBe(true);
+  });
+
+  test("commitPathsOnly commits despite an unusable signing key", () => {
+    const root = signingRepo();
+    writeFileSync(join(root, "entities", "note.md"), "y\n");
+    expect(commitPathsOnly(root, "editor", "partial machine commit", ["entities"])).toBe(true);
   });
 });
