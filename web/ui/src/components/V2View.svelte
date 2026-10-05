@@ -492,6 +492,7 @@
   function leaveFeed(): void {
     cursor = null;
     scene?.hover(null);
+    feedFollowing = true;
     if (feedEl) feedEl.scrollTop = feedEl.scrollHeight;
   }
   /** Open a feed row's source: its entities lit and framed, the source and
@@ -506,7 +507,12 @@
     if (r.path && !data) void briefing(r.path, (text) => { if (src?.row.source === r.source) src = { row: r, text }; })
       .then((ok) => { if (!ok && src?.row.source === r.source && !src.text) src = { row: r }; });
   }
-  $effect(() => { if (sorted.length && feedEl && cursor == null) feedEl.scrollTop = feedEl.scrollHeight; });
+  // The feed unmounts while a desktop or an entity is open; where you left it
+  // is kept here and restored when it comes back. At the newest, it keeps
+  // following new rows; scrolled up to read, it stays put — as the chat does.
+  let feedFollowing = true, feedTop = 0;
+  const onFeedScroll = () => { if (feedEl) { feedTop = feedEl.scrollTop; feedFollowing = feedEl.scrollHeight - feedTop - feedEl.clientHeight < 48; } };
+  $effect(() => { if (sorted.length && feedEl) feedEl.scrollTop = feedFollowing && cursor == null ? feedEl.scrollHeight : feedTop; });
   /** A memory topic's own first paragraph: citations dropped, links read as labels. */
   async function memorySummary(path: string): Promise<string | undefined> {
     try {
@@ -818,7 +824,7 @@
   {/if}
 
   {#if sorted.length && ent == null && !openPilot}
-    <div class="feed sorted" class:walking={cursor} bind:this={feedEl} aria-label="Your feed">
+    <div class="feed sorted" class:walking={cursor} bind:this={feedEl} onscroll={onFeedScroll} aria-label="Your feed">
       {#each sortedShown as r (r.source)}
         <div class="row s-{r.section}" class:at={r.source === cursor} class:open={r.source === src?.row.source} role="button" tabindex="-1"
           title={r.title && r.title !== r.headline ? r.title : undefined}
@@ -831,7 +837,7 @@
       {/each}
     </div>
   {:else if rows.length && !openPilot}
-    <div class="feed" bind:this={feedEl} aria-label="Latest assertions">
+    <div class="feed" bind:this={feedEl} onscroll={onFeedScroll} aria-label="Latest assertions">
       {#each rows as r (r.id)}
         <div class="row" role="presentation"
           onmouseenter={() => scene?.hover(r.entities.map((id) => field!.byId.get(id)).filter((x): x is number => x != null))}
