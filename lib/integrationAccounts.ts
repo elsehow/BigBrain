@@ -5,7 +5,7 @@ import { applyConfig } from './config';
 import { basename } from 'node:path';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { accountFingerprint, accountPolicy, writeAccountPolicy, removeAccountPolicy, integrationAccounts, integrationCallerChoices, MANAGED_INTEGRATIONS, type LiveAccess } from './integrationAccess';
+import { accountFingerprint, accountPolicy, writeAccountPolicy, removeAccountPolicy, integrationAccounts, integrationCallerChoices, MANAGED_INTEGRATIONS, type Backfill, type LiveAccess } from './integrationAccess';
 import { probeInbox, probeGmail, type InboxProbe } from './imapProbe';
 import { emailConfig, passwordEnvKey, gmailReadOnly, isGmailInbox, parseInboxAdd } from "./emailConfig";
 import { readEmailState } from "./emailState";
@@ -24,6 +24,10 @@ export function configuredAccounts(root:string){
   const inboxes=emailConfig(loadManifest(root).integrations.email).inboxes;
   return [...MANAGED_INTEGRATIONS].flatMap(name=>integrationAccounts(root,name).map(account=>({name,account,...accountPolicy(root,name,account),
     label:(name==='rss'?configuredFeeds(root).find(f=>f.url===account)?.title:extraAccounts(root,name).find(a=>a.id===account)?.label) ?? account,removable:name==='email'||account!==name,...(name==='email'?{gmail:gmailReadOnly(root,account),google:inboxes.some(i=>i.address===account&&isGmailInbox(i)),host:inboxes.find(i=>i.address===account)?.host,sync:readEmailState(root).inboxes[account]?.last}:{}),capabilities:name==='email'?{...LIVE_ACCESS_DESCRIPTIONS.email,...(gmailReadOnly(root,account)?{write:null}:{})}:name==='granola'?LIVE_ACCESS_DESCRIPTIONS.granola:{read:null,write:null},...(name==='granola'?{transport:'mcp',auth:granolaSignInStatus(root,account),identity:granolaConnection(root,account)?.identity}:{})})));
+}
+function backfill(since:unknown):Backfill{
+  if(typeof since!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(since)||!Number.isFinite(Date.parse(since))||new Date(since).toISOString().slice(0,10)!==since||since>new Date().toISOString().slice(0,10))throw Error('Choose a past history start date.');
+  return {since:new Date(since).toISOString(),request:crypto.randomUUID()};
 }
 export class IntegrationAccounts {
   constructor(readonly root:string,private probes:{email?:InboxProbe;granolaSignIn?:typeof startGranolaSignIn;tracks?:(key:string)=>Promise<unknown>;rss?:(url:string)=>Promise<Feed>}={}){}
@@ -146,12 +150,10 @@ export class IntegrationAccounts {
         if(typeof value.attachments!=='boolean')throw Error('Choose whether to include attachments.');
         email.attachments=value.attachments;
       }
-      if(value.backfillSince) {
-        if(typeof value.backfillSince!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(value.backfillSince)||!Number.isFinite(Date.parse(value.backfillSince))||new Date(value.backfillSince).toISOString().slice(0,10)!==value.backfillSince||value.backfillSince>new Date().toISOString().slice(0,10))throw Error('Choose a past history start date.');
-        email.backfill={since:new Date(value.backfillSince).toISOString(),request:crypto.randomUUID()};
-      }
+      if(value.backfillSince)email.backfill=backfill(value.backfillSince);
       prior.email=email;
     }
+    if(name==='granola'&&value.backfillSince)prior.granola={...prior.granola,backfill:backfill(value.backfillSince)};
     if(value.liveAccess!==undefined){
       if(typeof value.liveAccess!=='boolean'||((name==='that-tracks'||name==='rss')&&value.liveAccess))throw Error('Choose supported live access.');
       writeAccountPolicy(this.root,name,account,{...prior,liveAccess:value.liveAccess,grants:[]});

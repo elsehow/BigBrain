@@ -13,10 +13,11 @@
  import {openExternal} from "../lib/native";
  import {onMount} from 'svelte';
  const {source,openFirst=false}:{source:string;openFirst?:boolean}=$props();
-  type Account={gmail?:boolean;google?:boolean;host?:string;removable?:boolean;email?:{startAt:string;attachments:boolean;backfill?:{since:string}};sync?:{ok:boolean;error?:string};auth?:{phase:string;url?:string;error?:string};identity?:unknown;label:string;name:string;account:string;connected:boolean;liveAccess?:boolean;capabilities:{read:string|null;write:string|null}};
+  type Account={gmail?:boolean;google?:boolean;host?:string;removable?:boolean;email?:{startAt:string;attachments:boolean;backfill?:{since:string}};granola?:{backfill?:{since:string}};sync?:{ok:boolean;error?:string};auth?:{phase:string;url?:string;error?:string};identity?:unknown;label:string;name:string;account:string;connected:boolean;liveAccess?:boolean;capabilities:{read:string|null;write:string|null}};
  let newLabel=$state(''),newKey=$state(''),adding=$state(false),destination=$state('this vault');
  let history=$state<Record<string,string>>({});
  let includeHistory=$state<Record<string,boolean>>({});
+ const items=$derived(source==='granola'?'meetings':'mail');
  let keys=$state<Record<string,string>>({});
  let expanded=$state<Record<string,boolean>>({});
  let removing=$state<Record<string,boolean>>({});
@@ -38,7 +39,7 @@
    const timer=setInterval(()=>{if(!busy&&accounts.some(a=>a.auth?.phase==='browser'||a.auth?.phase==='starting'))void request().then(accept).catch(e=>say('list',null,e.message,true));},1500);
    return()=>clearInterval(timer);
  });
- async function act(account:Account,action:string){busy=true;feedback=null;const where=placeOf(action),who=action==='remove'?null:account.account;const importing=source==='email'&&includeHistory[account.account]?history[account.account]:'';try{accept(await request({name:source,account:account.account,action,key:keys[account.account],liveAccess:account.liveAccess??false,...(source==='email'?{attachments:account.email?.attachments??false,backfillSince:includeHistory[account.account]?history[account.account]:undefined}:{})}));if(action==='credentials')keys[account.account]='';if(action==='save'){includeHistory[account.account]=false;history[account.account]='';}if(source==='granola'&&action==='connect'){const url=accounts.find(a=>a.account===account.account)?.auth?.url;if(url)await openExternal(url);}say(where,who,action==='connect'?(accounts.find(a=>a.account===account.account)?.connected?'Connected.':'Finish sign-in in your browser.'):action==='disconnect'?'Disconnected.':action==='cancel'?'Sign-in cancelled.':action==='remove'?`Removed ${accountLabel(account)}.`:importing?`Saved. Importing mail since ${importing}.`:'Saved.');}catch(e){say(where,who,e instanceof Error?e.message:'Could not save.',true);}finally{busy=false;if(action==='credentials'&&source==='email')keys[account.account]='';}}
+ async function act(account:Account,action:string){busy=true;feedback=null;const where=placeOf(action),who=action==='remove'?null:account.account;const importing=(source==='email'||source==='granola')&&includeHistory[account.account]?history[account.account]:'';try{accept(await request({name:source,account:account.account,action,key:keys[account.account],liveAccess:account.liveAccess??false,...(source==='email'?{attachments:account.email?.attachments??false}:{}),...(source==='email'||source==='granola'?{backfillSince:includeHistory[account.account]?history[account.account]:undefined}:{})}));if(action==='credentials')keys[account.account]='';if(action==='save'){includeHistory[account.account]=false;history[account.account]='';}if(source==='granola'&&action==='connect'){const url=accounts.find(a=>a.account===account.account)?.auth?.url;if(url)await openExternal(url);}say(where,who,action==='connect'?(accounts.find(a=>a.account===account.account)?.connected?'Connected.':'Finish sign-in in your browser.'):action==='disconnect'?'Disconnected.':action==='cancel'?'Sign-in cancelled.':action==='remove'?`Removed ${accountLabel(account)}.`:importing?`Saved. Importing ${items} since ${importing}.`:'Saved.');}catch(e){say(where,who,e instanceof Error?e.message:'Could not save.',true);}finally{busy=false;if(action==='credentials'&&source==='email')keys[account.account]='';}}
  /** A calendar date typed as YYYY-MM-DD, today or earlier; '' when it is not one. */
  function pastDate(text:string):string{
   const t=text.trim();if(!/^\d{4}-\d{2}-\d{2}$/.test(t))return '';
@@ -48,7 +49,7 @@
  /** Save is never silently disabled: what is missing is said, in one line. */
  function save(account:Account){
   const since=history[account.account]??'';
-  const missing=includeHistory[account.account]&&!since.trim()?'Enter the date to remember mail since, or untick Import earlier mail.'
+  const missing=includeHistory[account.account]&&!since.trim()?`Enter the date to remember ${items} since, or untick Import earlier ${items}.`
    :includeHistory[account.account]&&!pastDate(since)?'Enter the date as YYYY-MM-DD, today or earlier.':'';
   if(missing){say('save',account.account,missing,true);return;}
   if(includeHistory[account.account])history[account.account]=pastDate(since);
@@ -82,6 +83,11 @@
     <p>Attachments are off by default.</p>
    </details></div>{/if}
 
+   {#if source==='granola'}<div class="remembering-rule"><p>{account.granola?.backfill ? `Meetings since ${account.granola.backfill.since.slice(0,10)}` : "New meetings from connection"} are staged locally, then remembered in {destination} unless the worth gate scores them as not worth keeping.</p>
+   <details><summary>History</summary>
+    <label class="toggle"><input type="checkbox" bind:checked={includeHistory[account.account]}/> Import earlier meetings</label>
+    {#if includeHistory[account.account]}<label>Remember meetings since<input inputmode="numeric" autocomplete="off" placeholder="YYYY-MM-DD" bind:value={history[account.account]}/></label>{#if !pastDate(history[account.account]??'')}<p>A date such as {new Date(Date.now()-90*864e5).toISOString().slice(0,10)}. Meetings from that day on are staged for review.</p>{/if}{/if}
+   </details></div>{/if}
   </fieldset>
   {#if account.capabilities.read}<fieldset disabled={busy||!account.connected}>
     <label class="toggle"><input type="checkbox" aria-label="Live access" bind:checked={account.liveAccess}/> Live access</label>
