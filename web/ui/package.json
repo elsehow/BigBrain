@@ -12,6 +12,7 @@
     "build:integrations": "vite build --config vite.integrations.config.ts"
   },
   "dependencies": {
+    "@mozilla/readability": "^0.6.0",
     "dompurify": "^3.4.14",
     "marked": "^18.0.5",
     "pdfjs-dist": "^6.1.200",

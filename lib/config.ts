@@ -99,10 +99,12 @@ export interface ConfigPatch {
   /** The intake firewall block (lib/manifest.ts parseFirewall); null turns
    * it off. */
   firewall?: { model?: string; url?: string } | null;
+  /** What the app may load from the web (lib/manifest.ts parseSecurity). */
+  security?: { remote_content: boolean };
 }
 
 /** ConfigPatch's own field list, for the unknown-key refusal above. */
-const PATCH_KEYS = new Set(["curation", "gardener", "memory", "quick", "integrations", "firewall"]);
+const PATCH_KEYS = new Set(["curation", "gardener", "memory", "quick", "integrations", "firewall", "security"]);
 
 export interface ConfigResult {
   changed: string[]; // vault-relative paths actually modified (empty = no-op)
@@ -304,6 +306,7 @@ export function applyConfig(patch: ConfigPatch, root: string): ConfigResult {
 
   const curation = parseCuration(patch.curation);
   if (patch.firewall) parseFirewall(patch.firewall);
+  if (patch.security !== undefined && typeof patch.security?.remote_content !== "boolean") throw new Error("security.remote_content must be true or false");
   // validate the pure parts first — no partial writes on a bad patch
   const models: [string, string | undefined, string[]][] = [
     ["gardener", patch.gardener?.model, ["gardener", "queue"]],
@@ -333,7 +336,7 @@ export function applyConfig(patch: ConfigPatch, root: string): ConfigResult {
 
   const integrationOps = patch.integrations ?? [];
   const touchesYaml =
-    !!curation || models.some(([, raw]) => raw !== undefined && raw.trim()) || integrationOps.length > 0 || patch.firewall !== undefined;
+    !!curation || models.some(([, raw]) => raw !== undefined && raw.trim()) || integrationOps.length > 0 || patch.firewall !== undefined || patch.security !== undefined;
   const yamlPath = join(root, "vault.yaml");
   const doc = touchesYaml ? parseDocument(readFileSync(yamlPath, "utf8")) : null;
   if (integrationOps.length) validateIntegrationOps(integrationOps, doc!);
@@ -351,6 +354,13 @@ export function applyConfig(patch: ConfigPatch, root: string): ConfigResult {
     else doc!.set("firewall", patch.firewall);
     yamlDirty = true;
     summary.push(patch.firewall === null ? "firewall off" : `firewall → ${patch.firewall.url ?? `local ${patch.firewall.model ?? "clef-flash"}`}`);
+  }
+  if (patch.security !== undefined && doc!.getIn(["security", "remote_content"]) !== patch.security.remote_content) {
+    // on is the default: the key is written only to turn it off
+    if (patch.security.remote_content) doc!.deleteIn(["security", "remote_content"]); else doc!.setIn(["security", "remote_content"], false);
+    if (doc!.get("security") instanceof YAMLMap && !(doc!.get("security") as YAMLMap).items.length) doc!.delete("security");
+    yamlDirty = true;
+    summary.push(`remote content ${patch.security.remote_content ? "on" : "off"}`);
   }
   for (const [label, role, blocks] of [["gardener", patch.gardener, ["gardener", "queue"]], ["memory", patch.memory, ["memory"]], ["quick", patch.quick, ["quick"]]] as const) {
     if (!role?.model.trim()) continue;

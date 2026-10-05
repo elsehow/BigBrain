@@ -11,12 +11,12 @@
  */
 import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import type { ServerResponse } from "node:http";
-import { join } from "node:path";
+import { isAbsolute, join, normalize } from "node:path";
 import { Agents, type Desktop, type HostTool, type LandHow, type OpenOptions, type Stamped } from "../packages/agents/src";
 import { agentHost } from "./agentHost";
 import { writeAtomic } from "./fsx";
 import { pilotToolCall } from "./pilot";
-import { arrangeDesktop, closeView, desktopDetail, desktopReference, DESKTOP_TOOLS, DesktopError, emptyDesktop, loopbackUrl, MAX_PAGE_HTML, openView, SHOW_HTML_TOOL, SHOW_PAGE_TOOL, type PilotDesktop } from "./pilotDesktop";
+import { arrangeDesktop, closeView, desktopDetail, desktopReference, DESKTOP_TOOLS, DesktopError, emptyDesktop, loopbackUrl, MAX_PAGE_HTML, MAX_VIEWS, openView, SHOW_HTML_TOOL, SHOW_PAGE_TOOL, type PilotDesktop } from "./pilotDesktop";
 import { namingMoment, type TaskNamer } from "./pilotTaskName";
 import { DEFAULT_PILOT_BACKEND } from "./pilotBackendTypes";
 import { spoolDir } from "./spool";
@@ -41,6 +41,7 @@ const ID = /^d-[a-f0-9]{8}$/;
 /** The package's last status, as the bar's phase. */
 const PHASE: Record<string, "working" | "failed" | "interrupted" | "answered"> = { working: "working", waiting: "working", failed: "failed", stopped: "interrupted", idle: "answered" };
 const UNTITLED = "New desktop";
+const viewId = () => `v-${crypto.randomUUID().slice(0, 6)}`;
 
 export class CodingDesktopError extends Error {
   constructor(message: string, readonly status = 400) { super(message); }
@@ -81,17 +82,26 @@ export class CodingDesktops {
     return r;
   }
 
-  create(input: { title?: unknown; context?: unknown; model?: unknown } = {}): CodingDesktopRecord {
+  /** `views`: vault notes already on the desktop when it opens (a feed item
+   * opened as a desktop shows its source); each must be a note in the vault. */
+  create(input: { title?: unknown; context?: unknown; model?: unknown; views?: unknown } = {}): CodingDesktopRecord {
     const id = `d-${crypto.randomUUID().replaceAll("-", "").slice(0, 8)}`;
     const now = new Date().toISOString();
     const title = typeof input.title === "string" && input.title.trim() ? input.title.trim().slice(0, 100) : UNTITLED;
-    const context = Array.isArray(input.context)
-      ? input.context.filter((c): c is { path: string; title?: string } => !!c && typeof (c as { path?: unknown }).path === "string")
+    const items = (v: unknown) => Array.isArray(v)
+      ? v.filter((c): c is { path: string; title?: string } => !!c && typeof (c as { path?: unknown }).path === "string")
         .slice(0, 20).map(c => ({ path: c.path, title: typeof c.title === "string" ? c.title : c.path }))
       : undefined;
+    const context = items(input.context);
+    let desktop: PilotDesktop | undefined;
+    for (const v of items(input.views)?.slice(0, MAX_VIEWS) ?? []) {
+      if (isAbsolute(v.path) || normalize(v.path).startsWith("..") || !existsSync(join(this.root, v.path)))
+        throw new CodingDesktopError(`No note at ${v.path}.`);
+      desktop = openView(desktop ?? emptyDesktop(), { kind: "note", path: v.path, title: v.title, at: now }, viewId());
+    }
     return this.save({ id, title, created: now, updated: now,
       ...(typeof input.model === "string" && input.model.includes("/") ? { model: input.model } : {}),
-      ...(context?.length ? { context } : {}) });
+      ...(context?.length ? { context } : {}), ...(desktop ? { desktop } : {}) });
   }
 
   list(): ReturnType<CodingDesktops["summary"]>[] {
@@ -273,7 +283,6 @@ export class CodingDesktops {
     const def = (name: string) => [...DESKTOP_TOOLS, SHOW_PAGE_TOOL, SHOW_HTML_TOOL].find(t => t.name === name)!;
     const tool = (name: string, run: (a: Record<string, unknown>) => Promise<unknown>, label: (a: Record<string, unknown>) => string): HostTool =>
       ({ name, description: def(name).description, parameters: def(name).parameters as Record<string, unknown>, execute: a => run(a), label });
-    const viewId = () => `v-${crypto.randomUUID().slice(0, 6)}`;
     return [
       tool("open_view", async a => {
         if (typeof a.path !== "string" || !a.path.trim()) throw new Error("Give the note's exact vault path.");

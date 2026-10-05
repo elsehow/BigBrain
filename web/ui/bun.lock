@@ -5,6 +5,7 @@
     "": {
       "name": "bigbrain-ui",
       "dependencies": {
+        "@mozilla/readability": "^0.6.0",
         "dompurify": "^3.4.14",
         "marked": "^18.0.5",
         "pdfjs-dist": "^6.1.200",
@@ -84,6 +85,8 @@
     "@jridgewell/sourcemap-codec": ["@jridgewell/sourcemap-codec@1.5.5", "", {}, "sha512-cYQ9310grqxueWbl+WuIUIaiUaDcj7WOq5fVhEljNVgRfOUhY9fy2zTvfoqWsnebh8Sl70VScFbICvJnLKB0Og=="],
 
     "@jridgewell/trace-mapping": ["@jridgewell/trace-mapping@0.3.31", "", { "dependencies": { "@jridgewell/resolve-uri": "^3.1.0", "@jridgewell/sourcemap-codec": "^1.4.14" } }, "sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw=="],
+
+    "@mozilla/readability": ["@mozilla/readability@0.6.0", "", {}, "sha512-juG5VWh4qAivzTAeMzvY9xs9HY5rAcr2E4I7tiSSCokRFi7XIZCAu92ZkSTsIj1OPceCifL3cpfteP3pDT9/QQ=="],
 
     "@napi-rs/canvas": ["@napi-rs/canvas@1.0.2", "", { "optionalDependencies": { "@napi-rs/canvas-android-arm64": "1.0.2", "@napi-rs/canvas-darwin-arm64": "1.0.2", "@napi-rs/canvas-darwin-x64": "1.0.2", "@napi-rs/canvas-linux-arm-gnueabihf": "1.0.2", "@napi-rs/canvas-linux-arm64-gnu": "1.0.2", "@napi-rs/canvas-linux-arm64-musl": "1.0.2", "@napi-rs/canvas-linux-riscv64-gnu": "1.0.2", "@napi-rs/canvas-linux-x64-gnu": "1.0.2", "@napi-rs/canvas-linux-x64-musl": "1.0.2", "@napi-rs/canvas-win32-arm64-msvc": "1.0.2", "@napi-rs/canvas-win32-x64-msvc": "1.0.2" } }, "sha512-EYEqlMYaCbpZDz+IgDH5xp9MTd3ui4dmGqbQYryhMLnSRxrhHKq5KQWHHKxFUcEP4Hp8/BWgvqXocX4j7iSbOQ=="],
 

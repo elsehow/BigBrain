@@ -209,3 +209,15 @@ describe("integration credentials are injection-proof (#550)", () => {
     expect(existsSync(join(root, ".env"))).toBe(false); // nothing partial written
   });
 });
+
+test("security: remote content is on by default; turning it off writes the one key, and on removes it", () => {
+  const root = vault();
+  expect(loadManifest(root).security).toEqual({ remoteContent: true });
+  applyConfig({ security: { remote_content: false } }, root);
+  expect(loadManifest(root).security).toEqual({ remoteContent: false });
+  expect(readFileSync(join(root, "vault.yaml"), "utf8")).toContain("remote_content: false");
+  applyConfig({ security: { remote_content: true } }, root);
+  expect(loadManifest(root).security).toEqual({ remoteContent: true });
+  expect(readFileSync(join(root, "vault.yaml"), "utf8")).not.toContain("security");
+  expect(() => applyConfig({ security: { remote_content: "no" as never } }, root)).toThrow("true or false");
+});

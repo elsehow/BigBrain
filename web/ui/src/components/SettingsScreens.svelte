@@ -7,6 +7,7 @@
   import DiagnosticsView from "./DiagnosticsView.svelte";
   import IntegrationsView from "./IntegrationsView.svelte";
   import PilotSettingsView from "./PilotSettingsView.svelte";
+  import SecurityView from "./SecurityView.svelte";
   import SharedVaultSettings from "./SharedVaultSettings.svelte";
   import VaultSettingsView from "./VaultSettingsView.svelte";
   import { app } from "../lib/store.svelte";
@@ -24,6 +25,8 @@
   <SharedVaultSettings />
 {:else if app.view === "vaultSettings" || app.view === "themes"}
   <VaultSettingsView />
+{:else if app.view === "security"}
+  <SecurityView />
 {:else if app.view === "diagnostics"}
   <DiagnosticsView />
 {/if}

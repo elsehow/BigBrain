@@ -23,7 +23,7 @@
   const { setup }: { setup: SetupState | null } = $props();
 
   $effect(() => {
-    const names = { sharedVaultSettings: "Shared vaults", home: "Home", top: "Top", vault: "Vault", graph: "Graph", connectedClients: "Connected Clients", pilotSettings: "Pilot", integrations: "Integrations", agents: "Models", vaultSettings: "General", themes: "General", diagnostics: "Diagnostics", search: "Search" };
+    const names = { sharedVaultSettings: "Shared vaults", home: "Home", top: "Top", vault: "Vault", graph: "Graph", connectedClients: "Connected Clients", pilotSettings: "Pilot", integrations: "Integrations", agents: "Models", vaultSettings: "General", themes: "General", diagnostics: "Diagnostics", security: "Security", search: "Search" };
     document.title = `${names[app.view]} — BigBrain`;
   });
 
