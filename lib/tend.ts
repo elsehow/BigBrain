@@ -19,8 +19,9 @@ import { type RunUsage, type AgentRunResult } from "./run/model";
 import { modelRunJournalFields, newRunId } from "./run/journal";
 import { ENGINE_ROOT } from "./engine";
 import { ensureDir, writeAtomic } from "./fsx";
-import type { Manifest } from "./manifest";
+import { loadManifest, type Manifest } from "./manifest";
 import { memoryDue, readMemoryStamp, writeMemoryStamp } from "./memory";
+import { feedDue, runFeed, type FeedRunResult } from "./feedStage";
 import { runMemory, type MemoryRunOpts, type MemoryRunResult } from "./memoryRun";
 import { render } from "./prompts";
 import { stagedIds } from "./stage";
@@ -160,6 +161,7 @@ export interface TendResult {
   error?: string;
   rounds: TendRound[];
   memory?: MemoryRunResult;
+  feed?: FeedRunResult;
 }
 
 export interface TendOpts {
@@ -171,6 +173,8 @@ export interface TendOpts {
   loadPi?: PiLoader;
   /** memory-pass seam — tests stub the whole pass. */
   memoryRunner?: (opts: MemoryRunOpts) => Promise<MemoryRunResult>;
+  /** feed-stage seam — tests stub the whole stage. */
+  feedRunner?: typeof runFeed;
   maxRounds?: number;
   now?: () => Date;
 }
@@ -270,21 +274,27 @@ export async function runTend(opts: TendOpts): Promise<TendResult> {
         ...(opts.loadPi ? { loadPi: opts.loadPi } : {}),
       });
     }
-    return { ran: true, rounds, ...(memory ? { memory } : {}) };
+    // Feed AFTER memory, so it sorts what this run filed against the working
+    // set this run kept. Off unless vault.yaml has a feed: block.
+    let feed: FeedRunResult | undefined;
+    if (feedDue(root, manifest.feed, { now: now() }).due)
+      feed = await (opts.feedRunner ?? runFeed)({ root, manifest, now });
+    return { ran: true, rounds, ...(memory ? { memory } : {}), ...(feed ? { feed } : {}) };
   } finally {
     releaseAssertionLock(root);
   }
 }
 
 /** The classic chain (#51): agentic intake rounds over the entity-linked
- * assertion log, then the memory pass. Its source work is due intake plus
- * staged arrivals, which this chain admits or passes. */
+ * assertion log, then the memory pass, then (when configured) the feed
+ * stage. Its source work is due intake plus staged arrivals, which this
+ * chain admits or passes. */
 export const classicChain: Chain<TendResult> = {
   name: "classic",
   due(root: string, opts: { now?: Date } = {}) {
     return {
       source: dueIntakeIds(root).length + stagedIds(root).length,
-      scheduled: { memory: memoryDue(root, opts) },
+      scheduled: { memory: memoryDue(root, opts), feed: feedDue(root, loadManifest(root).feed, opts) },
     };
   },
   run: runTend,
@@ -297,7 +307,16 @@ export const classicChain: Chain<TendResult> = {
         (r.error ? ` — ERROR: ${r.error}` : ""));
     if (result.memory)
       lines.push(`tend: memory — ${result.memory.ran ? "ran" : "declined"}${result.memory.error ? ` — ERROR: ${result.memory.error}` : ""}`);
-    if (!result.rounds.length && !result.memory) lines.push("tend: nothing due");
-    return { lines, failed: result.rounds.some((r) => r.error) || Boolean(result.memory?.error) };
+    if (result.feed) {
+      const f = result.feed;
+      const sorted = f.calls.reduce((n, c) => n + c.sources, 0);
+      const error = f.calls.find((c) => c.error)?.error;
+      lines.push(`tend: feed — ${f.ran ? `${sorted} source(s) sorted in ${f.calls.length} call(s)` : f.reason}${error ? ` — ERROR: ${error}` : ""}`);
+    }
+    if (!result.rounds.length && !result.memory && !result.feed) lines.push("tend: nothing due");
+    return {
+      lines,
+      failed: result.rounds.some((r) => r.error) || Boolean(result.memory?.error) || Boolean(result.feed?.calls.some((c) => c.error)),
+    };
   },
 };
