@@ -13,6 +13,8 @@ export interface ReviewContext {root:string;store:string;scope:string;text:strin
  queries?:(text:string,entities:CandidateEntity[])=>Promise<RuleQueries|undefined>}
 type Evaluator=ReturnType<typeof inclusionEvaluator>;
 interface Session {factory:typeof inclusionEvaluator;id:string;context:ReviewContext;policy:InclusionPolicy;evaluator:Evaluator;pool:InclusionSource[];scores:Map<string,number>;failed:Map<string,string>;cards:InclusionSource[];busy:boolean;revision:number;error?:string;at:number;
+ /** Notes the person added by hand: included, and shown with their thumbs up until undone. */
+ picked:InclusionSource[];
  /** The rule text the pool was last ranked for with model-derived queries. */
  queriedFor?:string}
 const sessions=new Map<string,Session>(),latest=new Map<string,string>();
@@ -24,11 +26,13 @@ function active(s:Session){return latest.get(key(s.context))===s.id;}
 // A stale or unselected mention surfaces when the rule is saved; for ranking, the rule's words suffice.
 function mentionedEntities(root:string,text:string){try{return resolveRuleMentions(root,text);}catch{return [];}}
 function candidatePool(c:ReviewContext,text:string){return rankCandidates(c.select?.(text)??c.sources,text,mentionedEntities(c.root,text));}
-const BATCH=9,CONCURRENCY=3;
+// A saved rule includes at this score; the review offers notes above it first.
+const BATCH=9,CONCURRENCY=3,LIKELY=.8;
+const card=({id,title,origin,body}:InclusionSource)=>({id,title,origin,excerpt:inclusionExcerpt(body),body});
 export function reviewState(s:Session){
  const ready=(includesEverything(s.policy.text)||s.policy.labels.length>0)&&!s.busy&&!s.error;
  return {id:s.id,text:s.policy.text,revision:s.revision,busy:s.busy,ready,remaining:includesEverything(s.policy.text)?0:Math.max(0,4-s.policy.labels.length),overlap:false,judged:s.policy.labels.length,unresolved:s.failed.size,error:s.error,
- items:s.cards.slice(0,3).map(({id,title,origin,body})=>({id,title,origin,excerpt:inclusionExcerpt(body),body})),
+ items:s.cards.slice(0,3).map(card),picked:s.picked.map(card),
  exhausted:!s.busy&&s.cards.length===0};
 }
 export function getReview(root:string,id:string){const s=sessions.get(id);if(!s||s.context.root!==root||!active(s))throw Error('This review was replaced or expired. Reopen the rule.');s.context.check();s.at=Date.now();return s;}
@@ -39,7 +43,7 @@ export function startReview(context:ReviewContext,factory= inclusionEvaluator){
  const policy:InclusionPolicy={version:randomUUID(),scope:context.scope,text,labels:prior?.labels??[],updated:new Date().toISOString()};
  const evaluator=factory(context.root,context.store,text,policy.labels);
  const pool=candidatePool(context,text);
- const s:Session={factory,id:randomUUID(),context,policy,evaluator,pool,scores:new Map(),failed:new Map(),cards:[],busy:true,revision:0,at:Date.now()};
+ const s:Session={factory,id:randomUUID(),context,policy,evaluator,pool,scores:new Map(),failed:new Map(),cards:[],picked:[],busy:true,revision:0,at:Date.now()};
  latest.set(key(context),s.id);sessions.set(s.id,s);persist(s);void refill(s);return reviewState(s);
 }
 async function refill(s:Session){
@@ -68,23 +72,44 @@ async function refill(s:Session){
   }
   if(!valid())return;
   const available=candidates.filter(p=>s.scores.has(labelKey(p))&&!s.cards.some(c=>c.id===p.id)),score=(p:InclusionSource)=>s.scores.get(labelKey(p))!;
+  // "Include these?" asks about likely matches first, whatever their age: a note the rule
+  // clearly fits must be offered, not skipped because rating it teaches the model little.
+  const likely=available.filter(p=>score(p)>=LIKELY).sort((a,b)=>score(b)-score(a)),rest=available.filter(p=>score(p)<LIKELY);
   // Until something is included the threshold has nothing to calibrate against, so lead with likely matches.
-  if(!s.policy.labels.some(l=>l.include))available.sort((a,b)=>score(b)-score(a));
+  if(!s.policy.labels.some(l=>l.include))rest.sort((a,b)=>score(b)-score(a));
   else{
-   available.sort((a,b)=>Math.abs(score(a)-.5)-Math.abs(score(b)-.5));
+   rest.sort((a,b)=>Math.abs(score(a)-.5)-Math.abs(score(b)-.5));
    // Reserve one slot for exploration rather than only uncertain examples.
-   if(available.length>3&&s.policy.labels.length%3===0)available.unshift(available.pop()!);
+   if(rest.length>3&&s.policy.labels.length%3===0)rest.unshift(rest.pop()!);
   }
-  while(s.cards.length<3&&available.length)s.cards.push(available.shift()!);
+  const ordered=[...likely,...rest];
+  while(s.cards.length<3&&ordered.length)s.cards.push(ordered.shift()!);
   if(!s.cards.length&&!s.policy.labels.length&&s.failed.size)s.error='Sources could not be evaluated. Retry, or choose a model that can read them in full.';
  }catch(e){if(valid())s.error=e instanceof Error?e.message:'Evaluation failed';}
  finally{if(valid()){s.busy=false;persist(s);}}
 }
+function settled(s:Session,revision:number){if(revision!==s.revision||s.busy)throw Error('Wait for this rule to finish evaluating.');}
+function label(s:Session,source:InclusionSource,include:boolean){
+ s.policy.labels=s.policy.labels.filter(l=>labelKey(l.source)!==labelKey(source));const score=s.scores.get(labelKey(source));s.policy.labels.push({source,include,...(score===undefined?{}:{prediction:{score,identity:s.evaluator.identity}})});s.cards=s.cards.filter(c=>c.id!==source.id);if(!include)s.picked=s.picked.filter(c=>c.id!==source.id);s.evaluator=s.factory(s.context.root,s.context.store,s.policy.text,s.policy.labels);s.scores.clear();s.failed.clear();s.revision++;persist(s);void refill(s);return reviewState(s);
+}
 export function rateReview(s:Session,id:string,include:boolean,revision:number){
- if(revision!==s.revision||s.busy)throw Error('Wait for this rule to finish evaluating.');
+ settled(s,revision);
  if(typeof include!=='boolean')throw Error('Choose include or exclude.');
- const source=s.cards.find(c=>c.id===id);if(!source)throw Error('Choose a currently displayed example.');
- s.policy.labels=s.policy.labels.filter(l=>labelKey(l.source)!==labelKey(source));const score=s.scores.get(labelKey(source));s.policy.labels.push({source,include,...(score===undefined?{}:{prediction:{score,identity:s.evaluator.identity}})});s.cards=s.cards.filter(c=>c.id!==id);s.evaluator=s.factory(s.context.root,s.context.store,s.policy.text,s.policy.labels);s.scores.clear();s.failed.clear();s.revision++;persist(s);void refill(s);return reviewState(s);
+ const source=s.cards.find(c=>c.id===id)??s.picked.find(c=>c.id===id);if(!source)throw Error('Choose a currently displayed example.');
+ return label(s,source,include);
+}
+/** A note the person wants included, chosen by hand: an include label, like a thumbs up on a suggestion. */
+export function pickReview(s:Session,id:string,revision:number){
+ settled(s,revision);
+ const source=s.context.sources.find(c=>c.id===id);if(!source)throw Error('Choose a note from the list.');
+ if(!s.picked.some(c=>c.id===id))s.picked.unshift(source);
+ return label(s,source,true);
+}
+/** Notes to add by hand: newest first, every word of `q` in the title or text; already-included ones left out. */
+export function searchReviewSources(s:Session,q:string,limit=20){
+ const words=q.toLowerCase().trim().split(/\s+/).filter(Boolean),included=new Set(s.policy.labels.filter(l=>l.include).map(l=>labelKey(l.source))),out:{id:string;title:string;origin:string}[]=[];
+ for(const source of s.context.sources){if(out.length>=limit)break;if(included.has(labelKey(source)))continue;const text=(source.title+'\n'+source.body).toLowerCase();if(words.every(w=>text.includes(w)))out.push({id:source.id,title:source.title,origin:source.origin});}
+ return out;
 }
 export function editReview(s:Session,text:string,revision:number,factory=inclusionEvaluator){
  if(revision!==s.revision)throw Error('The rule changed in another request. Reload this review.');
@@ -97,6 +122,6 @@ export function finishReview(s:Session){
  s.context.check();const current=inclusionEvaluator(s.context.root,s.context.store,s.policy.text,s.policy.labels);
  if(current.identity!==s.evaluator.identity)throw Error('The model changed. Reopen this review to recalibrate.');
  if(s.busy||s.error||(!s.policy.labels.length&&!includesEverything(s.policy.text)))throw Error('Rate an example before saving.');
- const policy={...s.policy,version:randomUUID(),updated:new Date().toISOString(),calibration:{identity:s.evaluator.identity,threshold:.8}};
+ const policy={...s.policy,version:randomUUID(),updated:new Date().toISOString(),calibration:{identity:s.evaluator.identity,threshold:LIKELY}};
  writeInclusionPolicy(s.context.root,s.context.store,policy);s.context.save(policy.text);writeInclusionPolicy(s.context.root,s.context.store,policy,true);latest.delete(key(s.context));sessions.delete(s.id);return {saved:true,judged:policy.labels.length};
 }
