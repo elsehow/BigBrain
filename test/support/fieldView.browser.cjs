@@ -23,6 +23,13 @@ const assert = require('node:assert/strict');
     assert.match(await page.locator('.feed.sorted .row.at').innerText(), /Atlas survey/);
     await page.keyboard.press('Enter');
     await page.locator('.hud h1', { hasText: 'Atlas survey update' }).waitFor();
+    // ⌘O reads the source's note in full; Esc puts it away and leaves the source open
+    assert.match(await page.locator('.hud .eyebrow').innerText(), /⌘O OPEN/i);
+    await page.keyboard.press(process.platform === 'darwin' ? 'Meta+o' : 'Control+o');
+    await page.locator('.reader .vbody', { hasText: 'The full text, as filed.' }).waitFor();
+    await page.keyboard.press('Escape');
+    await page.locator('.reader').waitFor({ state: 'detached' });
+    await page.locator('.hud h1', { hasText: 'Atlas survey update' }).waitFor();
     await page.keyboard.press('Escape');
     await page.locator('.hud').waitFor({ state: 'detached' });
 
@@ -56,6 +63,6 @@ const assert = require('node:assert/strict');
     await page.locator('.credits').waitFor({ state: 'detached' });
 
     assert.deepEqual(errors, []);
-    console.log('PASS: Field walks and opens the feed, settings sit over it and return its keys, Settings offers no Classic, a new vault says what to do, and running out of credits is said once.');
+    console.log('PASS: Field walks and opens the feed, ⌘O reads a source in full, settings sit over it and return its keys, Settings offers no Classic, a new vault says what to do, and running out of credits is said once.');
   } finally { await browser.close(); }
 })().catch(e => { console.error(e); process.exit(1); });

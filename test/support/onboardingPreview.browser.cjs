@@ -1,4 +1,4 @@
-// Exercise the browser-only fixture through production AppShell initialization.
+// Exercise the browser-only fixture through production base and Field initialization.
 const { chromium } = require('./browserHarness.cjs');
 const assert = require('node:assert/strict');
 (async () => {
@@ -43,7 +43,7 @@ const assert = require('node:assert/strict');
   await page.getByRole('button', { name: 'Close feedback', exact: true }).click();
   // A mouse-focused trigger remains usable when the chrome idle timer expires.
   await page.mouse.move(0, 0);
-  await page.waitForFunction(() => document.documentElement.dataset.sidebarToolbar === 'false');
+  await page.waitForFunction(() => !document.querySelector('.feedback-trigger')?.classList.contains('visible'));
   assert.equal(await feedback.evaluate(el => getComputedStyle(el).pointerEvents), 'auto', 'focused Feedback remains clickable while idle');
   await page.getByRole('combobox', { name: 'Simulated feedback outcome' }).selectOption('success');
   await feedback.click(); assert.equal(await message.inputValue(), 'Synthetic preview response');
@@ -54,6 +54,6 @@ const assert = require('node:assert/strict');
   await page.getByRole('heading', { name: 'Where should your vault live?', exact: true }).waitFor();
   assert.deepEqual(apiRequests, []); assert.deepEqual(errors, []);
   assert(blocked.every(host => host === 'fonts.googleapis.com' || host === 'fonts.gstatic.com'));
-  console.log('PASS: combined interactive AppShell preview, synthetic initialization/consent, feedback failure/draft/retry, reload/restart; no API network traffic.');
+  console.log('PASS: combined interactive Field preview, synthetic initialization/consent, feedback failure/draft/retry, reload/restart; no API network traffic.');
  } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

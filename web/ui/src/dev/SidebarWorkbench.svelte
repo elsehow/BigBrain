@@ -69,6 +69,8 @@
 
 <style>
 .gmail-preview{position:fixed;bottom:12px;left:50%;transform:translateX(-50%);z-index:1000;background:var(--bg);color:var(--text-muted);border:1px solid var(--rule);padding:8px 14px;border-radius:6px;font:var(--type-meta);max-width:90vw}
+.sidebar-study-switch { position:fixed; right:16px; z-index:40; display:flex; gap:14px; align-items:center; font:var(--type-meta); color:var(--text-muted); }
+.sidebar-study-switch a { font:inherit; color:inherit; }
 .sidebar-study-switch { top:16px; bottom:auto; max-width:calc(100vw - 32px); flex-wrap:wrap; justify-content:flex-end; }
 @media(min-width:800px) { .sidebar-study-switch { max-width:calc(100vw - 580px); } }
 .sidebar-study-switch.onboarding { top:auto; bottom:36px; right:140px; max-width:calc(100% - 156px); flex-wrap:wrap; background:var(--bg); border:1px solid var(--rule); padding:8px; }

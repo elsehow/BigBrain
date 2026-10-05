@@ -74,5 +74,5 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
  // A shared record opens on its text: no click to unfold, and no briefing to fail.
  await page.getByText('Fabricated evidence for the remote-only graph.',{exact:false}).waitFor();assert.equal(await page.getByText('This note is not available for a briefing.').count(),0);
  await page.goto(fixture.base+'/?workspace='+fixture.readonly);await page.getByText('Read only',{exact:true}).waitFor();
- assert.deepEqual(pageErrors,[]);console.log('PASS: real AppShell invite-only connection, remote suggestion, entity chips/picker, explicit activation/removal, withdrawal persistence and hidden rows, read-only, Jev key settings and no browser secrets.');
+ assert.deepEqual(pageErrors,[]);console.log('PASS: real base and Field invite-only connection, remote suggestion, entity chips/picker, explicit activation/removal, withdrawal persistence and hidden rows, read-only, Jev key settings and no browser secrets.');
 }finally{if(browser)await browser.close();child.kill()}})().catch(e=>{console.error(e);process.exitCode=1});

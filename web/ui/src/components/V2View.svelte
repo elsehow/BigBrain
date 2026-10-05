@@ -194,6 +194,31 @@
     }
     return sanitizeHtml(out.body.innerHTML);
   }
+  /** ⌘O: the open source's or entity's note, read in full over the field. */
+  let reading: { path: string; title: string } | null = $state(null);
+  let openable = $derived.by(() => {
+    if (data || !field) return null;
+    if (src?.row.path) return { path: src.row.path, title: src.row.title ?? src.row.headline };
+    const n = ent != null ? field.nodes[ent] : undefined;
+    return n?.path ? { path: n.path, title: n.label } : null;
+  });
+  function read(note: { path: string; title: string }): void {
+    reading = note;
+    if (!notes[note.path]) {
+      notes[note.path] = {};
+      api.note(note.path).then((r) => { notes[note.path] = { content: r.content.replace(/^---\n[\s\S]*?\n---\n/, "") }; })
+        .catch((e) => { notes[note.path] = { error: errText(e) }; });
+    }
+  }
+  /** A citation inside the note being read opens its note in its place. */
+  function readerCitation(e: MouseEvent): void {
+    const a = (e.target as Element).closest("a");
+    const href = a?.getAttribute("href");
+    if (!href?.startsWith(CITE)) return;
+    e.preventDefault();
+    read({ path: decodeURIComponent(href.slice(CITE.length)), title: a!.textContent ?? "" });
+  }
+
   async function closeView(view: string): Promise<void> {
     if (!openPilot) return;
     if (drafting(openPilot) && detail?.desktop) {
@@ -849,6 +874,9 @@
     // ⌘, (ctrl+, elsewhere): settings, the same view the app's gear opens
     if (paused) return false;
     if ((e.metaKey || e.ctrlKey) && e.key === ",") { take(e); openSettings(); return true; }
+    if ((e.metaKey || e.ctrlKey) && (e.key === "o" || e.key === "O") && !e.shiftKey && openable && !reading) { take(e); read(openable); return true; }
+    if (reading && e.key === "Escape") { take(e); reading = null; return true; }
+    if (reading) return false;
     if (e.metaKey || e.ctrlKey || e.altKey || !field) return false;
     if ((e.metaKey || e.ctrlKey) && (e.key === "n" || e.key === "N") && !e.shiftKey) { take(e); void createPilot([]); return true; }
     if (e.target === composerEl) {
@@ -956,10 +984,24 @@
 
   {#if hud}
     <header class="hud" bind:this={hudEl}>
-      <span class="eyebrow">{hud.eyebrow}</span>
+      <span class="eyebrow">{[hud.eyebrow, openable && "⌘O Open"].filter(Boolean).join(" · ")}</span>
       <h1>{hud.name}</h1>
       {#if hud.writing}<p><span class="spin" aria-label="Writing a summary"></span></p>{:else if hud.status}<p>{hud.status}</p>{/if}
     </header>
+  {/if}
+
+  {#if reading}
+    <div class="scrim" role="presentation" onclick={() => (reading = null)}></div>
+    <article class="view reader" aria-label={reading.title}>
+      <header><span class="vt">{reading.title}</span><span class="vp">{reading.path}</span>
+        <button type="button" class="px" onclick={() => (reading = null)} aria-label={`Close ${reading.title}`} title="Close (Esc)">×</button></header>
+      <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+      <div class="vbody" onclick={readerCitation}>
+        {#if notes[reading.path]?.content != null}{@html render(notes[reading.path]!.content!)}
+        {:else if notes[reading.path]?.error}<p class="activity err">{notes[reading.path]!.error}</p>
+        {:else}<p class="activity">Opening…</p>{/if}
+      </div>
+    </article>
   {/if}
 
   {#if searching && field}
@@ -1275,6 +1317,9 @@
   .vsrc :global(table) { border-collapse: collapse; font-size: 0.92em; } .vsrc :global(td), .vsrc :global(th) { padding: 4px 10px; border-bottom: 1px solid var(--rule); text-align: left; }
   .vsrc :global(hr) { border: 0; border-top: 1px solid var(--rule); margin: 1.6em 0; }
   .vpage { flex: 1; min-height: 0; width: 100%; border: 0; background: #fff; }
+  /* ⌘O: a note read in full, over the field */
+  .reader { position: absolute; z-index: 6; top: 56px; bottom: 56px; left: 50%; transform: translateX(-50%); width: min(820px, calc(100% - 68px));
+    box-shadow: 0 0 0 1px var(--rule), 0 28px 70px -40px color-mix(in srgb, var(--fg) 45%, transparent); }
   .vpage.vhtml { background: var(--bg); }
   .act { margin: -12px 0; font: 400 12px/1.5 var(--font-mono); color: var(--v2-faint); }
   .act::before { content: "· "; }

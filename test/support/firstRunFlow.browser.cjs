@@ -1,4 +1,4 @@
-// Production AppShell with synthetic setup and account responses. No real accounts.
+// production base and Field with synthetic setup and account responses. No real accounts.
 const {chromium,webkit}=require('./browserHarness.cjs');
 const assert=require('node:assert/strict');
 (async()=>{const browser=process.env.BROWSER==='webkit'?await webkit.launch():await chromium.launch({channel:process.env.PLAYWRIGHT_CHANNEL||'chrome',headless:true});try{
