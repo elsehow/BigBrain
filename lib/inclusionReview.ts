@@ -29,9 +29,22 @@ function candidatePool(c:ReviewContext,text:string){return rankCandidates(c.sele
 // A saved rule includes at this score; the review offers notes above it first.
 const BATCH=9,CONCURRENCY=3,LIKELY=.8;
 const card=({id,title,origin,body}:InclusionSource)=>({id,title,origin,excerpt:inclusionExcerpt(body),body});
+/** The reason a source could not be scored, kept so the person (and the log) can see it. */
+function failureReason(e:unknown){
+ const reason=(e instanceof Error?e.message:String(e)).replace(/\s+/g,' ').trim().slice(0,200)||'Unknown error';
+ console.error(`inclusion review: could not score a source: ${reason}`);
+ return reason;
+}
+/** Pool sources the person has not judged yet. */
+function unjudged(s:Session){const judged=new Set(s.policy.labels.map(l=>labelKey(l.source)));return s.pool.filter(p=>!judged.has(labelKey(p)));}
 export function reviewState(s:Session){
  const ready=(includesEverything(s.policy.text)||s.policy.labels.length>0)&&!s.busy&&!s.error;
- return {id:s.id,text:s.policy.text,revision:s.revision,busy:s.busy,ready,remaining:includesEverything(s.policy.text)?0:Math.max(0,4-s.policy.labels.length),overlap:false,judged:s.policy.labels.length,unresolved:s.failed.size,error:s.error,
+ const untried=unjudged(s).filter(p=>!s.scores.has(labelKey(p))&&!s.failed.has(labelKey(p))).length;
+ return {id:s.id,text:s.policy.text,revision:s.revision,busy:s.busy,ready,remaining:includesEverything(s.policy.text)?0:Math.max(0,4-s.policy.labels.length),overlap:false,judged:s.policy.labels.length,unresolved:s.failed.size,
+ // Why sources could not be scored, deduplicated: the provider's own words, never source content.
+ failures:[...new Set(s.failed.values())].slice(0,3),
+ // How many sources the rule had to draw from, so an empty review can say why.
+ sources:s.pool.length,untried,narrowed:s.pool.length<s.context.sources.length,error:s.error,
  items:s.cards.slice(0,3).map(card),picked:s.picked.map(card),
  exhausted:!s.busy&&s.cards.length===0};
 }
@@ -58,15 +71,14 @@ async function refill(s:Session){
    if(q)s.pool=rankCandidates(s.context.select?.(text)??s.context.sources,text,q.subjects,q.phrases);
    s.queriedFor=text;
   }
-  const judged=new Set(s.policy.labels.map(l=>labelKey(l.source)));
-  const candidates=s.pool.filter(p=>!judged.has(labelKey(p)));
+  const candidates=unjudged(s);
   // Bound paid requests per refill. Errors remain distinct from negative judgments.
   const availableScores=candidates.filter(p=>s.scores.has(labelKey(p))).length;
   const fresh=candidates.filter(p=>!s.scores.has(labelKey(p))&&!s.failed.has(labelKey(p))).slice(0,Math.max(0,BATCH-availableScores));
   for(let i=0;i<fresh.length;i+=CONCURRENCY){
    if(!valid())return;
    let broke=false;
-   await Promise.all(fresh.slice(i,i+CONCURRENCY).map(async source=>{const k=labelKey(source);try{const score=await s.evaluator.score(source);if(valid())s.scores.set(k,score);}catch(e){if(e instanceof OutOfCredits)broke=true;else if(valid())s.failed.set(k,'Could not evaluate this source');}}));
+   await Promise.all(fresh.slice(i,i+CONCURRENCY).map(async source=>{const k=labelKey(source);try{const score=await s.evaluator.score(source);if(valid())s.scores.set(k,score);}catch(e){if(e instanceof OutOfCredits)broke=true;else if(valid())s.failed.set(k,failureReason(e));}}));
    // no credits: no source will score until the account is topped up, so stop and say so
    if(broke){if(valid())s.error=NO_CREDITS;return;}
   }

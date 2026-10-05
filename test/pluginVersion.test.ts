@@ -16,7 +16,7 @@ const PLUGIN = join(import.meta.dir, "..", "clients", "claude-plugin");
 const SKIP = new Set([".DS_Store", "README.md"]);
 
 /** Bump plugin.json's version, then set both fields to what the failure prints. */
-const PINNED = { version: "0.1.23", sha256: "f7cbc9b7417ef8eae8035db790c7f60dbf12193fa1f9eec55e6af3cb305bf24b" };
+const PINNED = { version: "0.1.24", sha256: "de54ba98ce1125ee69adaf7436a3e014e03957c395c153a7504442a252869173" };
 
 function walk(dir: string): string[] {
   const out: string[] = [];

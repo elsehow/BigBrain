@@ -1,5 +1,0 @@
-export const LOGOMARK_SCENES: Record<string, { label: string; note: string }> = {
-  turning: { label: "The mark, turning", note: "The cube in the theme's two neutrals, its front-left face in the activity colour. The column and the top each carry a third of that face on opposite sides; the column flips and the top steps, alternating, and the face is whole at two rests of four (every rest in the flip loop; the column loop is the original, column-only motion). Every built-in theme shares one clock. The dark toggle wears Dusk on the page around the tiles." },
-  still: { label: "Still · pose", note: "The column held 44° into its flip — the shipped mark, a frame of the loop. The position slider scrubs the loop move by move; the rest buttons park it." },
-  render: { label: "Render stage", note: "The mark alone, or the lockup, on one theme, at one pose — what bin/renderLogomark.cjs screenshots frame by frame to cut the moving mark as video for CapCut. Configure it on the query string: theme, loop, size, wordmark=1, bg=1." },
-};

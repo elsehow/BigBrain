@@ -2,8 +2,8 @@
 // name here is invented). The rest of the engine is fakeApi's, through the
 // graph fixture; this answers what only Field asks: the entity graph, the
 // record, the sorted feed and the coding desktops. `?empty` is a new vault;
-// `?view=field` shows Field whatever this browser chose; `?update` shows the
-// update banner, `?credits=out` a provider out of usage credits beside it.
+// `?view=field` keeps the browser suite's `?view=classic` off it; `?update`
+// shows the update banner, `?credits` a provider out of usage credits beside it.
 import { mount } from "svelte";
 import "../design/tokens.css";
 import "../app.css";
@@ -46,10 +46,12 @@ const fake = window.fetch;
   // `?credits`: the gardener's provider is out of usage credits until Retry
   if (url.pathname === "/api/credits/retry") { outOfCredits = false; return json({ providers: {} }); }
   if (url.pathname === "/api/credits") return json({ providers: outOfCredits ? { anthropic: { since: at(0), at: at(5), roles: ["tend", "quick"], detail: "Your credit balance is too low." } } : {} });
+  const note = url.pathname === "/api/note" ? sorted.find((r) => r.path === url.searchParams.get("path")) : undefined;
+  if (note) return json({ path: note.path, kind: "markdown", content: `# ${note.title}\n\n${note.headline}`, origin: { kind: "url", url: `https://example.com/${note.source}` } });
   if (url.pathname === "/api/note/briefing") return json({ error: "no briefings here" }, 404);
   return fake(input, init);
 }) as typeof fake;
 
 watchSystemTheme();
-// unpinned, so Settings → General can switch views; open it with ?view=field
+// unpinned, as the app mounts it: Field unless the address says ?view=classic
 mount(Base, { target: document.getElementById("app")! });

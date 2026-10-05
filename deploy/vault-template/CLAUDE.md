@@ -23,7 +23,7 @@ again.
 This vault IS the user's memory — don't work from general knowledge when it
 likely holds their actual state. **When `memory/` exists, Read
 `memory/MEMORY.md` FIRST** — it is the curated working set (who the user is,
-what's live, which topic file to open next), maintained by the memory pass.
+what's live), maintained by the memory pass.
 Then ground deeper: `bigbrain search <query>` ranks the record — sources and
 the assertions made about them — and, **in an interactive session, attach
 your intent with `--why "<why you're asking>"`**: the why is spooled as an
@@ -154,12 +154,9 @@ rule about DIRECTION, not about what exists:
   a pass cannot reach the cache it is supposed to be feeding. Such a link is
   a `boundary` violation.
 - **memory → record: free.** Citing outward is the whole point.
-- **memory → memory: free** — including `memory/MEMORY.md` wikilinking its
-  own topic files, which is how the index joins the link graph.
 
-A **bare** `[[name]]` never means a memory file, for anyone. `[[big-brain]]`
-is the entity even where a memory topic shares the basename; the topic is
-reachable only as `[[memory/big-brain]]`, and only from inside `memory/`.
+A **bare** `[[name]]` never means a memory file, for anyone: `[[big-brain]]`
+is the entity.
 
 ## Layout
 
@@ -178,8 +175,8 @@ projection never rewrites an insertion event.
 - `references/`, `entities/` — the reference era's notes and dossiers,
   frozen and still readable. Raw binary payloads live in `.blobs/`
   (gitignored), referenced from an arrival by `blob:<sha256>`
-- `memory/` — the working set: `MEMORY.md` (load first, every session) plus
-  a few topic files; machine-written only, by the memory pass
+- `memory/` — the working set, one file: `MEMORY.md` (load first, every
+  session); machine-written only, by the memory pass
 - `inbox/` — arrivals in flight; `inbox/unsorted/` holds what could not be
   placed
 - `journal/` — machine run records (committed)

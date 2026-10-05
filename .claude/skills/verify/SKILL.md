@@ -21,8 +21,8 @@ Reviewed against engine `38b78005` on 2026-09-26.
    `http://localhost:4799`. Keep machine configuration and provider stores in
    a disposable home too. Do not connect personal credentials for deterministic
    checks; use the suite's scripted Pi provider seam and scratch integration stores.
-4. For fabricated whole-app previews, use `/sidebar-workbench.html`, which mounts
-   production `AppShell.svelte`. `/dev.html` provides individual component scenes.
+4. For fabricated whole-app previews, use `/field-workbench.html` or
+   `/sidebar-workbench.html`, which mount the production base and Field.
    Compare the installed app's `BUNDLE` revision before interpreting desktop bugs;
    report preview version, commit, and divergence from main.
 5. Verify expected durable effects in the scratch vault, including git history,

@@ -1,4 +1,4 @@
-// Built production AppShell served by the real supervisor, with no vault.
+// Built production base and Field served by the real supervisor, with no vault.
 const assert = require('node:assert/strict');
 const { spawn } = require('node:child_process');
 const { once } = require('node:events');
@@ -51,7 +51,7 @@ const { chromium } = require('./browserHarness.cjs');
     await wizard.getByRole('button', { name: 'GO', exact: true }).waitFor();
     assert.equal(existsSync(vault), false);
     assert.deepEqual(errors, []);
-    console.log('Real first-run supervisor identity and production AppShell setup passed.');
+    console.log('Real first-run supervisor identity and production base and Field setup passed.');
   } finally {
     if (browser) await browser.close();
     child.kill();

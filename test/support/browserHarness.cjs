@@ -15,8 +15,6 @@ function instrument(browser) {
     const options = process.env.CI_BROWSER_REDUCED_MOTION === 'reduce'
       ? { reducedMotion: 'reduce', ...args[0] } : args[0];
     const context = await createContext(options);
-    // The suite covers the Classic view; Field is the base's default (lib/viewChoice.svelte.ts).
-    await context.addInitScript(() => { try { if (!localStorage.getItem('bb:view')) localStorage.setItem('bb:view', 'classic'); } catch {} });
     const id = ++sequence;
     // Continuous DOM recording and screencasting compete with software WebGL.
     // Linux retains action traces, logs and a final image; macOS also records

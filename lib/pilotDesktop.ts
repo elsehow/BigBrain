@@ -113,6 +113,11 @@ export function openView(d: PilotDesktop, view: Omit<DesktopView, "id">, id: str
   return { ...d, views: [...d.views, { ...view, id }], layout: withView(d.layout, id), closed: d.closed?.filter((p) => p !== view.path) };
 }
 
+/** A note view's title: the one its read gave, else the path's file name. */
+export function noteTitle(path: string, read: { title?: unknown } | null): string {
+  return typeof read?.title === "string" && read.title.trim() ? read.title.trim() : path.split("/").pop()!.replace(/\.md$/, "");
+}
+
 export function closeView(d: PilotDesktop, id: string, by: "agent" | "human"): PilotDesktop {
   const view = d.views.find((v) => v.id === id);
   if (!view) throw new DesktopError("No such view on this desktop.");
