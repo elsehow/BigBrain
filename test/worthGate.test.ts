@@ -69,7 +69,7 @@ describe("the gate in front of the gardener", () => {
       stage(root, item("noise-1", "Ten percent off invented socks."));
       await tickIntegrationInclusion(root, store);
       expect(stagedItems(root, "email")).toHaveLength(0);
-      expect(gateDecisions(root).map((d) => [d.id, d.score, d.admitted, !!d.insertion_id])).toEqual([["keep-1", 0.9, true, true], ["noise-1", 0.1, true, true]]);
+      expect(gateDecisions(root).map((d) => [d.id, d.score, d.admitted, !!d.insertion_id]).sort()).toEqual([["keep-1", 0.9, true, true], ["noise-1", 0.1, true, true]]);
 
       // the gardener files one and declines the other
       const sources = new Map(readSourceInsertionLog(root).map((s) => [s.id, s]));
