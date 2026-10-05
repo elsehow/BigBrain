@@ -2,7 +2,7 @@ import {test,expect} from 'bun:test';
 import {mkdtempSync,writeFileSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {startReview,getReview,reviewState,rateReview,editReview,finishReview} from '../lib/inclusionReview';
+import {startReview,getReview,reviewState,rateReview,pickReview,searchReviewSources,editReview,finishReview} from '../lib/inclusionReview';
 import {readInclusionPolicy,sharedRuleScope} from '../lib/inclusionPolicy';
 import {inclusionEvaluator,decideInclusion} from '../lib/inclusionEvaluation';
 import {rankCandidates} from '../lib/inclusionCandidates';
@@ -113,4 +113,33 @@ test('a provider error reads as out of credits only when it says so',()=>{
  expect(outOfCredits(429,'{"error":{"code":"insufficient_quota"}}')).toBe(true);
  expect(outOfCredits(500,'upstream timed out')).toBe(false);
  expect(outOfCredits(400,'The source thanks the film credits team.')).toBe(false);
+});
+test('once something is included, likely matches are still offered before uncertain ones',async()=>{
+ const c=fixture();try{
+  const sources=[.95,.9,.85,.82,.5,.45,.55].map((score,i)=>({id:String(i),title:'Example source '+i,origin:'Fixture',body:'Complete source '+score}));
+  let s=await idle(c.root,startReview({...c,sources},factory).id);
+  rateReview(s,reviewState(s).items.find(i=>i.body.endsWith('0.95'))!.id,true,s.revision);s=await idle(c.root,s.id);
+  // the uncertain 0.5 would teach more, but a likely match not yet asked about comes first
+  expect(reviewState(s).items.map(i=>i.body)).toEqual(['Complete source 0.9','Complete source 0.85','Complete source 0.82']);
+ }finally{rmSync(c.root,{recursive:true,force:true});}
+});
+test('a note added by hand is included, shown with its thumbs up, teaches the rule, and can be undone',async()=>{
+ const c=fixture();try{
+  let s=await idle(c.root,startReview(c,factory).id);
+  const missed=c.sources.find(x=>x.body.endsWith('0.1'))!;
+  expect(searchReviewSources(s,'').map(n=>n.id)).toContain(missed.id);
+  expect(searchReviewSources(s,'source 0.1').map(n=>n.id)).toEqual([missed.id]);
+  expect(()=>pickReview(s,'no-such-note',s.revision)).toThrow('Choose a note');
+  pickReview(s,missed.id,s.revision);s=await idle(c.root,s.id);
+  expect(reviewState(s).picked.map(p=>p.id)).toEqual([missed.id]);expect(reviewState(s).ready).toBe(true);
+  expect(reviewState(s).items.map(i=>i.id)).not.toContain(missed.id);
+  expect(searchReviewSources(s,'').map(n=>n.id)).not.toContain(missed.id);
+  finishReview(s);
+  expect(await decideInclusion(c.root,c.store,c.scope,c.text,missed)).toBe(true);
+  s=await idle(c.root,startReview(c,factory).id);
+  pickReview(s,missed.id,s.revision);s=await idle(c.root,s.id);
+  rateReview(s,missed.id,false,s.revision);s=await idle(c.root,s.id);
+  expect(reviewState(s).picked).toEqual([]);finishReview(s);
+  expect(await decideInclusion(c.root,c.store,c.scope,c.text,missed)).toBe(false);
+ }finally{rmSync(c.root,{recursive:true,force:true});}
 });

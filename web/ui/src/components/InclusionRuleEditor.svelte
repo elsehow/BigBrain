@@ -6,7 +6,7 @@
  import InclusionRuleReview,{type RuleExample} from './InclusionRuleReview.svelte';
  import {serializeMentions} from '../../../../lib/pilotMentions';
  let {target,value,onsave,oncancel}:{target:{kind:'shared';id:string};value:string;onsave:(text:string)=>void;oncancel?:()=>void}=$props();
- type View={id:string;text:string;revision:number;busy:boolean;ready:boolean;remaining:number;overlap:boolean;judged:number;unresolved:number;error?:string;items:RuleExample[];exhausted:boolean};
+ type View={id:string;text:string;revision:number;busy:boolean;ready:boolean;remaining:number;overlap:boolean;judged:number;unresolved:number;error?:string;items:RuleExample[];picked:RuleExample[];exhausted:boolean};
  let draft=$state(untrack(()=>value)),view=$state<View|null>(null),problem=$state(''),sending=$state(false),editing=$state(false),disposed=false;
  let editTimer:ReturnType<typeof setTimeout>|undefined;
  // Each sent edit restarts the review (and its Quick call for search phrases): wait for a real pause.
@@ -22,6 +22,8 @@
   const text=draft,g=++generation;sending=true;problem='';try{await follow(await request('edit',{id:view.id,text,revision:view.revision}),g);}catch(e){problem=(e as Error).message;}finally{sending=false;if(text===draft)editing=false;else editTimer=setTimeout(()=>void update(),100);}
  }
  async function judge(source:string,include:boolean){if(!view||sending||editing)return;sending=true;problem='';const g=++generation;try{await follow(await request('rate',{id:view.id,source,include,revision:view.revision}),g);}catch(e){problem=(e as Error).message;}finally{sending=false;}}
+ async function pick(source:string){if(!view||sending||editing)return;sending=true;problem='';const g=++generation;try{await follow(await request('pick',{id:view.id,source,revision:view.revision}),g);}catch(e){problem=(e as Error).message;}finally{sending=false;}}
+ async function findNotes(q:string,signal:AbortSignal){if(!view)return [];const r=await vaultFetch('/api/inclusion-review/sources?id='+encodeURIComponent(view.id)+'&q='+encodeURIComponent(q),{signal});if(!r.ok)throw Error('Note search unavailable');return(await r.json()).items;}
  async function retry(){if(!view)return void start();sending=true;problem='';const g=++generation;try{await follow(await request('retry',{id:view.id}),g);}catch(e){problem=(e as Error).message;}finally{sending=false;}}
  async function done(){if(!view||sending||editing)return;sending=true;problem='';try{await request('finish',{id:view.id});onsave(view.text);}catch(e){problem=(e as Error).message;}finally{sending=false;}}
  async function search(q:string,signal:AbortSignal){const r=await vaultFetch('/api/inclusion-review/entities?q='+encodeURIComponent(q),{signal});if(!r.ok)throw Error('Entity search unavailable');return(await r.json()).items;}
@@ -29,7 +31,7 @@
 </script>
 <div class="editor" role="group" aria-label="Inclusion rule review">
  <div class="rule-input"><PilotMentionComposer ariaLabel="Inclusion rule" value={draft} recents={[]} currentId="inclusion-rule" {search} onchange={parts=>changed(serializeMentions(parts))} onsend={()=>{}} placeholder="Describe what belongs here. Use @ to mention a topic." /></div>
- {#if view}<InclusionRuleReview showExamples={!includesEverything(draft)} items={view.items} onjudge={judge} ondone={done} ready={view.ready&&!editing&&!sending&&!!draft.trim()} retesting={view.busy||editing||sending} status={includesEverything(draft)?'':status}/>
+ {#if view}<InclusionRuleReview showExamples={!includesEverything(draft)} items={view.items} picked={view.picked} search={findNotes} onpick={pick} onjudge={judge} ondone={done} ready={view.ready&&!editing&&!sending&&!!draft.trim()} retesting={view.busy||editing||sending} status={includesEverything(draft)?'':status}/>
  {:else if sending}<p role="status">Finding examples…</p>
  {:else}<button class="settings-add" disabled={!draft.trim()} onclick={start}>Try rule</button>{/if}
  {#if problem||view?.error}<p role="alert">{problem||view?.error}</p><button class="settings-add" disabled={sending} onclick={retry}>Retry</button>{/if}
