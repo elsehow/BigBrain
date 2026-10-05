@@ -27,6 +27,7 @@ const EVERYDAY: Record<string, [script: string, blurb: string]> = {
   firewall: ["bin/firewall.ts", "screen arrivals for credentials and reset links: status, install, off"],
   observe: ["bin/observe.ts", "submit evidence to the memory pass"],
   tend: ["bin/tend.ts", "run the gardener: drain due intake + memory with your Claude"],
+  gate: ["bin/gate.ts", "the worth gate: its cut-off and what it passed lately (vault.yaml gate:)"],
   feed: ["bin/feed.ts", "what needs you, what an agent could do, what's worth knowing (vault.yaml feed:)"],
   agent: ["bin/agent.ts", "run an agent on your projects in its own desktop folder (run, resume, list, land, discard)"],
   links: ["bin/links.ts", "wikilink lint and conversion"],

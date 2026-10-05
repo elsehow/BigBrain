@@ -104,6 +104,24 @@ export interface Manifest {
   modelPreferences: Record<"gardener" | "memory" | "quick", ModelPreference>;
   /** The classic chain's feed stage (lib/feedStage.ts). Absent is off. */
   feed?: FeedConfig;
+  /** The worth gate (lib/worthGate.ts). Absent is off. */
+  gate?: GateConfig;
+}
+
+/** `gate:` — "worth gardening?" for sources that include everything
+ * (lib/worthGate.ts, #80). Its cut-off starts at 0 and moves with the
+ * gardener's verdicts. */
+export interface GateConfig {
+  /** Share of items under the cut-off still sent to the gardener, to check it. */
+  sample: number;
+  /** The cut-off rises only while it would keep this share of what the gardener files. */
+  recall: number;
+  /** Verdicts on scored items needed before the cut-off moves from 0. */
+  min: number;
+  /** What is worth gardening, in words; the gardener's verdicts teach the rest. */
+  rule: string;
+  /** The integrations it gates. Email by default: meetings are never dropped unless named here. */
+  sources: string[];
 }
 
 /** `feed:` — the classic chain's third stage: it sorts what the gardener
@@ -254,12 +272,32 @@ export function loadManifest(root: string): Manifest {
       return [role, modelPreference(block?.preference, explicit ? "pinned" : "recommended")];
     })) as Manifest["modelPreferences"],
     ...(raw["feed"] != null ? { feed: parseFeed(raw["feed"], fallbackAgent) } : {}),
+    ...(raw["gate"] != null ? { gate: parseGate(raw["gate"]) } : {}),
     ...(curation ? { curation } : {}),
     ...(firewall ? { firewall } : {}),
   };
 }
 
 const FEED_DEFAULT = { model: "claude-sonnet-5-5" };
+
+export const GATE_RULE = "Worth recording in the owner's memory: correspondence or notices that carry facts, commitments, decisions, plans, events, or relationships the owner would want remembered later. Not marketing, newsletters, promotions, routine automated notifications, or noise.";
+
+function parseGate(raw: unknown): GateConfig {
+  if (typeof raw !== "object" || Array.isArray(raw)) throw new Error("vault.yaml: gate must be a mapping");
+  const block = raw as Record<string, unknown>;
+  const share = (k: string, fallback: number) => {
+    const v = Number(block[k] ?? fallback);
+    if (!(v > 0 && v < 1)) throw new Error(`vault.yaml: gate.${k} must be between 0 and 1`);
+    return v;
+  };
+  const min = Number(block["min"] ?? 40);
+  if (!Number.isInteger(min) || min < 1) throw new Error("vault.yaml: gate.min must be a positive integer");
+  const rule = typeof block["rule"] === "string" && block["rule"].trim() ? block["rule"].trim() : GATE_RULE;
+  const sources = block["sources"] ?? ["email"];
+  if (!Array.isArray(sources) || !sources.length || !sources.every((s) => typeof s === "string" && s.trim()))
+    throw new Error("vault.yaml: gate.sources must be a list of integration names");
+  return { sample: share("sample", 0.05), recall: share("recall", 0.98), min, rule, sources: sources.map((s) => String(s).trim()) };
+}
 
 function parseFeed(raw: unknown, fallbackAgent: AgentId): FeedConfig | undefined {
   if (raw == null) return undefined;
