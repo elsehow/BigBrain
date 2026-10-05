@@ -49,6 +49,10 @@ export interface V2Scene {
    * after its name; "" is a spinner, null takes it away. The entity keeps
    * its own text: the relation finds room around its tie. */
   relate(j: number | null, text?: string): void;
+  /** Remember where the camera is headed (a walk through the feed starting). */
+  keepView(): void;
+  /** Back to the remembered view, if there is one (the walk let go); false if not. */
+  returnToView(): boolean;
   /** Pixels to slide the scene's centre right, clear of a left panel. */
   shift(px: number): void;
   dispose(): void;
@@ -293,6 +297,8 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
   const rig = { az: OVERVIEW.az, el: OVERVIEW.el, dist: OVERVIEW.dist, tx: OVERVIEW.target.x, ty: OVERVIEW.target.y, tz: OVERVIEW.target.z };
   const vel = { az: 0, el: 0, dist: 0, tx: 0, ty: 0, tz: 0 };
   const goal = { az: OVERVIEW.az, el: OVERVIEW.el, dist: OVERVIEW.dist, target: OVERVIEW.target.clone() };
+  /** The view a walk through the feed started from. */
+  let kept: { az: number; el: number; dist: number; target: THREE.Vector3 } | null = null;
   const setGoal = (g: { az?: number; el: number; dist: number; target: THREE.Vector3 }) => {
     goal.az = g.az ?? rig.az; goal.el = g.el; goal.dist = g.dist; goal.target.copy(g.target);
   };
@@ -711,7 +717,18 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
       const open = !!want.open;
       // over the middle of what it mentions, lifted clear of it (over one, a
       // little aside, so the tie reads); mentioning nothing here, mid-view
-      const frame = (s: Src) => { if (s.ties.length) frameAround([s.at, ...s.ties.map((j) => P[j]!)], 0.5, 2.6, 7, 16); };
+      // followed, not zoomed: centred, at the distance and angle you had,
+      // backing out only as far as it takes to fit (never in)
+      const frame = (s: Src) => {
+        if (!s.ties.length) return;
+        const pts = [s.at, ...s.ties.map((j) => P[j]!)];
+        const c = new THREE.Vector3();
+        for (const p of pts) c.add(p);
+        c.divideScalar(pts.length);
+        let R = 0;
+        for (const p of pts) R = Math.max(R, p.distanceTo(c));
+        setGoal({ el: goal.el, dist: Math.max(goal.dist, Math.min(OVERVIEW.dist, R * 2.6 + 3)), target: c });
+      };
       const settle = (s: Src) => {
         if (want.entities.length) {
           const c = new THREE.Vector3();
@@ -744,6 +761,12 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
       rl = { j, text };
       const lab = labels.get(j);
       if (lab) { lab.full = undefined; lab.w = undefined; }
+    },
+    keepView() { kept = { az: goal.az, el: goal.el, dist: goal.dist, target: goal.target.clone() }; },
+    returnToView() {
+      if (!kept) return false;
+      setGoal(kept); kept = null;
+      return true;
     },
     shift(px) { shiftGoal = px; },
     dispose() {

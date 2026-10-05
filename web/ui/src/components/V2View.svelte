@@ -696,6 +696,8 @@
   function stepFeed(dir: 1 | -1): void {
     if (!sorted.length) return;
     if (ent != null || src) overview();
+    // a walk starting: Esc comes back to the view it started from
+    if (cursor == null) scene?.keepView();
     rowOver = null;
     const at = sorted.findIndex((r) => r.source === cursor);
     cursor = sorted[at < 0 ? 0 : Math.max(0, Math.min(sorted.length - 1, at - dir))]!.source;
@@ -707,7 +709,7 @@
   function leaveFeed(): void {
     cursor = null;
     scene?.hover(null);
-    scene?.overview();
+    if (!scene?.returnToView()) scene?.overview();
     scene?.shift(shiftFor());
     feedFollowing = true;
     if (feedEl) feedEl.scrollTop = feedEl.scrollHeight;
