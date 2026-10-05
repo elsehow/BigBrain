@@ -31,7 +31,7 @@
   <span class="rail-eyebrow first">SETTINGS</span>
   <span class="rail-eyebrow">GENERAL</span>
   {#each SETTINGS_TABS as s (s.view)}
-    {#if s.view === "connectedClients"}<span class="rail-eyebrow">AGENTS</span>{:else if s.view === "diagnostics"}<span class="rail-eyebrow">SYSTEM</span>{/if}
+    {#if s.view === "connectedClients"}<span class="rail-eyebrow">AGENTS</span>{:else if s.view === "security"}<span class="rail-eyebrow">SYSTEM</span>{/if}
     <button class="rail-row" class:on={!extraSection?.active && active === s.view} onclick={() => goto(s.view)}>{s.label}</button>
     {#if s.view === "integrations" && !extraSection && !selectedWorkspace}
       <span class="rail-eyebrow">SHARED VAULTS</span>

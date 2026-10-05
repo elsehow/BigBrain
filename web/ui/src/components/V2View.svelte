@@ -3,7 +3,7 @@
   // read as it lands, each assertion with its author. The canvas is
   // lib/v2/scene.ts (three.js, loaded on demand); everything with words
   // is here. Keys: / search by name, j/k walk the feed (Enter opens a row's
-  // source), Shift+Enter starts a pilot on what's in hand ("Re: …"), ⌘N (or n) a blank
+  // source as a draft desktop: kept once you message it, gone on Esc), Shift+Enter starts a pilot on what's in hand ("Re: …"), ⌘N (or n) a blank
   // one the pilot names itself, \ shows or hides the desktop's views, Esc back out.
   // Pilots are the real agents: /api/pilot/chat sessions, placed over their
   // context, and their chat opens here as a flat column over the field.
@@ -13,10 +13,12 @@
   import type { GraphData } from "../lib/types";
   import { barPilots, buildField, latestPerFamily, neighbours, placePilots, searchNames, twinsOf, type Field, type PilotSummary, type V2Feed, type V2FeedRow } from "../lib/v2/model";
   import { md, sanitizeHtml } from "../lib/markdown";
+  import { Readability } from "@mozilla/readability";
   import { pageDoc, themeSheet, themeVars } from "../lib/pageTheme";
   import type { V2Scene } from "../lib/v2/scene";
   import { plainText as plain, type V2SortedRow } from "../../../../lib/v2Feed";
   import type { DesktopTile, DesktopView } from "../../../../lib/pilotDesktop";
+  import { DEFAULT_PILOT_BACKEND } from "../../../../lib/pilotBackendTypes";
 
   /** Classic, for what Field doesn't draw (a note's page, an older pilot's
    * conversation): this page in Classic; a dev preview can point at the live
@@ -89,6 +91,11 @@
   /** Coding desktops (lib/codingDesktops.ts) have `d-` ids and live at /api/desktops;
    * Pilot conversations keep their own routes. One switch, so the rest of the view is shared. */
   const coding = (id: string | null | undefined): boolean => !!id && id.startsWith("d-");
+  /** A draft desktop: a feed item opened as a desktop (its source beside an
+   * empty chat), held only here. Your first message makes it a real coding
+   * desktop, in the bar from then on; Esc before that and it's gone. */
+  const drafting = (id: string | null | undefined): boolean => !!id && id.startsWith("draft:");
+  let draft: { row: V2SortedRow; path: string; model?: string; titled?: boolean } | null = null;
   let pilotsAll: PilotSummary[] = $state([]);
   let openPilot: string | null = $state(null);
   let detail: PilotDetail | null = $state(null);
@@ -100,16 +107,106 @@
   let hidden: Record<string, boolean> = $state({});
   let desktopViews: DesktopView[] = $derived.by(() => detail?.desktop?.views ?? []);
   let showDesktop = $derived(!!openPilot && desktopViews.length > 0 && !hidden[openPilot]);
-  let notes: Record<string, { content?: string; error?: string }> = $state({});
+  /** A note view's text; a source (a saved email, article, meeting…) also
+   * carries how it came in, and Quick's summary of it to read first. */
+  /** `page`: the host the source's page was read from, when it read better than what was saved. */
+  type SourceMeta = { via: string; date?: string; header: Array<[string, string]>; summary?: string; html: string; page?: string };
+  let notes: Record<string, { content?: string; error?: string; source?: SourceMeta }> = $state({});
+  /** Settings → Security: whether sources may load their images and pages
+   * (the engine refuses them otherwise). Asked again whenever a desktop opens. */
+  let remoteOk = true;
+  let remoteCheck: Promise<boolean> = Promise.resolve(true);
+  const checkRemote = () => { remoteCheck = data ? Promise.resolve(false) : api.config().then((c) => (remoteOk = c.security?.remote_content ?? true), () => remoteOk); };
   $effect(() => {
     for (const v of desktopViews) if (v.kind === "note" && !notes[v.path]) {
       notes[v.path] = {};
-      api.note(v.path).then((r) => { notes[v.path] = { content: r.content.replace(/^---\n[\s\S]*?\n---\n/, "") }; })
-        .catch((e) => { notes[v.path] = { error: errText(e) }; });
+      Promise.all([api.note(v.path), remoteCheck]).then(([r]) => {
+        notes[v.path] = asSource(r.content, v.title);
+        if (notes[v.path]!.source && !data) {
+          void briefing(v.path, (text) => { const n = notes[v.path]; if (n?.source) n.source = { ...n.source, summary: text }; });
+          const origin = (r as { origin?: { url?: string } }).origin?.url;
+          if (remoteOk && origin && notes[v.path]!.source!.via !== "email") void readPage(v.path, origin, notes[v.path]!.content ?? "");
+        }
+      }).catch((e) => { notes[v.path] = { error: errText(e) }; });
     }
   });
+  const HEADER = /^(From|To|Cc|Date|Inbox|Subject|Attendees):\s*(.*)$/;
+  /** A source note reads as the source: its title and mail headers lifted out of the body. */
+  function asSource(raw: string, title: string): { content: string; source?: SourceMeta } {
+    const fm = /^---\n([\s\S]*?)\n---\n/.exec(raw);
+    const body = fm ? raw.slice(fm[0].length) : raw;
+    const field = (k: string) => fm?.[1].match(new RegExp(`^${k}:\\s*"?(.*?)"?\\s*$`, "m"))?.[1];
+    if (field("type") !== "source") return { content: body };
+    const lines = body.replace(/^\s+/, "").split("\n");
+    if (/^# /.test(lines[0] ?? "") && lines[0]!.slice(2).trim() === (field("title") ?? title).trim()) lines.shift();
+    while (lines[0] === "") lines.shift();
+    const header: Array<[string, string]> = [];
+    for (let m; lines.length && (m = HEADER.exec(lines[0]!)); lines.shift()) if (m[1] !== "Date" && m[1] !== "Inbox") header.push([m[1]!, m[2]!]);
+    const via = (field("source_id") ?? "").split("-")[0] || "source";
+    const content = lines.join("\n");
+    return { content, source: { via, date: field("date"), header, html: readable(content, field("title") ?? title) } };
+  }
+  /** The source's page, read: kept when it holds clearly more of the piece than was saved (an RSS
+   * item saves a line or two; a clip saves the page around the article too). */
+  async function readPage(path: string, url: string, saved: string): Promise<void> {
+    try {
+      const r = await fetch(`/api/remote-page?url=${encodeURIComponent(url)}`);
+      if (!r.ok) return;
+      const at = r.headers.get("x-final-url") ?? url;
+      const doc = new DOMParser().parseFromString(await r.text(), "text/html");
+      // absolute addresses before Readability moves things around
+      for (const el of doc.querySelectorAll("[src], [href]")) for (const k of ["src", "href"]) {
+        const v = el.getAttribute(k);
+        if (v && !/^(#|data:|mailto:)/i.test(v)) try { el.setAttribute(k, new URL(v, at).href); } catch { /* left as it was */ }
+      }
+      const article = new Readability(doc, { keepClasses: false }).parse();
+      const text = article?.textContent?.trim().length ?? 0;
+      const savedText = new DOMParser().parseFromString(md(saved), "text/html").body.textContent?.trim().length ?? 0;
+      if (!article?.content || text < 400 || text < savedText * 0.6) return;
+      const n = notes[path];
+      if (n?.source) n.source = { ...n.source, html: cleanHtml(article.content), page: new URL(at).hostname.replace(/^www\./, "") };
+    } catch { /* the saved text stands */ }
+  }
+  const IMAGE_URL = /\.(png|jpe?g|gif|webp|avif)(\?|$)|\/image\/fetch\//i;
+  /** A source as a reader view would show it: Readability keeps the article
+   * and drops the page around it (sign-in prompts, avatars, "discover more");
+   * its pictures come through the engine (/api/remote-image), and the bare
+   * "full size" link a page puts under each picture goes. */
+  function readable(markdown: string, title: string): string {
+    const doc = new DOMParser().parseFromString(`<!doctype html><title></title><body><article>${md(markdown)}</article>`, "text/html");
+    doc.title = title;
+    const whole = doc.body.textContent?.trim().length ?? 0;
+    const article = whole > 600 ? new Readability(doc.cloneNode(true) as Document, { keepClasses: false }).parse() : null;
+    // a short note (most mail) is all content already; a reading that lost most of the text isn't trusted
+    return cleanHtml(article?.content && (article.textContent?.trim().length ?? 0) > whole * 0.5 ? article.content : doc.body.innerHTML);
+  }
+  function cleanHtml(html: string): string {
+    const out = new DOMParser().parseFromString(html, "text/html");
+    // a <picture>'s sources name the remote files directly; its <img> alone comes through the engine
+    for (const el of out.querySelectorAll("picture source")) el.remove();
+    for (const img of out.querySelectorAll("img")) {
+      const src = img.getAttribute("src") ?? "";
+      // remote content off: a picture is left out, not drawn broken
+      if (/^https?:\/\//i.test(src) && !remoteOk) { img.remove(); continue; }
+      if (/^https?:\/\//i.test(src)) img.setAttribute("src", `/api/remote-image?url=${encodeURIComponent(src)}`);
+      img.removeAttribute("srcset"); img.setAttribute("loading", "lazy");
+    }
+    for (const a of out.querySelectorAll("a")) {
+      const href = a.getAttribute("href") ?? "";
+      const bare = a.textContent?.trim() === href || !a.textContent?.trim();
+      const block = a.parentElement?.tagName === "P" && a.parentElement.textContent?.trim() === a.textContent?.trim() ? a.parentElement : a;
+      if (bare && IMAGE_URL.test(href) && !a.querySelector("img") && block.previousElementSibling?.querySelector("img, picture")) block.remove();
+    }
+    return sanitizeHtml(out.body.innerHTML);
+  }
   async function closeView(view: string): Promise<void> {
     if (!openPilot) return;
+    if (drafting(openPilot) && detail?.desktop) {
+      const views = detail.desktop.views.filter((v) => v.id !== view);
+      detail = { ...detail, desktop: { views, layout: views[0] ? { view: views[0].id } : null, arrangedBy: null } };
+      void tick().then(() => scene?.shift(shiftFor()));
+      return;
+    }
     try {
       if (coding(openPilot)) await desktopReq("/view", { id: openPilot, action: "close", view });
       else await pilotReq("/desktop", { id: openPilot, action: "close", view });
@@ -137,6 +234,7 @@
     const id = openPilot, title = renameText.trim();
     renaming = false;
     if (!id || !title || title === detail?.title) return;
+    if (drafting(id) && detail && draft) { detail = { ...detail, title }; draft.titled = true; return; }
     try {
       // the engine's rename marks the name as a person's (Quick stops re-naming);
       // an older engine without it still takes the title through /context
@@ -158,6 +256,7 @@
     if (!openPilot) return;
     const [adapter, provider] = agent.id.split("/");
     const reasoning = model.reasoning?.includes("medium") ? "medium" : model.reasoning?.[0];
+    if (drafting(openPilot) && detail && draft) { draft.model = `${provider}/${model.id}`; detail = { ...detail, model: model.id }; pickerOpen = false; return; }
     try {
       if (coding(openPilot)) await desktopReq("/model", { id: openPilot, model: `${provider}/${model.id}` });
       else await pilotReq("/backend", { id: openPilot, backend: { adapter, provider, model: model.id, ...(reasoning ? { reasoning } : {}) } });
@@ -191,7 +290,7 @@
   }
   async function loadDetail(): Promise<void> {
     const id = openPilot;
-    if (!id) return;
+    if (!id || drafting(id)) return;
     try {
       const d = await chatReq<PilotDetail>(id, `/session?id=${encodeURIComponent(id)}`);
       if (openPilot === id) detail = d;
@@ -254,6 +353,8 @@
     if (searching) { searching = false; scene?.search(null); }
     ent = null; entRows = null;
     openPilot = id; detail = (pilotsAll.find((p) => p.id === id) as PilotDetail | undefined) ?? null;
+    checkRemote();
+    for (const [path, n] of Object.entries(notes)) if (n.source) delete notes[path];
     if (detail && !detail.messages) detail = { ...detail, messages: [] };
     scene?.openEntity(null);
     scene?.focusPilot(id);
@@ -262,9 +363,56 @@
     void tick().then(() => composerEl?.focus());
   }
   function closePilot(): void {
+    const wasDraft = drafting(openPilot);
     openPilot = null; detail = null;
     scene?.focusPilot(null);
     overview();
+    if (wasDraft) {
+      // back to the feed, on the row it came from
+      draft = null; draftText = "";
+      lightCursor();
+      void tick().then(() => feedEl?.querySelector(".row.at")?.scrollIntoView({ block: "nearest" }));
+    }
+  }
+  /** Open a feed row's source as a draft desktop: the source beside an empty chat. */
+  function openDraft(r: V2SortedRow, path: string): void {
+    if (searching) { searching = false; scene?.search(null); }
+    ent = null; entRows = null; closeSource();
+    cursor = r.source; following = true; draftText = "";
+    draft = { row: r, path };
+    checkRemote(); delete notes[path];
+    const title = r.title ?? r.headline;
+    openPilot = `draft:${r.source}`;
+    detail = { id: openPilot, title, model: DEFAULT_PILOT_BACKEND.model, phase: "draft", lifecycle: "active", messages: [],
+      desktop: { views: [{ id: "v-source", kind: "note", path, title, at: r.added }], layout: { view: "v-source" }, arrangedBy: null } };
+    scene?.hover(null);
+    scene?.focusPilot(null);
+    scene?.shift(shiftFor());
+    void tick().then(() => { scene?.shift(shiftFor()); composerEl?.focus(); });
+  }
+  /** The first message keeps a draft desktop: made for real, with its views, and the message sent. */
+  async function keepDraft(text: string, inputId: string): Promise<void> {
+    const id = openPilot, d = detail, held = draft;
+    if (!id || !d || !held) return;
+    detail = { ...d, phase: "working", messages: [{ id: inputId, role: "user", text, at: new Date().toISOString() }] };
+    try {
+      const made = await desktopReq<{ id: string }>("/create", {
+        ...(held.titled ? { title: d.title } : {}), ...(held.model ? { model: held.model } : {}),
+        context: [{ path: held.path, title: held.row.title ?? held.row.headline }],
+        views: (d.desktop?.views ?? []).map((v) => ({ path: v.path, title: v.title })),
+      });
+      await desktopReq("/send", { id: made.id, text, inputId });
+      if (draft === held) draft = null;
+      await refreshPilots();
+      if (openPilot !== id) return; // you left while it was made: it waits in the bar
+      if (hidden[id]) hidden[made.id] = true;
+      openPilot = made.id; detail = { ...detail!, id: made.id };
+      scene?.focusPilot(made.id);
+      void loadDetail();
+    } catch (e) {
+      if (openPilot === id) { detail = d; draftText = text; }
+      flash(`Couldn’t start the desktop: ${errText(e)}`);
+    }
   }
   /** A new session: on `context` (note paths), titled now if `title` is given,
    * else named by the pilot itself once it starts (the engine's own rule). */
@@ -293,6 +441,7 @@
     if (!id || !text) return;
     draftText = "";
     const inputId = `in-${crypto.randomUUID()}`;
+    if (drafting(id)) return keepDraft(text, inputId);
     try {
       // a coding desktop's agent is steered by what you say while it works
       if (coding(id)) await desktopReq(detail?.phase === "working" ? "/steer" : "/send", { id, text, inputId });
@@ -498,6 +647,7 @@
   /** Open a feed row's source: its entities lit and framed, the source and
    * Quick's summary of it where an opened entity's name goes. */
   function openSource(r: V2SortedRow): void {
+    if (r.path && !data) return openDraft(r, r.path);
     if (ent != null) { ent = null; entRows = null; }
     cursor = r.source;
     src = { row: r, text: r.path && !data ? "" : undefined };
@@ -699,7 +849,7 @@
     if (e.target === composerEl) {
       // the composer: Enter sends, Shift+Enter is a new line, Esc leaves it
       if (e.key === "Enter" && !e.shiftKey) { take(e); void sendDraft(); return true; }
-      if (e.key === "Escape") { take(e); composerEl?.blur(); return true; }
+      if (e.key === "Escape") { take(e); if (drafting(openPilot) && !draftText.trim()) closePilot(); else composerEl?.blur(); return true; }
       return false;
     }
     if (searching && e.target === qEl) {
@@ -734,8 +884,9 @@
   {#if "view" in t}
     {@const v = desktopViews.find((x) => x.id === t.view)}
     {#if v}
+      {@const srcMeta = v.kind === "note" ? notes[v.path]?.source : undefined}
       <article class="view" aria-label={v.title}>
-        <header><span class="vt">{v.title}</span>{#if v.kind === "url"}<a class="vp" href={v.path} target="_blank" rel="noopener" title="Open in a browser">{v.path} ↗</a>{:else if v.kind === "note"}<span class="vp">{v.path}</span>{:else}<span class="vp"></span>{/if}
+        <header><span class="vt">{v.title}</span>{#if v.kind === "url"}<a class="vp" href={v.path} target="_blank" rel="noopener" title="Open in a browser">{v.path} ↗</a>{:else if srcMeta}<span class="vp" title={v.path}>{srcMeta.via[0]!.toUpperCase() + srcMeta.via.slice(1)}{srcMeta.date ? ` · ${when(srcMeta.date)}` : ""}{srcMeta.page ? ` · read from ${srcMeta.page}` : ""}</span>{:else if v.kind === "note"}<span class="vp">{v.path}</span>{:else}<span class="vp"></span>{/if}
           <button type="button" class="px" onclick={() => void closeView(v.id)} aria-label={`Close ${v.title}`} title="Close — the agent leaves it closed">×</button></header>
         {#if v.kind === "html"}
           <!-- the agent's page, in this person's theme; scripts don't run -->
@@ -746,7 +897,12 @@
         {:else}
           <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
           <div class="vbody" onclick={citation}>
-            {#if notes[v.path]?.content != null}{@html render(notes[v.path]!.content!)}
+            {#if srcMeta}
+              <div class="vsum">{#if srcMeta.summary}{srcMeta.summary}{:else}<span class="spin" aria-label="Writing a summary"></span>{/if}</div>
+              {#if srcMeta.header.length}<dl class="vhead">{#each srcMeta.header as [k, val] (k)}<dt>{k}</dt><dd>{val}</dd>{/each}</dl>{/if}
+            {/if}
+            {#if srcMeta}<div class="vsrc">{@html srcMeta.html}</div>
+            {:else if notes[v.path]?.content != null}{@html render(notes[v.path]!.content!)}
             {:else if notes[v.path]?.error}<p class="activity err">{notes[v.path]!.error}</p>
             {:else}<p class="activity">Opening…</p>{/if}
           </div>
@@ -888,14 +1044,15 @@
         {#if live}<div class="msg assistant live"><div class="body">{@html render(live)}</div></div>{/if}
         {#if detail.phase === "working" && !live}<p class="activity">{(coding(detail.id) && runningLabel) || detail.activity || "Working…"}</p>{/if}
         {#if detail.error}<p class="activity err">{detail.error}</p>{/if}
-        {#if !detail.messages.length && detail.phase === "draft"}<p class="activity">{coding(detail.id) ? "Ask it anything: it can read your vault and work on your projects." : "Ask it anything — it can read your vault."}</p>{/if}
+        {#if !detail.messages.length && detail.phase === "draft"}<p class="activity">{coding(detail.id) || drafting(detail.id) ? "Ask it anything: it can read your vault and work on your projects." : "Ask it anything — it can read your vault."}</p>{/if}
       </div></div>
       <div class="dock"><div class="composer col">
         <textarea bind:this={composerEl} bind:value={draftText} rows="3" placeholder={`Message ${detail.title}…`} aria-label="Message"></textarea>
         <div class="row">
           <span class="k">{coding(detail.id) && detail.phase === "working" ? "↵ Steer" : "↵ Send"} · ⇧↵ New line · Esc Back</span>
           {#if detail.phase === "working"}<button type="button" class="find" onclick={() => void stopPilot()}>Stop</button>{/if}
-          {#if coding(detail.id)}<button type="button" class="find" onclick={() => void archiveDesktop()} title="Stop its processes; its files and conversation stay">Archive</button>
+          {#if drafting(detail.id)}<span class="k">Not kept until you send</span>
+          {:else if coding(detail.id)}<button type="button" class="find" onclick={() => void archiveDesktop()} title="Stop its processes; its files and conversation stay">Archive</button>
           {:else}<a class="find" href={`${APP}#/session/${detail.id}`}>Open in app</a>{/if}
         </div>
       </div></div>
@@ -970,10 +1127,10 @@
   .stage :global(.v2-node.full .q) { display: block; white-space: normal; width: max-content; max-width: 32ch;
     font: 400 13px/1.45 var(--font-app); color: color-mix(in srgb, var(--fg) 82%, var(--bg)); }
   .stage :global(.v2-node .q b) { font-weight: 600; color: var(--fg); }
-  .stage :global(.v2-node .q .spin), .hud .spin { display: inline-block; width: 9px; height: 9px; margin-left: 9px; vertical-align: -1px; border-radius: 50%;
+  .stage :global(.v2-node .q .spin), .hud .spin, .vsum .spin { display: inline-block; width: 9px; height: 9px; margin-left: 9px; vertical-align: -1px; border-radius: 50%;
     border: 1.5px solid color-mix(in srgb, var(--fg) 22%, transparent); border-top-color: var(--fg); animation: v2spin .8s linear infinite; }
   @keyframes v2spin { to { transform: rotate(360deg); } }
-  @media (prefers-reduced-motion: reduce) { .stage :global(.v2-node .q .spin), .hud .spin { animation-duration: 2.4s; } }
+  @media (prefers-reduced-motion: reduce) { .stage :global(.v2-node .q .spin), .hud .spin, .vsum .spin { animation-duration: 2.4s; } }
 
   .strip { position: absolute; top: 18px; left: var(--app-gutter, 34px); right: var(--app-gutter, 34px); display: flex; gap: 4px; min-width: 0; z-index: 2; }
   .strip > :global(*) { flex: 0 1 auto; min-width: 0; }
@@ -1103,6 +1260,17 @@
   .vbody { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 22px 22px; font: 400 var(--chat-fs)/1.65 var(--font-app); color: color-mix(in srgb, var(--fg) 92%, var(--bg));
     overflow-wrap: anywhere; scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--fg) 22%, transparent) transparent; }
   .vbody > :global(*) { max-width: 72ch; }
+  /* a source: Quick's summary first, then how it came in, then the source itself */
+  .vsum { margin: 0 0 18px; padding-bottom: 16px; border-bottom: 1px solid var(--rule); font: 400 calc(var(--chat-fs) * 1.07)/1.55 var(--font-app); color: var(--fg); }
+  .vhead { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; margin: 0 0 16px; font: 400 12px/1.5 var(--font-mono); color: var(--v2-muted); }
+  .vhead dt { color: var(--v2-faint); } .vhead dd { margin: 0; }
+  /* the source itself, as a reader view: pictures fit the column, figures and quotes set apart */
+  .vsrc :global(img) { display: block; max-width: 100%; height: auto; margin: 1.2em 0; border-radius: 6px; }
+  .vsrc :global(figure) { margin: 1.4em 0; } .vsrc :global(figcaption) { margin-top: -0.6em; font-size: 0.85em; color: var(--v2-muted); }
+  .vsrc :global(blockquote) { margin: 1.1em 0; padding-left: 1em; border-left: 2px solid var(--rule); color: color-mix(in srgb, var(--fg) 80%, var(--bg)); }
+  .vsrc :global(pre) { overflow-x: auto; padding: 12px 14px; border-radius: 8px; background: color-mix(in srgb, var(--fg) 5%, var(--bg)); font: 400 13px/1.5 var(--font-mono); }
+  .vsrc :global(table) { border-collapse: collapse; font-size: 0.92em; } .vsrc :global(td), .vsrc :global(th) { padding: 4px 10px; border-bottom: 1px solid var(--rule); text-align: left; }
+  .vsrc :global(hr) { border: 0; border-top: 1px solid var(--rule); margin: 1.6em 0; }
   .vpage { flex: 1; min-height: 0; width: 100%; border: 0; background: #fff; }
   .vpage.vhtml { background: var(--bg); }
   .act { margin: -12px 0; font: 400 12px/1.5 var(--font-mono); color: var(--v2-faint); }

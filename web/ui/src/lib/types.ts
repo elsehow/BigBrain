@@ -230,6 +230,8 @@ export interface ConfigInfo {
    * engine older than 0.1.29. */
   memory: import("../../../../lib/modelChoice").ModelChoice & { interval?: number };
   quick: import("../../../../lib/modelChoice").ModelChoice;
+  /** What the app may load from the web; absent from an older engine (on). */
+  security?: { remote_content: boolean };
 }
 
 // vault.yaml entries first (manifest order), then integrations/ dirs not yet
@@ -295,6 +297,7 @@ export interface ConfigPatch {
   memory?: { agent: "claude" | "codex" | "pi"; model: string; reasoning?: string | null };
   quick?: { agent: "claude" | "codex" | "pi"; model: string; reasoning?: string | null };
   integrations?: IntegrationOp[];
+  security?: { remote_content: boolean };
 }
 
 export interface ConfigResult {

@@ -26,6 +26,7 @@ export type View =
   | "vaultSettings"
   | "themes"
   | "diagnostics"
+  | "security"
   | "search";
 
 export const app = $state({
@@ -121,6 +122,9 @@ function parseHash(): { view: View; note: string | null; q: string; pilot?: stri
   // Same spelling rule.
   if (head === "diagnostics" || (head === "settings" && rest === "diagnostics"))
     return { view: "diagnostics", note: null, q: "" };
+  // settings → security: what the app may load from the web
+  if (head === "security" || (head === "settings" && rest === "security"))
+    return { view: "security", note: null, q: "" };
   // Legacy pilot links now open its subsection in vault settings.
   if (head === "pilot" || (head === "settings" && rest === "pilot"))
     return { view: "agents", note: null, q: "" };

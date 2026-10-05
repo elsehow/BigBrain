@@ -1,5 +1,5 @@
 import { afterAll, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import type { ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -105,4 +105,16 @@ test("only pages on this machine can be shown", async () => {
   expect(loopbackUrl("http://localhost:3000/app")).toBe("http://localhost:3000/app");
   for (const bad of ["https://127.0.0.1:5173/", "http://example.invalid/", "file:///etc/hosts", "not a url"])
     expect(() => loopbackUrl(bad)).toThrow();
+});
+
+test("a desktop opened on a feed item starts with its source beside the chat; only a vault note can be seeded", async () => {
+  const { ws, host } = await fakeHost([]);
+  const root = nativeVault(); roots.push(root);
+  mkdirSync(join(root, "log/insertions"), { recursive: true });
+  writeFileSync(join(root, "log/insertions/ins_a.json"), "{}");
+  const desktops = new CodingDesktops(root, { agents: new Agents(workspace(ws), new Harbor()), host });
+  const made = desktops.create({ views: [{ path: "log/insertions/ins_a.json", title: "A source" }] });
+  expect((await desktops.detail(made.id)).desktop?.views.map(v => [v.kind, v.path, v.title])).toEqual([["note", "log/insertions/ins_a.json", "A source"]]);
+  expect(() => desktops.create({ views: [{ path: "../outside.md" }] })).toThrow("No note at");
+  expect(() => desktops.create({ views: [{ path: "log/insertions/missing.json" }] })).toThrow("No note at");
 });

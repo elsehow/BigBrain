@@ -79,6 +79,7 @@ import { listTokens, revokeToken, tokenStorePath } from "../lib/auth";
 import { mintPairCode, pendingPair } from "../lib/pair";
 import { providerMonitoring } from "../lib/providerMonitor";
 import { desktopRouteManifest } from "./desktopRouteManifest";
+import { remoteContentRoutes } from "../lib/remoteContent";
 import { clearCredits, creditsState } from "../lib/providerCredits";
 
 const ROOT = VAULT_ROOT;
@@ -741,6 +742,7 @@ function configRead({ res }: Ctx): void {
     // instead of a constant that was wrong for any vault off the default
     memory: { ...manifest.memory, interval: manifest.memory.intervalMs },
     quick: manifest.quick,
+    security: { remote_content: manifest.security.remoteContent },
   });
 }
 
@@ -768,6 +770,7 @@ export const ROUTES: readonly Route[] = [
   ...noteRelationRoutes(ROOT),
   ...sourceReadStateRoutes(ROOT, undefined, applicationActions),
   { method: "GET", path: "/api/file", handler: fileRead },
+  ...remoteContentRoutes(() => loadManifest(ROOT).security.remoteContent),
   { method: "GET", path: "/api/recent", handler: recentFeed },
   { method: "GET", path: "/api/search", handler: search },
   { method: "GET", path: "/api/graph", handler: graph },
