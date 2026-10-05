@@ -10,7 +10,7 @@
   import { onMount, tick } from "svelte";
   import { api } from "../lib/api";
   import type { GraphData } from "../lib/types";
-  import { barPilots, buildField, neighbours, placePilots, searchNames, twinsOf, type Field, type PilotSummary, type V2Feed, type V2FeedRow } from "../lib/v2/model";
+  import { barPilots, buildField, latestPerFamily, neighbours, placePilots, searchNames, twinsOf, type Field, type PilotSummary, type V2Feed, type V2FeedRow } from "../lib/v2/model";
   import { md, sanitizeHtml } from "../lib/markdown";
   import { pageDoc, themeSheet, themeVars } from "../lib/pageTheme";
   import type { V2Scene } from "../lib/v2/scene";
@@ -117,6 +117,8 @@
   // ── the agent a session talks to: its backend, changeable from the chat ──
   type AgentChoice = { id: string; label: string; ready: boolean; models: Array<{ id: string; label: string; reasoning?: string[] }> };
   let pickerOpen = $state(false);
+  /** The picker leads with each family's newest model; the rest wait behind "Other". */
+  let pickerAll = $state(false);
   let agentsList: AgentChoice[] = $state([]);
   // renaming by hand: the title is an input while you edit it; the name then stands
   let renaming = $state(false);
@@ -143,7 +145,7 @@
     } catch (e) { flash(`Couldn’t rename: ${errText(e)}`); }
   }
   async function openPicker(): Promise<void> {
-    pickerOpen = true;
+    pickerOpen = true; pickerAll = false;
     if (!agentsList.length) {
       try { agentsList = (await pilotReq<{ agents: AgentChoice[] }>("/models")).agents.filter((a) => a.ready); } catch (e) { flash(errText(e)); }
     }
@@ -821,13 +823,17 @@
       <p class="eyebrow">Talk to</p>
       {#if !agentsList.length}<p class="none">Loading your agents…</p>{/if}
       {#each agentsList as a (a.id)}
+        {@const split = latestPerFamily(a.models)}
         <section>
           <h3>{a.label}</h3>
-          {#each a.models as m (m.id)}
+          {#each pickerAll ? a.models : [...split.latest, ...split.other.filter((m) => m.id === detail?.model)] as m (m.id)}
             <button type="button" class:on={m.id === detail.model} onclick={() => void chooseModel(a, m)}>{m.label}<span class="k">{m.id}</span></button>
           {/each}
         </section>
       {/each}
+      {#if !pickerAll && agentsList.some((a) => latestPerFamily(a.models).other.length)}
+        <button type="button" class="other" onclick={() => (pickerAll = true)}>Other models<span class="k">{agentsList.reduce((n, a) => n + latestPerFamily(a.models).other.length, 0)} more</span></button>
+      {/if}
       <p class="k">Esc to close · the next reply comes from the one you pick</p>
     </div>
   {/if}
@@ -930,7 +936,7 @@
   .picker button { display: flex; width: 100%; justify-content: space-between; align-items: baseline; gap: 12px; padding: 7px 10px; border: 0; border-radius: 7px; background: none;
     color: var(--fg); font: 400 14px/1.3 var(--font-app); text-align: left; cursor: pointer; }
   .picker button:hover, .picker button.on { background: color-mix(in srgb, var(--fg) 8%, var(--bg)); }
-  .picker button.on { font-weight: 600; }
+  .picker button.on { font-weight: 600; } .picker button.other { margin-top: 8px; color: var(--v2-muted); }
   .picker > .k { display: block; margin-top: 12px; }
   .picker .none { margin: 0; font: 400 13px/1.4 var(--font-app); color: var(--v2-faint); }
   .chat .top .find { flex: none; margin-top: 4px; height: 24px; }

@@ -181,3 +181,30 @@ export function placePilots(field: Field, sessions: readonly PilotSummary[]): Fi
   }
   return out;
 }
+
+/** A model id read as family and version, with no list of names: the
+ * numbers are the version ("claude-opus-4-5" → claude-opus 4.5, "gpt-6.1-sol"
+ * → gpt-sol 6.1), a trailing date marks a pinned snapshot of an alias. */
+function modelVersion(id: string): { family: string; version: number[]; dated: boolean } {
+  const parts = id.toLowerCase().split("-");
+  const dated = parts.length > 1 && /^\d{8}$/.test(parts[parts.length - 1]!);
+  if (dated) parts.pop();
+  const version = parts.filter((p) => /^\d+(\.\d+)*$/.test(p)).flatMap((p) => p.split(".").map(Number));
+  return { family: parts.filter((p) => !/^\d+(\.\d+)*$/.test(p)).join("-"), version, dated };
+}
+const newer = (a: number[], b: number[]): number => {
+  for (let k = 0; k < Math.max(a.length, b.length); k++) if ((a[k] ?? 0) !== (b[k] ?? 0)) return (a[k] ?? 0) - (b[k] ?? 0);
+  return 0;
+};
+/** Each family's newest model (its alias over a dated snapshot), in the
+ * list's own order, and the rest. New releases sort themselves in. */
+export function latestPerFamily<M extends { id: string }>(models: readonly M[]): { latest: M[]; other: M[] } {
+  const best = new Map<string, { m: M; v: ReturnType<typeof modelVersion> }>();
+  for (const m of models) {
+    const v = modelVersion(m.id), held = best.get(v.family);
+    const d = held ? newer(v.version, held.v.version) : 1;
+    if (!held || d > 0 || (d === 0 && held.v.dated && !v.dated)) best.set(v.family, { m, v });
+  }
+  const keep = new Set([...best.values()].map((b) => b.m));
+  return { latest: models.filter((m) => keep.has(m)), other: models.filter((m) => !keep.has(m)) };
+}
