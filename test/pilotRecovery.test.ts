@@ -23,12 +23,13 @@ function fixture() {
   return { root, a, b, path: (id: string) => join(spoolDir(root), "pilot-chats", `${id}.json`) };
 }
 function load(root: string) { const chats = new PilotChats(root, { graph: () => [] }); open.push(chats); return chats; }
-function desktopHistory(root: string) {
+async function desktopHistory(root: string) {
   const exits = new Set(process.listeners("exit"));
   try {
     const routes = desktopRouteManifest(root, { includeSupport: false });
-    let body = "";
-    routes.find(r => r.path === "/api/pilot/chat" && r.method === "GET")!.handler({ url: new URL("http://localhost/api/pilot/chat"), res: { writeHead() {}, end(value: string) { body = value; } } } as never);
+    // the list reads the graph before it answers
+    const body = await new Promise<string>(end => routes.find(r => r.path === "/api/pilot/chat" && r.method === "GET")!
+      .handler({ url: new URL("http://localhost/api/pilot/chat"), res: { writeHead() {}, end } } as never));
     return JSON.parse(body);
   } finally {
     // Release only this manifest's exit-owned runtime before removing its scratch vault.
@@ -52,7 +53,7 @@ test("two restarts preserve activity ordering and persist recovery before exposi
   expect(readFileSync(f.path(f.b.id), "utf8")).toBe(untouched);
 });
 
-test("desktop routes remain available with damaged Pilot, provider, worker and research records", () => {
+test("desktop routes remain available with damaged Pilot, provider, worker and research records", async () => {
   const f = fixture();
   writeAtomic(f.path(f.b.id), "{broken");
   writeAtomic(join(spoolDir(f.root), "pilot-runtime", `${f.a.id}.json`), "{broken-provider");
@@ -61,7 +62,7 @@ test("desktop routes remain available with damaged Pilot, provider, worker and r
   const healthy = newPilotChatSession([], `pilot-${"e".repeat(32)}`);
   healthy.backend = { adapter: "pi", model: "synthetic" };
   writeAtomic(f.path(healthy.id), JSON.stringify(healthy));
-  const response = desktopHistory(f.root);
+  const response = await desktopHistory(f.root);
   expect(response.sessions.map((s: { id: string }) => s.id)).toEqual([healthy.id]);
   expect(response.issues).toHaveLength(4);
   expect(response.issues.map((i: { file: string }) => i.file)).toContain(f.path(f.b.id));
@@ -69,7 +70,7 @@ test("desktop routes remain available with damaged Pilot, provider, worker and r
   expect(readFileSync(join(spoolDir(f.root), "pilot-runtime", `${f.a.id}.json`), "utf8")).toBe("{broken-provider");
 });
 
-test("valid JSON with invalid nested fields is isolated before migration, polling or maintenance", () => {
+test("valid JSON with invalid nested fields is isolated before migration, polling or maintenance", async () => {
   const f = fixture(), provider = newPilotChatSession([], `pilot-${"c".repeat(32)}`);
   provider.backend = { adapter: "pi", provider: "openai", model: "synthetic" };
   writeAtomic(f.path(provider.id), JSON.stringify(provider));
@@ -84,7 +85,7 @@ test("valid JSON with invalid nested fields is isolated before migration, pollin
   const healthy = newPilotChatSession([], `pilot-${"f".repeat(32)}`);
   healthy.backend = { adapter: "pi", model: "synthetic" };
   writeAtomic(f.path(healthy.id), JSON.stringify(healthy));
-  const response = desktopHistory(f.root);
+  const response = await desktopHistory(f.root);
   expect(response.sessions.map((s: { id: string }) => s.id)).toEqual([healthy.id]);
   expect(response.issues).toHaveLength(broken.size);
   for (const [file, value] of broken) expect(readFileSync(file, "utf8")).toBe(JSON.stringify(value));

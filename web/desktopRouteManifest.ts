@@ -4,6 +4,7 @@ import { agentScript, agentWorkspace, webPort } from "../lib/env";
 import { Agents, workspace } from "../packages/agents/src";
 import { resolve } from "node:path";
 import { codingDesktopRoutes } from "../lib/codingDesktopRoutes";
+import { primaryGraphAsync } from "../lib/graphCache";
 import { ApplicationActions, actionReceiptView, actionHistoryQuery } from "../lib/applicationActions";
 import { json, THEME_SHEET } from "../lib/httpx";
 import { IntegrationAccounts } from "../lib/integrationAccounts";
@@ -38,6 +39,8 @@ export function desktopRouteManifest(root: string, options: { includeSupport?: b
   const desktops = new CodingDesktops(root, { nameTask, agents: new Agents(workspace(agentWorkspace())), themeUrl: `http://127.0.0.1:${webPort()}${THEME_SHEET}`,
     ...(script ? { host: async () => (await import(resolve(script))).default() } : {}) });
   process.once("exit", () => desktops.close());
+  // the lists serve each context source with the entities it concerns
+  const graph = () => primaryGraphAsync(root);
   // Finish only already-spooled legacy speech; no endpoint accepts new turns.
   void sweepPilotSpool(root, new Date(), 0).catch(error => console.error("Legacy speech recovery:", error));
   const support = options.includeSupport === false ? [] : [
@@ -56,8 +59,8 @@ export function desktopRouteManifest(root: string, options: { includeSupport?: b
       } catch { json(res, 400, { error: "Invalid action history query." }); }
     } },
     ...pilotRoutes(root, { setPermissions: value => chats.setPermissions(value) }),
-    ...pilotChatRoutes(chats),
-    ...codingDesktopRoutes(desktops),
+    ...pilotChatRoutes(chats, { graph }),
+    ...codingDesktopRoutes(desktops, { graph }),
     ...workHistoryRoutes(work),
     ...connectedClientRoutes(new ConnectedClients(root)),
     ...integrationAccountRoutes(new IntegrationAccounts(root)),
