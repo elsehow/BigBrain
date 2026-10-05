@@ -3,12 +3,11 @@ import { readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { appendAssertionEvent, createAssertionEvent } from "../lib/assertionLog";
 import { appendDeclineEvent, createDeclineEvent } from "../lib/declineLog";
-import { tickIntegrationInclusion } from "../lib/inclusionStages";
+import { tickIntegrationAdmission } from "../lib/integrationAdmission";
 import { accountFingerprint, accountPolicy, writeAccountPolicy } from "../lib/integrationAccess";
 import { readSourceInsertionLog } from "../lib/insertionLog";
 import { saveJevKey } from "../lib/jevSettings";
 import { loadManifest, type GateConfig } from "../lib/manifest";
-import { passStaged } from "../lib/stage";
 import { stage, stagedItems, type StagedItem } from "../lib/stageStorage";
 import { gateDecisions, gateThreshold, type GateDecision } from "../lib/worthGate";
 import { NATIVE_YAML, nativeVault } from "./support/vault";
@@ -17,7 +16,7 @@ import { NATIVE_YAML, nativeVault } from "./support/vault";
 const scratch: string[] = [];
 afterAll(() => { for (const dir of scratch) rmSync(dir, { recursive: true, force: true }); });
 
-const CFG: GateConfig = { sample: 0.05, recall: 0.98, min: 4, rule: "Worth recording.", sources: ["email"] };
+const CFG: GateConfig = { sample: 0.05, recall: 0.98, min: 4, rule: "Worth recording." };
 const decision = (id: string, score: number, sampled = false): GateDecision =>
   ({ at: "2026-08-20T00:00:00.000Z", id, source: "email", title: id, score, threshold: 0, admitted: true, insertion_id: `ins_${id}`, ...(sampled ? { sampled } : {}) });
 
@@ -58,16 +57,16 @@ describe("the gate in front of the gardener", () => {
     }) as typeof fetch;
     try {
       writeAccountPolicy(root, "email", account, { ...accountPolicy(root, "email", account), connected: true,
-        fingerprint: accountFingerprint(root, "email", account), remembering: { enabled: true, rule: "Include everything." } });
+        fingerprint: accountFingerprint(root, "email", account), remembering: { enabled: true } });
       saveJevKey(store, "fictional");
-      expect(loadManifest(root).gate).toMatchObject({ min: 2, sources: ["email"] });
-      const item = (id: string, text: string): StagedItem => ({ id, source: "email", account, at: "2026-08-20T00:00:00.000Z", line: id, scopes: {}, name: `${id}.md`,
+      expect(loadManifest(root).gate).toMatchObject({ min: 2 });
+      const item = (id: string, text: string): StagedItem => ({ id, source: "email", account, at: "2026-08-20T00:00:00.000Z", line: id, name: `${id}.md`,
         content: `---\nid: ${id}\ntitle: Invented ${id}\nsource: email\nkind: email\ninbox: ${account}\n---\n${text}` });
 
       // cold start: the cut-off is 0, so both are admitted, scored and journaled
       stage(root, item("keep-1", "Briar confirmed the budget for the orrery repair."));
       stage(root, item("noise-1", "Ten percent off invented socks."));
-      await tickIntegrationInclusion(root, store);
+      await tickIntegrationAdmission(root, store);
       expect(stagedItems(root, "email")).toHaveLength(0);
       expect(gateDecisions(root).map((d) => [d.id, d.score, d.admitted, !!d.insertion_id]).sort()).toEqual([["keep-1", 0.9, true, true], ["noise-1", 0.1, true, true]]);
 
@@ -81,7 +80,7 @@ describe("the gate in front of the gardener", () => {
       // now the cut-off has risen to what the gardener kept; noise is passed, not admitted
       Math.random = () => 0.99;
       stage(root, item("noise-2", "Another invented coupon."));
-      await tickIntegrationInclusion(root, store);
+      await tickIntegrationAdmission(root, store);
       const passed = gateDecisions(root).at(-1)!;
       expect([passed.id, passed.score, passed.threshold, passed.admitted]).toEqual(["noise-2", 0.1, 0.9, false]);
       expect(stagedItems(root, "email")).toHaveLength(0);
@@ -91,12 +90,9 @@ describe("the gate in front of the gardener", () => {
       // a few under the cut-off still go through, to check it
       Math.random = () => 0.01;
       stage(root, item("noise-3", "An invented raffle."));
-      await tickIntegrationInclusion(root, store);
+      await tickIntegrationAdmission(root, store);
       expect(gateDecisions(root).at(-1)).toMatchObject({ id: "noise-3", admitted: true, sampled: true });
 
-      // and nothing else may pass an include-everything item the gate didn't
-      stage(root, item("keep-2", "The budget meeting moved to Friday."));
-      expect(passStaged(root, ["keep-2"], "bypass")[0]!.ok).toBe(false);
     } finally {
       if (before.conn === undefined) delete process.env["BIGBRAIN_SHARED_CONNECTIONS"]; else process.env["BIGBRAIN_SHARED_CONNECTIONS"] = before.conn;
       globalThis.fetch = before.fetch;

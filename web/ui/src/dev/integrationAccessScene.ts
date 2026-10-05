@@ -3,9 +3,9 @@ import { api } from '../lib/api';
 import type { IntegrationInfo } from '../lib/types';
 export function installIntegrationAccessScene(fail=false) {
   const original=api.config;
-  const fixture:IntegrationInfo={name:'email',enabled:false,hasCode:true,hasTrigger:true,env:[],activation:{rule:'',accounts:['me@example.com','work@example.com'],callers:[],grants:[]}};
+  const fixture:IntegrationInfo={name:'email',enabled:false,hasCode:true,hasTrigger:true,env:[],activation:{accounts:['me@example.com','work@example.com'],callers:[],grants:[]}};
   api.config=async()=>({...await original(),integrations:[structuredClone(fixture),{...structuredClone(fixture),name:"that-tracks"}]});
-  const accounts=['me@example.com','work@example.com'].map(account=>({name:'email',account,label:account,connected:false,liveAccess:false,remembering:{enabled:false,rule:''},grants:[] as {caller:string;access:string}[],capabilities:{read:'Read current messages and flags without remembering.',write:'Mark messages read or unread.'}}));
+  const accounts=['me@example.com','work@example.com'].map(account=>({name:'email',account,label:account,connected:false,liveAccess:false,remembering:{enabled:false},grants:[] as {caller:string;access:string}[],capabilities:{read:'Read current messages and flags without remembering.',write:'Mark messages read or unread.'}}));
   const clients=[{id:'12345678',name:'Codex on sample laptop',kind:'codex',revoked:null as string|null,lastUsed:"2026-09-24T00:00:00Z" as string|null,legacy:false,replaces:undefined as string|undefined,managedBy:undefined as string|undefined}];
   if(new URLSearchParams(location.search).has('managed-clients'))clients.push({id:'runner-codex',name:'Orchestration: Codex',kind:'codex',managedBy:'runner:codex',revoked:null,lastUsed:null,legacy:false,replaces:undefined},{id:'runner-claude',name:'Orchestration: Claude Code',kind:'claude-code',managedBy:'runner:claude-code',revoked:null,lastUsed:'2026-09-24T00:00:00Z',legacy:false,replaces:undefined});
   if(new URLSearchParams(location.search).has('legacy-clients'))clients.push({id:'11111111',name:'Claude Code plugin',kind:'claude-code',managedBy:'claude-plugin',revoked:null,lastUsed:'2026-09-24T00:00:00Z',legacy:true,replaces:undefined});

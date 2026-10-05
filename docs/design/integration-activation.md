@@ -68,16 +68,8 @@ and enhanced notes are discarded before staging. Transcript access is required;
 a missing or empty transcript leaves the meeting retryable, never a summary-only
 substitute. No model corrects ASR or infers speakers during ingestion.
 
-The default inclusion rule is `Include everything.` This explicit unconditional
-rule bypasses model evaluation and example ratings for any integration. An exact
-copy of the former Granola transformation default is read as this new default;
-custom rules are preserved. Existing sources are never rewritten. Older pending
-Granola payloads remain retained until refreshed as transcript-only payloads and
-cannot block newer arrivals or be automatically admitted under this default.
-
-Integration settings expose an optional inclusion-rule toggle beneath automatic
-remembering. Off uses unconditional inclusion and hides the editor/rating flow;
-turning it off retains the custom text as `remembering.inactiveRule`. Restoring
-that rule keeps its existing learned policy. Account Save persists the toggle,
-consistent with the other account settings. A newly blank rule starts off;
-existing custom rules remain on.
+Per-account inclusion rules were retired on 2026-10-05 (#80). Remembering is
+on or off; what a remembering account stages is admitted unless the worth gate
+(`lib/worthGate.ts`) passes it. A `rule` or `inactiveRule` left in an older
+policy file is ignored. Older pending Granola payloads remain retained until
+refreshed as transcript-only payloads and are never admitted automatically.

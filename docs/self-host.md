@@ -275,19 +275,17 @@ Reviewed against engine `38b78005` on 2026-09-26.
 ## Integration activation and remembering
 
 Email, Granola, and That Tracks require activation in Settings → Integrations:
-save credentials first, check account access, review a nonblank remembering
-rule, then activate. Existing saved credentials alone do not count as consent.
+save credentials first, check account access, then activate. Existing saved credentials alone do not count as consent.
 After upgrading to this contract, previously enabled integrations need this
 one-time activation; their credentials, cursors, pending material, and already
 admitted evidence remain intact. Changing account credentials/settings requires
 a fresh access check and activation.
 
-Pollers stage material. The gardener sees the source's remembering rule and
-admits only suitable evidence. Date/history limits in that rule filter fetched
-material; they do not expand the provider's existing history window or reset
-its cursor. Granola's first poll still starts at now. Disabling an integration
-stops new polling and live tool access and prevents admission of its pending
-material. It preserves the rule and evidence; reactivation checks access again.
+Pollers stage material; it is admitted unless the worth gate passes it
+(`gate:` in vault.yaml, `bigbrain gate`). Granola's first poll still starts at
+now. Disabling an integration stops new polling and live tool access and
+prevents admission of its pending material. It preserves the evidence;
+reactivation checks access again.
 
 Pilot uses host-mediated live source tools. Gardener
 curates staged and landed material and has no live-account access. Public MCP

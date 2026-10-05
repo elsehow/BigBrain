@@ -105,14 +105,14 @@ Consequences:
   happened, the record holds it, the gardener settles it. What a POLLER
   finds — a message in an inbox, later a Slack thread — is STAGED, whole,
   under `.spool/stage/` (`lib/stage.ts`): the discussable version plus one
-  head line and the scopes a rule may name. The gardener sees staged
-  heads in the same `next` as its due intake, opens a body only when the
-  head is not enough, and admits (the item lands through the intake waist
-  and is filed like any arrival) or passes (nothing lands; optionally a
-  standing skip rule in `integrations.<name>.skip`, `lib/skipRules.ts`,
-  so the poller never stages that scope again). One queue, one model,
-  one prompt; nothing source-specific in the engine or the prompt — the
-  poller publishes scopes, the engine enforces them. Pending bodies and
+  head line. The firewall screened it first. Then ONE judgment decides
+  whether it is worth gardening: the worth gate (`lib/worthGate.ts`, #80),
+  scored against the gardener's own past verdicts on that source, admits
+  it (it lands through the intake waist and is filed like any arrival) or
+  passes it (nothing lands; one audit line). Its cut-off starts at 0 and
+  rises only as far as it keeps what the gardener files. There are no
+  per-source rules: the skip rules and integration inclusion rules it
+  replaced were retired on 2026-10-05. Pending bodies and
   polling checkpoints are durable operational data: they survive cache
   deletion. Small head files keep backlog reads independent of body and
   attachment size. Admission or passing persists its outcome before

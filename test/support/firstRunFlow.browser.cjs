@@ -9,7 +9,7 @@ const assert=require('node:assert/strict');
  let step='vault',fail=false,hasVault=false,identity=null,claude=false,chatgpt=false;
  const local=[{kind:'claude-code',name:'Claude Code',available:true,connected:false},{kind:'codex',name:'Codex',available:true,connected:false}];
  const library=[{id:'browser',name:'Browser extension',description:'Save pages and highlights.',added:false},{id:'granola',name:'Granola',description:'Meeting transcripts.',added:false}];
- const account={name:'granola',account:'granola',label:'granola',connected:false,remembering:{enabled:true,rule:'Record raw transcripts.'},liveAccess:true,capabilities:{read:'Read meetings.',write:null}};
+ const account={name:'granola',account:'granola',label:'granola',connected:false,remembering:{enabled:true},liveAccess:true,capabilities:{read:'Read meetings.',write:null}};
  const setup=()=>({vault:hasVault?{path:'/fixture/new-vault',created:'2026-09-24'}:null,identity,claude:{connected:claude,installed:'fixture',account:'Fixture',plugin:null},agent:null,anthropic:{connected:claude,phase:claude?'connected':'idle'},chatgpt:{connected:chatgpt,phase:chatgpt?'connected':'idle'},codex:{installed:'fixture',account:null,connected:false},onboarding:step});
  await page.route('**/api/**',async route=>{
   const path=new URL(route.request().url()).pathname,json=v=>route.fulfill({json:v}),body=route.request().postDataJSON();

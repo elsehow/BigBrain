@@ -1,4 +1,3 @@
-import {INCLUDE_EVERYTHING} from './inclusionMode';
 /** Account access owned by BigBrain, independent of native agent permissions. */
 import { granolaConnection } from "./granolaMcp";
 import { readFileSync, rmSync } from "node:fs";
@@ -31,10 +30,6 @@ export function activationRecord(root: string, name: string): IntegrationActivat
 export function integrationAccounts(root: string, name: string): string[] {
   return name === "email" ? emailConfig(loadManifest(root).integrations.email).inboxes.map(i => i.address) : [name,...extraAccounts(root,name).map(a=>a.id)];
 }
-function legacyRememberingRule(root: string, name: string): string {
-  const value = loadManifest(root).integrations[name]?.remember;
-  return typeof value === "string" ? value.trim() : "";
-}
 /** Credentials never leave the host. Changing account settings invalidates the check. */
 export function integrationFingerprint(root: string, name: string): string {
   const cfg = loadManifest(root).integrations[name] ?? {};
@@ -46,11 +41,8 @@ export function integrationFingerprint(root: string, name: string): string {
 export function integrationActive(root: string, name: string, account?: string): boolean {
   if (!MANAGED_INTEGRATIONS.has(name)) return integrationEnabledIn(loadManifest(root).integrations,name);
   return (account ? [account] : integrationAccounts(root,name)).some(a => {
-    const policy=accountPolicy(root,name,a);return policy.connected && policy.remembering.enabled && !!policy.remembering.rule.trim();
+    const policy=accountPolicy(root,name,a);return policy.connected && policy.remembering.enabled;
   });
-}
-export function rememberingRule(root:string,name:string,account?:string):string {
-  return account ? accountPolicy(root,name,account).remembering.rule : legacyRememberingRule(root,name);
 }
 export function integrationCallerChoices(root: string) {
   return [{ id: "pilot", label: "Pilot" },
@@ -68,11 +60,10 @@ export function validateIntegrationGrants(root: string, name: string, value: unk
   });
 }
 export function saveIntegrationActivation(root: string, name: string, grants: IntegrationGrant[], fingerprint: string): void {
-  if (!rememberingRule(root, name)) throw new Error("Enter a remembering rule before activating.");
   if (fingerprint !== integrationFingerprint(root, name)) throw new Error("Account settings changed during the access check. Try again.");
   const record: IntegrationActivation = { version: 1, active: true, fingerprint, checkedAt: new Date().toISOString(), grants };
   writeAtomic(file(root, name), JSON.stringify(record) + "\n", 0o600);
-  for(const account of integrationAccounts(root,name))writeAccountPolicy(root,name,account,{version:2,connected:true,fingerprint:accountFingerprint(root,name,account),checkedAt:record.checkedAt,remembering:{enabled:true,rule:rememberingRule(root,name)},grants:grants.filter(g=>g.accounts.includes(account)).map(g=>({caller:g.caller,access:"read"}))});
+  for(const account of integrationAccounts(root,name))writeAccountPolicy(root,name,account,{version:2,connected:true,fingerprint:accountFingerprint(root,name,account),checkedAt:record.checkedAt,remembering:{enabled:true},grants:grants.filter(g=>g.accounts.includes(account)).map(g=>({caller:g.caller,access:"read"}))});
 }
 export function deactivateIntegration(root: string, name: string): void {
   const policies = integrationAccounts(root,name).map(account => ({account,policy:accountPolicy(root,name,account)}));
@@ -101,7 +92,8 @@ export type LiveAccess = "off" | "read" | "read-write";
 export interface AccountPolicy {
   version:2; connected:boolean; fingerprint:string; checkedAt:string|null; liveAccess?:boolean;
   email?: { startAt: string; attachments: boolean; backfill?: { since: string; request: string } };
-  remembering:{enabled:boolean;rule:string;inactiveRule?:string}; grants:{caller:string;access:LiveAccess}[];
+  /** Whether what it finds is remembered: staged, then admitted unless the worth gate passes it (lib/integrationAdmission.ts). */
+  remembering:{enabled:boolean}; grants:{caller:string;access:LiveAccess}[];
 }
 function accountPolicyFile(root:string,name:string,account:string):string {
   file(root,name); // Validate the adapter namespace.
@@ -114,10 +106,8 @@ export function accountFingerprint(root:string,name:string,account:string):strin
   const inbox=emailConfig(loadManifest(root).integrations.email).inboxes.find(i=>i.address===account);
   return createHash("sha256").update(JSON.stringify([inbox,readEnvValues(root)[passwordEnvKey(account)] ?? ""])).digest("hex");
 }
-const LEGACY_GRANOLA_RULE = "Record raw transcripts, correcting garbled ASR with vault context. Ignore Granola's automated summary.";
-export const GRANOLA_REMEMBERING_RULE = INCLUDE_EVERYTHING;
 export function accountPolicy(root:string,name:string,account:string):AccountPolicy {
-  const empty:AccountPolicy={version:2,connected:false,fingerprint:"",checkedAt:null,remembering:{enabled:false,rule:name==="granola"?GRANOLA_REMEMBERING_RULE:""},grants:[]};
+  const empty:AccountPolicy={version:2,connected:false,fingerprint:"",checkedAt:null,remembering:{enabled:false},grants:[]};
   if(!integrationAccounts(root,name).includes(account))return empty;
   let raw:string;
   try{raw=readFileSync(accountPolicyFile(root,name,account),"utf8");}
@@ -125,16 +115,17 @@ export function accountPolicy(root:string,name:string,account:string):AccountPol
     if((e as NodeJS.ErrnoException).code!=="ENOENT")return empty;
     // Tolerant read of explicit prior activation; never infer consent from credentials.
     if(name==="granola"||(name!=="email"&&account!==name))return empty;
-    const old=activationRecord(root,name),rule=legacyRememberingRule(root,name);
-    const valid=!!old?.active && integrationEnabledIn(loadManifest(root).integrations,name) && !!rule && old.fingerprint===integrationFingerprint(root,name);
+    const old=activationRecord(root,name);
+    const valid=!!old?.active && integrationEnabledIn(loadManifest(root).integrations,name) && old.fingerprint===integrationFingerprint(root,name);
     return {...empty,connected:valid,fingerprint:valid?accountFingerprint(root,name,account):"",checkedAt:old?.checkedAt??null,
-      remembering:{enabled:valid,rule},grants:(old?.grants??[]).filter(g=>g.accounts.includes(account)).map(g=>({caller:g.caller,access:"read"}))};
+      remembering:{enabled:valid},grants:(old?.grants??[]).filter(g=>g.accounts.includes(account)).map(g=>({caller:g.caller,access:"read"}))};
   }
   try {
     const p=JSON.parse(raw);
-    if(p.version!==2||typeof p.connected!=="boolean"||typeof p.fingerprint!=="string"||!p.remembering||typeof p.remembering.enabled!=="boolean"||typeof p.remembering.rule!=="string"||!Array.isArray(p.grants)||p.grants.some((g:any)=>typeof g.caller!=="string"||!["off","read","read-write"].includes(g.access)))return empty;
+    if(p.version!==2||typeof p.connected!=="boolean"||typeof p.fingerprint!=="string"||!p.remembering||typeof p.remembering.enabled!=="boolean"||!Array.isArray(p.grants)||p.grants.some((g:any)=>typeof g.caller!=="string"||!["off","read","read-write"].includes(g.access)))return empty;
     if(p.liveAccess!==undefined&&typeof p.liveAccess!=="boolean")return empty;
-    return {...p,remembering:{...p.remembering,rule:name==="granola"&&p.remembering.rule===LEGACY_GRANOLA_RULE?GRANOLA_REMEMBERING_RULE:p.remembering.rule.trim()?p.remembering.rule:empty.remembering.rule},connected:p.connected&&(name!=="granola"||!!granolaConnection(root,account))&&p.fingerprint===accountFingerprint(root,name,account)};
+    // a retired per-account rule (`rule`, `inactiveRule`) in an older file is ignored
+    return {...p,remembering:{enabled:p.remembering.enabled},connected:p.connected&&(name!=="granola"||!!granolaConnection(root,account))&&p.fingerprint===accountFingerprint(root,name,account)};
   }catch{return empty;}
 }
 export function writeAccountPolicy(root:string,name:string,account:string,policy:AccountPolicy):void {

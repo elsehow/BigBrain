@@ -1,7 +1,7 @@
 /**
  * worthGate.ts — "worth gardening?" (#80): one gate in front of the gardener
- * for sources that include everything, scored by Jev against the gardener's
- * own past verdicts.
+ * for what integrations find, scored by Jev against the gardener's own past
+ * verdicts. Admission (lib/integrationAdmission.ts) asks it.
  *
  * Every staged item from a gated source is scored (`gateDecide`): a rule in
  * words, plus examples drawn from what the gardener did with that source's
@@ -64,8 +64,8 @@ export function recordGateDecision(root: string, d: GateDecision): void {
   appendFileSync(join(root, GATE_JOURNAL_DIR, `${d.at.slice(0, 7)}.jsonl`), `${JSON.stringify(d)}\n`);
 }
 
-/** Did the gate pass this staged item? The permit that lets an include-everything source pass one. */
-export const gateDropped = (root: string, id: string): boolean => gateDecisions(root).some((d) => d.id === id && !d.admitted);
+/** Does the gate score this integration's arrivals? Every one, unless `sources` names some. */
+export const gated = (cfg: GateConfig, source: string): boolean => !cfg.sources || cfg.sources.includes(source);
 
 export interface Verdict { insertion_id: string; title: string; body: string; kept: boolean }
 

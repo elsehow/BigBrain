@@ -27,7 +27,7 @@ export async function stageGranolaContent(root:string,account:string,content:str
   const {envelope,body}=parseEnvelope(content);
   const id='granola-'+sha256hex(account+'\n'+r.stream+'\n'+r.key+'\n'+r.hash).slice(0,32);
   if(passed.some(p=>p.id===id||p.id===legacyId))return false;
-  return holdCleared(cleared,root,{id,source:'granola',account,at:String(envelope.date),line:String(envelope.title??r.key).slice(0,1000),scopes:{},name:id+'.md',
+  return holdCleared(cleared,root,{id,source:'granola',account,at:String(envelope.date),line:String(envelope.title??r.key).slice(0,1000),name:id+'.md',
    content:serializeEnvelope({...envelope,id:r.stream+':'+r.key,seq},body)});
  });
 }

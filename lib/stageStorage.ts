@@ -17,12 +17,6 @@ export interface StagedHead {
   at: string;
   /** The one-line head the poller composed: who, what, how big, marks. */
   line: string;
-  /** The exact strings a skip rule may name, by scope key — an address
-   * under `sender`, a List-Id under `list`. Never display text. */
-  scopes: Record<string, string>;
-  /** Scope keys a rule may NOT name for this head — the poller's word that
-   * the sender is a person the record knows. */
-  protect?: string[];
 }
 
 export interface StagedItem extends StagedHead {
@@ -84,7 +78,7 @@ export function preserveStaged(root: string): void {
   }
 }
 
-function readItem(path: string): StagedItem | undefined {
+export function readItem(path: string): StagedItem | undefined {
   try {
     const raw = JSON.parse(readFileSync(path, "utf8")) as Partial<StagedItem>;
     if (typeof raw.id !== "string" || typeof raw.content !== "string" || typeof raw.source !== "string") return undefined;
@@ -94,8 +88,6 @@ function readItem(path: string): StagedItem | undefined {
       ...(typeof raw.account === "string" ? {account:raw.account} : {}),
       at: typeof raw.at === "string" ? raw.at : "",
       line: typeof raw.line === "string" ? raw.line : raw.id,
-      scopes: raw.scopes && typeof raw.scopes === "object" ? (raw.scopes as Record<string, string>) : {},
-      ...(Array.isArray(raw.protect) ? { protect: raw.protect.filter((k): k is string => typeof k === "string") } : {}),
       name: typeof raw.name === "string" ? raw.name : `${raw.id}.md`,
       content: raw.content,
       ...(Array.isArray(raw.attachments) ? { attachments: raw.attachments as Attachment[] } : {}),
@@ -106,16 +98,14 @@ function readItem(path: string): StagedItem | undefined {
 }
 
 const head = (i: StagedHead): StagedHead => ({
-  id: i.id, source: i.source, ...(i.account ? {account:i.account} : {}), at: i.at, line: i.line, scopes: i.scopes,
-  ...(i.protect?.length ? { protect: i.protect } : {}),
+  id: i.id, source: i.source, ...(i.account ? {account:i.account} : {}), at: i.at, line: i.line,
 });
 
 export function readHead(path: string): StagedHead | undefined {
   try {
     const value = JSON.parse(readFileSync(path, "utf8")) as StagedHead;
     if (!ID_RE.test(value.id) || !SOURCE_RE.test(value.source) ||
-        typeof value.at !== "string" || typeof value.line !== "string" ||
-        !value.scopes || typeof value.scopes !== "object") return undefined;
+        typeof value.at !== "string" || typeof value.line !== "string") return undefined;
     return head(value);
   } catch { return undefined; }
 }

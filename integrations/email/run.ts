@@ -1,15 +1,11 @@
 import { emailDiscovered } from "../../lib/emailDiscovery";
 import { integrationActive, accountPolicy } from "../../lib/integrationAccess";
 /**
- * email — inbound integration (#744). Poll every inbox over IMAP, drop what
- * a standing skip rule already covers (lib/skipRules.ts, zero tokens), and
- * STAGE the rest whole — the message as it would land, one head line, and
- * the scopes a rule may name (lib/stage.ts). The gardener sees the heads
- * in its own `next`, opens a body when the line is not enough, and admits
- * (the message lands through the intake waist and is filed like any
- * arrival) or passes (nothing lands; optionally a rule that keeps this
- * sender or list from ever being staged again). One queue, one model, one
- * prompt (Nick, 2026-09-04): this door decides nothing and never spawns a
+ * email — inbound integration (#744). Poll every inbox over IMAP and STAGE
+ * each new message whole: the message as it would land, and one head line
+ * (lib/stage.ts). The integration's admission step (lib/integrationAdmission
+ * .ts) then admits it, or passes it when the worth gate (lib/worthGate.ts)
+ * scores it under its cut-off. This door decides nothing and never spawns a
  * model; it fetches and stages.
  *
  * A message is an event: it arrived once and never changes. So the cursor
@@ -41,11 +37,10 @@ import { requireIntegrationEnabled } from "../../lib/integrationPoll";
 import { loadManifest } from "../../lib/manifest";
 import { ownerLabelsFor } from "../../lib/assertionAgent";
 import { friendlyImapError as friendly } from "../../lib/imapProbe";
-import { skipMatches } from "../../lib/skipRules";
 import { hold } from "../../lib/door";
 import { emailConfig, passwordEnvKey, type EmailConfig, type Inbox } from "../../lib/emailConfig";
 import { readEmailState, writeEmailState, type EmailState } from "../../lib/emailState";
-import { emailItem, emailScopes, headLine, type EmailBody, type Head } from "../../lib/emailItem";
+import { emailItem, headLine, type EmailBody, type Head } from "../../lib/emailItem";
 
 requireIntegrationEnabled("email", VAULT_ROOT);
 
@@ -156,8 +151,7 @@ function toHead(inbox: string, msg: FetchMessageObject, known: ReadonlySet<strin
 
 /** Addresses the record already knows: the owner's own, plus every
  * address that appears in a projected entity dossier when the projection
- * is on disk. A staged head marks its sender scope `protect` on these, and
- * the engine refuses a rule on it (lib/stage.ts). */
+ * is on disk. A staged head marks their mail `known`. */
 function knownAddresses(labels: readonly string[]): Set<string> {
   const set = new Set<string>();
   const re = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/giu;
@@ -287,7 +281,7 @@ async function pollInbox(
           if(!client.capabilities.has('X-GM-EXT-1'))delete h.emailId;
           if(inbox.provider==='gmail'&&!h.emailId){failed.set(h.uid,'Gmail message identity unavailable; retry pending.');continue;}
           const identity=emailItem(h,{text:'',to:[],cc:[],attachments:[]},now).id;
-          if ((st.since && msg.internalDate instanceof Date && msg.internalDate.toISOString()<st.since) || discovered(h,identity) || skipMatches(emailScopes(h),cfg.skip)) {skipped++;settled.add(h.uid);}
+          if ((st.since && msg.internalDate instanceof Date && msg.internalDate.toISOString()<st.since) || discovered(h,identity)) {skipped++;settled.add(h.uid);}
           else if(h.size>MAX_SOURCE_BYTES)failed.set(h.uid,'Message exceeds 25 MiB; not downloaded.');
           else heads.set(h.uid, h);
         }
@@ -316,8 +310,6 @@ async function pollInbox(
                 account: inbox.address,
                 at: h.date,
                 line: headLine(h, cfg.inboxes.length),
-                scopes: emailScopes(h),
-                ...(h.known ? { protect: ["sender"] } : {}),
                 name: item.name,
                 content: item.content,
                 attachments: inbox.provider!=="gmail" || policy.email?.attachments === true ? attachmentsOf(parsed) : [],
@@ -443,7 +435,7 @@ async function main(): Promise<void> {
         st.last = { at: now.toISOString(), ok: r.unfetched===0, ...(r.unfetched?{error:`${r.unfetched} messages pending retry`}:{}) };
         if (r.staged || r.skipped || r.note)
           log(
-            `${inbox.address}: ${r.staged} staged, ${r.skipped} dropped by rules` +
+            `${inbox.address}: ${r.staged} staged, ${r.skipped} already seen` +
               (r.unfetched ? `, ${r.unfetched} body(ies) owed` : "") +
               (r.note ? ` — ${r.note}` : "")
           );

@@ -3,7 +3,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { readSourceInsertionLog } from './insertionLog';
-import { stagedHeads, openStaged } from './stage';
+import { bodyPath, headFiles, readItem } from './stageStorage';
 import { sha256hex } from './hash';
 import { parseEnvelope } from './envelope';
 import type { Head } from './emailItem';
@@ -15,9 +15,10 @@ export function emailDiscovered(root:string) {
     if(!e.provider_message_id&&typeof e.inbox==='string'&&typeof e.message_id==='string'&&e.message_id)legacy.add(JSON.stringify([e.inbox,e.message_id,sha256hex(body.trim())]));
   };
   for(const e of readSourceInsertionLog(root)) { ids.add(e.source_id);take(e.envelope,e.body); }
-  for(const h of stagedHeads(root,Infinity).filter(h=>h.source==='email')) {
-    ids.add(h.id);
-    for(const item of openStaged(root,[h.id]))if('content' in item && !item.truncated){const parsed=parseEnvelope(item.content);take(parsed.envelope,parsed.body);}
+  // everything still pending, whether or not anyone may act on it yet
+  for(const f of headFiles(root).filter(f=>f.source==='email')) {
+    ids.add(f.id);
+    const item=readItem(bodyPath(root,f.source,f.id));if(item){const parsed=parseEnvelope(item.content);take(parsed.envelope,parsed.body);}
   }
   try { for(const line of readFileSync(join(root,'.spool','stage','passed.jsonl'),'utf8').split('\n').filter(Boolean)){const item=JSON.parse(line);if(item.source==='email')ids.add(item.id);} }
   catch(e) { if((e as NodeJS.ErrnoException).code!=='ENOENT')throw e; }

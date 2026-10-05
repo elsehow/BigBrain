@@ -2,7 +2,7 @@ import {integrationAccountRoutes} from '../lib/integrationAccountRoutes';
 import {IntegrationAccounts} from '../lib/integrationAccounts';
 import {inclusionReviewApi} from '../lib/inclusionReviewApi';
 import {inclusionBackfillApi} from '../lib/inclusionBackfillApi';
-import {tickIntegrationInclusion} from '../lib/inclusionStages';
+import {tickIntegrationAdmission} from '../lib/integrationAdmission';
 import { unionGraph, unionRecent, unionSearch, unionNote, vaultFilter, includesPersonal } from '../lib/sharedReadUnion';
 import { jevSettingsApi } from '../lib/jevSettingsApi';
 import { sharedSettingsApi } from '../lib/sharedSettingsApi';
@@ -848,7 +848,7 @@ export function start(): void {
   // server's death.
   const metrics = isDesktop() ? telemetry(ROOT) : undefined;
   metrics?.start();
-  const sharedRuleTimer=setInterval(()=>{void tickRules(ROOT,connectionStorePath()).then(()=>tickPublishing(ROOT,connectionStorePath()));void tickIntegrationInclusion(ROOT).catch(()=>{});},30000);sharedRuleTimer.unref();
+  const sharedRuleTimer=setInterval(()=>{void tickRules(ROOT,connectionStorePath()).then(()=>tickPublishing(ROOT,connectionStorePath()));void tickIntegrationAdmission(ROOT).catch(()=>{});},30000);sharedRuleTimer.unref();
   const server = createServer(async (req, res) => {
     armor(res);
     if (!allowLoopbackRequest(req, res)) return;

@@ -1,7 +1,4 @@
 <script lang="ts">
- import {includesEverything,INCLUDE_EVERYTHING} from '../../../../lib/inclusionMode';
- import InclusionRuleEditor from "./InclusionRuleEditor.svelte";
- let reviewing=$state<string|null>(null);
   import { vaultFetch as fetch } from "../lib/vaultScope";
 
  /** Every integration's account settings, one component, one contract:
@@ -16,7 +13,7 @@
  import {openExternal} from "../lib/native";
  import {onMount} from 'svelte';
  const {source,openFirst=false}:{source:string;openFirst?:boolean}=$props();
-  type Account={inclusion?:{error?:string};gmail?:boolean;google?:boolean;host?:string;removable?:boolean;email?:{startAt:string;attachments:boolean;backfill?:{since:string}};sync?:{ok:boolean;error?:string};auth?:{phase:string;url?:string;error?:string};identity?:unknown;label:string;name:string;account:string;connected:boolean;remembering:{enabled:boolean;rule:string;inactiveRule?:string};liveAccess?:boolean;capabilities:{read:string|null;write:string|null}};
+  type Account={gmail?:boolean;google?:boolean;host?:string;removable?:boolean;email?:{startAt:string;attachments:boolean;backfill?:{since:string}};sync?:{ok:boolean;error?:string};auth?:{phase:string;url?:string;error?:string};identity?:unknown;label:string;name:string;account:string;connected:boolean;remembering:{enabled:boolean};liveAccess?:boolean;capabilities:{read:string|null;write:string|null}};
  let newLabel=$state(''),newKey=$state(''),adding=$state(false),destination=$state('this vault');
  let history=$state<Record<string,string>>({});
  let includeHistory=$state<Record<string,boolean>>({});
@@ -30,17 +27,12 @@
  function say(where:Where,account:string|null,text:string,error=false){feedback={where,account,error,text};}
  const placeOf=(action:string):Where=>action==='save'?'save':action==='remove'?'list':'connection';
  async function request(body?:unknown){const r=await fetch('/api/integration-accounts',body?{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)}:undefined);const v=await r.json();if(!r.ok)throw Error(v.error||'Could not load account settings.');return v;}
- function hasRule(account:Account){return !includesEverything(account.remembering.rule)||reviewing===account.account;}
- function toggleRule(account:Account,on:boolean){
-  if(on){if(account.remembering.inactiveRule){account.remembering.rule=account.remembering.inactiveRule;}else reviewing=account.account;}
-  else {if(!includesEverything(account.remembering.rule))account.remembering.inactiveRule=account.remembering.rule;account.remembering.rule=INCLUDE_EVERYTHING;reviewing=null;}
- }
  function accountLabel(account:Account){
    if(account.label!==source)return account.label;
    const identity=account.identity as {email?:unknown}|undefined;
    return typeof identity?.email==='string'?identity.email:'Account';
  }
- function accept(v:{accounts:Account[];destination?:string}){destination=v.destination??"this vault";accounts=v.accounts.filter(a=>a.name===source);accounts.forEach((a,index)=>{if(!a.remembering.rule.trim())a.remembering.rule=INCLUDE_EVERYTHING;expanded[a.account]??=openFirst&&index===0;});}
+ function accept(v:{accounts:Account[];destination?:string}){destination=v.destination??"this vault";accounts=v.accounts.filter(a=>a.name===source);accounts.forEach((a,index)=>{expanded[a.account]??=openFirst&&index===0;});}
  onMount(()=>{
    void request().then(accept).catch(e=>say('list',null,e.message,true));
    const timer=setInterval(()=>{if(!busy&&accounts.some(a=>a.auth?.phase==='browser'||a.auth?.phase==='starting'))void request().then(accept).catch(e=>say('list',null,e.message,true));},1500);
@@ -56,8 +48,7 @@
  /** Save is never silently disabled: what is missing is said, in one line. */
  function save(account:Account){
   const since=history[account.account]??'';
-  const missing=account.remembering.enabled&&!account.remembering.rule.trim()?'Write what BigBrain should remember, or turn automatic remembering off.'
-   :account.remembering.enabled&&includeHistory[account.account]&&!since.trim()?'Enter the date to remember mail since, or untick Import earlier mail.'
+  const missing=account.remembering.enabled&&includeHistory[account.account]&&!since.trim()?'Enter the date to remember mail since, or untick Import earlier mail.'
    :account.remembering.enabled&&includeHistory[account.account]&&!pastDate(since)?'Enter the date as YYYY-MM-DD, today or earlier.':'';
   if(missing){say('save',account.account,missing,true);return;}
   if(account.remembering.enabled&&includeHistory[account.account])history[account.account]=pastDate(since);
@@ -83,15 +74,9 @@
   {#if account.removable}{#if removing[account.account]}<div class="actions"><p>Remove {accountLabel(account)} from {destination}? {source==='email'?'Its saved password and choices go with it; remembered mail stays.':'Its saved credentials and choices go with it; remembered material stays.'}</p><button disabled={busy} onclick={()=>{removing[account.account]=false;void act(account,'remove');}}>Remove</button><button disabled={busy} onclick={()=>removing[account.account]=false}>Keep</button></div>
   {:else}<button disabled={busy} onclick={()=>removing[account.account]=true}>Remove…</button>{/if}{/if}
   <fieldset disabled={busy||!account.connected}>
-   {#if account.inclusion?.error}<p role="alert">{account.inclusion.error}</p>{/if}
    <label class="toggle"><input type="checkbox" bind:checked={account.remembering.enabled}/> Automatic remembering</label>
-   {#if account.remembering.enabled}<div class="remembering-rule">
-    <label class="toggle"><input type="checkbox" checked={hasRule(account)} onchange={e=>toggleRule(account,e.currentTarget.checked)}/> Inclusion rule</label>
-    {#if reviewing===account.account}<InclusionRuleEditor target={{kind:'integration',name:source,account:account.account}} value={includesEverything(account.remembering.rule)?'':account.remembering.rule} onsave={text=>{account.remembering.rule=text;reviewing=null}} oncancel={()=>reviewing=null}/>
-    {:else if hasRule(account)}<p>{account.remembering.rule}</p><button onclick={()=>reviewing=account.account}>Edit inclusion rule</button>
-    {:else}<p>Include everything.</p>{/if}
-   </div>
-   {#if source==='email'}<div class="remembering-rule"><p>{account.email?.backfill ? `Mail since ${account.email.backfill.since.slice(0,10)}` : "New mail from connection"} is staged locally for review, then remembered in {destination} when it matches your rule.</p>
+   {#if account.remembering.enabled}
+   {#if source==='email'}<div class="remembering-rule"><p>{account.email?.backfill ? `Mail since ${account.email.backfill.since.slice(0,10)}` : "New mail from connection"} is staged locally, then remembered in {destination} unless the worth gate scores it as not worth keeping.</p>
    <details><summary>History and attachments</summary>
     <label class="toggle"><input type="checkbox" bind:checked={includeHistory[account.account]}/> Import earlier mail</label>
     {#if includeHistory[account.account]}<label>Remember mail since<input inputmode="numeric" autocomplete="off" placeholder="YYYY-MM-DD" bind:value={history[account.account]}/></label>{#if !pastDate(history[account.account]??'')}<p>A date such as {new Date(Date.now()-90*864e5).toISOString().slice(0,10)}. Mail from that day on is staged for review.</p>{/if}{/if}

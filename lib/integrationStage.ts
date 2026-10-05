@@ -8,5 +8,5 @@ export async function stageIntegrationContent(root: string, source: string, cont
   const meta = parseEnvelope(content).envelope;
   const id = `${source}-${sha256hex(account+"\n"+content).slice(0, 32)}`;
   return hold(root, { id, source, account, at: typeof meta.date === "string" ? meta.date : new Date().toISOString(),
-    line: String(meta.title ?? meta.id ?? source).slice(0, 1000), scopes: {}, name: id + ".md", content });
+    line: String(meta.title ?? meta.id ?? source).slice(0, 1000), name: id + ".md", content });
 }

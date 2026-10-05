@@ -24,8 +24,6 @@ const base=process.env.SIDEBAR_PREVIEW_URL||'http://127.0.0.1:5238';
   assert.equal(await gmail.getByRole('checkbox',{name:'Automatic remembering'}).isChecked(),false);
   await gmail.getByRole('checkbox',{name:'Automatic remembering'}).check();
   await gmail.getByRole('button',{name:'Save',exact:true}).click();
-  await gmail.getByRole('alert').filter({hasText:'Write what BigBrain should remember'}).waitFor();
-  await gmail.getByLabel('What should BigBrain remember?').fill('Remember project decisions; skip routine notifications.');
   await gmail.getByText('History and attachments',{exact:true}).click();
   assert.equal(await gmail.getByRole('checkbox',{name:'Include attachments in future imports'}).isChecked(),false);
   await gmail.getByRole('checkbox',{name:'Import earlier mail'}).check();

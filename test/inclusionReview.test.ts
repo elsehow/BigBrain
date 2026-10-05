@@ -3,7 +3,7 @@ import {mkdtempSync,writeFileSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {startReview,getReview,reviewState,rateReview,editReview,finishReview} from '../lib/inclusionReview';
-import {readInclusionPolicy,sharedRuleScope,integrationRuleScope} from '../lib/inclusionPolicy';
+import {readInclusionPolicy,sharedRuleScope} from '../lib/inclusionPolicy';
 import {inclusionEvaluator,decideInclusion} from '../lib/inclusionEvaluation';
 import {rankCandidates} from '../lib/inclusionCandidates';
 import {saveJevKey} from '../lib/jevSettings';
@@ -20,7 +20,7 @@ test('real review persists judgments, hides scores, scopes policies and enforces
   expect(reviewState(s).ready).toBe(true);expect(JSON.stringify(reviewState(s))).not.toContain('threshold');expect(JSON.stringify(reviewState(s))).not.toContain('"score"');
   const count=reviewState(s).judged;editReview(s,c.text+' Exclude routine chatter.',s.revision,factory);s=await idle(c.root,s.id);expect(reviewState(s).judged).toBe(count);expect(reviewState(s).ready).toBe(true);
   let saved='';s.context.save=text=>{saved=text};finishReview(s);expect(saved).toContain('Exclude routine');
-  const policy=readInclusionPolicy(c.root,c.store,c.scope)!;expect(policy.labels.length).toBe(count);expect(policy.calibration).toBeDefined();expect(readInclusionPolicy(c.root,c.store,integrationRuleScope('email','other'))).toBeUndefined();
+  const policy=readInclusionPolicy(c.root,c.store,c.scope)!;expect(policy.labels.length).toBe(count);expect(policy.calibration).toBeDefined();expect(readInclusionPolicy(c.root,c.store,sharedRuleScope('other'))).toBeUndefined();
   const positive=policy.labels.find(l=>l.include)!;expect(await decideInclusion(c.root,c.store,c.scope,policy.text,positive.source)).toBe(true);
   const negative=policy.labels.find(l=>!l.include)!;expect(await decideInclusion(c.root,c.store,c.scope,policy.text,negative.source)).toBe(false);
   await expect(decideInclusion(c.root,c.store,c.scope,'Changed rule',positive.source)).rejects.toThrow('Review this inclusion rule again');

@@ -62,7 +62,7 @@ import {IntegrationAccounts} from '../lib/integrationAccounts';
 import {accountPolicy,readableIntegrationAccounts} from '../lib/integrationAccess';
 import {pollGranolaMcp,granolaMeetingList} from '../lib/granolaMcpPoll';
 import {integrationToolCall} from '../lib/integrationTools';
-import {stagedHeads} from '../lib/stage';
+import {headFiles} from '../lib/stageStorage';
 import {mintToken,revokeToken} from '../lib/auth';
 const meetingId='11111111-1111-4111-8111-111111111111';
 const result=(text:string)=>({content:[{type:'text' as const,text}]});
@@ -79,25 +79,25 @@ test('Granola live access applies to every authenticated client and never stages
  const service=new IntegrationAccounts(root,{granolaSignIn:(r,a,cb)=>startGranolaSignIn(r,a,cb,{endpoint:f.endpoint})});
  try{
   await connect(service,root);
-  const save=(liveAccess:boolean)=>service.update({name:'granola',account:'granola',action:'save',liveAccess,remembering:{enabled:false,rule:''}});
+  const save=(liveAccess:boolean)=>service.update({name:'granola',account:'granola',action:'save',liveAccess,remembering:{enabled:false}});
   await save(true);
   const store=join(root,'tokens.json'),a=mintToken(store,root,'Independent client',['vault:read'],{kind:'agent'}),b=mintToken(store,root,'Orchestrated client',['vault:read'],{kind:'agent'});
   const callers=[{kind:'pilot' as const},...[a,b].map(c=>({kind:'mcp' as const,token:c.token,storePath:store}))];
   const read=(caller:typeof callers[number])=>integrationToolCall(root,caller,'granola_read',{account:'granola',tool:'list_meetings',arguments:{}},{granola:{endpoint:f.endpoint}});
   for(const caller of callers){expect(readableIntegrationAccounts(root,'granola',caller)).toEqual(['granola']);expect(await read(caller)).toMatchObject({provenance:{remembered:false}});}
-  expect(stagedHeads(root)).toHaveLength(0);
+  expect(headFiles(root)).toHaveLength(0);
   beforeRead=()=>revokeToken(store,a.record.id);
   await expect(read(callers[1]!)).rejects.toThrow();
   beforeRead=()=>{};await save(false);
   for(const caller of [callers[0]!,callers[2]!])await expect(read(caller)).rejects.toThrow('not available');
-  expect(stagedHeads(root)).toHaveLength(0);
+  expect(headFiles(root)).toHaveLength(0);
  }finally{disconnectGranola(root,'granola');f.server.stop(true);rmSync(root,{recursive:true,force:true});}
 });
 test('Granola remembering stages independently of live access, deduplicates, captures changes and stops when disabled',async()=>{
  const root=nativeVault();let revision=1,broken=false,disable=false;
  let service:IntegrationAccounts;
  const f=fake(async name=>{
-  if(disable)await service.update({name:'granola',account:'granola',action:'save',liveAccess:false,remembering:{enabled:false,rule:'Remember decisions.'}});
+  if(disable)await service.update({name:'granola',account:'granola',action:'save',liveAccess:false,remembering:{enabled:false}});
   if(name==='list_meetings')return result(broken?'<meetings_data count="1">':`<meetings_data count="1"><meeting id="${meetingId}" title="Decision &amp; review" date="2026-09-24T12:00:00Z" url="https://notes.granola.ai/d/${meetingId}"></meeting></meetings_data>`);
   if(name==='get_meetings')return result(`<meetings_data count="1"><meeting id="${meetingId}"><summary>Decision ${revision}</summary></meeting></meetings_data>`);
   return result(JSON.stringify({id:meetingId,transcript:`Microphone: Keep this speaker label. Revision ${revision}`,recording_context:{microphone_sharing:'unknown'}}));
@@ -108,17 +108,17 @@ test('Granola remembering stages independently of live access, deduplicates, cap
  try{
   await connect(service,root);
   await expect(poll()).rejects.toThrow('remembering is off');
-  await service.update({name:'granola',account:'granola',action:'save',liveAccess:false,remembering:{enabled:true,rule:'Remember decisions.'}});
+  await service.update({name:'granola',account:'granola',action:'save',liveAccess:false,remembering:{enabled:true}});
   expect(await poll()).toEqual({arrivals:0}); // No implicit historical import.
   expect(await poll('2026-09-24T00:00:00Z')).toEqual({arrivals:1});
-  expect(await poll()).toEqual({arrivals:0});expect(stagedHeads(root)).toHaveLength(1);
-  revision++;expect(await poll()).toEqual({arrivals:1});expect(stagedHeads(root)).toHaveLength(2);
+  expect(await poll()).toEqual({arrivals:0});expect(headFiles(root)).toHaveLength(1);
+  revision++;expect(await poll()).toEqual({arrivals:1});expect(headFiles(root)).toHaveLength(2);
   broken=true;await expect(poll()).rejects.toThrow('format changed');broken=false;
   expect(await poll()).toEqual({arrivals:0});
-  revision++;disable=true;await expect(poll()).rejects.toThrow('remembering is off');expect(stagedHeads(root)).toHaveLength(0);
-  await service.update({name:'granola',account:'granola',action:'save',liveAccess:false,remembering:{enabled:true,rule:'Remember decisions.'}});
-  expect(stagedHeads(root)).toHaveLength(2); // Disabled material was retained, not admitted or discarded.
-  expect(accountPolicy(root,'granola','granola').remembering.rule).toBe('Remember decisions.');
+  revision++;disable=true;await expect(poll()).rejects.toThrow('remembering is off');expect(headFiles(root)).toHaveLength(2);
+  await service.update({name:'granola',account:'granola',action:'save',liveAccess:false,remembering:{enabled:true}});
+  expect(headFiles(root)).toHaveLength(2); // Disabled material was retained, not admitted or discarded.
+  expect(accountPolicy(root,'granola','granola').remembering.enabled).toBe(true);
  }finally{disconnectGranola(root,'granola');f.server.stop(true);rmSync(root,{recursive:true,force:true});}
 });
 test('Granola rejects incomplete lists',()=>{

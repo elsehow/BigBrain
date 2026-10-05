@@ -48,10 +48,7 @@ integrations:
   # email — your inboxes over IMAP (#744). Add an inbox in the app's
   # settings › integrations: the address and host land here under
   # `inboxes:`, the app password in .env. The poller stages every new
-  # message for the gardener, which admits it into the record or passes;
-  # a pass with a scope (a sender, a list) lands under `skip:`, one line
-  # each, and the poller drops matching mail for free. Delete a line to
-  # undo one.
+  # message; it is remembered unless the worth gate (gate: below) passes it.
   email:
     enabled: false
 
@@ -134,14 +131,14 @@ memory:
 #   interval: 1h # after a failed call, how long to wait before retrying
 #   batch: 10 # sources per model call
 
-# The worth gate (optional; absent is off). Sources that include everything
-# are still scored before the gardener sees them, against the gardener's own
-# past verdicts; under the cut-off they are passed. The cut-off starts at 0
+# The worth gate (optional; absent is off). What integrations find is scored
+# before the gardener sees it, against the gardener's own past verdicts;
+# under the cut-off it is passed. The cut-off starts at 0
 # and rises only while it keeps `recall` of what the gardener files; a
 # `sample` of items under it still go through to check it. Needs a Jev key.
 # `bigbrain gate` shows the cut-off and what it passed.
 # gate:
-#   sources: [email]
+#   sources: [email] # optional; absent is every integration
 #   sample: 0.05
 #   recall: 0.98
 

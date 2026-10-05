@@ -1,4 +1,4 @@
-import { activationRecord, integrationConnected, integrationActive, integrationAccounts, rememberingRule, integrationFingerprint, integrationCallerChoices, validateIntegrationGrants, saveIntegrationActivation, deactivateIntegration, MANAGED_INTEGRATIONS } from "./integrationAccess";
+import { activationRecord, integrationConnected, integrationActive, integrationAccounts, integrationFingerprint, integrationCallerChoices, validateIntegrationGrants, saveIntegrationActivation, deactivateIntegration, MANAGED_INTEGRATIONS } from "./integrationAccess";
 import { checkIntegrationConnection } from "./integrationProbe";
 /**
  * configWrite.ts — the viewer's one write surface, extracted from
@@ -68,7 +68,7 @@ export function integrationsInfo(root: string, manifest: Manifest): unknown[] {
       // second kind rather than as a reinterpretation of this one.
       kind: "poller",
       enabled: integrationActive(root, name),
-      ...(MANAGED_INTEGRATIONS.has(name) ? { activation: { rule: rememberingRule(root, name), accounts: integrationAccounts(root, name), callers: integrationCallerChoices(root), grants: activationRecord(root, name)?.grants ?? [], checkedAt: activationRecord(root, name)?.checkedAt } } : {}),
+      ...(MANAGED_INTEGRATIONS.has(name) ? { activation: { accounts: integrationAccounts(root, name), callers: integrationCallerChoices(root), grants: activationRecord(root, name)?.grants ?? [], checkedAt: activationRecord(root, name)?.checkedAt } } : {}),
       configYaml: Object.keys(opaque).length ? stringify(opaque) : "",
       hasCode: dirs.includes(name),
       // It runs on a clock of its own, rather than only when something
@@ -112,7 +112,7 @@ export async function configSave(
         return { status: 200, body: JSON.stringify({ changed: [], committed: false, accessChecked: true }) };
       }
       if (op.enabled === true && MANAGED_INTEGRATIONS.has(op.name)) {
-        if (op.activate !== true || typeof op.remember !== "string" || !op.remember.trim() || op.remember.length > 8000) throw new Error("Confirm account access and a remembering rule before activating.");
+        if (op.activate !== true) throw new Error("Confirm account access before activating.");
         if (op.env || op.add || op.remove || op.configYaml !== undefined) throw new Error("Save account settings before activating.");
         const grants = validateIntegrationGrants(root, op.name, op.readers);
         const fingerprint = integrationFingerprint(root, op.name);

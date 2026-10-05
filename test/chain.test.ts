@@ -50,9 +50,9 @@ describe("the classic chain", () => {
     const root = vault(insertion());
     fakeIntegrationActivation(root);
     stage(root, {
-      id: "email-00000000000000000001", source: "email", at: "2026-09-04T10:00:00.000Z",
-      line: '2026-09-04 · Evan <evan@example.org> · "Re: timing" · 4k', scopes: { sender: "evan@example.org" },
-      name: "re-timing.md", content: "---\nid: email-00000000000000000001\nkind: email\ntitle: \"Re: timing\"\n---\nFriday works.\n",
+      id: "fixture-00000000000000000001", source: "fixture", at: "2026-09-04T10:00:00.000Z",
+      line: '2026-09-04 · Evan <evan@example.org> · "Re: timing" · 4k',
+      name: "re-timing.md", content: "---\nid: fixture-00000000000000000001\nkind: email\ntitle: \"Re: timing\"\n---\nFriday works.\n",
     });
     const t = tendDue(root);
     const d = classicChain.due(root);

@@ -31,7 +31,6 @@ import { applyInboxAdd, applyInboxRemove, parseInboxAdd, passwordEnvKey } from "
 export interface IntegrationOp {
   name: string;
   enabled?: boolean;
-  remember?: string;
   activate?: boolean;
   checkAccess?: boolean;
   readers?: import("./integrationAccess").IntegrationGrant[];
@@ -158,7 +157,7 @@ function validateIntegrationOps(ops: IntegrationOp[], doc: ReturnType<typeof par
       );
     if (
       o.enabled === undefined && o.configYaml === undefined && o.env === undefined &&
-      o.add === undefined && o.remove === undefined && o.remember === undefined
+      o.add === undefined && o.remove === undefined
     )
       throw new Error(`integration ${o.name}: nothing to change`);
     if (o.add !== undefined || o.remove !== undefined) {
@@ -172,7 +171,6 @@ function validateIntegrationOps(ops: IntegrationOp[], doc: ReturnType<typeof par
       if (o.remove !== undefined && (typeof o.remove !== "string" || !o.remove.trim()))
         throw new Error("integration email: remove names an inbox by address");
     }
-    if (o.remember !== undefined && (typeof o.remember !== "string" || !o.remember.trim() || o.remember.length > 8000)) throw new Error("Enter a remembering rule under 8,000 characters.");
     if (o.enabled !== undefined && typeof o.enabled !== "boolean")
       throw new Error(`integration ${o.name}: enabled must be true or false`);
     if (o.configYaml !== undefined) parseIntegrationConfig(o.name, o.configYaml);
@@ -215,11 +213,6 @@ function applyIntegrationOps(
       const r = applyInboxRemove(doc, o.remove);
       if (r.changed) out.dirty = true;
       out.summary.push(r.summary);
-    }
-    if (o.remember !== undefined) {
-      if (!(map.get(o.name, true) instanceof YAMLMap)) map.set(o.name, doc.createNode({ enabled: false }));
-      doc.setIn(["integrations", o.name, "remember"], o.remember.trim());
-      out.dirty = true; out.summary.push(`integration ${o.name} remembering rule updated`);
     }
     if (o.enabled === undefined && o.configYaml === undefined) continue;
     const entry = map.get(o.name, true);

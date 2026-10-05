@@ -1,36 +1,26 @@
 /**
  * emailConfig.ts — the email integration's configuration surface (#744):
- * which inboxes the poller reads, where their app passwords live, the
- * standing skip rules the triage wrote, and the row the settings screen
- * shows for each inbox.
+ * which inboxes the poller reads, where their app passwords live, and the
+ * row the settings screen shows for each inbox.
  *
  * vault.yaml holds what is safe to commit — an inbox is an address and an
  * IMAP host — and the vault's .env holds the app password under a key
- * derived from the address (lib/envFile.ts), never the yaml. A skip rule
- * is a decision the triage made about a sender or a list; it lives in
- * vault.yaml too, so the owner can read it and delete a line to undo it.
- * No new log and no new event shape: a rule is configuration, not a fact.
+ * derived from the address (lib/envFile.ts), never the yaml.
  *
  *   integrations:
  *     email:
  *       inboxes:
  *         - address: you@example.com
  *           host: imap.gmail.com
- *       skip:
- *         - list: ci.example.github.com
- *           reason: build notifications
- *           at: 2026-09-04
  *
- * `skip` is the generic standing-rule list every poller reads
- * (lib/skipRules.ts) — the gardener writes a rule when it passes on a
- * staged message with a scope. Nothing here touches the network; the
- * poller (integrations/email/run.ts) does that, and stages what it finds
- * (lib/stage.ts) for the gardener to admit or pass.
+ * A `skip:` list there (the retired skip rules) is left alone and ignored:
+ * the worth gate decides what is worth gardening now (lib/worthGate.ts).
+ * Nothing here touches the network; the poller (integrations/email/run.ts)
+ * does that, and stages what it finds (lib/stage.ts).
  */
 
 import { loadManifest } from "./manifest";
 import { YAMLMap, type Document } from "yaml";
-import { skipRules, type SkipRule } from "./skipRules";
 
 export interface Inbox {
   address: string;
@@ -42,12 +32,8 @@ export interface Inbox {
   provider?: "gmail";
 }
 
-export type { SkipRule } from "./skipRules";
-
-
 export interface EmailConfig {
   inboxes: Inbox[];
-  skip: SkipRule[];
 }
 
 export const ADDRESS_RE = /^[^\s@<>"']+@[^\s@<>"']+\.[^\s@<>"']+$/u;
@@ -90,7 +76,7 @@ export function emailConfig(block: Record<string, unknown> | undefined): EmailCo
     const port = typeof r["port"] === "number" && r["port"] > 0 ? Math.floor(r["port"]) : 993;
     if (!inboxes.some((i) => i.address === address)) inboxes.push({ address, host, port, ...(r["provider"] === "gmail" ? { provider: "gmail" as const } : {}) });
   }
-  return { inboxes, skip: skipRules(b) };
+  return { inboxes };
 }
 
 // ── the settings screen's writes: add / remove an inbox ─────────────────────

@@ -76,8 +76,10 @@ owns durable bytes and legacy preservation; [`integrationCursor.ts`](../lib/inte
 owns tolerant cursor I/O. Neither imports account policy or pollers. Email configuration
 parsing stays in `emailConfig.ts`, separate from checkpoint/status handling in `emailState.ts`. Small head
 files let the gardener inspect a backlog without decoding every body and
-attachment. Admission lands the insertion before removing the pending item;
-passing persists its audit entry and any skip rule before removal.
+attachment. [`integrationAdmission.ts`](../lib/integrationAdmission.ts) admits
+what a managed integration staged, unless the worth gate
+([`worthGate.ts`](../lib/worthGate.ts)) passes it. Admission lands the insertion
+before removing the pending item; passing persists its audit entry before removal.
 
 [`eventLog.ts`](../lib/eventLog.ts) supplies shared validation, append, read,
 month-sharding, and commit machinery. Five event types use it:
