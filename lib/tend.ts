@@ -26,6 +26,7 @@ import { runMemory, type MemoryRunOpts, type MemoryRunResult } from "./memoryRun
 import { render } from "./prompts";
 import { stagedIds } from "./stage";
 import { dueIntakeIds } from "./work";
+import { creditsPaused } from "./providerCredits";
 
 const TEND_PROMPT_VERSION = "tend/v5";
 export const TEND_JOURNAL_DIR = "journal/tend";
@@ -191,6 +192,11 @@ export async function runTend(opts: TendOpts): Promise<TendResult> {
   const loadPi = opts.loadPi;
   const now = opts.now ?? (() => new Date());
   const maxRounds = opts.maxRounds ?? TEND_MAX_ROUNDS;
+  // Out of usage credits (lib/providerCredits.ts): hold off rather than pay
+  // for a failed round every tick; arrivals wait in the stage. One probe
+  // every half hour, or Retry in the app, tries again.
+  if (creditsPaused(root, manifest.gardener.provider, now().getTime()))
+    return { ran: false, reason: `paused: out of usage credits with ${manifest.gardener.provider}`, rounds: [] };
   if (!acquireAssertionLock(root))
     return { ran: false, reason: "another gardener holds the lock", rounds: [] };
   try {
