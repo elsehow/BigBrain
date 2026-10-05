@@ -150,9 +150,10 @@ export interface SortedEntry { source: string; section: string; headline: string
 
 const SECTIONS: readonly V2SortedRow["section"][] = ["needs-you", "agent", "know"];
 
-/** The stage's entries, most pressing first (needs you, then an agent could,
- * then worth knowing; latest added first within each). An entry whose claims have
- * all been revoked since it was sorted drops out: the record no longer says it. */
+/** The stage's entries, newest first, as a feed reads: what just arrived is
+ * what shows (the most pressing within one arrival first). An entry whose
+ * claims have all been revoked since it was sorted drops out: the record no
+ * longer says it. */
 export function buildSortedFeed(src: V2Source, entries: readonly SortedEntry[]): V2SortedRow[] {
   const live = new Map(src.rows.map((row) => [row.id, row]));
   const out: V2SortedRow[] = [];
@@ -162,7 +163,7 @@ export function buildSortedFeed(src: V2Source, entries: readonly SortedEntry[]):
     if (!section || !rows.length) continue;
     out.push({ source: e.source, section, headline: e.headline, due: e.expires, added: e.added, entities: [...new Set(rows.flatMap((r) => r.entities))] });
   }
-  return out.sort((a, b) => SECTIONS.indexOf(a.section) - SECTIONS.indexOf(b.section) || b.added.localeCompare(a.added) || a.source.localeCompare(b.source));
+  return out.sort((a, b) => b.added.localeCompare(a.added) || SECTIONS.indexOf(a.section) - SECTIONS.indexOf(b.section) || a.source.localeCompare(b.source));
 }
 
 /** One entity's latest assertions (aliases folded), dated the same way. */

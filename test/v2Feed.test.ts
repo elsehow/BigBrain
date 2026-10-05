@@ -106,15 +106,15 @@ describe("sorted feed", () => {
   const entry = (source: string, section: string, assertions: string[], expires: string | null = null, added = day(10)) =>
     ({ source, section, headline: `About ${source}`, expires, assertions, added });
 
-  test("most pressing first, latest added first within a section; joined to the live claims' entities", () => {
+  test("newest first, the most pressing first within one arrival; joined to the live claims' entities", () => {
     const rows = buildSortedFeed(source([a, b, c, d]), [
       entry("ins_know", "know", [b.id]), entry("ins_old", "needs-you", [a.id], null, day(9)),
       entry("ins_agent", "agent", [c.id], "2026-08-20"), entry("ins_new", "needs-you", [a.id, d.id], null, day(11)),
     ]);
     expect(rows.map((r) => [r.source, r.section, r.added])).toEqual([
-      ["ins_new", "needs-you", day(11)], ["ins_old", "needs-you", day(9)], ["ins_agent", "agent", day(10)], ["ins_know", "know", day(10)]]);
+      ["ins_new", "needs-you", day(11)], ["ins_agent", "agent", day(10)], ["ins_know", "know", day(10)], ["ins_old", "needs-you", day(9)]]);
     expect(rows[0]!.entities).toEqual([ada.id, orrery.id]);
-    expect(rows[2]!.due).toBe("2026-08-20");
+    expect(rows[1]!.due).toBe("2026-08-20");
   });
 
   test("an entry whose claims were all revoked since, or that was skipped, is not shown", () => {

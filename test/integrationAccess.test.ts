@@ -93,7 +93,7 @@ test("deactivation racing an access check cannot be undone by its late result",a
  const result=await f.save(f.op,async()=>{deactivateIntegration(f.root,"email");});
  expect(result.status).toBe(400);expect(integrationActive(f.root,"email")).toBe(false);
 });
-test("pending mail is never the gardener's; with remembering off it survives and cannot be admitted or passed",async()=>{
+test("pending mail is never the gardener's; while deactivated it survives and cannot be admitted or passed",async()=>{
  const f=fixture();await f.save(f.op);
  stage(f.root,{id:"mail",source:"email",account:"me@example.com",at:"2026-09-23",line:"Atlas decision",name:"atlas.md",content:"---\nid: atlas-decision\nsource: email\n---\nWe chose the smaller design."});
  expect(nextWork(f.root,{kinds:["staged"]})).toEqual([]);

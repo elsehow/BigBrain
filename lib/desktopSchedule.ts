@@ -30,6 +30,7 @@ export const CADENCE: Readonly<Record<string, number>> = {
   granola: 60,
   "that-tracks": 60,
   email: 60,
+  rss: 900,
 };
 
 /** Seconds between runs for `name`. An integration with no entry above polls

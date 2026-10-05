@@ -43,7 +43,7 @@ export function granolaMcpContent(account:string,identity:unknown,meeting:McpMee
 interface Cursor {version:1;generation:string;startedAt:string;lastPolledAt:string;seen:Record<string,string>}
 export async function pollGranolaMcp(root:string,account:string,options:{now?:Date;since?:string;run?:<T>(fn:(client:Client,tools:Tool[])=>Promise<T>)=>Promise<T>}={}):Promise<{arrivals:number}> {
  let generation:string|undefined;
- const check=()=>{if(!integrationActive(root,'granola',account))throw Error('Granola remembering is off.');if(generation&&granolaConnection(root,account)?.generation!==generation)throw Error('Granola connection changed.');};check();
+ const check=()=>{if(!integrationActive(root,'granola',account))throw Error('Granola is not connected.');if(generation&&granolaConnection(root,account)?.generation!==generation)throw Error('Granola connection changed.');};check();
  const connection=granolaConnection(root,account);if(!connection)throw Error('Connect Granola in Settings → Integrations.');
  generation=connection.generation;
  const now=options.now??new Date(),file=join(root,'.spool','integration-cursors','granola-mcp-'+sha256hex(account).slice(0,24)+'.json');

@@ -13,7 +13,7 @@
  import {openExternal} from "../lib/native";
  import {onMount} from 'svelte';
  const {source,openFirst=false}:{source:string;openFirst?:boolean}=$props();
-  type Account={gmail?:boolean;google?:boolean;host?:string;removable?:boolean;email?:{startAt:string;attachments:boolean;backfill?:{since:string}};sync?:{ok:boolean;error?:string};auth?:{phase:string;url?:string;error?:string};identity?:unknown;label:string;name:string;account:string;connected:boolean;remembering:{enabled:boolean};liveAccess?:boolean;capabilities:{read:string|null;write:string|null}};
+  type Account={gmail?:boolean;google?:boolean;host?:string;removable?:boolean;email?:{startAt:string;attachments:boolean;backfill?:{since:string}};sync?:{ok:boolean;error?:string};auth?:{phase:string;url?:string;error?:string};identity?:unknown;label:string;name:string;account:string;connected:boolean;liveAccess?:boolean;capabilities:{read:string|null;write:string|null}};
  let newLabel=$state(''),newKey=$state(''),adding=$state(false),destination=$state('this vault');
  let history=$state<Record<string,string>>({});
  let includeHistory=$state<Record<string,boolean>>({});
@@ -21,7 +21,7 @@
  let expanded=$state<Record<string,boolean>>({});
  let removing=$state<Record<string,boolean>>({});
  let accounts=$state<Account[]>([]),busy=$state(false);
- type Where='connection'|'save'|'list';
+ type Where='connection'|'save'|'list'|'add';
  /** One message at a time, shown where the action happened. */
  let feedback=$state<{where:Where;account:string|null;error:boolean;text:string}|null>(null);
  function say(where:Where,account:string|null,text:string,error=false){feedback={where,account,error,text};}
@@ -38,7 +38,7 @@
    const timer=setInterval(()=>{if(!busy&&accounts.some(a=>a.auth?.phase==='browser'||a.auth?.phase==='starting'))void request().then(accept).catch(e=>say('list',null,e.message,true));},1500);
    return()=>clearInterval(timer);
  });
- async function act(account:Account,action:string){busy=true;feedback=null;const where=placeOf(action),who=action==='remove'?null:account.account;try{accept(await request({name:source,account:account.account,action,key:keys[account.account],remembering:account.remembering,liveAccess:account.liveAccess??false,...(source==='email'?{attachments:account.email?.attachments??false,backfillSince:account.remembering.enabled&&includeHistory[account.account]?history[account.account]:undefined}:{})}));if(action==='credentials')keys[account.account]='';if(action==='save'){includeHistory[account.account]=false;history[account.account]='';}if(source==='granola'&&action==='connect'){const url=accounts.find(a=>a.account===account.account)?.auth?.url;if(url)await openExternal(url);}say(where,who,action==='connect'?(accounts.find(a=>a.account===account.account)?.connected?'Connected.':'Finish sign-in in your browser.'):action==='disconnect'?'Disconnected.':action==='cancel'?'Sign-in cancelled.':action==='remove'?`Removed ${accountLabel(account)}.`:'Saved.');}catch(e){say(where,who,e instanceof Error?e.message:'Could not save.',true);}finally{busy=false;if(action==='credentials'&&source==='email')keys[account.account]='';}}
+ async function act(account:Account,action:string){busy=true;feedback=null;const where=placeOf(action),who=action==='remove'?null:account.account;try{accept(await request({name:source,account:account.account,action,key:keys[account.account],liveAccess:account.liveAccess??false,...(source==='email'?{attachments:account.email?.attachments??false,backfillSince:includeHistory[account.account]?history[account.account]:undefined}:{})}));if(action==='credentials')keys[account.account]='';if(action==='save'){includeHistory[account.account]=false;history[account.account]='';}if(source==='granola'&&action==='connect'){const url=accounts.find(a=>a.account===account.account)?.auth?.url;if(url)await openExternal(url);}say(where,who,action==='connect'?(accounts.find(a=>a.account===account.account)?.connected?'Connected.':'Finish sign-in in your browser.'):action==='disconnect'?'Disconnected.':action==='cancel'?'Sign-in cancelled.':action==='remove'?`Removed ${accountLabel(account)}.`:'Saved.');}catch(e){say(where,who,e instanceof Error?e.message:'Could not save.',true);}finally{busy=false;if(action==='credentials'&&source==='email')keys[account.account]='';}}
  /** A calendar date typed as YYYY-MM-DD, today or earlier; '' when it is not one. */
  function pastDate(text:string):string{
   const t=text.trim();if(!/^\d{4}-\d{2}-\d{2}$/.test(t))return '';
@@ -48,13 +48,13 @@
  /** Save is never silently disabled: what is missing is said, in one line. */
  function save(account:Account){
   const since=history[account.account]??'';
-  const missing=account.remembering.enabled&&includeHistory[account.account]&&!since.trim()?'Enter the date to remember mail since, or untick Import earlier mail.'
-   :account.remembering.enabled&&includeHistory[account.account]&&!pastDate(since)?'Enter the date as YYYY-MM-DD, today or earlier.':'';
+  const missing=includeHistory[account.account]&&!since.trim()?'Enter the date to remember mail since, or untick Import earlier mail.'
+   :includeHistory[account.account]&&!pastDate(since)?'Enter the date as YYYY-MM-DD, today or earlier.':'';
   if(missing){say('save',account.account,missing,true);return;}
-  if(account.remembering.enabled&&includeHistory[account.account])history[account.account]=pastDate(since);
+  if(includeHistory[account.account])history[account.account]=pastDate(since);
   void act(account,'save');
  }
- async function add(){busy=true;feedback=null;try{accept(await request({name:source,action:'add',label:newLabel,key:newKey,...(source==='email'?{address:newLabel,password:newKey}:{})}));newLabel='';newKey='';adding=false;say('list',null,source==='email'?'Connected. Choose live access and remembering below.':'Account added. Check and connect it to verify access.');}catch(e){say('list',null,e instanceof Error?e.message:'Could not add account.',true);}finally{busy=false;if(source==='email')newKey='';}}
+ async function add(){busy=true;feedback=null;try{accept(await request({name:source,action:'add',label:newLabel,key:newKey,...(source==='email'?{address:newLabel,password:newKey}:source==='rss'?{url:newLabel}:{})}));newLabel='';newKey='';adding=false;say('list',null,source==='email'?'Connected. New mail is remembered; choose live access below.':source==='rss'?'Feed added. New items arrive within 15 minutes.':'Account added. Check and connect it to verify access.');}catch(e){say('add',null,e instanceof Error?e.message:'Could not add account.',true);}finally{busy=false;if(source==='email')newKey='';}}
 </script>
 {#snippet note(where:Where,account:string|null)}{#if feedback&&feedback.where===where&&feedback.account===account}<p class="note" role={feedback.error?'alert':'status'}>{feedback.text}</p>{/if}{/snippet}
 <section class="settings-list account-list" aria-label={`${source} accounts`}>
@@ -74,15 +74,13 @@
   {#if account.removable}{#if removing[account.account]}<div class="actions"><p>Remove {accountLabel(account)} from {destination}? {source==='email'?'Its saved password and choices go with it; remembered mail stays.':'Its saved credentials and choices go with it; remembered material stays.'}</p><button disabled={busy} onclick={()=>{removing[account.account]=false;void act(account,'remove');}}>Remove</button><button disabled={busy} onclick={()=>removing[account.account]=false}>Keep</button></div>
   {:else}<button disabled={busy} onclick={()=>removing[account.account]=true}>Remove…</button>{/if}{/if}
   <fieldset disabled={busy||!account.connected}>
-   <label class="toggle"><input type="checkbox" bind:checked={account.remembering.enabled}/> Automatic remembering</label>
-   {#if account.remembering.enabled}
    {#if source==='email'}<div class="remembering-rule"><p>{account.email?.backfill ? `Mail since ${account.email.backfill.since.slice(0,10)}` : "New mail from connection"} is staged locally, then remembered in {destination} unless the worth gate scores it as not worth keeping.</p>
    <details><summary>History and attachments</summary>
     <label class="toggle"><input type="checkbox" bind:checked={includeHistory[account.account]}/> Import earlier mail</label>
     {#if includeHistory[account.account]}<label>Remember mail since<input inputmode="numeric" autocomplete="off" placeholder="YYYY-MM-DD" bind:value={history[account.account]}/></label>{#if !pastDate(history[account.account]??'')}<p>A date such as {new Date(Date.now()-90*864e5).toISOString().slice(0,10)}. Mail from that day on is staged for review.</p>{/if}{/if}
     {#if account.email}<label class="toggle"><input type="checkbox" bind:checked={account.email.attachments}/> Include attachments in future imports</label>{/if}
-    <p>Attachments are off by default. Turning remembering off keeps existing evidence and pending material.</p>
-   </details></div>{/if}{/if}
+    <p>Attachments are off by default.</p>
+   </details></div>{/if}
 
   </fieldset>
   {#if account.capabilities.read}<fieldset disabled={busy||!account.connected}>
@@ -101,9 +99,16 @@
    <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noreferrer">Create an app password ↗</a>
    <details><summary>Can’t create an app password?</summary><p>Google may restrict app passwords for work accounts, security-key-only sign-in or Advanced Protection. Your usual Google password won’t work.</p></details>
    <button disabled={busy||!newLabel.trim()||!newKey.trim()}>{busy?'Connecting…':'Connect'}</button>
-  </form>{/if}
+  </form>{/if}{@render note('add',null)}
  {/if}
- {#if source!=='email'&&source!=='that-tracks'}<button class="settings-add" onclick={()=>adding=!adding}>{adding ? 'Cancel' : 'New account +'}</button>{#if adding}<form onsubmit={e=>{e.preventDefault();void add();}}><label>Account name<input bind:value={newLabel} maxlength="120"/></label>{#if source!=='granola'}<label>API key<input type="password" autocomplete="new-password" bind:value={newKey}/></label>{/if}<button disabled={busy||!newLabel.trim()||(source!=='granola'&&!newKey.trim())}>Add account</button></form>{/if}{/if}
+ {#if source==='rss'}
+  {#if accounts.length}<button class="settings-add" onclick={()=>adding=!adding}>{adding?'Cancel':'New feed +'}</button>{/if}
+  {#if adding||!accounts.length}<form onsubmit={e=>{e.preventDefault();void add();}}>
+   <label>Feed address<input type="url" autocomplete="off" bind:value={newLabel} placeholder="https://example.com/feed.xml" required/></label>
+   <button disabled={busy||!newLabel.trim()}>{busy?'Checking…':'Add feed'}</button>
+  </form>{/if}{@render note('add',null)}
+ {/if}
+ {#if source!=='email'&&source!=='that-tracks'&&source!=='rss'}<button class="settings-add" onclick={()=>adding=!adding}>{adding ? 'Cancel' : 'New account +'}</button>{#if adding}<form onsubmit={e=>{e.preventDefault();void add();}}><label>Account name<input bind:value={newLabel} maxlength="120"/></label>{#if source!=='granola'}<label>API key<input type="password" autocomplete="new-password" bind:value={newKey}/></label>{/if}<button disabled={busy||!newLabel.trim()||(source!=='granola'&&!newKey.trim())}>Add account</button></form>{/if}{@render note('add',null)}{/if}
 </section>
 <style>
  .account-list{box-sizing:border-box;padding-left:20px;border-left:1px solid var(--rule);margin-top:20px}
