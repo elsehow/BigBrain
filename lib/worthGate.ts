@@ -30,6 +30,7 @@ import { optionalJevKey } from "./jevSettings";
 import type { GateConfig } from "./manifest";
 import { evaluateJev } from "./sharedJev";
 import { liveSourceSql } from "./sourceSupersede";
+import { withCredits } from "./providerCredits";
 
 export const GATE_JOURNAL_DIR = "journal/gate";
 
@@ -130,7 +131,7 @@ export async function gateDecide(opts: {
   const labels: InclusionLabel[] = verdicts.slice(0, 300).map((v) => ({ source: { id: v.insertion_id, title: v.title, body: v.body, origin: source }, include: v.kept }));
   let score: number;
   try {
-    score = await (opts.score ?? jevScorer(opts.store))(cfg.rule, item, teachingExamples(labels, item));
+    score = await withCredits(root, "typesafe", "gate", () => (opts.score ?? jevScorer(opts.store))(cfg.rule, item, teachingExamples(labels, item)));
   } catch (e) {
     return { ...base, score: null, admitted: true, error: (e instanceof Error ? e.message : String(e)).slice(0, 300) };
   }

@@ -25,6 +25,7 @@ import { looksBinary, type Attachment } from "./intake";
 import { localFirewallUrl } from "./firewallModel";
 import { loadManifest, type FirewallConfig } from "./manifest";
 import { ensureSpool, spoolDir } from "./spool";
+import { OutOfCredits, outOfCredits, withCredits } from "./providerCredits";
 
 export const QUESTIONS = {
   credential: {
@@ -102,6 +103,7 @@ async function ask(cfg: FirewallConfig, state: string, fetchImpl: typeof fetch):
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
     if (/too large/i.test(detail)) throw new TooLarge();
+    if (outOfCredits(res.status, detail)) throw new OutOfCredits("typesafe", detail.slice(0, 300));
     throw new FirewallUnavailable(`firewall answered ${res.status} at ${url}`);
   }
   const body = (await res.json().catch(() => undefined)) as { answers?: Record<string, { noul?: unknown }> } | undefined;
@@ -141,9 +143,17 @@ export async function screen(
   const cfg = existsSync(join(root, "vault.yaml")) ? loadManifest(root).firewall : undefined;
   if (!cfg) return { pass: true };
   const scores: Scores = { credential: 0 };
-  for (const state of windows(screenedText(content, attachments))) {
-    const s = await askWindow(cfg, state, fetchImpl);
-    scores.credential = Math.max(scores.credential, s.credential);
+  try {
+    // a hosted firewall can run out of credits: noted (the base says so), and still unavailable — closed
+    await withCredits(root, "typesafe", "firewall", async () => {
+      for (const state of windows(screenedText(content, attachments))) {
+        const s = await askWindow(cfg, state, fetchImpl);
+        scores.credential = Math.max(scores.credential, s.credential);
+      }
+    });
+  } catch (e) {
+    if (e instanceof OutOfCredits) throw new FirewallUnavailable("firewall: out of usage credits");
+    throw e;
   }
   if (scores.credential >= cfg.thresholds.credential) return { pass: false, reason: "credential", scores };
   return { pass: true, scores };

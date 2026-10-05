@@ -12,11 +12,18 @@ import { createModelSession } from "./sessionFactory";
 import { Check } from "typebox/value";
 import type { TSchema } from "typebox";
 import type { AgentRunResult, RunUsage } from "./model";
+import { withCredits } from "../providerCredits";
 
 /** Wall-clock bound on a background job that sets no timeoutMs of its own. */
 export const BACKGROUND_JOB_TIMEOUT_MS = 60 * 60_000;
 
-export async function runSessionJob(opts: ModelRunRequest, loaders: { pi?: () => Promise<PiSDK> } = {}): Promise<AgentRunResult> {
+/** A background job (the gardener, memory, Quick, the feed). Its provider's
+ * credits are noted either way (lib/providerCredits.ts): out of credits marks
+ * it and throws OutOfCredits; a success clears a mark. */
+export function runSessionJob(opts: ModelRunRequest, loaders: { pi?: () => Promise<PiSDK> } = {}): Promise<AgentRunResult> {
+  return withCredits(opts.root, opts.target.provider, opts.role, () => runJob(opts, loaders));
+}
+async function runJob(opts: ModelRunRequest, loaders: { pi?: () => Promise<PiSDK> }): Promise<AgentRunResult> {
   opts.signal?.throwIfAborted();
   const target = validateModelChoice(opts.target);
   const profile = jobProfile(opts.role, opts.capabilities);

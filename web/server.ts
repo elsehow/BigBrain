@@ -79,6 +79,7 @@ import { listTokens, revokeToken, tokenStorePath } from "../lib/auth";
 import { mintPairCode, pendingPair } from "../lib/pair";
 import { providerMonitoring } from "../lib/providerMonitor";
 import { desktopRouteManifest } from "./desktopRouteManifest";
+import { clearCredits, creditsState } from "../lib/providerCredits";
 
 const ROOT = VAULT_ROOT;
 const UI_DIST = join(ENGINE_ROOT, "web", "ui", "dist");
@@ -629,6 +630,16 @@ function tokens({ res }: Ctx): void {
   json(res, 200, { tokens: listTokens(tokenStorePath(ROOT)).map(({ sha256: _sha, ...t }) => t) });
 }
 
+// Out of usage credits (lib/providerCredits.ts): which providers, since when,
+// and what it paused — the base's banner reads this; Retry clears the marks
+// so every paused job tries again on its next tick.
+function credits({ res }: Ctx): void {
+  json(res, 200, { providers: creditsState(ROOT) });
+}
+function creditsRetry(ctx: Ctx): void {
+  jsonPost(ctx, () => { clearCredits(ROOT); json(ctx.res, 200, { providers: creditsState(ROOT) }); });
+}
+
 function revoke(ctx: Ctx): void {
   jsonPost<{ id?: unknown }>(
     ctx,
@@ -801,6 +812,8 @@ export const ROUTES: readonly Route[] = [
   // harness as well. Production/headless servers still omit machine-local
   // controls; tests opt in so the route manifest cannot silently lose them.
   { method: "GET", path: "/api/tokens", handler: tokens },
+  { method: "GET", path: "/api/credits", handler: credits },
+  { method: "POST", path: "/api/credits/retry", handler: creditsRetry },
   { method: "POST", path: "/api/tokens/revoke", handler: revoke },
   { method: "GET", path: "/api/pair", handler: pair },
   { method: "POST", path: "/api/pair", handler: pair },

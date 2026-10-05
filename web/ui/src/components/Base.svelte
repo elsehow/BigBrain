@@ -6,6 +6,7 @@
   // Classic loads only when chosen, so its global sidebar styles never
   // reach Field.
   import { onMount } from "svelte";
+  import CreditsBanner from "./CreditsBanner.svelte";
   import FieldView from "./FieldView.svelte";
   import FirstRunGate from "./FirstRunGate.svelte";
   import VaultSwitcher from "./VaultSwitcher.svelte";
@@ -47,6 +48,8 @@
       {:else}
         <FieldView />
       {/if}
+      <!-- the base's own word, over whichever view: a provider out of usage credits -->
+      <CreditsBanner />
     {/snippet}
   </FirstRunGate>
 {:else}

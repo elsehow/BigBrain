@@ -35,6 +35,8 @@ export const app = $state({
   // live reflects whether the SSE stream is currently connected.
   rev: 0,
   usageRev: 0,
+  /** Bumps when a provider runs out of usage credits or has them again. */
+  creditsRev: 0,
   live: false,
   gardener: null as GardenerProgress | null,
   // routing state, all URL-derived (see applyHash): the open note and the
@@ -226,6 +228,7 @@ function connect(): void {
   es.addEventListener("unavailable", sharedUnavailable);
   es.addEventListener("vault", e => { observeVault(JSON.parse(e.data)); });
   es.addEventListener("usage", () => { app.usageRev++; });
+  es.addEventListener("credits", () => { app.creditsRev++; });
   es.addEventListener("application", e => {
     try { receiveApplicationChange(JSON.parse(e.data)); } catch { applicationDisconnected(); }
   });

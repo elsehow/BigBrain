@@ -30,6 +30,7 @@ const sorted = empty ? [] : [
     title: "Lantern grant draft", path: "log/insertions/2026-10/ins_c.json", via: "email" },
 ];
 
+let outOfCredits = new URLSearchParams(location.search).has("credits");
 const fake = window.fetch;
 (window as unknown as { fetch: typeof fake }).fetch = (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
   const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url, location.origin);
@@ -39,6 +40,9 @@ const fake = window.fetch;
   if (url.pathname === "/api/v2/sorted") return json({ rows: sorted });
   if (url.pathname === "/api/v2/entity") return json({ rows: feed.filter((r) => r.entities.includes(url.searchParams.get("id") ?? "")) });
   if (url.pathname === "/api/desktops") return json({ desktops: [] });
+  // `?credits`: the gardener's provider is out of usage credits until Retry
+  if (url.pathname === "/api/credits/retry") { outOfCredits = false; return json({ providers: {} }); }
+  if (url.pathname === "/api/credits") return json({ providers: outOfCredits ? { anthropic: { since: at(0), at: at(5), roles: ["tend", "quick"], detail: "Your credit balance is too low." } } : {} });
   if (url.pathname === "/api/note/briefing") return json({ error: "no briefings here" }, 404);
   return fake(input, init);
 }) as typeof fake;

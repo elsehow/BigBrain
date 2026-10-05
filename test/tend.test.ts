@@ -13,6 +13,7 @@ import type { MemoryRunResult } from "../lib/memoryRun";
 import { stagedIds } from "../lib/stage";
 import { stage } from "../lib/stageStorage";
 import { runTend, tendDue, tendHasWork, tendPrompt } from "../lib/tend";
+import { clearCredits, creditsState } from "../lib/providerCredits";
 import { dueIntakeIds, submitWork } from "../lib/work";
 import { insertionSeq, nativeVault, NATIVE_YAML } from "./support/vault";
 
@@ -85,6 +86,23 @@ describe("containment", () => {
     const root = vault(insertion());
     const result = await runTend({ root, manifest: manifest(root), loadPi: fakePi(() => { throw new Error("Fixture connection unavailable"); }) });
     expect(result.rounds[0]!.error).toContain("Fixture connection unavailable");
+  });
+
+  test("out of usage credits pauses the gardener: one failed round, then no paid attempts until a probe or Retry", async () => {
+    const root = vault(insertion());
+    let calls = 0;
+    const broke = fakePi(() => { calls++; throw new Error("400: Your credit balance is too low to access the API."); });
+    const first = await runTend({ root, manifest: manifest(root), loadPi: broke });
+    expect(first.rounds[0]!.error).toBe("Out of usage credits.");
+    const provider = manifest(root).gardener.provider;
+    expect(creditsState(root)[provider]?.roles).toEqual(["tend"]);
+    const tried = calls;
+    const second = await runTend({ root, manifest: manifest(root), loadPi: broke });
+    expect(second).toMatchObject({ ran: false, reason: `paused: out of usage credits with ${provider}` });
+    expect(calls).toBe(tried);
+    clearCredits(root);
+    await runTend({ root, manifest: manifest(root), loadPi: broke });
+    expect(calls).toBeGreaterThan(tried);
   });
 });
 

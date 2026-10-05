@@ -140,6 +140,11 @@ export function createLive(opts: LiveOptions): Live {
       if (!stopped && !progressTimer) progressTimer = setTimeout(() => { progressTimer = null; publishProgress(); }, 100);
       return;
     }
+    // A provider ran out of usage credits, or has them again: the base's banner re-reads.
+    if (rel === `.state${sep}credits.json`) {
+      if (!stopped) for (const c of clients) c.write('event: credits\ndata: {"changed":true}\n\n');
+      return;
+    }
     // Model accounting changes usage, never the vault's content or topology.
     if (rel === `journal${sep}model-runs` || rel.startsWith(`journal${sep}model-runs${sep}`)) {
       if (!stopped && !usageTimer) usageTimer = setTimeout(() => {
