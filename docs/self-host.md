@@ -53,7 +53,9 @@ turns, tokens and cost when reported. Unknown cost is retained as unknown.
 
 ## Prerequisites
 
-- An Apple-silicon Mac; other platforms are not end-to-end verified.
+- An Apple-silicon Mac; other platforms are not end-to-end verified. (A
+  shared vault for several people runs on a Linux server instead:
+  [deploy/shared-vault/README.md](../deploy/shared-vault/README.md).)
 - Working git. On macOS, install Apple Command Line Tools with
   `xcode-select --install` and finish its installer before creating a vault.
   Verify `git --version` works; full Xcode is not required. If setup reports
