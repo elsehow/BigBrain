@@ -49,12 +49,16 @@ export async function pollGranolaMcp(root:string,account:string,options:{now?:Da
  const now=options.now??new Date(),file=join(root,'.spool','integration-cursors','granola-mcp-'+sha256hex(account).slice(0,24)+'.json');
  const raw=readCursorJson(file) as unknown as Cursor|undefined;
  const valid=raw?.version===1&&raw.generation===connection.generation&&Number.isFinite(Date.parse(raw.startedAt))&&Number.isFinite(Date.parse(raw.lastPolledAt))&&raw.seen&&typeof raw.seen==='object';
- const cursor:Cursor=valid?raw!:{version:1,generation:connection.generation,startedAt:options.since??now.toISOString(),lastPolledAt:options.since??now.toISOString(),seen:{}};
- if(options.since)cursor.startedAt=new Date(options.since).toISOString();
+ // A new connection (a reconnect) picks up where the last one's polls left off, so what
+ // happened while it was down still arrives; only a first connection starts now.
+ const resume=raw?.version===1&&Number.isFinite(Date.parse(raw.lastPolledAt))?raw.lastPolledAt:now.toISOString();
+ const cursor:Cursor=valid?raw!:{version:1,generation:connection.generation,startedAt:resume,lastPolledAt:resume,seen:{}};
+ // --since reaches back that far on this poll, past the usual 48-hour overlap
+ if(options.since)cursor.startedAt=cursor.lastPolledAt=new Date(options.since).toISOString();
  const floor=Math.max(Date.parse(cursor.startedAt),Date.parse(cursor.lastPolledAt)-48*3600_000);
  const run=options.run??(<T>(fn:(client:Client,tools:Tool[])=>Promise<T>)=>withGranola(root,account,fn));
  return run(async(client,tools)=>{
-  for(const name of ['list_meetings','get_meetings','get_meeting_transcript'])if(!tools.some(t=>t.name===name))throw Error('Granola does not offer the tools needed for automatic remembering.');
+  for(const name of ['list_meetings','get_meetings','get_meeting_transcript'])if(!tools.some(t=>t.name===name))throw Error('Granola does not offer the tools BigBrain reads meetings with.');
   const call=async(name:string,args:Record<string,unknown>)=>{check();const r=await client.callTool({name,arguments:args}) as CallToolResult;check();return r;};
   const listed=granolaMeetingList(await call('list_meetings',{time_range:'custom',custom_start:new Date(floor-24*3600_000).toISOString().slice(0,10),custom_end:new Date(now.getTime()+24*3600_000).toISOString().slice(0,10)}));
   const meetings=listed.filter(m=>Date.parse(m.date)>=Date.parse(cursor.startedAt)).sort((a,b)=>a.date.localeCompare(b.date));
