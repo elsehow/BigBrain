@@ -3,6 +3,8 @@
   // (by the hash, so ⌘, and links land the same way); the field keeps
   // running beneath, and gets its keys back when the panel closes.
   import DropZone from "./DropZone.svelte";
+  import Feedback from "./Feedback.svelte";
+  import UpdateNudge from "./UpdateNudge.svelte";
   import NotificationStack from "./NotificationStack.svelte";
   import SettingsScreens from "./SettingsScreens.svelte";
   import V2View from "./V2View.svelte";
@@ -10,16 +12,24 @@
   import { isSettingsView } from "../lib/settingsViews";
 
   const open = $derived(isSettingsView(app.view));
+  // the Feedback button shows while the pointer moves, as in Classic
+  let awake = $state(false), feedbackOpen = $state(false);
+  let feedback = $state<{ key: (event: KeyboardEvent) => void }>();
+  let sleep: ReturnType<typeof setTimeout> | undefined;
+  const wake = () => { awake = true; clearTimeout(sleep); sleep = setTimeout(() => { awake = false; }, 2500); };
   const close = () => goto("home");
   function onKey(e: KeyboardEvent): void {
+    // an open Feedback dialog has the keys (Esc closes it, Tab stays inside)
+    if (feedbackOpen) { feedback?.key(e); return; }
     if (open && e.key === "Escape" && !e.defaultPrevented) { e.preventDefault(); e.stopPropagation(); close(); }
   }
 </script>
 
-<svelte:window onkeydowncapture={onKey} />
+<svelte:window onkeydowncapture={onKey} onpointermove={wake} />
 
+<div class="update"><UpdateNudge /></div>
 <DropZone />
-<V2View paused={open} />
+<V2View paused={open || feedbackOpen} />
 {#if open}
   <div class="scrim" role="presentation" onclick={close}></div>
   <aside class="panel" aria-label="Settings">
@@ -30,6 +40,7 @@
   </aside>
 {/if}
 <NotificationStack />
+<div class="feedback"><Feedback bind:this={feedback} bind:open={feedbackOpen} visible={awake} panel={open ? "settings" : "field"} expanded={false} {wake} /></div>
 
 <style>
   .scrim { position: fixed; inset: 0; z-index: 20; background: color-mix(in srgb, var(--bg) 35%, transparent); }
@@ -39,5 +50,8 @@
   .close { position: absolute; top: 18px; right: 18px; z-index: 1; display: inline-flex; padding: 6px; border: 0; border-radius: 999px;
     background: none; color: var(--text-muted); cursor: pointer; }
   .close:hover { color: var(--text); background: color-mix(in srgb, var(--fg) 7%, var(--bg)); }
+  .update { position: fixed; top: 0; left: 0; right: 0; z-index: 30; display: flex; flex-direction: column; }
+  /* above the field's key hints, which hold the bottom-right corner */
+  .feedback :global(.feedback-trigger) { bottom: 52px; }
   @keyframes slide { from { transform: translateX(24px); opacity: 0; } }
 </style>

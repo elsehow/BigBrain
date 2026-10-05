@@ -12,14 +12,20 @@
   import { selectedWorkspace, switchWorkspace } from "../lib/vaultScope";
   import { sharedWorkspace, checkSharedWorkspace } from "../lib/sharedWorkspace.svelte";
   import { init } from "../lib/store.svelte";
+  import { startTelemetryPresence } from "../lib/telemetry";
+  import { startUpdateChecks } from "../lib/update.svelte";
   import { viewChoice, type ViewKind } from "../lib/viewChoice.svelte";
 
   /** `view` pins the view (a workbench, a test fixture); `shell` passes through to Classic. */
   const { view, shell = {} }: { view?: ViewKind; shell?: { baseline?: boolean; debug?: boolean } } = $props();
   const kind = $derived(view ?? viewChoice.kind);
 
+  // every view's services: whether a newer build is out (each view places
+  // the banner, UpdateNudge), and the usage presence a running app reports
+  $effect(() => startTelemetryPresence());
   onMount(() => {
     init();
+    startUpdateChecks();
     const unavailable = () => {
       sharedWorkspace.ready = false;
       sharedWorkspace.error = "The shared vault is unavailable. Reconnecting…";

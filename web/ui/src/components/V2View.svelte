@@ -897,6 +897,14 @@
   <p class="hints" aria-hidden="true"><span>/ Search</span><span>j k Feed</span>{#if cursor && ent == null}<span>↵ Open</span>{/if}<span>⇧↵ Pilot</span><span>1–9 Pilots</span><span>⌘N New</span>{#if openPilot && desktopViews.length}<span>\ Views</span>{/if}{#if ent != null || src || cursor}<span>Esc Back</span>{/if}</p>
   {#if notice}<p class="notice" role="status">{notice}</p>{/if}
   {#if error}<p class="error">The v2 view couldn’t load: {error}</p>{/if}
+  {#if field && !field.nodes.length && !openPilot}
+    <!-- a new vault: nothing drawn yet, so say how things arrive -->
+    <div class="empty">
+      <h1>Nothing here yet</h1>
+      <p>Drop a file or a link anywhere on this window, or connect your mail, meetings or feeds. What arrives is filed into your vault and shows up here.</p>
+      {#if !data}<button type="button" class="find" onclick={() => goto("integrations")}>Connect an integration</button>{/if}
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -1127,6 +1135,9 @@
     font: 600 10px/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--v2-faint); }
   .notice { position: absolute; right: var(--app-gutter, 34px); bottom: 50px; max-width: 46ch; margin: 0; padding: 9px 12px; border-radius: 8px;
     background: color-mix(in srgb, var(--fg) 8%, var(--bg)); font: 400 13px/1.4 var(--font-app); color: var(--fg); }
+  .empty { position: absolute; top: 38%; left: 50%; transform: translate(-50%, -50%); width: min(460px, calc(100% - 32px)); display: flex; flex-direction: column; align-items: flex-start; gap: 12px; }
+  .empty p { margin: 0; font: 400 14.5px/1.5 var(--font-app); color: var(--v2-muted); }
+  .empty .find { margin-left: 0; color: var(--fg); background: color-mix(in srgb, var(--fg) 7%, var(--bg)); }
   .error { position: absolute; top: 80px; left: var(--app-gutter, 34px); font: 400 13px/1.5 var(--font-app); color: var(--v2-muted); }
   @media (max-width: 700px) {
     .row { grid-template-columns: 72px minmax(0, 1fr); } .row .w { display: none; }

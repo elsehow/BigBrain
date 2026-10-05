@@ -6,8 +6,6 @@
   import { getContext } from "svelte";
   import { SIDEBAR_LAYOUT, type SidebarLayout } from "./lib/sidebarLayout";
   const sidebar = getContext<SidebarLayout | undefined>(SIDEBAR_LAYOUT);
-  import { startTelemetryPresence } from "./lib/telemetry";
-  $effect(() => startTelemetryPresence());
   import DropZone from "./components/DropZone.svelte";
   import HomeView from "./components/HomeView.svelte";
   import SettingsScreens from "./components/SettingsScreens.svelte";
@@ -18,14 +16,11 @@
   import { openExternalLinks } from "./lib/links";
   import { pilot, pilotClearContext } from "./lib/pilot.svelte";
   import type { SetupState } from "./lib/setup";
-  import { startUpdateChecks } from "./lib/update.svelte";
   import { app, gotoNote } from "./lib/store.svelte";
 
   // First run is the base's (components/FirstRunGate.svelte); the classic
   // view is handed the setup state it reads (the identity, for the graph).
   const { setup }: { setup: SetupState | null } = $props();
-
-  $effect(() => { startUpdateChecks(); });
 
   $effect(() => {
     const names = { sharedVaultSettings: "Shared vaults", home: "Home", top: "Top", vault: "Vault", graph: "Graph", connectedClients: "Connected Clients", pilotSettings: "Pilot", integrations: "Integrations", agents: "Models", vaultSettings: "General", themes: "General", diagnostics: "Diagnostics", search: "Search" };
