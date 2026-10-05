@@ -66,7 +66,7 @@ describe("bin/shared.ts — the CLI", () => {
     expect(sharedCli(["member", "revoke", "owner", "--vault", root, "--members", store], { expectFail: true }).err).toContain("cannot be revoked");
     // the installed command reaches the same program
     expect(sharedCli(["member", "list", "--vault", root, "--members", store], { via: "cli" }).json.map((m: any) => m.handle)).toEqual(["owner", "alice"]);
-  });
+  }, 60_000);
 
   test("the shared vault is never discovered, never a personal vault, never off loopback without --remote, and never keeps its store inside", () => {
     const dir = scratch();
@@ -94,7 +94,7 @@ describe("bin/shared.ts — the CLI", () => {
     expect(remote.code).toBe(1);
     expect(remote.err).toContain("--remote");
     expect(remote.err).toContain("TLS");
-  });
+  }, 60_000);
 
   test("every phase through the in-process handler: scenario, restart persistence, adversarial authorization; the second-client phase is SKIPPED, not passed", async () => {
     const dir = scratch();

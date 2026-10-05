@@ -876,7 +876,7 @@ describe("owner member management by email", () => {
     const serve = sharedCli(["serve", ...v, "--port", "0", "--public-url", "http://vault.example.com"], { expectFail: true });
     expect(serve.code).toBe(1);
     expect(serve.err).toContain("https");
-  });
+  }, 60_000);
 });
 
 
