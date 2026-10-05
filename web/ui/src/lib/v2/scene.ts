@@ -140,6 +140,7 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
     L.append(t, q);
     return { key: "", ties: [], at: new THREE.Vector3(), vis: 0, want: false, open: false, L };
   });
+  const srcName = (s: string) => (s.length > 48 ? s.slice(0, 47).trimEnd() + "…" : s);
   /** Its name, or opened, its text where an opened entity's goes. */
   const sourceLabel = (s: Src, name: string, text: string | undefined) => {
     const full = s.open && !!text;
@@ -149,7 +150,6 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
     s.L.w = undefined;
   };
   for (const s of sources) labelLayer.append(s.L);
-  const srcName = (s: string) => (s.length > 48 ? s.slice(0, 47).trimEnd() + "…" : s);
 
   // ── lines ────────────────────────────────────────────────────────────────
   const lineSet = (pairs: Array<[THREE.Vector3, THREE.Vector3]>, opacity: number) => {
@@ -184,7 +184,6 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
     };
   };
   const ties = dynamic(160 + 64);
-
 
   // ── glass: memory topics ─────────────────────────────────────────────────
   const octa = new THREE.OctahedronGeometry(1, 0);
@@ -310,6 +309,24 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
     let R = 0;
     for (const p of pts) R = Math.max(R, p.distanceTo(c));
     setGoal({ el, dist: THREE.MathUtils.clamp(R * k + 3, lo, hi), target: c });
+  };
+  const centre = (pts: THREE.Vector3[]) => pts.reduce((c, p) => c.add(p), new THREE.Vector3()).divideScalar(pts.length);
+  /** A source walked to, followed rather than zoomed: centred with what it
+   * mentions, at the distance and angle you had, backing out only as far as
+   * it takes to fit (never in). Tied to nothing, the camera holds. */
+  const follow = (s: Src) => {
+    if (!s.ties.length) return;
+    const pts = [s.at, ...s.ties.map((j) => P[j]!)], c = centre(pts);
+    const R = Math.max(...pts.map((p) => p.distanceTo(c)));
+    setGoal({ el: goal.el, dist: Math.max(goal.dist, Math.min(OVERVIEW.dist, R * 2.6 + 3)), target: c });
+  };
+  /** Over the middle of what it mentions, lifted clear of it (over one, a
+   * little aside, so the tie reads); mentioning nothing here, mid-view. */
+  const settle = (s: Src) => {
+    if (s.ties.length) s.at.copy(centre(s.ties.map((j) => P[j]!))).add(v3.set(s.ties.length === 1 ? 0.6 : 0, 1.6, 0));
+    else s.at.copy(goal.target).y += 1.2;
+    s.at.toArray(aPos.array, (N + sources.indexOf(s)) * 3);
+    aPos.needsUpdate = true;
   };
 
   // ── labels: DOM, placed per frame, culled where they'd collide ──────────
@@ -715,45 +732,21 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
       for (const s of sources) { s.want = !!key && s.key === key; if (!s.want) s.open = false; }
       if (!want) return;
       const open = !!want.open;
-      // over the middle of what it mentions, lifted clear of it (over one, a
-      // little aside, so the tie reads); mentioning nothing here, mid-view
-      // followed, not zoomed: centred, at the distance and angle you had,
-      // backing out only as far as it takes to fit (never in)
-      const frame = (s: Src) => {
-        if (!s.ties.length) return;
-        const pts = [s.at, ...s.ties.map((j) => P[j]!)];
-        const c = new THREE.Vector3();
-        for (const p of pts) c.add(p);
-        c.divideScalar(pts.length);
-        let R = 0;
-        for (const p of pts) R = Math.max(R, p.distanceTo(c));
-        setGoal({ el: goal.el, dist: Math.max(goal.dist, Math.min(OVERVIEW.dist, R * 2.6 + 3)), target: c });
-      };
-      const settle = (s: Src) => {
-        if (want.entities.length) {
-          const c = new THREE.Vector3();
-          for (const j of want.entities) c.add(P[j]!);
-          c.divideScalar(want.entities.length);
-          s.at.set(c.x + (want.entities.length === 1 ? 0.6 : 0), c.y + 1.6, c.z);
-        } else s.at.copy(goal.target).y += 1.2;
-        s.at.toArray(aPos.array, (N + sources.indexOf(s)) * 3);
-        aPos.needsUpdate = true;
-      };
       const held = sources.find((s) => s.want);
       if (held) {
         const opening = open && !held.open;
         held.open = open;
         sourceLabel(held, want.label, want.text);
         // walked back to: placed anew (one tied to nothing comes to where you are)
-        if (opening) { settle(held); frame(held); }
+        if (opening) { settle(held); follow(held); }
         return;
       }
       // a free slot (or the faintest), so the last one fades out where it was
       const s = sources.reduce((a, b) => (b.vis < a.vis ? b : a));
-      settle(s);
       Object.assign(s, { key, ties: want.entities, want: true, vis: 0, open });
+      settle(s);
       sourceLabel(s, want.label, want.text);
-      if (open) frame(s);
+      if (open) follow(s);
     },
     relate(j, text) {
       if (j == null || text === undefined) return unrelate();

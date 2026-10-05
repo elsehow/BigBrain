@@ -403,7 +403,7 @@
     if (wasDraft) {
       // back to the feed, on the row it came from
       draft = null; draftText = "";
-      lightCursor();
+      unlight();
       void tick().then(() => feedEl?.querySelector(".row.at")?.scrollIntoView({ block: "nearest" }));
     }
   }
@@ -549,12 +549,13 @@
 
   // the feed: an opened entity's own record, else the vault's latest
   let rows = $derived.by(() => (!writing ? [] : ent != null && entRows ? entRows.slice(-6) : writing.feed.slice(-6)));
-  let hud = $derived.by(() => {
+  let hud = $derived.by((): { eyebrow: string; name: string; status: string; writing?: boolean } | null => {
     if (!field || !writing || searching || openPilot) return null;
-    if (src) return { eyebrow: [src.row.via, when(src.row.added)].filter(Boolean).join(" · "), name: src.row.title ?? src.row.headline, status: src.text ?? "", writing: src.text === "" };
+    const titled = (r: V2SortedRow) => ({ eyebrow: [r.via, when(r.added)].filter(Boolean).join(" · "), name: r.title ?? r.headline });
+    if (src) return { ...titled(src.row), status: src.text ?? "", writing: src.text === "" };
     // the row walked to: its source's full title, as an opened source's
     const walked = ent == null ? cursorRow() : null;
-    if (walked) return { eyebrow: [walked.via, when(walked.added)].filter(Boolean).join(" · "), name: walked.title ?? walked.headline, status: "" };
+    if (walked) return { ...titled(walked), status: "", writing: false };
     if (ent != null) {
       const n = field.nodes[ent]!;
       const tw = (twins.get(ent) ?? []).map((j) => field!.nodes[j]!.label);
@@ -612,7 +613,7 @@
   function redrawIfIdle(): void {
     if (!graphStale || !heldGraph || ent != null || src || searching || openPilot) return;
     graphStale = false;
-    void drawField(heldGraph).then(lightCursor);
+    void drawField(heldGraph).then(unlight);
     heldGraph = null;
   }
   /** The feed changes in the background as tend sorts what it files. */
@@ -690,7 +691,7 @@
     scene?.source(r && field ? { label: r.title ?? r.headline, entities: feedEntities(r), open: !openPilot && !src && r !== rowOver, text: r.headline } : null);
   });
   /** Back from a row pointed at: the row in hand is drawn opened (above), not lit. */
-  const lightCursor = () => scene?.hover(null);
+  const unlight = () => scene?.hover(null);
   /** j (down, newer) and k (up, older): the first press takes the newest row;
    * walking up past the top scrolls the older ones in. */
   function stepFeed(dir: 1 | -1): void {
@@ -701,7 +702,7 @@
     rowOver = null;
     const at = sorted.findIndex((r) => r.source === cursor);
     cursor = sorted[at < 0 ? 0 : Math.max(0, Math.min(sorted.length - 1, at - dir))]!.source;
-    lightCursor();
+    unlight();
     scene?.shift(shiftFor());
     void tick().then(() => feedEl?.querySelector(".row.at")?.scrollIntoView({ block: "nearest" }));
   }
@@ -940,7 +941,7 @@
     if (e.key === "/") { take(e); openSearch(); return true; }
     if (e.key === "Escape" && pickerOpen) { take(e); pickerOpen = false; return true; }
     if (e.key === "Escape" && openPilot) { take(e); closePilot(); return true; }
-    if (e.key === "Escape" && (ent != null || src)) { take(e); overview(); lightCursor(); return true; }
+    if (e.key === "Escape" && (ent != null || src)) { take(e); overview(); unlight(); return true; }
     if (e.key === "Escape" && cursor) { take(e); leaveFeed(); return true; }
     if (e.key === "n") { take(e); void createPilot([]); return true; }
     const slot = Number(e.key);
@@ -1059,7 +1060,7 @@
         <div class="row s-{r.section}" class:at={r.source === cursor} class:open={r.source === src?.row.source} role="button" tabindex="-1"
           title={r.title && r.title !== r.headline ? r.title : undefined}
           onmousemove={() => { if (rowOver !== r) { rowOver = r; if (!src) scene?.hover(feedEntities(r)); } }}
-          onmouseleave={() => { rowOver = null; if (!src) lightCursor(); }}
+          onmouseleave={() => { rowOver = null; if (!src) unlight(); }}
           onclick={() => openSource(r)} onkeydown={() => {}}>
           <span class="w" title="When it entered your feed">{when(r.added)}</span>
           <span class="x">{r.headline}{#if r.due}<span class="due">{dueOn(r.due)}</span>{/if}</span>
