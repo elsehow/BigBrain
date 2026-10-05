@@ -21,7 +21,7 @@
  let expanded=$state<Record<string,boolean>>({});
  let removing=$state<Record<string,boolean>>({});
  let accounts=$state<Account[]>([]),busy=$state(false);
- type Where='connection'|'save'|'list';
+ type Where='connection'|'save'|'list'|'add';
  /** One message at a time, shown where the action happened. */
  let feedback=$state<{where:Where;account:string|null;error:boolean;text:string}|null>(null);
  function say(where:Where,account:string|null,text:string,error=false){feedback={where,account,error,text};}
@@ -54,7 +54,7 @@
   if(includeHistory[account.account])history[account.account]=pastDate(since);
   void act(account,'save');
  }
- async function add(){busy=true;feedback=null;try{accept(await request({name:source,action:'add',label:newLabel,key:newKey,...(source==='email'?{address:newLabel,password:newKey}:source==='rss'?{url:newLabel}:{})}));newLabel='';newKey='';adding=false;say('list',null,source==='email'?'Connected. New mail is remembered; choose live access below.':source==='rss'?'Feed added. New items arrive within 15 minutes.':'Account added. Check and connect it to verify access.');}catch(e){say('list',null,e instanceof Error?e.message:'Could not add account.',true);}finally{busy=false;if(source==='email')newKey='';}}
+ async function add(){busy=true;feedback=null;try{accept(await request({name:source,action:'add',label:newLabel,key:newKey,...(source==='email'?{address:newLabel,password:newKey}:source==='rss'?{url:newLabel}:{})}));newLabel='';newKey='';adding=false;say('list',null,source==='email'?'Connected. New mail is remembered; choose live access below.':source==='rss'?'Feed added. New items arrive within 15 minutes.':'Account added. Check and connect it to verify access.');}catch(e){say('add',null,e instanceof Error?e.message:'Could not add account.',true);}finally{busy=false;if(source==='email')newKey='';}}
 </script>
 {#snippet note(where:Where,account:string|null)}{#if feedback&&feedback.where===where&&feedback.account===account}<p class="note" role={feedback.error?'alert':'status'}>{feedback.text}</p>{/if}{/snippet}
 <section class="settings-list account-list" aria-label={`${source} accounts`}>
@@ -99,16 +99,16 @@
    <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noreferrer">Create an app password ↗</a>
    <details><summary>Can’t create an app password?</summary><p>Google may restrict app passwords for work accounts, security-key-only sign-in or Advanced Protection. Your usual Google password won’t work.</p></details>
    <button disabled={busy||!newLabel.trim()||!newKey.trim()}>{busy?'Connecting…':'Connect'}</button>
-  </form>{/if}
+  </form>{/if}{@render note('add',null)}
  {/if}
  {#if source==='rss'}
   {#if accounts.length}<button class="settings-add" onclick={()=>adding=!adding}>{adding?'Cancel':'New feed +'}</button>{/if}
   {#if adding||!accounts.length}<form onsubmit={e=>{e.preventDefault();void add();}}>
    <label>Feed address<input type="url" autocomplete="off" bind:value={newLabel} placeholder="https://example.com/feed.xml" required/></label>
    <button disabled={busy||!newLabel.trim()}>{busy?'Checking…':'Add feed'}</button>
-  </form>{/if}
+  </form>{/if}{@render note('add',null)}
  {/if}
- {#if source!=='email'&&source!=='that-tracks'&&source!=='rss'}<button class="settings-add" onclick={()=>adding=!adding}>{adding ? 'Cancel' : 'New account +'}</button>{#if adding}<form onsubmit={e=>{e.preventDefault();void add();}}><label>Account name<input bind:value={newLabel} maxlength="120"/></label>{#if source!=='granola'}<label>API key<input type="password" autocomplete="new-password" bind:value={newKey}/></label>{/if}<button disabled={busy||!newLabel.trim()||(source!=='granola'&&!newKey.trim())}>Add account</button></form>{/if}{/if}
+ {#if source!=='email'&&source!=='that-tracks'&&source!=='rss'}<button class="settings-add" onclick={()=>adding=!adding}>{adding ? 'Cancel' : 'New account +'}</button>{#if adding}<form onsubmit={e=>{e.preventDefault();void add();}}><label>Account name<input bind:value={newLabel} maxlength="120"/></label>{#if source!=='granola'}<label>API key<input type="password" autocomplete="new-password" bind:value={newKey}/></label>{/if}<button disabled={busy||!newLabel.trim()||(source!=='granola'&&!newKey.trim())}>Add account</button></form>{/if}{@render note('add',null)}{/if}
 </section>
 <style>
  .account-list{box-sizing:border-box;padding-left:20px;border-left:1px solid var(--rule);margin-top:20px}

@@ -88,8 +88,9 @@ export function feedItemContent(feedUrl: string, feedTitle: string, item: FeedIt
 export async function fetchFeed(url: string, fetchImpl: typeof fetch = fetch): Promise<Feed> {
   let res: Response;
   try {
-    res = await fetchImpl(url, { headers: { accept: "application/rss+xml, application/atom+xml, application/xml, text/xml;q=0.9, */*;q=0.5", "user-agent": "BigBrain (+https://bigbrain.cool)" },
-      redirect: "follow", signal: AbortSignal.timeout(20_000) });
+    res = await fetchImpl(url, { headers: { accept: "application/rss+xml, application/atom+xml, application/xml, text/xml;q=0.9, */*;q=0.5", // some CDNs (CBC's) hang on a user agent that carries a URL
+      "user-agent": "Mozilla/5.0 (compatible; BigBrain/1.0)" },
+      redirect: "follow", signal: AbortSignal.timeout(10_000) });
   } catch (e) {
     throw new Error(`Couldn't reach ${new URL(url).host}: ${e instanceof Error ? e.message : String(e)}`);
   }
