@@ -6,11 +6,13 @@
 //
 // Look (settled in the prototype, 2026-10-02): a long lens and no lens
 // effects — a plan, not a cutscene; points not balls; hairline edges; glass
-// only for memory; labels appear where attention is and give way to chrome.
+// only for memory and Desktops; labels appear where attention is and give
+// way to chrome.
 
 import * as THREE from "three";
-import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
+import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 import type { Field, FieldPilot } from "./model";
+import { createWireCube, type WireCube } from "./wireCube";
 
 export interface SceneHooks {
   /** Screen rects labels must stay out of (the view's panels). */
@@ -75,10 +77,10 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
   renderer.setPixelRatio(Math.min(2, devicePixelRatio));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
-  renderer.toneMapping = THREE.NeutralToneMapping;
+  // No tone curve: the theme's colours are drawn as given, so white seen
+  // through glass is the page's white, not a shade under it.
   const scene = new THREE.Scene();
   const pmrem = new THREE.PMREMGenerator(renderer);
-  scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
   const camera = new THREE.PerspectiveCamera(20, 1, 0.1, 400);
   const col = { bg: new THREE.Color(), fg: new THREE.Color(), act: new THREE.Color() };
   const fog = { near: { value: 30 }, far: { value: 80 } };
@@ -202,62 +204,32 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
     scene.add(mesh);
     return { mesh, mat, vis: 1 };
   };
-  // ── pilots: crystal tetrahedra over what they're working on ───────────────
-  // The triangle, in glass that diffuses from within: no surface texture
-  // (textures read cheap) — smooth faces over a body that scatters what passes
-  // through it (rough transmission), lightly tinted, a crisp clear coat on top.
-  // Selected, it glows from within in the activity colour: the
-  // glass itself lit in that colour, and a soft glow at its heart. (An opaque
-  // core seen through the glass broke into shards; the glass glowing reads as
-  // light, not as an object inside.)
-  const tetra = (() => {
-    const v = [[0, -1, 0], [0, 1 / 3, -0.9428], [0.8165, 1 / 3, 0.4714], [-0.8165, 1 / 3, 0.4714]].map((a) => new THREE.Vector3(...(a as [number, number, number])));
-    const pos: number[] = [], uv: number[] = [];
-    for (const f of [[1, 2, 3], [0, 3, 2], [0, 2, 1], [0, 1, 3]]) {
-      let [a, b, d] = f.map((i) => v[i]!) as [THREE.Vector3, THREE.Vector3, THREE.Vector3];
-      if (new THREE.Vector3().crossVectors(b.clone().sub(a), d.clone().sub(a)).dot(a.clone().add(b).add(d)) < 0) [b, d] = [d, b];
-      pos.push(...a.toArray(), ...b.toArray(), ...d.toArray());
-      uv.push(0, 0, 1, 0, 0.5, 0.87);
-    }
-    const g = new THREE.BufferGeometry();
-    g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
-    g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
-    g.computeVertexNormals();
-    return g;
-  })();
-  const glowTex = (() => {
-    const c = document.createElement("canvas");
-    c.width = c.height = 128;
-    const g = c.getContext("2d")!, grad = g.createRadialGradient(64, 64, 0, 64, 64, 64);
-    grad.addColorStop(0, "rgba(255,255,255,1)"); grad.addColorStop(0.35, "rgba(255,255,255,0.45)"); grad.addColorStop(1, "rgba(255,255,255,0)");
-    g.fillStyle = grad; g.fillRect(0, 0, 128, 128);
-    return new THREE.CanvasTexture(c);
-  })();
-  const crystalMat = () => new THREE.MeshPhysicalMaterial({ color: 0xffffff, metalness: 0, flatShading: true,
-    roughness: 0.32, transmission: 1, thickness: 1.5, ior: 1.5, dispersion: 1.5, attenuationDistance: 2.6,
-    clearcoat: 1, clearcoatRoughness: 0.04, specularIntensity: 0.9,
-    transparent: true, opacity: 0.96, depthWrite: false });
-  interface Pilot { d: FieldPilot; glass: Glass; core: THREE.Mesh; halo: THREE.Sprite; label: HTMLDivElement & { w?: number; h?: number; op?: number }; scale: number; fill: number; at: THREE.Vector3 }
+  // ── Desktops: the Wire mark, in glass, over what they're working on ────
+  // Prism glass (it bends the field behind it and splits it into colour), a
+  // hairline outline, and the logo's turning while the agent works. A fixed
+  // DESK_PX on screen at any zoom: a Desktop in world units grew past the
+  // names around it as the camera came in.
+  const prism = new THREE.MeshPhysicalMaterial({ color: 0xffffff, metalness: 0, roughness: 0, transmission: 1,
+    thickness: 2.4, ior: 1.6, dispersion: 12, clearcoat: 0.8, clearcoatRoughness: 0.02, specularIntensity: 0.8, envMapIntensity: 0.6,
+    polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
+  // hairlines are drawn in device pixels, so each knows the canvas's size
+  const lineMats = new Set<LineMaterial>();
+  const fit = (m: LineMaterial) => m.resolution.set(W * renderer.getPixelRatio(), H * renderer.getPixelRatio());
+  const hairline = () => { const m = new LineMaterial({ linewidth: 1, transparent: true }); fit(m); lineMats.add(m); return m; };
+  interface Pilot { d: FieldPilot; cube: WireCube; line: LineMaterial; seam: LineMaterial; label: HTMLDivElement & { w?: number; h?: number; op?: number }; scale: number; vis: number; clock: number; at: THREE.Vector3 }
   const pilots = new Map<string, Pilot>();
-  let focus: string | null = null;
+  let focus: string | null = null, underPilot: string | null = null;
   const makePilot = (d: FieldPilot): Pilot => {
-    const mat = crystalMat();
-    const mesh = new THREE.Mesh(tetra, mat);
-    mesh.renderOrder = 4;
-    mesh.userData["pilot"] = d.id;
-    const core = new THREE.Mesh(tetra, new THREE.MeshBasicMaterial());
-    core.visible = false;
-    mesh.add(core);
-    const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, transparent: true, depthWrite: false, opacity: 0 }));
-    halo.renderOrder = 6;
-    halo.visible = false;
-    mesh.add(halo);
-    scene.add(mesh);
+    const line = hairline(), seam = hairline(), cube = createWireCube(prism, line, seam);
+    scene.add(cube.root);
     const label = document.createElement("div") as Pilot["label"];
     label.className = "v2-lab v2-pilot";
     label.dataset["pilot"] = d.id;
     labelLayer.append(label);
-    return { d, glass: { mesh, mat, vis: 1 }, core, halo, label, scale: 0, fill: 0, at: new THREE.Vector3(...d.p) };
+    // each on its own clock, so Desktops working at once never turn in step
+    const clock = [...d.id].reduce((acc, c) => (acc * 31 + c.charCodeAt(0)) >>> 0, 7) % 6720;
+    line.color.copy(col.fg);
+    return { d, cube, line, seam, label, scale: 0, vis: 1, clock, at: new THREE.Vector3(...d.p) };
   };
   const nameOf = (d: FieldPilot) => (d.title.length > 34 ? d.title.slice(0, 33).trimEnd() + "…" : d.title);
 
@@ -280,7 +252,12 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
   const sizeMemory = () => {
     const core = 0.47 * hubSize * pMat.uniforms["uRef"]!.value * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) / H;
     for (const g of memory) g.mesh.scale.setScalar(core);
+    for (const m of lineMats) fit(m);
   };
+  // a Desktop's width on screen, about a line of its 12px name
+  const DESK_PX = 13;
+  // world units across one CSS pixel at a point, on this lens
+  const perPx = (p: THREE.Vector3) => 2 * camera.position.distanceTo(p) * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) / H;
 
   // ── state ────────────────────────────────────────────────────────────────
   let ent: { i: number; ties: number[]; text?: string; caption?: string } | null = null;
@@ -392,8 +369,14 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
     const r = canvas.getBoundingClientRect(), x = clientX - r.left, y = clientY - r.top;
     ndc.set((x / r.width) * 2 - 1, -(y / r.height) * 2 + 1);
     ray.setFromCamera(ndc, camera);
-    const pilotHit = ray.intersectObjects([...pilots.values()].map((pl) => pl.glass.mesh), false)[0];
-    if (pilotHit) return `pilot:${pilotHit.object.userData["pilot"] as string}`;
+    // a Desktop is small on screen: within a few pixels of its cube is on it
+    let near: string | null = null, nearD = Infinity;
+    for (const pl of pilots.values()) {
+      toScreen(pl.cube.root.position, sp);
+      const d = (sp.x - x) ** 2 + (sp.y - y) ** 2, reach = Math.max(12, DESK_PX * pl.scale * 0.8);
+      if (sp.ok && d < reach * reach && d < nearD) { nearD = d; near = pl.d.id; }
+    }
+    if (near) return `pilot:${near}`;
     const glassHit = ray.intersectObjects(memory.filter((g) => g.vis > 0.5).map((g) => g.mesh), false)[0];
     if (glassHit) return memory.find((g) => g.mesh === glassHit.object)?.i ?? null;
     const alphas = aAlpha.array as Float32Array;
@@ -415,6 +398,7 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
       const hit = pickAt(e.clientX, e.clientY);
       canvas.style.cursor = hit == null ? "" : "pointer";
       hoverAt(typeof hit === "number" ? hit : null);
+      underPilot = typeof hit === "string" ? hit.slice(6) : null;
       return;
     }
     const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
@@ -437,10 +421,11 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
   };
   labelLayer.addEventListener("click", onLabel);
   const onLabelOver = (e: PointerEvent) => {
+    underPilot = (e.target as HTMLElement).closest<HTMLElement>(".v2-pilot")?.dataset["pilot"] ?? null;
     const L = (e.target as HTMLElement).closest<HTMLElement>(".v2-node");
     hoverAt(L?.dataset["i"] ? Number(L.dataset["i"]) : null);
   };
-  const onLeave = () => { if (!drag) hoverAt(null); };
+  const onLeave = () => { if (!drag) { hoverAt(null); underPilot = null; } };
   labelLayer.addEventListener("pointerover", onLabelOver);
   canvas.addEventListener("pointerleave", onLeave);
   const onWheel = (e: WheelEvent) => { e.preventDefault(); goal.dist = THREE.MathUtils.clamp(goal.dist * Math.exp(e.deltaY * 0.0012), 4, 40); };
@@ -474,6 +459,17 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
     col.fg.set(cs.getPropertyValue("--fg").trim() || "#211a18");
     col.act.set(cs.getPropertyValue("--activity").trim() || "#cc4a3e");
     scene.background = col.bg.clone();
+    // What glass reflects: a room in the theme's own colours (its ground, one
+    // soft panel a shade toward the ink). Three's stock RoomEnvironment is a
+    // grey studio, and greyed the glass in every theme.
+    const room = new THREE.Scene();
+    room.background = col.bg.clone();
+    const panel = new THREE.Mesh(new THREE.PlaneGeometry(6, 3), new THREE.MeshBasicMaterial({ color: col.bg.clone().lerp(col.fg, 0.18), side: THREE.DoubleSide }));
+    panel.position.set(0, 4, -2); panel.lookAt(0, 0, 0); room.add(panel);
+    scene.environment?.dispose();
+    scene.environment = pmrem.fromScene(room, 0.04).texture;
+    panel.geometry.dispose(); (panel.material as THREE.Material).dispose();
+    for (const pl of pilots.values()) pl.line.color.copy(col.fg);
     (strong.material as THREE.LineBasicMaterial).color.copy(col.fg);
     for (const g of memory) {
       // all but colourless: the faintest ink in it, so it reads as glass, not smoke
@@ -557,29 +553,18 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
       g.mat.opacity = GLASS_OPACITY * g.vis;
     }
 
-    // pilots: glide to their place and grow in; a working one turns slowly;
-    // the selected one glows from within in the activity colour, breathing
+    // Desktops: glide to their place, slowly (one taking in many notes at
+    // once must not wander); a working one turns as the logo does; the
+    // focused or pointed-at one stands a quarter larger
     clockT += dt;
     for (const pl of pilots.values()) {
-      const on = focus === pl.d.id, working = pl.d.phase === "working";
-      pl.at.set(...pl.d.p);
-      pl.glass.mesh.position.lerp(pl.at, ease(6));
-      pl.scale += ((on ? 1.25 : focus ? 0.8 : 0.95) - pl.scale) * ease(10);
-      pl.glass.mesh.scale.setScalar(pl.scale);
-      if (!reduced) pl.glass.mesh.rotation.y += dt * (working ? 0.22 : on ? 0.1 : 0);
-      pl.fill += ((on ? 1 : 0) - pl.fill) * ease(7);
-      const breathe = reduced ? 1 : 1 + 0.08 * Math.sin(clockT * 2.1);
-      pl.core.visible = false;
-      pl.glass.mat.emissive.copy(col.act);
-      pl.glass.mat.emissiveIntensity = 0.2 * pl.fill * breathe;
-      pl.halo.visible = pl.fill > 0.02;
-      pl.halo.scale.setScalar(1.9 * breathe);
-      const hm = pl.halo.material as THREE.SpriteMaterial;
-      hm.color.copy(col.act);
-      hm.opacity = 0.55 * pl.fill;
-      pl.glass.mat.attenuationColor.copy(working || on ? col.act : col.fg).lerp(col.bg, working || on ? 0.5 : 0.78);
-      pl.glass.vis += ((srch ? THREE.MathUtils.lerp(0.35, 1, searchDim) : focus && !on ? 0.6 : 1) - pl.glass.vis) * k;
-      pl.glass.mat.opacity = 0.96 * pl.glass.vis;
+      const on = focus === pl.d.id, near = on || underPilot === pl.d.id;
+      pl.cube.root.position.lerp(pl.at, ease(1.6));
+      pl.scale += ((near ? 1.25 : focus ? 0.8 : 1) - pl.scale) * ease(10);
+      pl.cube.root.scale.setScalar(DESK_PX / 2 * perPx(pl.cube.root.position) * pl.scale);
+      pl.cube.tick(pl.d.phase === "working" && !reduced ? clockT * 1000 + pl.clock : 0);
+      pl.vis += ((srch ? THREE.MathUtils.lerp(0.35, 1, searchDim) : focus && !on ? 0.6 : 1) - pl.vis) * k;
+      pl.line.opacity = pl.vis;
     }
 
     // the ties of an opened entity; each pilot's lines to what it's working on
@@ -589,7 +574,7 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
     for (const pl of pilots.values()) {
       const on = focus === pl.d.id, tint = pl.d.phase === "working" ? col.act : col.fg;
       const a = on ? 0.7 : focus ? 0.08 : 0.22;
-      for (const j of pl.d.ctx) ties.add(pl.glass.mesh.position, P[j]!, c1.copy(col.bg).lerp(tint, a), c2.copy(col.bg).lerp(tint, a * 0.6));
+      for (const j of pl.d.ctx) ties.add(pl.cube.root.position, P[j]!, c1.copy(col.bg).lerp(tint, a), c2.copy(col.bg).lerp(tint, a * 0.6));
     }
     ties.end();
 
@@ -605,8 +590,9 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
     // pilot names first: they're the cast; a focused one's solid keeps labels off it
     for (const pl of pilots.values()) {
       const on = focus === pl.d.id;
-      tA.copy(pl.glass.mesh.position); tA.y += pl.scale * 0.55 + 0.3;
-      toScreen(tA, s1);
+      // above the cube, clear of its top face as the field's tilt shows it
+      toScreen(pl.cube.root.position, s1);
+      s1.y -= DESK_PX / 2 * pl.scale * 1.7 + 5;
       if (pl.label.textContent !== nameOf(pl.d)) { pl.label.textContent = nameOf(pl.d); pl.label.w = undefined; }
       pl.label.classList.toggle("working", pl.d.phase === "working");
       const op = !s1.ok || on ? 0 : (focus ? 0.45 : 1) * THREE.MathUtils.lerp(0.4, 1, searchDim);
@@ -618,9 +604,9 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
         placed.push([s1.x - pl.label.w / 2 - 6, s1.y - pl.label.h! - 4, s1.x + pl.label.w / 2 + 6, s1.y + 4]);
       }
       if (on && s1.ok) {
-        toScreen(pl.glass.mesh.position, s1);
+        toScreen(pl.cube.root.position, s1);
         tB.setFromMatrixColumn(camera.matrixWorld, 0);
-        toScreen(tA.copy(pl.glass.mesh.position).addScaledVector(tB, pl.scale * 0.9), s2);
+        toScreen(tA.copy(pl.cube.root.position).addScaledVector(tB, pl.cube.root.scale.x * 1.8), s2);
         const R = Math.abs(s2.x - s1.x);
         placed.push([s1.x - R, s1.y - R, s1.x + R, s1.y + R]);
       }
@@ -692,11 +678,16 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
     overview() { ent = null; focus = null; unrelate(); setGoal({ ...OVERVIEW, az: rig.az }); },
     setPilots(list) {
       const keep = new Set(list.map((d) => d.id));
-      for (const [id, pl] of pilots) if (!keep.has(id)) { scene.remove(pl.glass.mesh); pl.label.remove(); pilots.delete(id); }
+      for (const [id, pl] of pilots) {
+        if (keep.has(id)) continue;
+        scene.remove(pl.cube.root); pl.label.remove(); pilots.delete(id);
+        for (const m of [pl.line, pl.seam]) { m.dispose(); lineMats.delete(m); }
+      }
       for (const d of list) {
         const pl = pilots.get(d.id);
-        if (pl) pl.d = d;
-        else { const made = makePilot(d); made.glass.mesh.position.set(...d.p); pilots.set(d.id, made); }
+        // re-aim only when its place has really moved, not at every read
+        if (pl) { pl.d = d; if (pl.at.distanceTo(tA.set(...d.p)) > 0.6) pl.at.copy(tA); }
+        else { const made = makePilot(d); made.cube.root.position.set(...d.p); pilots.set(d.id, made); }
       }
     },
     focusPilot(id) {
@@ -770,7 +761,7 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
       labelLayer.removeEventListener("click", onLabel); labelLayer.removeEventListener("pointerover", onLabelOver);
       canvas.removeEventListener("pointerleave", onLeave);
       scene.traverse((o) => { const m = o as THREE.Mesh; m.geometry?.dispose(); const mat = m.material as THREE.Material | THREE.Material[] | undefined; if (Array.isArray(mat)) mat.forEach((x) => x.dispose()); else mat?.dispose(); });
-      glowTex.dispose();
+      for (const m of lineMats) m.dispose();
     scene.environment?.dispose(); pmrem.dispose(); renderer.dispose();
       canvas.remove(); labelLayer.remove();
     },

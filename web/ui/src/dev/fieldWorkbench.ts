@@ -3,7 +3,12 @@
 // graph fixture; this answers what only Field asks: the entity graph, the
 // record, the sorted feed and the coding desktops. `?empty` is a new vault;
 // `?view=field` keeps the browser suite's `?view=classic` off it; `?update`
-// shows the update banner, `?credits` a provider out of usage credits beside it.
+// shows the update banner, `?credits` a provider out of usage credits beside it,
+// `?working` a Desktop at work (its cube turning). `?reading` puts the
+// Desktops among what they concern: one reads its way across the field, a
+// note every few seconds (entities and sources), so its place can be watched
+// moving; one concerns both sides of the field (some entities twice, which
+// count once); one has nothing placeable yet.
 import { mount } from "svelte";
 import "../design/tokens.css";
 import "../app.css";
@@ -34,6 +39,16 @@ const sorted = empty ? [] : [
 ];
 
 let outOfCredits = new URLSearchParams(location.search).has("credits");
+const reading = new URLSearchParams(location.search).has("reading");
+// a walk across the field: Harbor lab's side, then down past Kit to the orrery
+const WALK = ["ent_4", "log/insertions/2026-10/ins_c.json", "ent_6", "ent_5", "ent_3", "ent_2", "log/insertions/2026-10/ins_a.json", "ent_0", "ent_1", "ent_7"];
+const started = Date.now();
+const READ_MS = 2500;
+const CONTEXT: Record<string, () => string[]> = {
+  "Atlas planning": () => WALK.slice(0, 1 + (Math.floor((Date.now() - started) / READ_MS) % WALK.length)),
+  "Component audit": () => ["ent_9", "ent_8", "ent_8", "ent_9", "ent_3", "ent_2", "ins_b", "ent_2"],
+  "Earlier project review": () => [],
+};
 const fake = window.fetch;
 (window as unknown as { fetch: typeof fake }).fetch = (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
   const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url, location.origin);
@@ -48,6 +63,16 @@ const fake = window.fetch;
     const w = window as unknown as { desktopsCreated?: number };
     w.desktopsCreated = (w.desktopsCreated ?? 0) + 1;
     return json({ error: "The workbench starts no desktops." }, 501);
+  }
+  if (reading && url.pathname === "/api/pilot/chat" && !init?.body) {
+    const body = await (await fake(input, init)).json() as { sessions: Array<{ title: string; context?: string[]; contextNodes?: unknown[]; phase?: string }> };
+    for (const s of body.sessions) {
+      const ctx = CONTEXT[s.title];
+      if (!ctx) continue;
+      s.context = ctx(); s.contextNodes = [];
+      if (s.title === "Atlas planning") s.phase = "working";
+    }
+    return json(body);
   }
   // `?credits`: the gardener's provider is out of usage credits until Retry
   if (url.pathname === "/api/credits/retry") { outOfCredits = false; return json({ providers: {} }); }

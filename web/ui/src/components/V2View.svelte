@@ -368,10 +368,13 @@
   });
   let live: string = $derived.by(() => (coding(openPilot) ? liveText : detail?.live ?? ""));
 
-  // the bar's pilots, placed over their context, are what the field draws
+  /** A source in a Desktop's context stands where its entities do: by its
+   * id and its note path, from the sorted feed. */
+  const sourcePlaces = () => new Map(sorted.flatMap((r) => [[r.source, r.entities], ...(r.path ? [[r.path, r.entities]] : [])] as Array<[string, string[]]>));
+  // the bar's pilots, placed among their context, are what the field draws
   $effect(() => {
     const f = field, b = bar;
-    if (f && scene) scene.setPilots(placePilots(f, b));
+    if (f && scene) scene.setPilots(placePilots(f, b, sourcePlaces()));
   });
   // keep the scroll at the newest message, unless you have scrolled up to
   // read: it follows again once you are back at the bottom
@@ -592,7 +595,7 @@
       onPickPilot: (id) => (openPilot === id ? closePilot() : openPilotChat(id)),
       onHover: relateTie,
     });
-    scene.setPilots(placePilots(field, bar));
+    scene.setPilots(placePilots(field, bar, sourcePlaces()));
     sceneRev++;
   }
   /** The vault changed (the engine's /api/events ping, as the app's views
@@ -1204,7 +1207,8 @@
     text-shadow: 0 0 3px var(--bg), 0 0 8px var(--bg), 0 0 16px var(--bg); }
   .stage :global(.v2-node .t) { font: 400 11px/1.2 var(--font-mono); letter-spacing: -0.01em; color: var(--v2-muted); }
   .stage :global(.v2-node:hover .t) { color: var(--fg); }
-  .stage :global(.v2-pilot) { font: 500 11px/1 var(--font-mono); color: var(--v2-muted); }
+  /* Desktop names in the sans, a size up from the mono names of the field */
+  .stage :global(.v2-pilot) { font: 500 12px/1 var(--font-app); color: var(--v2-muted); }
   .stage :global(.v2-pilot:hover) { color: var(--fg); }
   .stage :global(.v2-source) { pointer-events: none; }
   .stage :global(.v2-pilot.working) { color: color-mix(in srgb, var(--activity) 80%, var(--fg)); }
