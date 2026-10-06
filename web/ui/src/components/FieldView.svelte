@@ -10,8 +10,11 @@
   import V2View from "./V2View.svelte";
   import { app, goto } from "../lib/store.svelte";
   import { isSettingsView } from "../lib/settingsViews";
+  import { keyboardHints } from "../lib/keyboardHints.svelte";
 
   const open = $derived(isSettingsView(app.view));
+  // the hints toggle reaches every .keyboard-hint chip through app.css
+  $effect(() => { document.documentElement.dataset.keyboardHints = keyboardHints.show ? "on" : "off"; });
   // the Feedback button shows while the pointer moves, as in Classic
   let awake = $state(false), feedbackOpen = $state(false);
   let feedback = $state<{ key: (event: KeyboardEvent) => void }>();

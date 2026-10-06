@@ -22,6 +22,9 @@
   import type { DesktopTile, DesktopView } from "../../../../lib/pilotDesktop";
   import { DEFAULT_PILOT_BACKEND } from "../../../../lib/pilotBackendTypes";
   import PilotMentionComposer from "./PilotMentionComposer.svelte";
+  import ShortcutsSheet from "./ShortcutsSheet.svelte";
+  import { pressed } from "../lib/v2/shortcuts";
+  import { keyboardHints } from "../lib/keyboardHints.svelte";
   import { serializeMentions, type MentionItem } from "../../../../lib/pilotMentions";
   import { mentionRecents, mentionSearch } from "../lib/mentionSources";
 
@@ -240,6 +243,8 @@
   let renaming = $state(false);
   let renameText = $state("");
   let renameEl: HTMLInputElement | undefined = $state();
+  // the shortcuts sheet (?), drawn from lib/v2/shortcuts.ts
+  let shortcutsOpen = $state(false);
   function startRename(): void {
     if (!detail) return;
     renameText = detail.title; renaming = true;
@@ -975,45 +980,50 @@
     return i < 0 || !query.trim() ? [label, "", ""] : [label.slice(0, i), label.slice(i, i + query.trim().length), label.slice(i + query.trim().length)];
   };
 
-  /** True when this view took the key. */
+  /** True when this view took the key. Every key goes through `pressed`, so
+   * the shortcuts sheet (lib/v2/shortcuts.ts) lists exactly what this handles. */
   function onKey(e: KeyboardEvent): boolean {
-    // ⌘, (ctrl+, elsewhere): settings, the same view the app's gear opens
     if (paused) return false;
-    if ((e.metaKey || e.ctrlKey) && e.key === ",") { take(e); openSettings(); return true; }
-    if ((e.metaKey || e.ctrlKey) && (e.key === "o" || e.key === "O") && !e.shiftKey && original()) { take(e); void openOriginal(original()!); return true; }
+    // the sheet is open: it has the keys, and ? or Esc (the dialog's own) shut it
+    if (shortcutsOpen) { if (pressed("shortcuts", e)) { take(e); shortcutsOpen = false; } return true; }
+    // ⌘, (ctrl+, elsewhere): settings, the same view the app's gear opens
+    if (pressed("settings", e)) { take(e); openSettings(); return true; }
+    if (pressed("original", e) && original()) { take(e); void openOriginal(original()!); return true; }
     // ⌘N before the modifier bail-out below, which swallowed it
-    if ((e.metaKey || e.ctrlKey) && !e.altKey && (e.key === "n" || e.key === "N") && !e.shiftKey && field) { take(e); void createPilot([]); return true; }
+    if (pressed("new", e) && (e.metaKey || e.ctrlKey) && field) { take(e); void createPilot([]); return true; }
     if (e.metaKey || e.ctrlKey || e.altKey || !field) return false;
     if (composerEl?.contains(e.target as Node)) {
       // the composer sends on Enter and keeps its @ menu's keys; an Esc it let through leaves it
-      if (e.key === "Escape") { take(e); if (drafting(openPilot) && !draftText.trim()) closePilot(); else composer?.blur(); return true; }
+      if (pressed("composer-leave", e)) { take(e); if (drafting(openPilot) && !draftText.trim()) closePilot(); else composer?.blur(); return true; }
       return false;
     }
     if (searching && e.target === qEl) {
       // typing in the search box is ours entirely; the characters still land
-      if (e.key === "ArrowDown") { take(e); setActive(active + 1); }
-      else if (e.key === "ArrowUp") { take(e); setActive(active - 1); }
-      else if (e.key === "Enter" && e.shiftKey) { take(e); void startPilot(); }
-      else if (e.key === "Enter") { take(e); commit(); }
-      else if (e.key === "Escape") { take(e); closeSearch(); }
+      if (pressed("search-move", e)) { take(e); setActive(active + (e.key === "ArrowDown" ? 1 : -1)); }
+      else if (pressed("search-start", e)) { take(e); void startPilot(); }
+      else if (pressed("search-open", e)) { take(e); commit(); }
+      else if (pressed("search-close", e)) { take(e); closeSearch(); }
       return true;
     }
     const t = e.target as HTMLElement | null;
     if (t?.tagName === "INPUT" || t?.tagName === "TEXTAREA" || t?.isContentEditable) return false;
     // Esc always lets go of a selection, whatever else it backs out of
-    if (e.key === "Escape") getSelection()?.removeAllRanges();
-    if (e.key === "/") { take(e); openSearch(); return true; }
-    if (e.key === "Escape" && pickerOpen) { take(e); pickerOpen = false; return true; }
-    if (e.key === "Escape" && openPilot) { take(e); closePilot(); return true; }
-    if (e.key === "Escape" && (ent != null || src)) { take(e); overview(); unlight(); return true; }
-    if (e.key === "Escape" && cursor) { take(e); leaveFeed(); return true; }
-    if (e.key === "n") { take(e); void createPilot([]); return true; }
-    const slot = Number(e.key);
-    if (slot >= 1 && slot <= bar.length) { take(e); const p = bar[slot - 1]!; if (openPilot === p.id) closePilot(); else openPilotChat(p.id); return true; }
-    if (e.key === "\\" && openPilot) { take(e); toggleDesktop(); return true; }
-    if (e.key === "j" || e.key === "k") { take(e); stepFeed(e.key === "j" ? 1 : -1); return true; }
-    if (e.key === "Enter" && e.shiftKey) { take(e); void startPilot(); return true; }
-    if (e.key === "Enter" && cursor && ent == null) { const r = cursorRow(); if (r) { take(e); openSource(r); return true; } }
+    if (pressed("back", e)) getSelection()?.removeAllRanges();
+    if (pressed("shortcuts", e)) { take(e); shortcutsOpen = true; return true; }
+    if (pressed("search", e)) { take(e); openSearch(); return true; }
+    if (pressed("back", e) && pickerOpen) { take(e); pickerOpen = false; return true; }
+    if (pressed("back", e) && openPilot) { take(e); closePilot(); return true; }
+    if (pressed("back", e) && (ent != null || src)) { take(e); overview(); unlight(); return true; }
+    if (pressed("back", e) && cursor) { take(e); leaveFeed(); return true; }
+    if (pressed("new", e)) { take(e); void createPilot([]); return true; }
+    if (pressed("desktops", e)) {
+      const p = bar[Number(e.key) - 1];
+      if (p) { take(e); if (openPilot === p.id) closePilot(); else openPilotChat(p.id); return true; }
+    }
+    if (pressed("views", e) && openPilot) { take(e); toggleDesktop(); return true; }
+    if (pressed("feed", e)) { take(e); stepFeed(e.key === "j" ? 1 : -1); return true; }
+    if (pressed("start", e)) { take(e); void startPilot(); return true; }
+    if (pressed("open", e) && cursor && ent == null) { const r = cursorRow(); if (r) { take(e); openSource(r); return true; } }
     return false;
   }
   function take(e: KeyboardEvent): void { e.preventDefault(); e.stopPropagation(); }
@@ -1249,7 +1259,8 @@
     </aside>
   {/if}
 
-  <p class="hints" aria-hidden="true"><span>/ Search</span><span>j k Feed</span>{#if cursor && ent == null}<span>↵ Open</span>{/if}<span>⇧↵ Pilot</span><span>1–9 Pilots</span><span>⌘N New</span>{#if openPilot && desktopViews.length}<span>\ Views</span>{/if}{#if ent != null || src || cursor}<span>Esc Back</span>{/if}</p>
+  {#if keyboardHints.show}<button type="button" class="hints" onclick={() => (shortcutsOpen = true)} aria-haspopup="dialog" aria-keyshortcuts="?"><kbd>?</kbd> Shortcuts</button>{/if}
+  <ShortcutsSheet bind:open={shortcutsOpen} />
   {#if notice}<p class="notice" role="status">{notice}</p>{/if}
   {#if error}<p class="error">The v2 view couldn’t load: {error}</p>{/if}
   {#if field && !field.nodes.length && !openPilot}
@@ -1513,8 +1524,10 @@
   .sorted .row.at, .sorted .row.open { opacity: 1; } .sorted .row.at .x, .sorted .row.open .x { color: var(--fg); }
   .sorted .row.at .w { color: var(--activity); }
   .sorted.walking:not(:hover) .row:not(.at):not(.open) { opacity: .4; }
-  .hints { position: absolute; right: var(--app-gutter, 34px); bottom: 26px; margin: 0; display: flex; gap: 18px; pointer-events: none;
-    font: 600 10px/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--v2-faint); }
+  .hints { position: absolute; right: var(--app-gutter, 34px); bottom: 26px; margin: 0; padding: 0; border: 0; background: none; cursor: pointer;
+    display: flex; align-items: baseline; gap: 6px; font: 600 10px/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--v2-faint); }
+  .hints:hover, .hints:focus-visible { color: var(--fg); }
+  .hints kbd { font: inherit; }
   .notice { position: absolute; right: var(--app-gutter, 34px); bottom: 50px; max-width: 46ch; margin: 0; padding: 9px 12px; border-radius: 8px;
     background: color-mix(in srgb, var(--fg) 8%, var(--bg)); font: 400 13px/1.4 var(--font-app); color: var(--fg); }
   .empty { position: absolute; top: 38%; left: 50%; transform: translate(-50%, -50%); width: min(460px, calc(100% - 32px)); display: flex; flex-direction: column; align-items: flex-start; gap: 12px; }
