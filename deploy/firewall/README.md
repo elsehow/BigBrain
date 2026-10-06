@@ -48,9 +48,11 @@ at a stand-in). Rerun it after changing the question's wording, or after
 adding a question: a model may score a request's questions jointly, so a
 second question can shift the first one's scores.
 
-The threshold (0.15, `FIREWALL_THRESHOLD`) was tuned on the retired local
-model, where every credential mail scored ≥ 0.22 and every ordinary one
-≤ 0.06. Rerun the eval against Jev before trusting that margin.
+The threshold (0.4, `FIREWALL_THRESHOLD`) sits just under the weakest
+credential mail on Jev (2026-10-06: every credential fixture ≥ 0.42, every
+ordinary one ≤ 0.09). The earlier 0.15, tuned on the retired local model,
+withheld ordinary browser clips scoring 0.20–0.24. At 0.5 one fixture
+(`reset-html-only-no-url`, 0.42) would slip through.
 
 Long items are screened in 8000-character windows, the worst window
 deciding; a window Jev refuses as too large is halved and asked again.

@@ -40,10 +40,11 @@ export function firewallKey(root: string): string | undefined {
   return optionalJevKey(connectionStorePath());
 }
 
-/** A missed reset link is the costly error, so the threshold sits low in the
- * gap between credential and ordinary mail. Tuned on deploy/firewall/eval
- * with the retired local model; rerun the eval against Jev to move it. */
-export const FIREWALL_THRESHOLD = 0.15;
+/** A missed reset link is the costly error, so the threshold sits just under
+ * the weakest credential mail in deploy/firewall/eval (Jev, 2026-10-06:
+ * credential ≥ 0.42, ordinary ≤ 0.09). 0.15 withheld ordinary web clips at
+ * 0.20–0.24; rerun the eval before moving it. */
+export const FIREWALL_THRESHOLD = 0.4;
 
 export const QUESTIONS = {
   credential: {
