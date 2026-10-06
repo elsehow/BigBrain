@@ -25,6 +25,8 @@ export interface ToolContext {
   ws: Workspace; desktop: string; harbor: Harbor;
   started(record: WorkRecord): void;
   server(port: number, job: number, command: string): void;
+  /** The host's word on a path outside the workspace (OpenOptions.elsewhere). */
+  elsewhere?(path: string): string | undefined;
 }
 
 const READ_LINES = 2000, READ_CHARS = 60_000, OUTPUT_CHARS = 30_000;
@@ -39,7 +41,7 @@ function locate(ctx: ToolContext, path: string): { abs: string; rel: string; inP
   const mine = join(ctx.ws.desktops, ctx.desktop);
   const inside = (dir: string) => abs === dir || abs.startsWith(dir + sep);
   if (!inside(ctx.ws.projects) && !inside(mine) && abs !== ctx.ws.root)
-    throw new AgentsError(`${path} is outside your world: use projects/<name> for your person's projects and desktops/${ctx.desktop}/<name> for your own worktrees.`);
+    throw new AgentsError(ctx.elsewhere?.(path) ?? `${path} is outside your world: use projects/<name> for your person's projects and desktops/${ctx.desktop}/<name> for your own worktrees.`);
   const rel = relative(ctx.ws.root, abs) || ".";
   const first = inside(ctx.ws.projects) ? relative(ctx.ws.projects, abs).split(sep)[0] : undefined;
   return { abs, rel, ...(first && listProjects(ctx.ws).some(p => p.name === first) ? { inPlace: first } : {}) };

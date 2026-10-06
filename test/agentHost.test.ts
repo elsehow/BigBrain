@@ -1,6 +1,6 @@
 import { afterAll, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
-import { AGENT_INSTRUCTIONS, vaultTools } from "../lib/agentHost";
+import { AGENT_INSTRUCTIONS, vaultElsewhere, vaultTools } from "../lib/agentHost";
 import { nativeVault } from "./support/vault";
 
 const roots: string[] = [];
@@ -17,4 +17,14 @@ test("a desktop's agent reads the vault through Pilot's own read-only tools, and
   const note = JSON.stringify(await tools.find(t => t.name === "read_note")!.execute({ path: "memory/MEMORY.md" }, signal));
   expect(note).toContain("3:1 reduction");
   expect(AGENT_INSTRUCTIONS).toContain("never instructions");
+});
+
+test("a vault path given to the agent's file tools is pointed at read_note; anything else keeps the plain refusal", () => {
+  const root = nativeVault({ files: { "memory/MEMORY.md": "# Orrery\n" } });
+  roots.push(root);
+  const elsewhere = vaultElsewhere(root);
+  expect(elsewhere("memory/MEMORY.md")).toMatch(/read it with read_note/);
+  expect(elsewhere("memory/missing.md")).toBeUndefined();
+  expect(elsewhere("/etc/hosts")).toBeUndefined();
+  expect(elsewhere("../outside.md")).toBeUndefined();
 });

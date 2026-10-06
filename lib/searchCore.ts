@@ -163,7 +163,11 @@ function assertionRanked(
     const entityRows = entityHits.map((entity) =>
       [entity, assertionsWithRefsForEntity(root, entity.id, pool, db)] as const);
 
-    const wanted = new Set<string>();
+    // An insertion id names its source outright. The FTS index holds titles
+    // and bodies, never ids, so an agent handed `ins_…` (a desktop started
+    // about a source) found nothing and went looking on disk.
+    const named = new Set(q.match(/\bins_[a-f0-9]{24}\b/gu) ?? []);
+    const wanted = new Set<string>(named);
     for (const row of sourceHits) wanted.add(row.insertion_id);
     for (const refs of assertionRefs.values()) for (const ref of refs) wanted.add(ref.insertion_id);
     for (const [, rows] of entityRows) for (const row of rows) for (const ref of row.refs) wanted.add(ref.insertion_id);
@@ -181,7 +185,7 @@ function assertionRanked(
     // `insertion` only on body candidates (kind 3): the row whose window the
     // snippet is cut from, once the hit has actually made the response.
     // `voice` sinks a candidate below every record hit (the sort below).
-    type Candidate = RankedHit & { kind: 0 | 1 | 2 | 3; insertion?: string; voice?: boolean };
+    type Candidate = RankedHit & { kind: 0 | 1 | 2 | 3; insertion?: string; voice?: boolean; named?: boolean };
     const candidates: Candidate[] = [];
     const eligible = (source: SourceHead): boolean => {
       const date = sourceDate(source);
@@ -210,6 +214,11 @@ function assertionRanked(
         ...(isVoiceKind(source.kind) ? { voice: true } : {}),
       });
     };
+
+    for (const id of named) {
+      const source = byInsertion.get(id);
+      if (source) add(source, { snippet: "", score: 0, tier: 0, entity: false, kind: 3, insertion: id, named: true });
+    }
 
     for (const row of sourceHits) {
       const source = byInsertion.get(row.insertion_id);
@@ -285,6 +294,7 @@ function assertionRanked(
     // and kind, evidence before label score: the entity the record cites most
     // is the one a bare name most likely means.
     candidates.sort((a, b) =>
+      Number(!a.named) - Number(!b.named) ||
       Number(a.voice ?? false) - Number(b.voice ?? false) ||
       Number(!!a.evidence) - Number(!!b.evidence) ||
       a.tier - b.tier || a.kind - b.kind || (b.assertions ?? 0) - (a.assertions ?? 0) ||
@@ -316,7 +326,7 @@ function assertionRanked(
       root, unique.flatMap((hit) => (hit.kind === 3 && !hit.snippet && hit.insertion ? [hit.insertion] : [])), q, db);
     // The count is the ENTITY hit's fact; a source row an entity's assertion
     // reached through carries no count of its own.
-    return unique.map(({ kind, insertion, assertions, voice: _voice, ...hit }) => {
+    return unique.map(({ kind, insertion, assertions, voice: _voice, named: _named, ...hit }) => {
       const ranked = kind === 0 ? { ...hit, assertions } : hit;
       return kind === 3 && !hit.snippet
         ? { ...ranked, snippet: bodySnippet(windows.get(insertion ?? "") ?? "") || hit.title }
