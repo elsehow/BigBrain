@@ -1072,7 +1072,9 @@
         { id: "new", label: "New Desktop", keys: [{ key: "n", mod: true, shift: false }, { key: "n" }], when: () => !!field, run: () => void createPilot([]) },
         { id: "views", label: "Show or hide the Desktop’s views", keys: [{ key: "\\" }], when: () => !!openPilot, run: toggleDesktop },
         { id: "original", label: "Open the original source", keys: [{ key: "o", mod: true, shift: false }], when: () => !!original(), run: () => void openOriginal(original()!) },
-        { id: "back", label: "Back", keys: [{ key: "Escape" }], run: back },
+        { id: "back", label: "Back", keys: [{ key: "Escape", shift: false }], run: back },
+        // from the message box too, where an open Desktop's keys usually are
+        { id: "archive", label: "Archive the Desktop", keys: [{ key: "Escape", shift: true, typing: true }], when: () => !!openPilot && !drafting(openPilot), run: () => void archiveDesktop() },
         // ⌘, (Ctrl+, elsewhere): the same view the app's gear opens
         { id: "settings", label: "Settings", keys: [{ key: ",", mod: true }], run: openSettings },
         { id: "shortcuts", label: "Shortcuts", keys: [{ key: "?" }], run: () => { shortcutsOpen = true; } },
@@ -1086,7 +1088,7 @@
       ] }),
       // an Esc the composer's @ menu let through leaves the composer
       registerShortcuts({ title: "Message box", rank: RANK.input, when: () => !paused, input: () => composerEl, shortcuts: [
-        { id: "composer-leave", label: "Leave the message box", keys: [{ key: "Escape" }], run: () => { if (drafting(openPilot) && !draftText.trim()) closePilot(); else composer?.blur(); } },
+        { id: "composer-leave", label: "Leave the message box", keys: [{ key: "Escape", shift: false }], run: () => { if (drafting(openPilot) && !draftText.trim()) closePilot(); else composer?.blur(); } },
       ] }),
     ];
     return () => offs.forEach((off) => off());
@@ -1307,7 +1309,7 @@
           <span class="k">{[hint("composer-send", coding(detail.id) && detail.phase === "working" ? "Steer" : "Send"), hint("composer-newline", "New line"), hint("composer-leave", "Back")].filter(Boolean).join(" · ")}</span>
           {#if detail.phase === "working"}<button type="button" class="find" onclick={() => void stopPilot()}>Stop</button>{/if}
           {#if drafting(detail.id)}<span class="k">{["Not kept until you send", original() && hint("original", "Open original")].filter(Boolean).join(" · ")}</span>
-          {:else if coding(detail.id)}<button type="button" class="find" onclick={() => void archiveDesktop()} title="Stop its processes; its files and conversation stay">Archive</button>{/if}
+          {:else if coding(detail.id)}<button type="button" class="find" onclick={() => void archiveDesktop()} title={`Stop its processes; its files and conversation stay ${keyText("archive") && `(${keyText("archive")})`}`}>Archive</button>{/if}
         </div>
       </div></div>
     </section>
