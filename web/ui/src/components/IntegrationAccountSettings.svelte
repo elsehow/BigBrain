@@ -12,7 +12,7 @@
   * docs/design-principles.md, "Integration settings". */
  import {openExternal} from "../lib/native";
  import {onMount} from 'svelte';
- const {source,openFirst=false}:{source:string;openFirst?:boolean}=$props();
+ const {source}:{source:string}=$props();
   type Account={gmail?:boolean;google?:boolean;host?:string;removable?:boolean;email?:{startAt:string;attachments:boolean;backfill?:{since:string}};granola?:{backfill?:{since:string}};sync?:{ok:boolean;error?:string};auth?:{phase:string;url?:string;error?:string};identity?:unknown;label:string;name:string;account:string;connected:boolean;liveAccess?:boolean;capabilities:{read:string|null;write:string|null}};
  let newLabel=$state(''),newKey=$state(''),adding=$state(false),destination=$state('this vault');
  let history=$state<Record<string,string>>({});
@@ -33,7 +33,7 @@
    const identity=account.identity as {email?:unknown}|undefined;
    return typeof identity?.email==='string'?identity.email:'Account';
  }
- function accept(v:{accounts:Account[];destination?:string}){destination=v.destination??"this vault";accounts=v.accounts.filter(a=>a.name===source);accounts.forEach((a,index)=>{expanded[a.account]??=openFirst&&index===0;});}
+ function accept(v:{accounts:Account[];destination?:string}){destination=v.destination??"this vault";accounts=v.accounts.filter(a=>a.name===source);}
  onMount(()=>{
    void request().then(accept).catch(e=>say('list',null,e.message,true));
    const timer=setInterval(()=>{if(!busy&&accounts.some(a=>a.auth?.phase==='browser'||a.auth?.phase==='starting'))void request().then(accept).catch(e=>say('list',null,e.message,true));},1500);
