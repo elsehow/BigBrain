@@ -66,6 +66,8 @@
   let writing: V2Feed | null = $state(null);
   let error = $state("");
   let scene: V2Scene | null = null;
+  /** Bumped when the scene is drawn anew, so what it's showing is handed back. */
+  let sceneRev = $state(0);
   let twins = new Map<number, number[]>();
 
   let ent: number | null = $state(null);
@@ -404,7 +406,7 @@
     if (wasDraft) {
       // back to the feed, on the row it came from
       draft = null; draftText = "";
-      lightCursor();
+      unlight();
       void tick().then(() => feedEl?.querySelector(".row.at")?.scrollIntoView({ block: "nearest" }));
     }
   }
@@ -550,9 +552,13 @@
 
   // the feed: an opened entity's own record, else the vault's latest
   let rows = $derived.by(() => (!writing ? [] : ent != null && entRows ? entRows.slice(-6) : writing.feed.slice(-6)));
-  let hud = $derived.by(() => {
+  let hud = $derived.by((): { eyebrow: string; name: string; status: string; writing?: boolean } | null => {
     if (!field || !writing || searching || openPilot) return null;
-    if (src) return { eyebrow: [src.row.via, when(src.row.added)].filter(Boolean).join(" · "), name: src.row.title ?? src.row.headline, status: src.text ?? "", writing: src.text === "" };
+    const titled = (r: V2SortedRow) => ({ eyebrow: [r.via, when(r.added)].filter(Boolean).join(" · "), name: r.title ?? r.headline });
+    if (src) return { ...titled(src.row), status: src.text ?? "", writing: src.text === "" };
+    // the row walked to: its source's full title, as an opened source's
+    const walked = ent == null ? cursorRow() : null;
+    if (walked) return { ...titled(walked), status: "", writing: false };
     if (ent != null) {
       const n = field.nodes[ent]!;
       const tw = (twins.get(ent) ?? []).map((j) => field!.nodes[j]!.label);
@@ -590,6 +596,7 @@
       onHover: relateTie,
     });
     scene.setPilots(placePilots(field, bar, sourcePlaces()));
+    sceneRev++;
   }
   /** The vault changed (the engine's /api/events ping, as the app's views
    * hear it): the feed and the record re-read at once; a changed graph is
@@ -609,7 +616,7 @@
   function redrawIfIdle(): void {
     if (!graphStale || !heldGraph || ent != null || src || searching || openPilot) return;
     graphStale = false;
-    void drawField(heldGraph).then(lightCursor);
+    void drawField(heldGraph).then(unlight);
     heldGraph = null;
   }
   /** The feed changes in the background as tend sorts what it files. */
@@ -648,7 +655,7 @@
   /** Slide the field's centre clear of the panels: right of a left column, left of the sidebar. */
   const shiftFor = () => {
     const chatW = (chatWidth ?? Math.min(1000, Math.max(520, innerWidth * 0.44))) + GUTTER; // .v2's --chat-w, plus a gutter
-    const left = searching ? Math.min(600, innerWidth * 0.4) : openPilot ? chatW : ent != null || src ? Math.min(380, innerWidth * 0.26) : 0;
+    const left = searching ? Math.min(600, innerWidth * 0.4) : openPilot ? chatW : ent != null || src || cursor ? Math.min(380, innerWidth * 0.26) : 0;
     if (openPilot && !showDesktop && !searching) return 0; // the chat stands alone, centred
     const right = showDesktop ? innerWidth - chatW - GUTTER : 0;
     return (left - right) / 2;
@@ -669,22 +676,45 @@
   function closeSource(): void { if (src) { src = null; scene?.search(null); } }
   const feedEntities = (r: V2SortedRow) => r.entities.map((id) => field!.byId.get(id)).filter((x): x is number => x != null);
   const cursorRow = () => sorted.find((r) => r.source === cursor) ?? null;
-  /** Light what the row in hand mentions, where it sits in the field. */
-  const lightCursor = () => { const r = cursorRow(); scene?.hover(r ? feedEntities(r) : null); };
+  /** The feed row under the pointer: set as the pointer moves, not on enter,
+   * so a row the walk scrolls under a resting pointer isn't taken for one pointed at. */
+  let rowOver: V2SortedRow | null = $state(null);
+  /** The source in hand — a draft's, an opened one, the row under the
+   * pointer, else the walk's — drawn in the field while it's held. */
+  const sourceInHand = $derived.by((): V2SortedRow | null => {
+    if (drafting(openPilot)) return draft?.row ?? null;
+    if (openPilot || ent != null || searching) return null;
+    return src?.row ?? rowOver ?? cursorRow();
+  });
+  $effect(() => {
+    void sceneRev;
+    const r = sourceInHand;
+    // walked to (j/k), it opens as an entity does, its headline beside it;
+    // only pointed at, it's named and the camera holds still
+    scene?.source(r && field ? { label: r.title ?? r.headline, entities: feedEntities(r), open: !openPilot && !src && r !== rowOver, text: r.headline } : null);
+  });
+  /** Back from a row pointed at: the row in hand is drawn opened (above), not lit. */
+  const unlight = () => scene?.hover(null);
   /** j (down, newer) and k (up, older): the first press takes the newest row;
    * walking up past the top scrolls the older ones in. */
   function stepFeed(dir: 1 | -1): void {
     if (!sorted.length) return;
     if (ent != null || src) overview();
+    // a walk starting: Esc comes back to the view it started from
+    if (cursor == null) scene?.keepView();
+    rowOver = null;
     const at = sorted.findIndex((r) => r.source === cursor);
     cursor = sorted[at < 0 ? 0 : Math.max(0, Math.min(sorted.length - 1, at - dir))]!.source;
-    lightCursor();
+    unlight();
+    scene?.shift(shiftFor());
     void tick().then(() => feedEl?.querySelector(".row.at")?.scrollIntoView({ block: "nearest" }));
   }
   /** Let go of the walk: the strip settles back on the newest. */
   function leaveFeed(): void {
     cursor = null;
     scene?.hover(null);
+    if (!scene?.returnToView()) scene?.overview();
+    scene?.shift(shiftFor());
     feedFollowing = true;
     if (feedEl) feedEl.scrollTop = feedEl.scrollHeight;
   }
@@ -694,6 +724,7 @@
     if (r.path && !data) return openDraft(r, r.path);
     if (ent != null) { ent = null; entRows = null; }
     cursor = r.source;
+    rowOver = null;
     src = { row: r, text: r.path && !data ? "" : undefined };
     scene?.hover(null);
     scene?.search({ matches: feedEntities(r), active: null, move: "frame" });
@@ -913,7 +944,7 @@
     if (e.key === "/") { take(e); openSearch(); return true; }
     if (e.key === "Escape" && pickerOpen) { take(e); pickerOpen = false; return true; }
     if (e.key === "Escape" && openPilot) { take(e); closePilot(); return true; }
-    if (e.key === "Escape" && (ent != null || src)) { take(e); overview(); lightCursor(); return true; }
+    if (e.key === "Escape" && (ent != null || src)) { take(e); overview(); unlight(); return true; }
     if (e.key === "Escape" && cursor) { take(e); leaveFeed(); return true; }
     if (e.key === "n") { take(e); void createPilot([]); return true; }
     const slot = Number(e.key);
@@ -1031,8 +1062,8 @@
       {#each sortedShown as r (r.source)}
         <div class="row s-{r.section}" class:at={r.source === cursor} class:open={r.source === src?.row.source} role="button" tabindex="-1"
           title={r.title && r.title !== r.headline ? r.title : undefined}
-          onmouseenter={() => { if (!src) scene?.hover(feedEntities(r)); }}
-          onmouseleave={() => { if (!src) lightCursor(); }}
+          onmousemove={() => { if (rowOver !== r) { rowOver = r; if (!src) scene?.hover(feedEntities(r)); } }}
+          onmouseleave={() => { rowOver = null; if (!src) unlight(); }}
           onclick={() => openSource(r)} onkeydown={() => {}}>
           <span class="w" title="When it entered your feed">{when(r.added)}</span>
           <span class="x">{r.headline}{#if r.due}<span class="due">{dueOn(r.due)}</span>{/if}</span>
@@ -1179,6 +1210,7 @@
   /* Desktop names in the sans, a size up from the mono names of the field */
   .stage :global(.v2-pilot) { font: 500 12px/1 var(--font-app); color: var(--v2-muted); }
   .stage :global(.v2-pilot:hover) { color: var(--fg); }
+  .stage :global(.v2-source) { pointer-events: none; }
   .stage :global(.v2-pilot.working) { color: color-mix(in srgb, var(--activity) 80%, var(--fg)); }
   .stage :global(.v2-node.memory .t) { font: 500 12px/1.2 var(--font-app); color: var(--fg); }
   .stage :global(.v2-node .q), .stage :global(.v2-node .c) { display: none; }
@@ -1392,9 +1424,11 @@
   .sorted .due { margin-left: 10px; font: 500 9.5px/1 var(--font-mono); letter-spacing: .06em; text-transform: uppercase; color: var(--activity); }
   /* about eight rows tall; older ones scroll in above, fading at the top edge */
   .feed.sorted { display: block; max-height: 156px; overflow-y: auto; scrollbar-width: none; overscroll-behavior: contain;
-    mask-image: linear-gradient(to bottom, transparent, #000 40px); }
+    mask-image: linear-gradient(to bottom, transparent, #000 40px); padding-top: 40px; }
   .feed.sorted::-webkit-scrollbar { display: none; }
   .sorted .row { cursor: pointer; }
+  /* the row in hand scrolls clear of the fade (the padding above lets the oldest) */
+  .sorted .row.at { scroll-margin-top: 40px; }
   .sorted .row.at, .sorted .row.open { opacity: 1; } .sorted .row.at .x, .sorted .row.open .x { color: var(--fg); }
   .sorted .row.at .w { color: var(--activity); }
   .sorted.walking:not(:hover) .row:not(.at):not(.open) { opacity: .4; }

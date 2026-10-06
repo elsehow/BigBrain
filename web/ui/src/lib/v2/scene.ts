@@ -41,10 +41,20 @@ export interface V2Scene {
   search(state: { matches: number[]; active: number | null; text?: string; caption?: string; move: "frame" | "glide" | "none" } | null): void;
   /** A hovered feed row: what it mentions. */
   hover(entities: number[] | null): void;
+  /** The feed row in hand, as a node of its own: over what it mentions, tied
+   * to each (mentioning nothing in the field, it sits mid-view, tied to
+   * nothing). Sources aren't in the field at rest; this one is there only
+   * while it's in hand. `open`: opened as an entity is — framed, the rest
+   * steps back, `text` beside it. */
+  source(s: { label: string; entities: number[]; open?: boolean; text?: string } | null): void;
   /** Beside one of the opened entity's ties: how it relates to that entity,
    * after its name; "" is a spinner, null takes it away. The entity keeps
    * its own text: the relation finds room around its tie. */
   relate(j: number | null, text?: string): void;
+  /** Remember where the camera is headed (a walk through the feed starting). */
+  keepView(): void;
+  /** Back to the remembered view, if there is one (the walk let go); false if not. */
+  returnToView(): boolean;
   /** Pixels to slide the scene's centre right, clear of a left panel. */
   shift(px: number): void;
   dispose(): void;
@@ -77,11 +87,15 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
 
   // ── particles: every entity a point ──────────────────────────────────────
   const N = field.nodes.length;
+  // and after them, SOURCES slots: the feed row in hand drawn as a node of its
+  // own while it's held (one fading out while the next fades in)
+  const SOURCES = 3;
   const pGeo = new THREE.BufferGeometry();
-  pGeo.setAttribute("position", new THREE.Float32BufferAttribute(field.nodes.flatMap((n) => n.p), 3));
-  const aSize = new THREE.BufferAttribute(new Float32Array(N), 1);
-  const aColor = new THREE.BufferAttribute(new Float32Array(N * 3), 3);
-  const aAlpha = new THREE.BufferAttribute(new Float32Array(N), 1);
+  const aPos = new THREE.Float32BufferAttribute([...field.nodes.flatMap((n) => n.p), ...Array.from({ length: SOURCES * 3 }, () => 0)], 3);
+  pGeo.setAttribute("position", aPos);
+  const aSize = new THREE.BufferAttribute(new Float32Array(N + SOURCES), 1);
+  const aColor = new THREE.BufferAttribute(new Float32Array((N + SOURCES) * 3), 3);
+  const aAlpha = new THREE.BufferAttribute(new Float32Array(N + SOURCES), 1);
   pGeo.setAttribute("aSize", aSize); pGeo.setAttribute("aColor", aColor); pGeo.setAttribute("aAlpha", aAlpha);
   const pMat = new THREE.ShaderMaterial({
     uniforms: { uFogNear: fog.near, uFogFar: fog.far, uPx: { value: 1 }, uRef: { value: 36 } },
@@ -116,6 +130,29 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
   const baseSize = field.nodes.map((n) => (n.named ? 4.5 + 1.2 * Math.log1p(n.degree) : 1.8 + 0.75 * Math.log1p(n.degree)));
   const P = field.nodes.map((n) => new THREE.Vector3(...n.p));
 
+  // ── sources: hidden at rest; the one in hand is a node like any other ────
+  // It sits over the middle of what it mentions, tied to each, and comes and
+  // goes as a pointed dot's name does: fading in where it is, out where it was.
+  type Src = { key: string; ties: number[]; at: THREE.Vector3; vis: number; want: boolean; open: boolean; L: HTMLDivElement & { w?: number; h?: number; op?: number } };
+  const sources: Src[] = Array.from({ length: SOURCES }, () => {
+    const L = document.createElement("div") as Src["L"];
+    L.className = "v2-lab v2-node v2-source";
+    const t = document.createElement("span"), q = document.createElement("span");
+    t.className = "t"; q.className = "q";
+    L.append(t, q);
+    return { key: "", ties: [], at: new THREE.Vector3(), vis: 0, want: false, open: false, L };
+  });
+  const srcName = (s: string) => (s.length > 48 ? s.slice(0, 47).trimEnd() + "…" : s);
+  /** Its name, or opened, its text where an opened entity's goes. */
+  const sourceLabel = (s: Src, name: string, text: string | undefined) => {
+    const full = s.open && !!text;
+    s.L.classList.toggle("full", full);
+    s.L.children[0]!.textContent = srcName(name);
+    s.L.children[1]!.textContent = full ? text! : "";
+    s.L.w = undefined;
+  };
+  for (const s of sources) labelLayer.append(s.L);
+
   // ── lines ────────────────────────────────────────────────────────────────
   const lineSet = (pairs: Array<[THREE.Vector3, THREE.Vector3]>, opacity: number) => {
     const g = new THREE.BufferGeometry();
@@ -148,7 +185,7 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
       end() { g.setDrawRange(0, k * 2); g.attributes.position!.needsUpdate = true; g.attributes.color!.needsUpdate = true; },
     };
   };
-  const ties = dynamic(160);
+  const ties = dynamic(160 + 64);
 
   // ── glass: memory topics ─────────────────────────────────────────────────
   const octa = new THREE.OctahedronGeometry(1, 0);
@@ -236,6 +273,8 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
   const rig = { az: OVERVIEW.az, el: OVERVIEW.el, dist: OVERVIEW.dist, tx: OVERVIEW.target.x, ty: OVERVIEW.target.y, tz: OVERVIEW.target.z };
   const vel = { az: 0, el: 0, dist: 0, tx: 0, ty: 0, tz: 0 };
   const goal = { az: OVERVIEW.az, el: OVERVIEW.el, dist: OVERVIEW.dist, target: OVERVIEW.target.clone() };
+  /** The view a walk through the feed started from. */
+  let kept: { az: number; el: number; dist: number; target: THREE.Vector3 } | null = null;
   const setGoal = (g: { az?: number; el: number; dist: number; target: THREE.Vector3 }) => {
     goal.az = g.az ?? rig.az; goal.el = g.el; goal.dist = g.dist; goal.target.copy(g.target);
   };
@@ -247,6 +286,24 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
     let R = 0;
     for (const p of pts) R = Math.max(R, p.distanceTo(c));
     setGoal({ el, dist: THREE.MathUtils.clamp(R * k + 3, lo, hi), target: c });
+  };
+  const centre = (pts: THREE.Vector3[]) => pts.reduce((c, p) => c.add(p), new THREE.Vector3()).divideScalar(pts.length);
+  /** A source walked to, followed rather than zoomed: centred with what it
+   * mentions, at the distance and angle you had, backing out only as far as
+   * it takes to fit (never in). Tied to nothing, the camera holds. */
+  const follow = (s: Src) => {
+    if (!s.ties.length) return;
+    const pts = [s.at, ...s.ties.map((j) => P[j]!)], c = centre(pts);
+    const R = Math.max(...pts.map((p) => p.distanceTo(c)));
+    setGoal({ el: goal.el, dist: Math.max(goal.dist, Math.min(OVERVIEW.dist, R * 2.6 + 3)), target: c });
+  };
+  /** Over the middle of what it mentions, lifted clear of it (over one, a
+   * little aside, so the tie reads); mentioning nothing here, mid-view. */
+  const settle = (s: Src) => {
+    if (s.ties.length) s.at.copy(centre(s.ties.map((j) => P[j]!))).add(v3.set(s.ties.length === 1 ? 0.6 : 0, 1.6, 0));
+    else s.at.copy(goal.target).y += 1.2;
+    s.at.toArray(aPos.array, (N + sources.indexOf(s)) * 3);
+    aPos.needsUpdate = true;
   };
 
   // ── labels: DOM, placed per frame, culled where they'd collide ──────────
@@ -455,7 +512,8 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
 
     // what is in play
     const fp = focus ? pilots.get(focus) : undefined;
-    const inPlay: Set<number> | null = srch ? null : ent ? new Set([ent.i, ...ent.ties]) : fp ? new Set(fp.d.ctx) : null;
+    const os = sources.find((s) => s.want && s.open);
+    const inPlay: Set<number> | null = srch ? null : ent ? new Set([ent.i, ...ent.ties]) : fp ? new Set(fp.d.ctx) : os ? new Set(os.ties) : null;
     const k = ease(9);
     dim += ((inPlay ? 1 : 0) - dim) * k;
     searchDim += ((srch && srch.matches.size ? 0.12 : srch ? 0.5 : 1) - searchDim) * ease(10);
@@ -475,8 +533,18 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
       alphas[i] = Math.max(h, THREE.MathUtils.lerp(rest, THREE.MathUtils.lerp(n.named ? 0.22 : 0.12, 1, r), dim)) * THREE.MathUtils.lerp(searchDim, 1, match[i]!);
       c1.copy(n.named || r > 0.5 ? col.fg : dust).lerp(col.act, h * 0.9).toArray(colors, i * 3);
     }
+    let srcHeld = 0;
+    sources.forEach((s, k) => {
+      s.vis += ((s.want ? 1 : 0) - s.vis) * ease(s.want ? 18 : 10);
+      srcHeld = Math.max(srcHeld, s.vis);
+      const i = N + k;
+      sizes[i] = hubSize;
+      alphas[i] = 0.95 * s.vis;
+      col.fg.toArray(colors, i * 3);
+    });
     aSize.needsUpdate = true; aColor.needsUpdate = true; aAlpha.needsUpdate = true;
-    (strong.material as THREE.LineBasicMaterial).opacity = 0.14 * searchDim * (1 - 0.5 * dim);
+    // a source in hand: the field's own lines step back so its ties read
+    (strong.material as THREE.LineBasicMaterial).opacity = 0.14 * searchDim * (1 - 0.5 * dim) * (1 - 0.6 * srcHeld);
 
     // memory glass recedes with everything else when something is in play
     for (const g of memory) {
@@ -501,6 +569,7 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
 
     // the ties of an opened entity; each pilot's lines to what it's working on
     ties.begin();
+    for (const s of sources) if (s.vis > 0.01) for (const j of s.ties) ties.add(s.at, P[j]!, c1.copy(col.bg).lerp(col.fg, 0.55 * s.vis), c2.copy(col.bg).lerp(col.fg, 0.4 * s.vis));
     if (ent) for (const j of ent.ties) ties.add(P[ent.i]!, P[j]!, c1.copy(col.bg).lerp(col.fg, 0.55), c2.copy(col.bg).lerp(col.fg, 0.4));
     for (const pl of pilots.values()) {
       const on = focus === pl.d.id, tint = pl.d.phase === "working" ? col.act : col.fg;
@@ -541,6 +610,16 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
         const R = Math.abs(s2.x - s1.x);
         placed.push([s1.x - R, s1.y - R, s1.x + R, s1.y + R]);
       }
+    }
+    // a source's name, where a pointed dot's goes, ahead of the field's names
+    for (const s of sources) {
+      toScreen(s.at, s1);
+      if (s.vis < 0.04 || !s1.ok) { if (s.L.op !== 0) place(s.L, -999, -999, 0); continue; }
+      if (s.L.w == null) { s.L.w = s.L.offsetWidth; s.L.h = s.L.offsetHeight; }
+      // right of its dot, or left when a long name would run off the window
+      const x = s1.x + 9 + s.L.w > W - 12 ? s1.x - 9 - s.L.w : s1.x + 9;
+      place(s.L, x, s1.y, s.vis);
+      placed.push([x - 4, s1.y - s.L.h! / 2 - 3, x + s.L.w + 4, s1.y + s.L.h! / 2 + 3]);
     }
     const cand: Cand[] = [];
     const inHand = srch ? srch.active : ent ? ent.i : null;
@@ -638,12 +717,40 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
       else if (state.move === "frame") frameAround(state.matches.map((m) => P[m]!), 0.55, 3.2, 7, OVERVIEW.dist);
     },
     hover(entities) { hot = entities ? new Set(entities) : null; },
+    source(want) {
+      const key = want ? `${want.label}\u0000${want.entities.join(",")}` : "";
+      // one let go is no longer open, so walking back to it frames it again
+      for (const s of sources) { s.want = !!key && s.key === key; if (!s.want) s.open = false; }
+      if (!want) return;
+      const open = !!want.open;
+      const held = sources.find((s) => s.want);
+      if (held) {
+        const opening = open && !held.open;
+        held.open = open;
+        sourceLabel(held, want.label, want.text);
+        // walked back to: placed anew (one tied to nothing comes to where you are)
+        if (opening) { settle(held); follow(held); }
+        return;
+      }
+      // a free slot (or the faintest), so the last one fades out where it was
+      const s = sources.reduce((a, b) => (b.vis < a.vis ? b : a));
+      Object.assign(s, { key, ties: want.entities, want: true, vis: 0, open });
+      settle(s);
+      sourceLabel(s, want.label, want.text);
+      if (open) follow(s);
+    },
     relate(j, text) {
       if (j == null || text === undefined) return unrelate();
       if (rl && rl.j !== j) unrelate();
       rl = { j, text };
       const lab = labels.get(j);
       if (lab) { lab.full = undefined; lab.w = undefined; }
+    },
+    keepView() { kept = { az: goal.az, el: goal.el, dist: goal.dist, target: goal.target.clone() }; },
+    returnToView() {
+      if (!kept) return false;
+      setGoal(kept); kept = null;
+      return true;
     },
     shift(px) { shiftGoal = px; },
     dispose() {
