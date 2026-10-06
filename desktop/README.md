@@ -123,22 +123,48 @@ bunx tauri build --debug                  # → src-tauri/target/debug/bundle/ma
 itself — a stale `web/ui/dist` on the build machine cannot ship (it did
 once: 0.1.8 went out with a months-old UI inside a current shell).
 
-A **release** build must also sign the update it becomes food for:
+A **release** build must also sign the update it becomes food for. The
+signing key lives at `~/.config/bigbrain/updater-v2.key` (mode 0600) and is
+encrypted: its passphrase lives in the maintainer's password manager, never
+in a file, a shell profile or an agent's environment.
 
 ```sh
-TAURI_SIGNING_PRIVATE_KEY=~/.config/bigbrain/updater.key TAURI_SIGNING_PRIVATE_KEY_PASSWORD="" bunx tauri build --bundles app
+read -rs TAURI_SIGNING_PRIVATE_KEY_PASSWORD && export TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+TAURI_SIGNING_PRIVATE_KEY=~/.config/bigbrain/updater-v2.key bunx tauri build --bundles app
 bun run site:build -- --app src-tauri/target/release/bundle/macos/BigBrain.app
 # From the repo root: bun run site:deploy (site/README.md). Never upload to /srv/site.
 ```
 
-The key has no password, and the empty `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
-says so: without it the build stops after bundling to ask at a terminal,
-and with no terminal (an agent, a script) it fails with "Device not
-configured" — leaving a NEW `.app.tar.gz` beside the OLD `.sig` from the
-last release, which the site build would ship as a pair (2026-09-06). If
-that has already happened, delete the stale `.sig` and sign the tarball
-alone: `bunx tauri signer sign -f ~/.config/bigbrain/updater.key
+Build releases from a terminal you run yourself, not from an agent: anything
+that can read the key file and the passphrase can sign an update every
+install accepts. Without the passphrase in the environment the build stops
+after bundling to ask at a terminal, and with no terminal it fails with
+"Device not configured" — leaving a NEW `.app.tar.gz` beside the OLD `.sig`
+from the last release, which the site build would ship as a pair
+(2026-09-06). If that has already happened, delete the stale `.sig` and sign
+the tarball alone: `bunx tauri signer sign -f ~/.config/bigbrain/updater-v2.key
 src-tauri/target/release/bundle/macos/BigBrain.app.tar.gz`.
+
+**Key rotation.** An installed app accepts only updates signed by the key
+pinned in its `tauri.conf.json` (`plugins.updater.pubkey`), and polls only
+the feed its endpoint names (`site/build.ts` `feedName`). So a key rotates by
+moving the feed:
+
+1. Generate the new key with a passphrase:
+   `bunx tauri signer generate -w ~/.config/bigbrain/updater-v<n>.key`.
+2. Put its public key in `tauri.conf.json` and point the endpoint at a new
+   feed (e.g. `update-v<n>.json`; add it to `site/nginx/bigbrain-site`).
+3. Cut the **bridge** release: build it signed with the OLD key and publish
+   it on the old feed — `bun run site:build -- --app … --feed <old feed>`
+   writes that feed instead of the new one. Installed apps update to the bridge,
+   which pins the new key and polls the new feed.
+4. Every later release is signed with the new key and lands only on the new
+   feed. The old feed is frozen at the bridge, so an app that was offline
+   for months still crosses over. Then delete the old key.
+
+The first key (`updater.key`, unencrypted) is retired this way: 0.8.x apps
+poll `latest.json`, so the bridge is built with `--feed latest.json`; later
+apps poll `update.json`.
 
 **Signing (#576).** The bundle is **ad-hoc signed** (`signingIdentity: "-"`
 in `tauri.conf.json`): a real seal over every file, no Apple identity. On a

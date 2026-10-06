@@ -39,7 +39,9 @@ server {
 		try_files $uri =404;
 	}
 
-    location = /latest.json {
+    # the update feeds: latest.json for apps pinned to the first signing
+    # key (frozen at the bridge release), update.json for every later app
+    location ~ ^/(latest|update)\.json$ {
         root /srv/releases;
         add_header Cache-Control "no-cache";
         try_files $uri =404;

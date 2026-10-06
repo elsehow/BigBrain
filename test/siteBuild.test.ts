@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { SITE_URL, appVersion, buildSite, cubeParts, extensionId, releaseNotes, tarName, zipName } from "../site/build";
+import { SITE_URL, appVersion, buildSite, cubeParts, extensionId, feedName, releaseNotes, tarName, zipName } from "../site/build";
 
 const EXT = join(import.meta.dir, "..", "clients", "browser-extension");
 
@@ -124,12 +124,15 @@ describe("site build", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  test.skipIf(!mac)("--app writes latest.json: the version, the tarball beside it, the signature verbatim", () => {
+  test.skipIf(!mac)("--app writes the app's update feed: the version, the tarball beside it, the signature verbatim", () => {
     const dir = mkdtempSync(join(tmpdir(), "bigbrain-site-upd-"));
     const app = fakeApp(dir);
     const r2 = buildSite({ out: join(dir, "dist"), built: "2026-08-27", desktopApp: app });
     expect(r2.tar).toBe(tarName(r2.appVersion));
-    const feed = JSON.parse(readFileSync(join(dir, "dist", "latest.json"), "utf8"));
+    expect(r2.feed).toBe(feedName());
+    // the 0.8.x feed is never rewritten by an ordinary release
+    expect(existsSync(join(dir, "dist", "latest.json"))).toBe(false);
+    const feed = JSON.parse(readFileSync(join(dir, "dist", r2.feed!), "utf8"));
     expect(feed.version).toBe(r2.appVersion);
     expect(feed.pub_date).toBe("2026-08-27T00:00:00Z");
     expect(feed.notes).toBe(releaseNotes(r2.appVersion));
@@ -142,6 +145,35 @@ describe("site build", () => {
     // ship an app that never sees another update
     rmSync(`${app}.tar.gz.sig`);
     expect(() => buildSite({ out: join(dir, "dist2"), desktopApp: app })).toThrow(/updater key/);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("the app polls update.json; latest.json stays pinned to the first key", () => {
+    expect(feedName()).toBe("update.json");
+    const dir = mkdtempSync(join(tmpdir(), "bigbrain-site-conf-"));
+    const conf = (endpoints: unknown): string => {
+      const path = join(dir, `${Math.random()}.json`);
+      writeFileSync(path, JSON.stringify({ version: "1.0.0", plugins: { updater: { endpoints } } }));
+      return path;
+    };
+    expect(feedName(conf([`${SITE_URL}/update.json`]))).toBe("update.json");
+    // a feed off the site, a nested path, or two feeds would ship an app whose
+    // updates this build cannot publish
+    expect(() => feedName(conf(["https://example.com/update.json"]))).toThrow(/endpoint/);
+    expect(() => feedName(conf([`${SITE_URL}/download/update.json`]))).toThrow(/endpoint/);
+    expect(() => feedName(conf([`${SITE_URL}/a.json`, `${SITE_URL}/b.json`]))).toThrow(/endpoint/);
+    expect(() => feedName(conf(undefined))).toThrow(/endpoint/);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test.skipIf(!mac)("--feed publishes a rotation's bridge release on the previous feed only", () => {
+    const dir = mkdtempSync(join(tmpdir(), "bigbrain-site-bridge-"));
+    const app = fakeApp(dir);
+    const r2 = buildSite({ out: join(dir, "dist"), built: "2026-10-06", desktopApp: app, feed: "latest.json" });
+    expect(r2.feed).toBe("latest.json");
+    expect(existsSync(join(dir, "dist", feedName()))).toBe(false);
+    expect(JSON.parse(readFileSync(join(dir, "dist", "latest.json"), "utf8")).version).toBe(r2.appVersion);
+    expect(() => buildSite({ out: join(dir, "dist2"), desktopApp: app, feed: "../latest.json" })).toThrow(/not a feed name/);
     rmSync(dir, { recursive: true, force: true });
   });
 

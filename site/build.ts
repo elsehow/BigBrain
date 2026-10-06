@@ -1,6 +1,6 @@
 /**
  * Build release assets only: plugins/, email/, and (with --app) download/,
- * install.sh and latest.json. The homepage lives in elsehow/bigbrain.cool.
+ * install.sh and the update feed. The homepage lives in elsehow/bigbrain.cool.
  * Publish with site/deploy.sh to /srv/releases, never the website root.
  */
 
@@ -51,6 +51,17 @@ export function releaseNotes(version: string, dir: string = RELEASES): string {
   const notes = body.join("\n").trim();
   if (!notes) throw new Error(`${file}: release notes are empty`);
   return notes;
+}
+
+/** The update feed an app built from `conf` polls: the file its updater
+ * endpoint names. A signing key rotates by moving the feed — an installed
+ * app keeps polling the feed it shipped with, and only the key it pins can
+ * sign what lands there. */
+export function feedName(conf: string = DESKTOP_CONF): string {
+  const endpoints = (JSON.parse(readFileSync(conf, "utf8")) as { plugins?: { updater?: { endpoints?: unknown } } }).plugins?.updater?.endpoints;
+  const url = Array.isArray(endpoints) && endpoints.length === 1 && typeof endpoints[0] === "string" ? URL.parse(endpoints[0]) : null;
+  if (!url || url.origin !== SITE_URL || !/^\/[a-z0-9-]+\.json$/.test(url.pathname)) throw new Error(`${conf}: the updater needs exactly one endpoint, a feed on ${SITE_URL}`);
+  return url.pathname.slice(1);
 }
 
 export const dmgName = (version: string): string => `BigBrain_${version}_aarch64.dmg`;
@@ -133,6 +144,10 @@ export interface BuildOpts {
   desktopApp?: string;
   /** Cut the .dmg too (hdiutil; slow) — the CLI does, tests do not. */
   dmg?: boolean;
+  /** The bridge release of a key rotation, signed by the previous key, goes
+   * on the previous feed (desktop/README.md) instead of the one its own
+   * config names. Apps up to 0.8.x poll latest.json. */
+  feed?: string;
   /** The cube drop-in and the desktop config (tests point them elsewhere). */
   cubeSrc?: string;
   desktopConf?: string;
@@ -149,8 +164,10 @@ export interface BuildResult {
   dmg: string;
   /** The zip's sha256 (what install.sh checks) — null without `desktopApp`. */
   sha256: string | null;
-  /** The updater's tarball at /download/, named in latest.json — null without `desktopApp`. */
+  /** The updater's tarball at /download/, named in the feed — null without `desktopApp`. */
   tar: string | null;
+  /** The update feed written at the root of dist — null without `desktopApp`. */
+  feed: string | null;
   /** Whether download/ and install.sh are in dist (a `desktopApp` was handed in). */
   desktop: boolean;
   out: string;
@@ -192,6 +209,7 @@ export function buildSite(opts: BuildOpts): BuildResult {
   const cube = cubeParts(opts.cubeSrc ? readFileSync(opts.cubeSrc, "utf8") : undefined);
   let sha256: string | null = null;
   let tar: string | null = null;
+  let feed: string | null = null;
   if (opts.desktopApp) {
     const cut = cutDownloads(opts.desktopApp, join(out, "download"), version_app, { dmg: opts.dmg ?? false });
     sha256 = cut.sha256;
@@ -204,8 +222,10 @@ export function buildSite(opts: BuildOpts): BuildResult {
     // into desktop/src-tauri/tauri.conf.json). Uploading dist/ IS the
     // release: the moment this file lands, every running app's next check
     // says a newer version exists.
+    feed = opts.feed ?? feedName(opts.desktopConf);
+    if (!/^[a-z0-9-]+\.json$/.test(feed)) throw new Error(`not a feed name: ${feed}`);
     writeFileSync(
-      join(out, "latest.json"),
+      join(out, feed),
       `${JSON.stringify(
         {
           version: version_app,
@@ -263,19 +283,19 @@ export function buildSite(opts: BuildOpts): BuildResult {
   mkdirSync(email);
   for (const f of readdirSync(emailSrc)) if (f.endsWith(".png")) copyFileSync(join(emailSrc, f), join(email, f));
 
-  return { version, chromeId, chromeZip, firefoxXpi, appVersion: version_app, zip, dmg, sha256, tar, desktop: Boolean(opts.desktopApp), out };
+  return { version, chromeId, chromeZip, firefoxXpi, appVersion: version_app, zip, dmg, sha256, tar, feed, desktop: Boolean(opts.desktopApp), out };
 }
 
 if (import.meta.main) {
   const args = process.argv.slice(2);
   const out = flagValue(args, "out") ?? join(ENGINE, "site", "dist");
   if (!existsSync(EXT_SRC)) throw new Error(`no extension source at ${EXT_SRC}`);
-  const r = buildSite({ out, desktopApp: flagValue(args, "app"), dmg: !hasFlag(args, "no-dmg") });
+  const r = buildSite({ out, desktopApp: flagValue(args, "app"), dmg: !hasFlag(args, "no-dmg"), feed: flagValue(args, "feed") });
   console.log(`site → ${r.out}`);
   console.log("  Release assets only; homepage is owned by elsehow/bigbrain.cool.");
   if (r.desktop) {
     console.log(`  install.sh   (fetches download/${r.zip}, sha256 ${r.sha256})`);
-    console.log(`  latest.json  (the update feed: v${r.appVersion}, download/${r.tar})`);
+    console.log(`  ${r.feed}  (the update feed: v${r.appVersion}, download/${r.tar})`);
     console.log(`  download/${r.tar}`);
     console.log(`  download/${r.zip}`);
     if (existsSync(join(r.out, "download", r.dmg))) console.log(`  download/${r.dmg}`);
