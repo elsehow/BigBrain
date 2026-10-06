@@ -288,15 +288,17 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
     setGoal({ el, dist: THREE.MathUtils.clamp(R * k + 3, lo, hi), target: c });
   };
   const centre = (pts: THREE.Vector3[]) => pts.reduce((c, p) => c.add(p), new THREE.Vector3()).divideScalar(pts.length);
-  /** A source walked to, followed rather than zoomed: centred with what it
-   * mentions, at the distance and angle you had, backing out only as far as
-   * it takes to fit (never in). Tied to nothing, the camera holds. */
-  const follow = (s: Src) => {
-    if (!s.ties.length) return;
-    const pts = [s.at, ...s.ties.map((j) => P[j]!)], c = centre(pts);
-    const R = Math.max(...pts.map((p) => p.distanceTo(c)));
-    setGoal({ el: goal.el, dist: Math.max(goal.dist, Math.min(OVERVIEW.dist, R * 2.6 + 3)), target: c });
+  /** The one thing in hand, highlighted: the camera comes in close and
+   * centres on it. A search's active match and a source walked to (j/k) both
+   * arrive this way; `around` is what must stay in view with it (a source's
+   * ties), which backs the camera out only as far as it takes to fit. */
+  const glide = (at: THREE.Vector3, around: THREE.Vector3[] = []) => {
+    const R = Math.max(0, ...around.map((p) => p.distanceTo(at)));
+    setGoal({ el: 0.5, dist: THREE.MathUtils.clamp(R * 2.6 + 3, 9, OVERVIEW.dist), target: at.clone() });
   };
+  /** A source walked to, glided to as a search's match is. Tied to nothing,
+   * it sits where you are, and the camera holds. */
+  const follow = (s: Src) => { if (s.ties.length) glide(s.at, s.ties.map((j) => P[j]!)); };
   /** Over the middle of what it mentions, lifted clear of it (over one, a
    * little aside, so the tie reads); mentioning nothing here, mid-view. */
   const settle = (s: Src) => {
@@ -713,7 +715,7 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
       srch = { matches: new Set(state.matches), active: state.active, text: state.text, caption: state.caption };
       const lab = state.active != null ? labels.get(state.active) : undefined;
       if (lab) lab.full = undefined;
-      if (state.move === "glide" && state.active != null) setGoal({ el: 0.5, dist: 9, target: P[state.active]!.clone() });
+      if (state.move === "glide" && state.active != null) glide(P[state.active]!);
       else if (state.move === "frame") frameAround(state.matches.map((m) => P[m]!), 0.55, 3.2, 7, OVERVIEW.dist);
     },
     hover(entities) { hot = entities ? new Set(entities) : null; },

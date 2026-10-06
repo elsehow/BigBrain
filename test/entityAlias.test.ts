@@ -222,6 +222,9 @@ describe("the readers draw one entity", () => {
     const graph = buildAssertionGraph(root);
     expect(graph.nodes.filter((n) => n.entity).map((n) => n.title).sort()).toEqual(["Evan Keller", "Jules Lane"]);
     expect(graph.edges.some((e) => [e.source, e.target].sort().join() === [EK.id, JULES.id].sort().join())).toBe(true);
+    // the folded-in name stays one it answers to: the field's search finds it by either
+    expect(graph.nodes.find((n) => n.id === EK.id)?.aliases).toEqual(["Evan"]);
+    expect(graph.nodes.find((n) => n.id === JULES.id)?.aliases).toBeUndefined();
   });
 });
 

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { buildField } from "../web/ui/src/lib/v2/model";
+import { buildField, searchNames } from "../web/ui/src/lib/v2/model";
 import type { GraphData } from "../web/ui/src/lib/types";
 
 const entity = (id: string, x: number) => ({ id, title: id, group: "entity", entity: true, degree: 1, path: `projection/entities/${id}.md`, x, y: x });
@@ -19,4 +19,15 @@ test("MEMORY.md beside topic files is drawn as before", () => {
 
 test("a lone topic file that is not the index is still drawn", () => {
   expect(drawn(graph(memory("atlas", "Atlas", 5)))).toEqual(["ent_a", "ent_b", "memory/atlas.md"]);
+});
+
+test("search finds an entity by any of its names, once", () => {
+  const g = { hash: "h", edges: [], nodes: [
+    { ...entity("ent_a", 10), title: "Avery Quill", aliases: ["Ave Q"] }, entity("ent_b", -10),
+  ] } as unknown as GraphData;
+  const field = buildField(g);
+  const ids = (q: string) => searchNames(field, q).map((i) => field.nodes[i]!.id);
+  expect(ids("ave q")).toEqual(["ent_a"]);
+  expect(ids("avery")).toEqual(["ent_a"]);
+  expect(ids("zzz")).toEqual([]);
 });

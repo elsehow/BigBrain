@@ -295,9 +295,20 @@
   let composer: PilotMentionComposer | undefined = $state();
   let composerEl: HTMLElement | undefined = $state();
   let mentionRecentItems = $state<MentionItem[]>([]), mentionRecentLoading = $state(false), mentionRecentError = $state(false);
-  function loadMentionRecents(): void {
+  /** Where the next page of recents starts; null once the oldest is in. */
+  let mentionRecentNext: number | null = 0;
+  /** The newest recents, or (`more`) the page after those in hand: the @ menu
+   * and the empty search both run on as you scroll, as the feed does. */
+  function loadMentionRecents(more = false): void {
+    if (mentionRecentLoading || (more && mentionRecentNext == null)) return;
     mentionRecentLoading = true; mentionRecentError = false;
-    mentionRecents().then((items) => { mentionRecentItems = items; })
+    mentionRecents(more ? mentionRecentNext! : 0).then(({ items, next }) => {
+      const seen = new Set(more ? mentionRecentItems.map((m) => m.id) : []);
+      mentionRecentItems = more ? [...mentionRecentItems, ...items.filter((m) => !seen.has(m.id))] : items;
+      mentionRecentNext = next;
+      // the search, open and empty, lists them too: the first is in hand
+      if (!more && searching && !query.trim()) { active = 0; showRecent(); sayActive(); }
+    })
       .catch(() => { mentionRecentError = true; }).finally(() => { mentionRecentLoading = false; });
   }
   let bar = $derived(barPilots(pilotsAll, openPilot));
@@ -680,7 +691,8 @@
    * pointer, else the walk's — drawn in the field while it's held. */
   const sourceInHand = $derived.by((): V2SortedRow | null => {
     if (drafting(openPilot)) return draft?.row ?? null;
-    if (openPilot || ent != null || searching) return null;
+    if (openPilot || ent != null) return null;
+    if (searching) return recentRow;
     return src?.row ?? rowOver ?? cursorRow();
   });
   $effect(() => {
@@ -749,9 +761,9 @@
   /** What Shift+Enter starts a pilot on: the active search result, else the
    * feed row in hand (its source), else the opened thing. */
   function inHand(): { path: string; label: string } | null {
-    const r = !searching && ent == null ? cursorRow() : null;
+    const r = searching ? recentRow : ent == null ? cursorRow() : null;
     if (r?.path) return { path: r.path, label: r.title ?? r.headline };
-    const i = searching ? matches[active] ?? null : ent;
+    const i = searching ? activeNode() : ent;
     const n = i == null ? null : field?.nodes[i];
     return n?.path ? { path: n.path, label: n.label } : null;
   }
@@ -853,14 +865,44 @@
   }
 
   // ── search by name ─────────────────────────────────────────────────────
+  /** Before you type, the search lists what the @ menu does: the items most
+   * recently added (lib/mentionSources.ts), newest first. Each is gone to as
+   * what it is in the field: a thing there is glided to as a match is, a
+   * source as a walked feed row is, over what it mentions. A source the feed
+   * doesn't hold mentions nothing here: it sits where you are. */
+  const recentShown = $derived(searching && !query.trim() ? mentionRecentItems : []);
+  const nodeAt = $derived.by(() => {
+    const at = new Map<string, number>();
+    for (const n of (field as Field | null)?.nodes ?? []) if (n.path) at.set(n.path, n.i);
+    return at;
+  });
+  /** The recent source in hand, drawn in the field as the walk's row is. */
+  let recentRow: V2SortedRow | null = $state(null);
+  const rowFor = (m: MentionItem): V2SortedRow => sorted.find((r) => r.path === m.id)
+    ?? { source: m.id, section: "know", headline: m.title, due: null, added: "", entities: [], title: m.title, path: m.id };
+  /** What the search lights: its matches, or, empty, the recents that are things in the field. */
+  const lit = (): number[] => (query.trim() ? matches : recentShown.flatMap((m) => { const i = nodeAt.get(m.id); return i == null ? [] : [i]; }));
+  const activeNode = (): number | null => {
+    if (query.trim()) return matches[active] ?? null;
+    const m = recentShown[active];
+    return m ? nodeAt.get(m.id) ?? null : null;
+  };
+  function showRecent(): void {
+    const m = recentShown[active], i = activeNode();
+    recentRow = m && i == null ? rowFor(m) : null;
+    if (i != null) scene?.search({ matches: lit(), active: i, move: "glide" });
+    else scene?.search({ matches: recentRow ? feedEntities(recentRow) : [], active: null, move: "none" });
+  }
   function openSearch(): void {
-    searching = true; query = ""; matches = []; active = 0;
-    scene?.search({ matches: [], active: null, move: "frame" });
+    searching = true; query = ""; matches = []; active = 0; recentRow = null;
+    if (!data) loadMentionRecents();
+    showRecent();
+    sayActive();
     scene?.shift(shiftFor());
     void tick().then(() => qEl?.focus());
   }
   function closeSearch(): void {
-    searching = false;
+    searching = false; recentRow = null;
     clearTimeout(sayTimer);
     scene?.search(null);
     scene?.shift(shiftFor());
@@ -868,15 +910,28 @@
   }
   function runQuery(): void {
     if (!field) return;
-    matches = searchNames(field, query);
     active = 0;
+    if (!query.trim()) { matches = []; showRecent(); sayActive(); return; }
+    recentRow = null;
+    matches = searchNames(field, query);
     scene?.search({ matches, active: matches[0] ?? null, move: "frame" });
     sayActive();
   }
   function setActive(k: number): void {
-    if (!matches.length) return;
-    active = (k + Math.min(matches.length, 9)) % Math.min(matches.length, 9);
-    scene?.search({ matches, active: matches[active]!, move: "glide" });
+    if (query.trim()) {
+      const n = Math.min(matches.length, 9);
+      if (!n) return;
+      active = (k + n) % n;
+      scene?.search({ matches, active: matches[active]!, move: "glide" });
+    } else {
+      // the recents run on: no wrapping round, and near their end the next page comes
+      const n = recentShown.length;
+      if (!n) return;
+      active = Math.max(0, Math.min(n - 1, k));
+      if (active >= n - 3) loadMentionRecents(true);
+      showRecent();
+      void tick().then(() => searchEl?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: "nearest" }));
+    }
     sayActive();
   }
   let sayTimer: ReturnType<typeof setTimeout> | undefined;
@@ -885,15 +940,24 @@
    * passing over a match doesn't ask for one. The camera holds still. */
   function sayActive(): void {
     clearTimeout(sayTimer);
-    const i = matches[active];
+    const i = activeNode();
     if (i == null) return;
     const path = data ? undefined : field!.nodes[i]!.path;
-    const show = (text?: string) => { if (searching && matches[active] === i) scene?.search({ matches, active: i, text, move: "none" }); };
+    const show = (text?: string) => { if (searching && activeNode() === i) scene?.search({ matches: lit(), active: i, text, move: "none" }); };
     if (!path) return show();
     show("");
     sayTimer = setTimeout(() => void briefing(path, show).then((ok) => { if (!ok) show(); }), 350);
   }
   function commit(k = active): void {
+    if (!query.trim()) {
+      const m = recentShown[k];
+      if (!m) return;
+      const i = nodeAt.get(m.id);
+      searching = false; recentRow = null;
+      scene?.search(null);
+      if (i != null) void openEntity(i); else openSource(rowFor(m));
+      return;
+    }
     const i = matches[k];
     if (i == null) return;
     searching = false;
@@ -1039,7 +1103,7 @@
         <span class="k">Esc</span>
       </div>
       {#if query.trim()}
-        <p class="count">{matches.length ? `${matches.length} ${matches.length === 1 ? "thing" : "things"} in your vault` : `Nothing in your vault is called “${query.trim()}”.`}</p>
+        {#if !matches.length}<p class="none">Nothing in your vault is called “{query.trim()}”.</p>{/if}
         <ul role="listbox" aria-label="Matches">
           {#each matches.slice(0, 9) as i, k (i)}
             {@const parts = marked(field.nodes[i]!.label)}
@@ -1050,6 +1114,22 @@
             </li>
           {/each}
         </ul>
+      {:else}
+        {#if recentShown.length}
+          <ul role="listbox" aria-label="Recently added" onscroll={(e) => { const el = e.currentTarget; if (el.scrollHeight - el.scrollTop - el.clientHeight < 80) loadMentionRecents(true); }}>
+            {#each recentShown as m, k (m.id)}
+              {@const i = nodeAt.get(m.id)}
+              <li role="option" aria-selected={k === active} onpointermove={() => { if (k !== active) setActive(k); }} onclick={() => commit(k)} onkeydown={() => {}}>
+                <span class="dot" class:src={i == null} style:--r={`${2.2 + Math.min(3.6, Math.log1p(i == null ? 0 : field.nodes[i]!.degree) * 0.62)}px`}></span>
+                <span class="ttl">{m.title}</span>
+                <span class="meta">{[m.tag[0] + m.tag.slice(1).toLowerCase(), m.date].filter(Boolean).join(" · ")}</span>
+              </li>
+            {/each}
+          </ul>
+        {:else}
+          <!-- nothing while they load: the box is the search until they come -->
+          {#if !mentionRecentLoading}<p class="none">{mentionRecentError ? "Couldn’t load recents. Type to search." : "Nothing added yet."}</p>{/if}
+        {/if}
       {/if}
     </div>
   {/if}
@@ -1125,7 +1205,7 @@
         <div class="input" bind:this={composerEl} onfocusin={() => { if (!mentionRecentItems.length && !mentionRecentLoading) loadMentionRecents(); }}>
           {#key detail.id}
             <PilotMentionComposer bind:this={composer} ariaLabel="Message" currentId={detail.id} value={draftText} autofocus={false}
-              recents={mentionRecentItems} recentLoading={mentionRecentLoading} recentError={mentionRecentError} search={mentionSearch}
+              recents={mentionRecentItems} recentLoading={mentionRecentLoading} recentError={mentionRecentError} onmore={() => loadMentionRecents(true)} search={mentionSearch}
               onchange={(parts) => { draftText = serializeMentions(parts); }} onsend={() => void sendDraft()}
               placeholder={`Message ${detail.title}… type @ to mention`} />
           {/key}
@@ -1392,18 +1472,22 @@
   .hud p { margin: 0; max-width: 44ch; font: 400 14.5px/1.5 var(--font-app); color: color-mix(in srgb, var(--fg) 80%, var(--bg)); }
 
   .search { position: absolute; top: 62px; left: calc(var(--app-gutter, 34px) - 8px); width: min(480px, calc(100% - 32px)); z-index: 2;
-    border-radius: 11px; background: var(--bg); box-shadow: 0 0 0 1px var(--rule), 0 28px 70px -28px color-mix(in srgb, var(--fg) 45%, transparent); overflow: hidden; }
+    border-radius: 11px; background: var(--bg); box-shadow: 0 0 0 1px var(--rule); overflow: hidden; animation: v2fade .14s ease-out; }
+  @keyframes v2fade { from { opacity: 0; } }
+  @media (prefers-reduced-motion: reduce) { .search { animation: none; } }
   .field { display: flex; align-items: center; gap: 12px; height: 56px; padding: 0 18px; }
   .field input { flex: 1; min-width: 0; border: 0; outline: none; background: transparent; color: var(--fg); font: 400 19px/1 var(--font-app); }
   /* the theme's own ink, softened — never the browser's grey */
   .field input::placeholder { color: color-mix(in srgb, var(--fg) 55%, transparent); opacity: 1; }
-  .count { margin: 0; padding: 12px 22px 6px; border-top: 1px solid var(--rule); font: 600 10px/1 var(--font-app); letter-spacing: 0.24em; text-transform: uppercase; color: var(--v2-muted); }
+  .search .field + * { border-top: 1px solid var(--rule); }
   ul { list-style: none; margin: 0; padding: 4px 6px 8px; max-height: min(62vh, 560px); overflow-y: auto; }
   li { display: grid; grid-template-columns: 22px minmax(0, 1fr); grid-template-rows: auto auto; column-gap: 10px; padding: 9px 12px; border-radius: 8px; cursor: pointer; }
   li[aria-selected="true"] { background: color-mix(in srgb, var(--fg) 7%, var(--bg)); }
   .dot { grid-row: span 2; align-self: center; justify-self: center; width: calc(var(--r) * 2); height: calc(var(--r) * 2); border-radius: 50%; background: var(--fg); }
   .ttl { font: 500 15px/1.3 var(--font-app); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   mark { background: none; color: color-mix(in srgb, var(--activity) 80%, var(--fg)); font-weight: 600; }
+  .dot.src { background: none; box-shadow: inset 0 0 0 1.5px var(--fg); }
+  .search .none { margin: 0; padding: 14px 22px 16px; font: 400 13.5px/1.4 var(--font-app); color: var(--v2-muted); }
   .meta { font: 400 12.5px/1.35 var(--font-app); color: var(--v2-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
   .feed { position: absolute; left: var(--app-gutter, 34px); bottom: 26px; width: min(880px, calc(100% - 68px)); display: flex; flex-direction: column; gap: 1px;

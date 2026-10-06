@@ -36,6 +36,8 @@ export interface ProjectedEntityAssertion {
   created_at: string;
   author: EventAuthor;
   sources: ProjectedEntitySource[];
+  /** A joined shared vault's claim (lib/sharedReadUnion.ts): which vault. Absent on your own. */
+  vault?: { id: string; name: string };
 }
 
 export interface ProjectedEntityView {

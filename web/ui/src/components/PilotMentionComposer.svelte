@@ -7,7 +7,7 @@
 
   import type { MentionSuggestion } from "../lib/pilotMentionSuggestions";
   import { createSearchRunner } from "../lib/omnibox";
-  const { ariaLabel = 'Message Pilot', onmenu = () => {}, controls, inputHint, initial = [], onimagepaste, value, autofocus = true, connected = [], connectedLabel = "Connected", recents, currentId, onchange, onsend, search, recentLoading = false, recentError = false, placeholder = "Message… type @ to mention" }: {
+  const { ariaLabel = 'Message Pilot', onmenu = () => {}, controls, inputHint, initial = [], onimagepaste, value, autofocus = true, connected = [], connectedLabel = "Connected", recents, currentId, onchange, onsend, search, recentLoading = false, recentError = false, onmore, placeholder = "Message… type @ to mention" }: {
     ariaLabel?: string; controls?: Snippet; inputHint?: string;
     onmenu?: (open: boolean) => void;
     connected?: MentionSuggestion[]; connectedLabel?: string;
@@ -15,6 +15,8 @@
     initial?: MentionPart[]; value?: string; autofocus?: boolean; recentLoading?: boolean; recentError?: boolean; placeholder?: string;
     search?: (query: string, signal: AbortSignal) => Promise<MentionSuggestion[]>; recents: MentionItem[]; currentId: string;
     onchange: (parts: MentionPart[]) => void; onsend: () => void;
+    /** Recents run on as you scroll (or arrow) toward their end: the next page, please. */
+    onmore?: () => void;
   } = $props();
   const uid = $props.id();
   let editor: HTMLDivElement;
@@ -24,7 +26,8 @@
   // The highlighted item, not its position: recents and connected rows load after the
   // menu opens, and Tab/Enter must insert what was highlighted when it was chosen.
   let anchor: string | undefined;
-  const highlight = (i: number) => { selected = i; anchor = rows[i]?.id; };
+  const highlight = (i: number) => { selected = i; anchor = rows[i]?.id; if (!searching && i >= rows.length - 3) onmore?.(); };
+  const scrolled = (e: Event) => { const el = e.currentTarget as HTMLElement; if (!searching && el.scrollHeight - el.scrollTop - el.clientHeight < 80) onmore?.(); };
   let trigger: Range | undefined;
   const items = new Map<string, MentionItem>();
   $effect(() => { onmenu(open); });
@@ -194,7 +197,7 @@
   {#if open}
     <div class="mention-menu">
       <div class="menu-label">{searching ? "Search results" : connectedRows.length ? connectedLabel : "Recent"}</div>
-      <div class="options" role="listbox" id={`${uid}-list`} aria-label={searching ? "Mention a search result" : "Mention a suggested item"} aria-busy={searching ? pending : recentLoading}>
+      <div class="options" role="listbox" id={`${uid}-list`} aria-label={searching ? "Mention a search result" : "Mention a suggested item"} aria-busy={searching ? pending : recentLoading} onscroll={scrolled}>
         {#each rows as item, i (item.id)}
           {#if !searching && connectedRows.length && i === connectedRows.length}<div class="menu-label" role="presentation">Recent</div>{/if}
           <!-- svelte-ignore a11y_click_events_have_key_events (the editor owns keyboard navigation) -->
