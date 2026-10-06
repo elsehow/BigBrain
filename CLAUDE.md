@@ -132,6 +132,18 @@ rather than squint — `getComputedStyle` in the browser is what caught an
 what a live vault won't produce on demand: failures, absurd label
 lengths, both passes running at once.
 
+## Keyboard shortcuts
+
+Every key the app answers is registered in `web/ui/src/lib/shortcuts.svelte.ts`
+by the component that answers it, on mount (`registerShortcuts`), and one
+window listener dispatches them. The `?` sheet lists what's registered, and
+every on-screen key hint comes from `keyText(id)`, so a hint for a key
+nothing handles draws nothing. Never add a window/document keydown listener,
+an `aria-keyshortcuts="…"`, or a hand-typed `⌘N` / `Esc` in markup:
+`test/shortcutGuard.test.ts` fails on all three. (#129: a component's keys
+ran through a dispatcher that was deleted, while its chips kept advertising
+them.) A text field's own keys — Enter in a rename box — stay on the element.
+
 ## Linting
 
 `bun run lint` (oxlint) — fast, and expected to be SILENT. If it warns,

@@ -1,14 +1,15 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
   import { stepped } from "../lib/listNav";
+  import { keyText, registerShortcuts, RANK } from "../lib/shortcuts.svelte";
   import "../design/pilotReferenceChips.css";
   import { onMount, tick, untrack } from "svelte";
   import { mentionGlyph, parseMentions, serializeMentions, type MentionItem, type MentionPart } from "../../../../lib/pilotMentions";
 
   import type { MentionSuggestion } from "../lib/pilotMentionSuggestions";
   import { createSearchRunner } from "../lib/omnibox";
-  const { ariaLabel = 'Message Pilot', onmenu = () => {}, controls, inputHint, initial = [], onimagepaste, value, autofocus = true, connected = [], connectedLabel = "Connected", recents, currentId, onchange, onsend, search, recentLoading = false, recentError = false, onmore, placeholder = "Message… type @ to mention" }: {
-    ariaLabel?: string; controls?: Snippet; inputHint?: string;
+  const { ariaLabel = 'Message Pilot', onmenu = () => {}, controls, initial = [], onimagepaste, value, autofocus = true, connected = [], connectedLabel = "Connected", recents, currentId, onchange, onsend, search, recentLoading = false, recentError = false, onmore, placeholder = "Message… type @ to mention" }: {
+    ariaLabel?: string; controls?: Snippet;
     onmenu?: (open: boolean) => void;
     connected?: MentionSuggestion[]; connectedLabel?: string;
     onimagepaste?: (e: ClipboardEvent) => boolean;
@@ -164,25 +165,27 @@
     document.execCommand("insertHTML", false, chip(item).outerHTML + "&nbsp;");
     dismiss(); publish();
   }
-  function keydown(e: KeyboardEvent): void {
-    if (e.isComposing) return;
-    if (open && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
-      if (["Home", "End", "ArrowDown", "ArrowUp", "Enter", "Tab", "Escape"].includes(e.key)) {
-        e.preventDefault(); e.stopPropagation();
-        if (e.key === "Escape") escape();
-        else if (["Home", "End", "ArrowDown", "ArrowUp"].includes(e.key)) {
-          highlight(e.key === "Home" ? 0 : e.key === "End" ? Math.max(0, rows.length - 1) : rows.length ? stepped(selected, e.key === "ArrowDown" ? 1 : -1, rows.length) : 0);
-          void tick().then(() => document.getElementById(`${uid}-${selected}`)?.scrollIntoView({ block: "nearest" }));
-        } else if (rows[selected]) choose(rows[selected]);
-        return;
-      }
-    }
-    if (e.key === "Enter" && !e.metaKey && !e.ctrlKey && !e.altKey) {
-      e.preventDefault();
-      if (e.shiftKey) { dismiss(); document.execCommand("insertLineBreak"); changed(); }
-      else { dismiss(); onsend(); }
-    }
+  /** Walk the @ menu: one row, or to either end. */
+  function walk(key: string): void {
+    highlight(key === "Home" ? 0 : key === "End" ? Math.max(0, rows.length - 1) : rows.length ? stepped(selected, key === "ArrowDown" ? 1 : -1, rows.length) : 0);
+    void tick().then(() => document.getElementById(`${uid}-${selected}`)?.scrollIntoView({ block: "nearest" }));
   }
+  // The editor's keys (lib/shortcuts.svelte.ts): while the @ menu is open it
+  // has them first, then Enter sends and Shift+Enter breaks the line.
+  onMount(() => {
+    const offs = [
+      registerShortcuts({ title: "Mention menu", rank: RANK.popup, when: () => open, input: () => editor, shortcuts: [
+        { id: "mention-walk", label: "Choose", keys: [{ key: ["ArrowUp", "ArrowDown"], shift: false }, { key: ["Home", "End"], shift: false }], run: (e) => walk(e.key) },
+        { id: "mention-pick", label: "Mention", keys: [{ key: "Enter", shift: false }, { key: "Tab", shift: false }], run: () => { if (rows[selected]) choose(rows[selected]); } },
+        { id: "mention-dismiss", label: "Dismiss", keys: [{ key: "Escape", shift: false }], run: escape },
+      ] }),
+      registerShortcuts({ title: "Message box", rank: RANK.input, input: () => editor, shortcuts: [
+        { id: "composer-send", label: "Send", keys: [{ key: "Enter", shift: false }], run: () => { dismiss(); onsend(); } },
+        { id: "composer-newline", label: "New line", keys: [{ key: "Enter", shift: true }], run: () => { dismiss(); document.execCommand("insertLineBreak"); changed(); } },
+      ] }),
+    ];
+    return () => offs.forEach((off) => off());
+  });
   onMount(() => {
     const next = value === undefined ? initial : parseMentions(value);
     paint(next); published = serializeMentions(next); mounted = true;
@@ -208,14 +211,14 @@
           </div>
         {:else}<div class="empty" role="status">{searching ? pending ? "Searching…" : failed ? "Search failed. Edit your query to try again." : "No matching items" : recentLoading ? "Loading recent items…" : recentError ? "Couldn’t load recents. Type to search." : "No matching recent items"}</div>{/each}
       </div>
-      <div class="menu-hints">↑↓ Choose <span>↵ Mention</span><span>Esc Dismiss</span></div>
+      <div class="menu-hints keyboard-hint">{keyText("mention-walk")} Choose <span>{keyText("mention-pick")} Mention</span><span>{keyText("mention-dismiss")} Dismiss</span></div>
     </div>
   {/if}
   <!-- Opt out of WebKit's inline predictions without disabling spellcheck or the @ picker. -->
   <div bind:this={editor} class="editor" contenteditable="true" writingsuggestions="false" role="textbox" tabindex="0" aria-label={ariaLabel}
     aria-multiline="true" aria-autocomplete="list" aria-haspopup="listbox"
     aria-controls={open ? `${uid}-list` : undefined} aria-activedescendant={open && rows.length ? `${uid}-${selected}` : undefined}
-    aria-keyshortcuts={inputHint} data-input-hint={inputHint} data-placeholder={placeholder} oninput={changed} onkeydown={keydown} onblur={dismiss}
+    data-placeholder={placeholder} oninput={changed} onblur={dismiss}
     onpaste={e => { if (onimagepaste?.(e)) return; e.preventDefault(); document.execCommand("insertText", false, e.clipboardData?.getData("text/plain") ?? ""); changed(); }}></div>
 </div>
 
@@ -224,7 +227,6 @@
   .mention-composer::before { content: ""; position: absolute; top: 0; left: 20px; right: 20px; border-top: 1px solid var(--rule); pointer-events: none; }
   .editor { padding: 14px 20px; min-height: 52px; max-height: 150px; overflow-y: auto; box-sizing: border-box; outline: none;
     font: var(--fw-regular) var(--fs-chip)/1.7 var(--font-app); color: var(--text-strong); white-space: pre-wrap; overflow-wrap: anywhere; caret-color: transparent; }
-  .editor[data-input-hint]:empty:not(:focus)::after { content:"  " attr(data-input-hint); color:var(--text-muted); font:var(--type-meta); pointer-events:none; }
   .editor:focus { caret-color: var(--activity); }
   .editor:empty::before { content: attr(data-placeholder); color: var(--text-faint); pointer-events: none; }
   .mention-menu { position: absolute; z-index: 8; bottom: calc(100% + 8px); left: 12px; width: min(660px, calc(100% - 24px));

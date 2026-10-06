@@ -1,6 +1,7 @@
 <script lang="ts">
   // Only whether hints show lives here; the shortcuts themselves ship with
-  // the view (lib/v2/shortcuts.ts), listed on its own sheet (?).
+  // the components that answer them (lib/shortcuts.svelte.ts), listed on
+  // the ? sheet.
   import { keyboardHints, setKeyboardHints } from "../lib/keyboardHints.svelte";
 </script>
 
