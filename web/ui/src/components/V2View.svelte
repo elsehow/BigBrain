@@ -567,7 +567,8 @@
   /** What the opened entity offers to fold into one (F): its proposal, else its twins. */
   const offer = $derived(field && ent != null && !data ? foldOffer(field, ent, twins, folds, foldsApart) : null);
   let rows = $derived.by(() => (!writing ? [] : ent != null && entRows ? entRows.slice(-6) : writing.feed.slice(-6)));
-  let hud = $derived.by((): { eyebrow: string; name: string; status: string; writing?: boolean } | null => {
+  /** `same`: what it may be the same thing as, said where F and X answer it. */
+  let hud = $derived.by((): { eyebrow: string; name: string; status: string; writing?: boolean; same?: string } | null => {
     if (!field || !writing || searching || openPilot) return null;
     const titled = (r: V2SortedRow) => ({ eyebrow: [r.via, when(r.added)].filter(Boolean).join(" · "), name: r.title ?? r.headline });
     if (src) return { ...titled(src.row), status: src.text ?? "", writing: src.text === "" };
@@ -580,10 +581,11 @@
       const apart = (j: number) => foldsApart.some(([a, b]) => (a === n.id && b === field!.nodes[j]!.id) || (b === n.id && a === field!.nodes[j]!.id));
       const tw = (twins.get(ent) ?? []).filter((j) => !apart(j)).map((j) => field!.nodes[j]!.label);
       const who = writersOf(n.id);
+      const same = tw.length ? `Also in your vault as “${tw.join("”, “")}”.`
+        : offer ? `Maybe the same as “${[offer.keep, ...offer.fold].filter((id) => id !== n.id).map(foldLabel).join("”, “")}”${offer.why ? `: ${offer.why}` : ""}.` : undefined;
       return {
         eyebrow: n.memory ? "Memory" : `${n.degree} ${n.degree === 1 ? "tie" : "ties"}`, name: n.label,
-        status: (who.length ? `Lately written about by ${who.join(", ")}.` : "") + (tw.length ? ` Also in your vault as “${tw.join("”, “")}”.`
-          : offer ? ` Maybe the same as “${[offer.keep, ...offer.fold].filter((id) => id !== n.id).map(foldLabel).join("”, “")}”${offer.why ? `: ${offer.why}` : ""}.` : ""),
+        status: who.length ? `Lately written about by ${who.join(", ")}.` : "", same,
       };
     }
     return null;
@@ -1142,9 +1144,24 @@
 
   {#if hud}
     <header class="hud" bind:this={hudEl}>
-      <span class="eyebrow">{[hud.eyebrow, original() && "⌘O Open", offer && (folding ? "Saving…" : "F Fold into one · X Not the same")].filter(Boolean).join(" · ")}</span>
+      <span class="eyebrow">{[hud.eyebrow, original() && "⌘O Open"].filter(Boolean).join(" · ")}</span>
       <h1>{hud.name}</h1>
       {#if hud.writing}<p><span class="spin" aria-label="Writing a summary"></span></p>{:else if hud.status}<p>{hud.status}</p>{/if}
+      {#if hud.same}
+        <!-- the question and its two answers, one unit -->
+        <div class="same" role="group" aria-label="Possibly the same thing">
+          <p>{hud.same}</p>
+          {#if offer}
+            <div class="acts">
+              {#if folding}<span class="busy">Saving…</span>
+              {:else}
+                <button type="button" onclick={() => void fold()}><kbd>F</kbd>Fold into one</button>
+                <button type="button" onclick={() => void keepApart()}><kbd>X</kbd>Not the same</button>
+              {/if}
+            </div>
+          {/if}
+        </div>
+      {/if}
     </header>
   {/if}
 
@@ -1301,7 +1318,7 @@
     </aside>
   {/if}
 
-  <p class="hints" aria-hidden="true"><span>/ Search</span><span>j k Feed</span>{#if cursor && ent == null}<span>↵ Open</span>{/if}<span>⇧↵ Pilot</span><span>1–9 Pilots</span><span>⌘N New</span>{#if openPilot && desktopViews.length}<span>\ Views</span>{/if}{#if offer}<span>F Fold</span><span>X Not the same</span>{/if}{#if ent != null || src || cursor}<span>Esc Back</span>{/if}</p>
+  <p class="hints" aria-hidden="true"><span>/ Search</span><span>j k Feed</span>{#if cursor && ent == null}<span>↵ Open</span>{/if}<span>⇧↵ Pilot</span><span>1–9 Pilots</span><span>⌘N New</span>{#if openPilot && desktopViews.length}<span>\ Views</span>{/if}{#if ent != null || src || cursor}<span>Esc Back</span>{/if}</p>
   {#if notice}<p class="notice" role="status">{notice}</p>{/if}
   {#if error}<p class="error">The v2 view couldn’t load: {error}</p>{/if}
   {#if field && !field.nodes.length && !openPilot}
@@ -1522,6 +1539,13 @@
   .eyebrow { font: 600 10px/1 var(--font-app); letter-spacing: 0.24em; text-transform: uppercase; color: var(--v2-muted); }
   h1 { margin: 0; font: 500 clamp(28px, 2.5vw, 36px)/1.05 var(--font-app); letter-spacing: -0.03em; }
   .hud p { margin: 0; max-width: 44ch; font: 400 14.5px/1.5 var(--font-app); color: color-mix(in srgb, var(--fg) 80%, var(--bg)); }
+  .same { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; padding-left: 12px; border-left: 2px solid var(--rule); }
+  .acts { display: flex; gap: 8px; pointer-events: auto; }
+  .acts button { display: inline-flex; align-items: center; gap: 7px; padding: 5px 10px 5px 6px; border: 1px solid var(--rule); border-radius: 7px;
+    background: var(--bg); color: var(--fg); font: 500 12.5px/1 var(--font-app); cursor: pointer; text-shadow: none; }
+  .acts button:hover { background: color-mix(in srgb, var(--fg) 6%, var(--bg)); }
+  .acts kbd { min-width: 16px; padding: 2px 4px; border-radius: 4px; background: color-mix(in srgb, var(--fg) 8%, var(--bg)); font: 600 10.5px/1 var(--font-mono); text-align: center; }
+  .acts .busy { font: 400 12.5px/1.6 var(--font-app); color: var(--v2-muted); }
 
   .search { position: absolute; top: 62px; left: calc(var(--app-gutter, 34px) - 8px); width: min(480px, calc(100% - 32px)); z-index: 2;
     border-radius: 11px; background: var(--bg); box-shadow: 0 0 0 1px var(--rule); overflow: hidden; animation: v2fade .14s ease-out; }
