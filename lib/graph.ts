@@ -26,6 +26,9 @@ export interface GraphNode {
   y?: number;
   /** Additive (phase 3) — present only on `kind: entity` notes. */
   entity?: true;
+  /** An entity's other names: the aliases folded into it (lib/entityAliasLog.ts),
+   * still names it answers to. Absent when it has none. */
+  aliases?: string[];
   entityType?: string;
   /** Explicit navigation target. Undefined means the legacy id itself;
    * null means a synthetic node has no note to open. */

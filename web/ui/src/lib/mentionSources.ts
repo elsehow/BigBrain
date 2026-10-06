@@ -29,10 +29,11 @@ export function mentionItem(hit: Pick<SearchHit, "dir" | "note" | "title">): Men
 const recentItem = (row: RecentEntry): MentionItem =>
   mentionItem({ dir: dirOf(row.path), title: row.title ?? "", note: { path: row.path, name: row.path.split("/").at(-1)!, modified: row.modified, size: 0 } });
 
-/** The most recently added notes. */
-export async function mentionRecents(signal?: AbortSignal): Promise<MentionItem[]> {
-  const page = await api.recent(12, 0, signal);
-  return page.recent.map(recentItem);
+/** The most recently added notes, a page at a time from `offset`; `next`
+ * is where the following page starts, or null at the oldest. */
+export async function mentionRecents(offset = 0, signal?: AbortSignal): Promise<{ items: MentionItem[]; next: number | null }> {
+  const page = await api.recent(30, offset, signal);
+  return { items: page.recent.map(recentItem), next: page.nextOffset };
 }
 
 /** The whole vault, searched as the app's search does. */

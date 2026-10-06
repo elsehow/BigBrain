@@ -93,6 +93,7 @@ export function buildAssertionGraph(root: string, observe?: ObserveConnection, r
       const prior = nodes.get(entity.id);
       if (prior && prior.title.toLocaleLowerCase() !== entity.label.toLocaleLowerCase())
         throw new Error(`assertion-graph: entity label collision: ${entity.id}`);
+      const aliases = record.aliases.labels.get(entity.id)?.filter((a) => a.toLocaleLowerCase() !== entity.label.toLocaleLowerCase());
       if (!prior) nodes.set(entity.id, {
         id: entity.id,
         title: entity.label,
@@ -100,6 +101,7 @@ export function buildAssertionGraph(root: string, observe?: ObserveConnection, r
         degree: 0,
         entity: true,
         path: assertionEntityPath(entity.id),
+        ...(aliases?.length ? { aliases } : {}),
       });
     }
 

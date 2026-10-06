@@ -153,6 +153,8 @@ export interface GraphNode {
   y?: number;
   // Additive (phase 3): present only on `kind: entity` notes.
   entity?: true;
+  /** An entity's other names: the aliases folded into it. */
+  aliases?: string[];
   entityType?: string;
   path?: string | null;
   // Filed-by facet (additive): the arrival's provenance, the same fields the

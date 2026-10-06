@@ -11,6 +11,8 @@ export interface FieldNode {
   i: number;
   id: string;
   label: string;
+  /** Its other names (aliases folded into it): search finds it by any. */
+  aliases: string[];
   /** /api/graph's note path, for the entity's own assertions. */
   path: string | null;
   degree: number;
@@ -61,7 +63,7 @@ export function buildField(graph: GraphData): Field {
     const memory = n.group === "memory";
     const r = radius[i]! || 1, s = spaced[i]! / r;
     return {
-      i, id: n.id, label: n.title, path: n.path === undefined ? n.id : n.path, degree: n.degree, memory, named: memory,
+      i, id: n.id, label: n.title, aliases: n.aliases ?? [], path: n.path === undefined ? n.id : n.path, degree: n.degree, memory, named: memory,
       p: [(n.x! - cx) * s, 3 + (unit(n.id) - 0.5) * 2.6 + Math.min(1.2, Math.log1p(n.degree) * 0.12) + (memory ? 1.8 : 0), (n.y! - cy) * s * 0.8 - 4],
     };
   });
@@ -113,16 +115,18 @@ export function twinsOf(field: Field): Map<number, number[]> {
 export function searchNames(field: Field, raw: string): number[] {
   const q = raw.trim().toLowerCase(), qn = normName(q);
   if (!q) return [];
-  const score = (n: FieldNode): number => {
-    const low = n.label.toLowerCase(), norm = normName(n.label);
+  const scoreName = (name: string): number => {
+    const low = name.toLowerCase(), norm = normName(name);
     if (low === q || norm === qn) return 0;
     if (low.startsWith(q)) return 1;
     if (low.split(/[\s\-–(/]+/).some((w) => w.startsWith(q))) return 2;
     if (low.includes(q)) return 3;
     if (qn.length >= 3 && norm.includes(qn)) return 4;
-    return -1;
+    return Infinity;
   };
-  return field.nodes.map((n) => [score(n), n] as const).filter(([s]) => s >= 0)
+  // an entity answers to any of its names (aliases folded into it): its best one scores it
+  const score = (n: FieldNode): number => Math.min(...[n.label, ...n.aliases].map(scoreName));
+  return field.nodes.map((n) => [score(n), n] as const).filter(([s]) => s < Infinity)
     .sort((a, b) => a[0] - b[0] || b[1].degree - a[1].degree).map(([, n]) => n.i);
 }
 

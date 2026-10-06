@@ -7,7 +7,7 @@
   // one the pilot names itself, \ shows or hides the desktop's views, Esc back out.
   // Pilots are the real agents: /api/pilot/chat sessions, placed over their
   // context, and their chat opens here as a flat column over the field.
-  import { onMount, tick } from "svelte";
+  import { onMount, tick, untrack } from "svelte";
   import { api } from "../lib/api";
   import { app, goto } from "../lib/store.svelte";
   import type { GraphData } from "../lib/types";
@@ -295,12 +295,19 @@
   let composer: PilotMentionComposer | undefined = $state();
   let composerEl: HTMLElement | undefined = $state();
   let mentionRecentItems = $state<MentionItem[]>([]), mentionRecentLoading = $state(false), mentionRecentError = $state(false);
-  function loadMentionRecents(): void {
+  /** Where the next page of recents starts; null once the oldest is in. */
+  let mentionRecentNext: number | null = 0;
+  /** The newest recents, or (`more`) the page after those in hand: the @ menu
+   * and the empty search both run on as you scroll, as the feed does. */
+  function loadMentionRecents(more = false): void {
+    if (mentionRecentLoading || (more && mentionRecentNext == null)) return;
     mentionRecentLoading = true; mentionRecentError = false;
-    mentionRecents().then((items) => {
-      mentionRecentItems = items;
+    mentionRecents(more ? mentionRecentNext! : 0).then(({ items, next }) => {
+      const seen = new Set(more ? mentionRecentItems.map((m) => m.id) : []);
+      mentionRecentItems = more ? [...mentionRecentItems, ...items.filter((m) => !seen.has(m.id))] : items;
+      mentionRecentNext = next;
       // the search, open and empty, lists them too: the first is in hand
-      if (searching && !query.trim()) { active = 0; showRecent(); sayActive(); }
+      if (!more && searching && !query.trim()) { active = 0; showRecent(); sayActive(); }
     })
       .catch(() => { mentionRecentError = true; }).finally(() => { mentionRecentLoading = false; });
   }
@@ -559,7 +566,10 @@
     if (src) return { ...titled(src.row), status: src.text ?? "", writing: src.text === "" };
     // the row walked to: its source's full title, as an opened source's
     const walked = ent == null ? cursorRow() : null;
-    if (walked) return { ...titled(walked), status: "", writing: false };
+    if (walked) {
+      const said = walkSummary?.source === walked.source ? walkSummary.text : null;
+      return { ...titled(walked), status: said ?? "", writing: said === "" };
+    }
     if (ent != null) {
       const n = field.nodes[ent]!;
       const tw = (twins.get(ent) ?? []).map((j) => field!.nodes[j]!.label);
@@ -694,6 +704,22 @@
     // walked to (j/k), it opens as an entity does, its headline beside it;
     // only pointed at, it's named and the camera holds still
     scene?.source(r && field ? { label: r.title ?? r.headline, entities: feedEntities(r), open: !openPilot && !src && r !== rowOver, text: r.headline } : null);
+  });
+  /** Quick's summary of the row walked to, under its title in the upper left.
+   * It starts once the walk settles, as the search's does, so passing over a
+   * row doesn't ask for one. */
+  let walkSummary: { source: string; text: string } | null = $state(null);
+  $effect(() => {
+    const r = cursor != null && ent == null && !src && !openPilot && !searching ? cursorRow() : null;
+    if (!r?.path || data) return;
+    const { path, source } = r;
+    if (untrack(() => walkSummary?.source === source)) return;
+    const t = setTimeout(() => {
+      walkSummary = { source, text: "" };
+      void briefing(path, (text) => { if (walkSummary?.source === source) walkSummary = { source, text }; })
+        .then((ok) => { if (!ok && walkSummary?.source === source && !walkSummary.text) walkSummary = null; });
+    }, 350);
+    return () => clearTimeout(t);
   });
   /** Back from a row pointed at: the row in hand is drawn opened (above), not lit. */
   const unlight = () => scene?.hover(null);
@@ -863,7 +889,7 @@
    * what it is in the field: a thing there is glided to as a match is, a
    * source as a walked feed row is, over what it mentions. A source the feed
    * doesn't hold mentions nothing here: it sits where you are. */
-  const recentShown = $derived(searching && !query.trim() ? mentionRecentItems.slice(0, 9) : []);
+  const recentShown = $derived(searching && !query.trim() ? mentionRecentItems : []);
   const nodeAt = $derived.by(() => {
     const at = new Map<string, number>();
     for (const n of (field as Field | null)?.nodes ?? []) if (n.path) at.set(n.path, n.i);
@@ -911,11 +937,20 @@
     sayActive();
   }
   function setActive(k: number): void {
-    const n = Math.min(query.trim() ? matches.length : recentShown.length, 9);
-    if (!n) return;
-    active = (k + n) % n;
-    if (query.trim()) scene?.search({ matches, active: matches[active]!, move: "glide" });
-    else showRecent();
+    if (query.trim()) {
+      const n = Math.min(matches.length, 9);
+      if (!n) return;
+      active = (k + n) % n;
+      scene?.search({ matches, active: matches[active]!, move: "glide" });
+    } else {
+      // the recents run on: no wrapping round, and near their end the next page comes
+      const n = recentShown.length;
+      if (!n) return;
+      active = Math.max(0, Math.min(n - 1, k));
+      if (active >= n - 3) loadMentionRecents(true);
+      showRecent();
+      void tick().then(() => searchEl?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: "nearest" }));
+    }
     sayActive();
   }
   let sayTimer: ReturnType<typeof setTimeout> | undefined;
@@ -1087,7 +1122,7 @@
         <span class="k">Esc</span>
       </div>
       {#if query.trim()}
-        <p class="count">{matches.length ? `${matches.length} ${matches.length === 1 ? "thing" : "things"} in your vault` : `Nothing in your vault is called “${query.trim()}”.`}</p>
+        {#if !matches.length}<p class="empty">Nothing in your vault is called “{query.trim()}”.</p>{/if}
         <ul role="listbox" aria-label="Matches">
           {#each matches.slice(0, 9) as i, k (i)}
             {@const parts = marked(field.nodes[i]!.label)}
@@ -1099,12 +1134,11 @@
           {/each}
         </ul>
       {:else}
-        <p class="count">Recent</p>
         {#if recentShown.length}
-          <ul role="listbox" aria-label="Recently added">
+          <ul role="listbox" aria-label="Recently added" onscroll={(e) => { const el = e.currentTarget; if (el.scrollHeight - el.scrollTop - el.clientHeight < 80) loadMentionRecents(true); }}>
             {#each recentShown as m, k (m.id)}
               {@const i = nodeAt.get(m.id)}
-              <li role="option" aria-selected={k === active} onmouseenter={() => setActive(k)} onclick={() => commit(k)} onkeydown={() => {}}>
+              <li role="option" aria-selected={k === active} onpointermove={() => { if (k !== active) setActive(k); }} onclick={() => commit(k)} onkeydown={() => {}}>
                 <span class="dot" class:src={i == null} style:--r={`${2.2 + Math.min(3.6, Math.log1p(i == null ? 0 : field.nodes[i]!.degree) * 0.62)}px`}></span>
                 <span class="ttl">{m.title}</span>
                 <span class="meta">{[m.tag[0] + m.tag.slice(1).toLowerCase(), m.date].filter(Boolean).join(" · ")}</span>
@@ -1189,7 +1223,7 @@
         <div class="input" bind:this={composerEl} onfocusin={() => { if (!mentionRecentItems.length && !mentionRecentLoading) loadMentionRecents(); }}>
           {#key detail.id}
             <PilotMentionComposer bind:this={composer} ariaLabel="Message" currentId={detail.id} value={draftText} autofocus={false}
-              recents={mentionRecentItems} recentLoading={mentionRecentLoading} recentError={mentionRecentError} search={mentionSearch}
+              recents={mentionRecentItems} recentLoading={mentionRecentLoading} recentError={mentionRecentError} onmore={() => loadMentionRecents(true)} search={mentionSearch}
               onchange={(parts) => { draftText = serializeMentions(parts); }} onsend={() => void sendDraft()}
               placeholder={`Message ${detail.title}… type @ to mention`} />
           {/key}
@@ -1456,12 +1490,14 @@
   .hud p { margin: 0; max-width: 44ch; font: 400 14.5px/1.5 var(--font-app); color: color-mix(in srgb, var(--fg) 80%, var(--bg)); }
 
   .search { position: absolute; top: 62px; left: calc(var(--app-gutter, 34px) - 8px); width: min(480px, calc(100% - 32px)); z-index: 2;
-    border-radius: 11px; background: var(--bg); box-shadow: 0 0 0 1px var(--rule), 0 28px 70px -28px color-mix(in srgb, var(--fg) 45%, transparent); overflow: hidden; }
+    border-radius: 11px; background: var(--bg); box-shadow: 0 0 0 1px var(--rule); overflow: hidden; animation: v2fade .14s ease-out; }
+  @keyframes v2fade { from { opacity: 0; } }
+  @media (prefers-reduced-motion: reduce) { .search { animation: none; } }
   .field { display: flex; align-items: center; gap: 12px; height: 56px; padding: 0 18px; }
   .field input { flex: 1; min-width: 0; border: 0; outline: none; background: transparent; color: var(--fg); font: 400 19px/1 var(--font-app); }
   /* the theme's own ink, softened — never the browser's grey */
   .field input::placeholder { color: color-mix(in srgb, var(--fg) 55%, transparent); opacity: 1; }
-  .count { margin: 0; padding: 12px 22px 6px; border-top: 1px solid var(--rule); font: 600 10px/1 var(--font-app); letter-spacing: 0.24em; text-transform: uppercase; color: var(--v2-muted); }
+  .search .field + * { border-top: 1px solid var(--rule); }
   ul { list-style: none; margin: 0; padding: 4px 6px 8px; max-height: min(62vh, 560px); overflow-y: auto; }
   li { display: grid; grid-template-columns: 22px minmax(0, 1fr); grid-template-rows: auto auto; column-gap: 10px; padding: 9px 12px; border-radius: 8px; cursor: pointer; }
   li[aria-selected="true"] { background: color-mix(in srgb, var(--fg) 7%, var(--bg)); }
@@ -1469,7 +1505,7 @@
   .ttl { font: 500 15px/1.3 var(--font-app); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   mark { background: none; color: color-mix(in srgb, var(--activity) 80%, var(--fg)); font-weight: 600; }
   .dot.src { background: none; box-shadow: inset 0 0 0 1.5px var(--fg); }
-  .search .empty { margin: 0; padding: 6px 22px 16px; font: 400 13.5px/1.4 var(--font-app); color: var(--v2-muted); }
+  .search .empty { margin: 0; padding: 14px 22px 16px; font: 400 13.5px/1.4 var(--font-app); color: var(--v2-muted); }
   .meta { font: 400 12.5px/1.35 var(--font-app); color: var(--v2-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
   .feed { position: absolute; left: var(--app-gutter, 34px); bottom: 26px; width: min(880px, calc(100% - 68px)); display: flex; flex-direction: column; gap: 1px;
