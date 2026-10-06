@@ -34,10 +34,10 @@ import { OutOfCredits, outOfCredits, withCredits } from "./providerCredits";
  * this vault: no vault.yaml (a scratch root), turned off, or no key. An
  * unreadable vault.yaml or key store throws, so it can never silently turn
  * the firewall off. */
-export function firewallKey(root: string, store: string = connectionStorePath()): string | undefined {
+export function firewallKey(root: string): string | undefined {
   if (!existsSync(join(root, "vault.yaml"))) return undefined;
   if (loadManifest(root).security.firewall === false) return undefined;
-  return optionalJevKey(store);
+  return optionalJevKey(connectionStorePath());
 }
 
 /** A missed reset link is the costly error, so the threshold sits low in the
