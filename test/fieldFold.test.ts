@@ -24,3 +24,9 @@ test("only this vault's recorded entities fold: a joined vault's node is left ou
   const f = field(node(A, "Avery Quill", 2, 1), node(`shared:v1:${B}`, "Avery Quill", 4, 2));
   expect(foldOffer(f, at(f, A), twinsOf(f), [])).toBeNull();
 });
+
+test("a twin you said is a different thing is not offered again", () => {
+  const f = field(node(A, "Avery Quill", 2, 1), node(B, "Avery-Quill", 40, 2), node(C, "Avery quill", 3, 3));
+  expect(foldOffer(f, at(f, A), twinsOf(f), [], [[A, B]])).toEqual({ keep: C, fold: [A] });
+  expect(foldOffer(f, at(f, A), twinsOf(f), [], [[A, B], [A, C]])).toBeNull();
+});

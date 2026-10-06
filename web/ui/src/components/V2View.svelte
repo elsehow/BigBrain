@@ -71,6 +71,8 @@
   let twins = new Map<number, number[]>();
   /** The memory pass's standing fold proposals (/api/entity/folds). */
   let folds: FoldGroup[] = $state([]);
+  /** Pairs you said are not one thing: never offered again. */
+  let foldsApart: Array<[string, string]> = $state([]);
   let folding = $state(false);
 
   let ent: number | null = $state(null);
@@ -563,7 +565,7 @@
 
   // the feed: an opened entity's own record, else the vault's latest
   /** What the opened entity offers to fold into one (F): its proposal, else its twins. */
-  const offer = $derived(field && ent != null && !data ? foldOffer(field, ent, twins, folds) : null);
+  const offer = $derived(field && ent != null && !data ? foldOffer(field, ent, twins, folds, foldsApart) : null);
   let rows = $derived.by(() => (!writing ? [] : ent != null && entRows ? entRows.slice(-6) : writing.feed.slice(-6)));
   let hud = $derived.by((): { eyebrow: string; name: string; status: string; writing?: boolean } | null => {
     if (!field || !writing || searching || openPilot) return null;
@@ -574,7 +576,9 @@
     if (walked) return { ...titled(walked), status: "", writing: false };
     if (ent != null) {
       const n = field.nodes[ent]!;
-      const tw = (twins.get(ent) ?? []).map((j) => field!.nodes[j]!.label);
+      // a twin you said is a different thing isn't "also" this one
+      const apart = (j: number) => foldsApart.some(([a, b]) => (a === n.id && b === field!.nodes[j]!.id) || (b === n.id && a === field!.nodes[j]!.id));
+      const tw = (twins.get(ent) ?? []).filter((j) => !apart(j)).map((j) => field!.nodes[j]!.label);
       const who = writersOf(n.id);
       return {
         eyebrow: n.memory ? "Memory" : `${n.degree} ${n.degree === 1 ? "tie" : "ties"}`, name: n.label,
@@ -590,7 +594,7 @@
       const [graph, sq] = data ? [data.graph, data.v2] : await Promise.all([api.graph(), api.v2()]);
       writing = sq;
       refreshSorted();
-      if (!data) void api.folds().then((f) => { folds = f.groups; }).catch(() => {});
+      if (!data) void loadFolds();
       await drawField(graph);
     } catch (e) {
       error = errText(e);
@@ -793,7 +797,7 @@
     folding = true;
     try {
       const done = await api.acceptFold(o.keep, o.fold);
-      folds = (await api.folds().catch(() => null))?.groups ?? folds;
+      await loadFolds();
       const graph = await api.graph();
       ent = null; entRows = null;
       await drawField(graph);
@@ -801,6 +805,24 @@
       if (i != null) void openEntity(i);
       flash(`Folded ${done.aliased.map((a) => `“${a.label}”`).join(", ")} into “${done.canonical.label}”.`);
     } catch (e) { flash(`Couldn’t fold: ${errText(e)}`); }
+    finally { folding = false; }
+  }
+  async function loadFolds(): Promise<void> {
+    try { const f = await api.folds(); folds = f.groups; foldsApart = f.rejected ?? []; } catch { /* no folds door: nothing offered */ }
+  }
+  /** X: the opened entity is not the same thing as the rest of its offer —
+   * remembered (the fold log), so neither the twins nor the memory pass
+   * offer them together again. */
+  async function keepApart(): Promise<void> {
+    const o = offer, i = ent;
+    if (!o || folding || i == null || !field) return;
+    const me = field.nodes[i]!.id, others = [o.keep, ...o.fold].filter((id) => id !== me);
+    folding = true;
+    try {
+      await api.rejectFold(me, others);
+      await loadFolds();
+      flash(`Kept “${foldLabel(me)}” apart from “${others.map(foldLabel).join("”, “")}”.`);
+    } catch (e) { flash(`Couldn’t keep them apart: ${errText(e)}`); }
     finally { folding = false; }
   }
   function flash(text: string): void { notice = text; clearTimeout(noticeTimer); noticeTimer = setTimeout(() => { notice = ""; }, 4200); }
@@ -1040,6 +1062,7 @@
     if (slot >= 1 && slot <= bar.length) { take(e); const p = bar[slot - 1]!; if (openPilot === p.id) closePilot(); else openPilotChat(p.id); return true; }
     if (e.key === "\\" && openPilot) { take(e); toggleDesktop(); return true; }
     if (e.key === "f" && ent != null && offer) { take(e); void fold(); return true; }
+    if (e.key === "x" && ent != null && offer) { take(e); void keepApart(); return true; }
     if (e.key === "j" || e.key === "k") { take(e); stepFeed(e.key === "j" ? 1 : -1); return true; }
     if (e.key === "Enter" && e.shiftKey) { take(e); void startPilot(); return true; }
     if (e.key === "Enter" && cursor && ent == null) { const r = cursorRow(); if (r) { take(e); openSource(r); return true; } }
@@ -1119,7 +1142,7 @@
 
   {#if hud}
     <header class="hud" bind:this={hudEl}>
-      <span class="eyebrow">{[hud.eyebrow, original() && "⌘O Open", offer && (folding ? "Folding…" : "F Fold into one")].filter(Boolean).join(" · ")}</span>
+      <span class="eyebrow">{[hud.eyebrow, original() && "⌘O Open", offer && (folding ? "Saving…" : "F Fold into one · X Not the same")].filter(Boolean).join(" · ")}</span>
       <h1>{hud.name}</h1>
       {#if hud.writing}<p><span class="spin" aria-label="Writing a summary"></span></p>{:else if hud.status}<p>{hud.status}</p>{/if}
     </header>
@@ -1278,7 +1301,7 @@
     </aside>
   {/if}
 
-  <p class="hints" aria-hidden="true"><span>/ Search</span><span>j k Feed</span>{#if cursor && ent == null}<span>↵ Open</span>{/if}<span>⇧↵ Pilot</span><span>1–9 Pilots</span><span>⌘N New</span>{#if openPilot && desktopViews.length}<span>\ Views</span>{/if}{#if offer}<span>F Fold</span>{/if}{#if ent != null || src || cursor}<span>Esc Back</span>{/if}</p>
+  <p class="hints" aria-hidden="true"><span>/ Search</span><span>j k Feed</span>{#if cursor && ent == null}<span>↵ Open</span>{/if}<span>⇧↵ Pilot</span><span>1–9 Pilots</span><span>⌘N New</span>{#if openPilot && desktopViews.length}<span>\ Views</span>{/if}{#if offer}<span>F Fold</span><span>X Not the same</span>{/if}{#if ent != null || src || cursor}<span>Esc Back</span>{/if}</p>
   {#if notice}<p class="notice" role="status">{notice}</p>{/if}
   {#if error}<p class="error">The v2 view couldn’t load: {error}</p>{/if}
   {#if field && !field.nodes.length && !openPilot}

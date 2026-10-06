@@ -9,8 +9,9 @@
 // note every few seconds (entities and sources, one of them older than the
 // sorted feed), so its place can be watched moving; one concerns both sides
 // of the field (some entities twice, which count once); one has nothing
-// placeable yet. `?twins` gives two entities one name (Briar Lowe, twice) and a
-// standing fold proposal (Quill press / Quill Press Co.), for F's fold; a fold
+// placeable yet. `?twins` gives two entities one name (Wren Hollis, twice) and a
+// standing fold proposal (Kestrel Books / Kestrel Books Ltd), for F's fold and X's
+// "not the same"; a fold
 // here takes the folded ones off the field, as the engine's alias would.
 import { mount } from "svelte";
 import "../design/tokens.css";
@@ -30,13 +31,14 @@ const entities = empty ? [] : NAMES.map((title, i) => ({ id: `ent_${i}`, title, 
 const twinScene = new URLSearchParams(location.search).has("twins");
 const hex = (c: string) => `ent_${c.repeat(20)}`;
 const TWINS = twinScene ? [
-  { id: hex("a"), title: "Briar-Lowe", group: "entity", entity: true as const, degree: 2, path: `projection/entities/${hex("a")}.md`, x: 150, y: 60 },
-  { id: hex("b"), title: "Briar Lowe", group: "entity", entity: true as const, degree: 7, path: `projection/entities/${hex("b")}.md`, x: -60, y: 120 },
-  { id: hex("c"), title: "Quill press", group: "entity", entity: true as const, degree: 6, path: `projection/entities/${hex("c")}.md`, x: 90, y: -110 },
-  { id: hex("d"), title: "Quill Press Co.", group: "entity", entity: true as const, degree: 1, path: `projection/entities/${hex("d")}.md`, x: -140, y: -40 },
+  { id: hex("a"), title: "Wren-Hollis", group: "entity", entity: true as const, degree: 2, path: `projection/entities/${hex("a")}.md`, x: 150, y: 60 },
+  { id: hex("b"), title: "Wren Hollis", group: "entity", entity: true as const, degree: 7, path: `projection/entities/${hex("b")}.md`, x: -60, y: 120 },
+  { id: hex("c"), title: "Kestrel Books", group: "entity", entity: true as const, degree: 6, path: `projection/entities/${hex("c")}.md`, x: 90, y: -110 },
+  { id: hex("d"), title: "Kestrel Books Ltd", group: "entity", entity: true as const, degree: 1, path: `projection/entities/${hex("d")}.md`, x: -140, y: -40 },
 ] : [];
-let proposals = twinScene ? [{ canonical: hex("c"), why: "the same press, its trading name",
-  members: [{ id: hex("c"), label: "Quill press", assertions: 6 }, { id: hex("d"), label: "Quill Press Co.", assertions: 1 }] }] : [];
+let apart: Array<[string, string]> = [];
+let proposals = twinScene ? [{ canonical: hex("c"), why: "the same bookshop, its registered name",
+  members: [{ id: hex("c"), label: "Kestrel Books", assertions: 6 }, { id: hex("d"), label: "Kestrel Books Ltd", assertions: 1 }] }] : [];
 const memory = empty ? [] : [{ id: "memory/atlas.md", title: "Atlas", group: "memory", degree: 3, path: "memory/atlas.md", x: 40, y: -30 }];
 let graph = { hash: empty ? "empty" : "field", nodes: [...entities, ...TWINS, ...memory],
   edges: empty ? [] : [...NAMES.slice(1).map((_, i) => ({ source: `ent_${i}`, target: `ent_${i + 1}`, weight: 2 })),
@@ -80,7 +82,14 @@ const fake = window.fetch;
     const offset = Number(url.searchParams.get("offset") ?? 0), limit = Number(url.searchParams.get("limit") ?? 40);
     return json({ recent: rows.slice(offset, offset + limit), total: rows.length, nextOffset: offset + limit < rows.length ? offset + limit : null });
   }
-  if (twinScene && url.pathname === "/api/entity/folds") return json({ proposedAt: "2026-10-05T09:00:00.000Z", model: "claude-x", groups: proposals });
+  if (twinScene && url.pathname === "/api/entity/folds") return json({ proposedAt: "2026-10-05T09:00:00.000Z", model: "claude-x", groups: proposals, rejected: apart });
+  if (twinScene && url.pathname === "/api/entity/folds/reject") {
+    const { member, others } = JSON.parse(String(init?.body ?? "{}")) as { member: string; others: string[] };
+    apart = [...apart, ...others.map((o): [string, string] => (member < o ? [member, o] : [o, member]))];
+    proposals = proposals.filter((g) => !(g.members.some((m) => m.id === member) && g.members.some((m) => others.includes(m.id))));
+    const label = (id: string) => graph.nodes.find((n) => n.id === id)?.title ?? id;
+    return json({ member: { id: member, label: label(member) }, against: others.map((id) => ({ id, label: label(id) })) });
+  }
   if (twinScene && url.pathname === "/api/entity/folds/accept") {
     const { canonical, members } = JSON.parse(String(init?.body ?? "{}")) as { canonical: string; members: string[] };
     const gone = new Set(members), label = (id: string) => graph.nodes.find((n) => n.id === id)?.title ?? id;

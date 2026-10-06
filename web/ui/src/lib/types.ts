@@ -355,4 +355,6 @@ export interface FoldsView {
   proposedAt: string | null;
   model?: string;
   groups: FoldGroup[];
+  /** Pairs you said are not one thing. Absent from an older engine. */
+  rejected?: Array<[string, string]>;
 }

@@ -270,6 +270,8 @@ describe("the reject log", () => {
     expect(rejected(SITE.id, RIDGEWAYS.id)).toBe(true);
     expect(rejected(RIDGEWAYS.id, SITE.id)).toBe(true);
     expect(rejected(SITE.id, AUTO_MAP.id)).toBe(false);
+    // and the viewer reads the same pairs, resolved, with or without proposals standing
+    expect(liveFolds(root).rejected).toEqual([[SITE.id, RIDGEWAYS.id].sort() as [string, string]]);
   });
 });
 
@@ -392,7 +394,7 @@ describe("the live view and the two acts", () => {
     expect(JSON.parse(bad.body).error).toContain("not an entity id");
     // no pass yet: the view says so rather than 404ing
     const empty = foldsRoutes(vault("[[Ridgeways]] alone."), () => USER);
-    expect(JSON.parse((await call(empty, "GET", "/api/entity/folds")).body)).toEqual({ proposedAt: null, groups: [] });
+    expect(JSON.parse((await call(empty, "GET", "/api/entity/folds")).body)).toEqual({ proposedAt: null, groups: [], rejected: [] });
   });
 });
 
