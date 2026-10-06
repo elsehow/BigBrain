@@ -1103,7 +1103,7 @@
         <span class="k">Esc</span>
       </div>
       {#if query.trim()}
-        {#if !matches.length}<p class="empty">Nothing in your vault is called “{query.trim()}”.</p>{/if}
+        {#if !matches.length}<p class="none">Nothing in your vault is called “{query.trim()}”.</p>{/if}
         <ul role="listbox" aria-label="Matches">
           {#each matches.slice(0, 9) as i, k (i)}
             {@const parts = marked(field.nodes[i]!.label)}
@@ -1127,7 +1127,8 @@
             {/each}
           </ul>
         {:else}
-          <p class="empty">{mentionRecentLoading ? "Loading recent items…" : mentionRecentError ? "Couldn’t load recents. Type to search." : "Nothing added yet."}</p>
+          <!-- nothing while they load: the box is the search until they come -->
+          {#if !mentionRecentLoading}<p class="none">{mentionRecentError ? "Couldn’t load recents. Type to search." : "Nothing added yet."}</p>{/if}
         {/if}
       {/if}
     </div>
@@ -1486,7 +1487,7 @@
   .ttl { font: 500 15px/1.3 var(--font-app); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   mark { background: none; color: color-mix(in srgb, var(--activity) 80%, var(--fg)); font-weight: 600; }
   .dot.src { background: none; box-shadow: inset 0 0 0 1.5px var(--fg); }
-  .search .empty { margin: 0; padding: 14px 22px 16px; font: 400 13.5px/1.4 var(--font-app); color: var(--v2-muted); }
+  .search .none { margin: 0; padding: 14px 22px 16px; font: 400 13.5px/1.4 var(--font-app); color: var(--v2-muted); }
   .meta { font: 400 12.5px/1.35 var(--font-app); color: var(--v2-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
   .feed { position: absolute; left: var(--app-gutter, 34px); bottom: 26px; width: min(880px, calc(100% - 68px)); display: flex; flex-direction: column; gap: 1px;
