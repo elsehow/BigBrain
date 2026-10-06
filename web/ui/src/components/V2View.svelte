@@ -111,6 +111,9 @@
   let pilotsAll: PilotSummary[] = $state([]);
   let openPilot: string | null = $state(null);
   let detail: PilotDetail | null = $state(null);
+  /** Each desktop as last loaded: going back to one draws it at once, views and all, while
+   * its /session reload runs, rather than a lone chat that jumps aside when the reload lands. */
+  const seen = new Map<string, PilotDetail>();
   let draftText = $state("");
   /** A desktop is the chat plus the views its agent chose to show beside it
    * (lib/pilotDesktop.ts): the engine holds them, so they survive reloads and
@@ -349,6 +352,7 @@
     if (!id || drafting(id)) return;
     try {
       const d = await chatReq<PilotDetail>(id, `/session?id=${encodeURIComponent(id)}`);
+      seen.set(id, d);
       if (openPilot === id) detail = d;
     } catch (e) { if (openPilot === id) flash(errText(e)); }
   }
@@ -408,7 +412,7 @@
     following = true;
     if (searching) { searching = false; scene?.search(null); }
     ent = null; entRows = null;
-    openPilot = id; detail = (pilotsAll.find((p) => p.id === id) as PilotDetail | undefined) ?? null;
+    openPilot = id; detail = seen.get(id) ?? (pilotsAll.find((p) => p.id === id) as PilotDetail | undefined) ?? null;
     checkRemote();
     for (const [path, n] of Object.entries(notes)) if (n.source) delete notes[path];
     if (detail && !detail.messages) detail = { ...detail, messages: [] };
@@ -451,11 +455,13 @@
       if (draft === held && !held.model && detail) detail = { ...detail, model: b.model };
     }, () => {});
   }
+  /** A message you just sent, as the transcript will carry it (under its inputId). */
+  const sent = (inputId: string, text: string) => ({ id: inputId, role: "user" as const, text, at: new Date().toISOString() });
   /** The first message keeps a draft desktop: made for real, with its views, and the message sent. */
   async function keepDraft(text: string, inputId: string): Promise<void> {
     const id = openPilot, d = detail, held = draft;
     if (!id || !d || !held) return;
-    detail = { ...d, phase: "working", messages: [{ id: inputId, role: "user", text, at: new Date().toISOString() }] };
+    detail = { ...d, phase: "working", messages: [sent(inputId, text)] };
     try {
       const made = await desktopReq<{ id: string }>("/create", {
         ...(held.titled ? { title: d.title } : {}), ...(held.model ? { model: held.model } : {}),
@@ -503,13 +509,17 @@
     draftText = "";
     const inputId = `in-${crypto.randomUUID()}`;
     if (drafting(id)) return keepDraft(text, inputId);
+    // shown now, not after the engine has the agent up: the transcript carries it under the
+    // same id (lib/codingDesktops.ts), so the reload below replaces it in place
+    const before = detail;
+    if (detail?.id === id) detail = { ...detail, messages: [...detail.messages, sent(inputId, text)] };
     try {
       // a coding desktop's agent is steered by what you say while it works
       if (coding(id)) await desktopReq(detail?.phase === "working" ? "/steer" : "/send", { id, text, inputId });
       else await pilotReq("/send", { id, text, inputId });
       await loadDetail();
     }
-    catch (e) { draftText = text; flash(`Couldn’t send: ${errText(e)}`); }
+    catch (e) { if (openPilot === id) { detail = before; draftText = text; } flash(`Couldn’t send: ${errText(e)}`); }
   }
   async function stopPilot(): Promise<void> {
     if (!openPilot) return;
