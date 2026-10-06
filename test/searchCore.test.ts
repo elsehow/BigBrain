@@ -98,6 +98,18 @@ describe("scanSurface", () => {
       .toEqual(["api", "web"]);
   });
 
+  test("an insertion id finds its source first, though no title or body spells it", () => {
+    const { root, source } = assertionVault();
+    for (const q of [source.id, `kernel OR ${source.id}`]) {
+      const r = scanSurface(root, q, 20, "api");
+      if (!r.ok) throw new Error(r.reason);
+      expect(r.hits[0]).toEqual(expect.objectContaining({ path: `log/insertions/2026-08/${source.id}.json`, title: source.title }));
+    }
+    const missing = scanSurface(root, "ins_ffffffffffffffffffffffff", 20, "api");
+    if (!missing.ok) throw new Error(missing.reason);
+    expect(missing.hits).toEqual([]);
+  });
+
   test("a voice arrival ranks below the record, and never off the end of it", () => {
     const root = mkdtempSync(join(tmpdir(), "bb-surface-search-voice-"));
     process.env["BIGBRAIN_ASSERTION_DB"] = join(root, ".state", "assertions.db");

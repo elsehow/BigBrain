@@ -37,6 +37,9 @@ export interface OpenOptions {
   thinkingLevel?: CreateAgentSessionOptions["thinkingLevel"];
   /** Wraps each model request, so the host can attach credentials without the package holding them. */
   wrapStream?: (stream: StreamFn) => StreamFn;
+  /** What to tell the agent about a path outside its workspace that the host
+   * knows, such as one a host tool reads; undefined leaves the plain refusal. */
+  elsewhere?: (path: string) => string | undefined;
 }
 
 /** What the agent is told about where it works; the host's instructions come first. */
@@ -132,7 +135,7 @@ export class Desktop {
 
     const tools: AgentTool[] = [
       ...codingTools({
-        ws: this.ws, desktop: this.id, harbor: this.harbor,
+        ws: this.ws, desktop: this.id, harbor: this.harbor, elsewhere: options.elsewhere,
         started: (r: WorkRecord) => this.emit({ type: "work.started", project: r.project, branch: r.branch, path: r.path, ms: r.ms, cloned: r.cloned }),
         server: (port, job, command) => {
           this.emit({ type: "server.started", port, job, command });

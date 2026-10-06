@@ -123,3 +123,33 @@ test("a desktop opened on a feed item starts with its source beside the chat; on
   expect(() => desktops.create({ views: [{ path: "../outside.md" }] })).toThrow("No note at");
   expect(() => desktops.create({ views: [{ path: "log/insertions/missing.json" }] })).toThrow("No note at");
 });
+
+test("a desktop started about a note reads it into the agent's instructions, so \"this\" needs no tool", async () => {
+  const { fauxAssistantMessage } = await import("@earendil-works/pi-ai");
+  const prompts: string[] = [];
+  const { ws, host } = await fakeHost([
+    (context: { messages: Array<{ role: string; content?: unknown; sections?: Record<string, string | null> }> }) => {
+      prompts.push(context.messages.filter(m => m.role === "system")
+        .flatMap(m => [typeof m.content === "string" ? m.content : JSON.stringify(m.content), ...Object.values(m.sections ?? {})]).join("\n"));
+      return fauxAssistantMessage("The gear train runs 3:1.");
+    },
+  ]);
+  const root = nativeVault({ files: {
+    "memory/gears.md": "# Gears\n\nThe orrery's gear train runs a 3:1 reduction.\n",
+    "memory/almanac.md": `# Almanac\n\n${"tide table row\n".repeat(2000)}`,
+  } });
+  roots.push(root);
+  const desktops = new CodingDesktops(root, { agents: new Agents(workspace(ws), new Harbor()), host });
+  const made = desktops.create({ context: [{ path: "memory/gears.md", title: "Gears" }, { path: "memory/almanac.md", title: "Almanac" }, { path: "memory/gone.md", title: "Gone" }] });
+  await desktops.send(made.id, "summarize this", "in-1");
+  for (let i = 0; i < 50 && desktops.list()[0]!.phase !== "answered"; i++) await Bun.sleep(20);
+
+  expect((await desktops.detail(made.id)).messages.map(m => m.role)).toEqual(["user", "assistant"]);
+  const prompt = prompts[0]!;
+  expect(prompt).toContain("## What this desktop is about");
+  expect(prompt).toContain("### Gears (memory/gears.md)\n# Gears\n\nThe orrery's gear train runs a 3:1 reduction.");
+  // a long note is cut honestly, with where to pick up
+  expect(prompt).toMatch(/\[cut at 12000 of \d+ characters: read_note with start 12000 for the rest\]/);
+  expect(prompt).toContain("### Gone (memory/gone.md)\n(not read here: use read_note)");
+  desktops.close();
+});

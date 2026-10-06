@@ -62,6 +62,10 @@ describe("the agent's world", () => {
     expect((await read.run({ path: "projects/orrery/src/ratios.ts" }, signal())).text).toContain("1.4");
     await expect(read.run({ path: "/etc/hosts" }, signal())).rejects.toThrow(AgentsError);
     await expect(read.run({ path: "desktops/someone-else/orrery/x" }, signal())).rejects.toThrow(/outside your world/);
+    // the host may say what a path it knows is instead
+    const hinted = tool({ ...ctxFor(ws, "desk-paths"), elsewhere: p => p.startsWith("notes/") ? `${p} is the host's: use read_note.` : undefined }, "read");
+    await expect(hinted.run({ path: "notes/gears.md" }, signal())).rejects.toThrow("notes/gears.md is the host's: use read_note.");
+    await expect(hinted.run({ path: "/etc/hosts" }, signal())).rejects.toThrow(/outside your world/);
   });
 
   test("editing in place takes the project's lease; another desktop is told to start its own worktree", async () => {

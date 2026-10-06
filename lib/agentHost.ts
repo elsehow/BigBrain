@@ -8,6 +8,7 @@
  * holds them.
  */
 import type { HostTool, OpenOptions } from "../packages/agents/src";
+import { notePayload } from "./noteRead";
 import { DEFAULT_PILOT_BACKEND } from "./pilotBackendTypes";
 import { pilotToolCall, pilotTools } from "./pilot";
 import { createCatalogRuntime, exactCatalogModel } from "./run/modelCatalogRefresh";
@@ -30,6 +31,16 @@ export function vaultTools(root: string): HostTool[] {
   }));
 }
 
+/** A vault path handed to the agent's file tools is a note to read, not a
+ * file it may not reach: the plain refusal sent one agent hunting the
+ * person's projects for it. */
+export function vaultElsewhere(root: string): (path: string) => string | undefined {
+  return path => {
+    try { return notePayload(root, path).status === 200 ? `${path} is a note in your person's BigBrain vault, not a file in your workspace: read it with read_note.` : undefined; }
+    catch { return undefined; }
+  };
+}
+
 type StreamFn = Parameters<NonNullable<OpenOptions["wrapStream"]>>[0];
 
 /** Everything `Agents.open` needs from BigBrain, for a model named `provider/model` or the default. */
@@ -42,7 +53,7 @@ export async function agentHost(root: string, modelName?: string): Promise<OpenO
   if (!model) throw new Error(`No model ${provider}/${id}. Choose one in Settings › Models, or pass --model <provider>/<model>.`);
   const subscription = runtime.isUsingSubscription(provider);
   return {
-    modelRuntime: runtime, model, instructions: AGENT_INSTRUCTIONS, tools: vaultTools(root),
+    modelRuntime: runtime, model, instructions: AGENT_INSTRUCTIONS, tools: vaultTools(root), elsewhere: vaultElsewhere(root),
     thinkingLevel: (DEFAULT_PILOT_BACKEND.reasoning ?? "low") as OpenOptions["thinkingLevel"],
     wrapStream: (stream: StreamFn) => (async (m, context, options) => {
       await configureVaultModelAuth(runtime, root);
