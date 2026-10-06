@@ -221,3 +221,19 @@ test("security: remote content is on by default; turning it off writes the one k
   expect(readFileSync(join(root, "vault.yaml"), "utf8")).not.toContain("security");
   expect(() => applyConfig({ security: { remote_content: "no" as never } }, root)).toThrow("true or false");
 });
+
+test("security: the firewall's default is unwritten; the owner's choice is written either way, beside remote content", () => {
+  const root = vault();
+  expect(loadManifest(root).security.firewall).toBeUndefined();
+  applyConfig({ security: { firewall: false } }, root);
+  expect(loadManifest(root).security).toEqual({ remoteContent: true, firewall: false });
+  applyConfig({ security: { remote_content: false } }, root);
+  expect(loadManifest(root).security).toEqual({ remoteContent: false, firewall: false });
+  applyConfig({ security: { firewall: true, remote_content: true } }, root);
+  expect(loadManifest(root).security).toEqual({ remoteContent: true, firewall: true });
+  expect(applyConfig({ security: { firewall: true } }, root).changed).toEqual([]);
+  expect(() => applyConfig({ security: { firewall: "on" as never } }, root)).toThrow("true or false");
+  expect(() => applyConfig({ security: { model: "clef-flash" } as never }, root)).toThrow("remote_content and firewall only");
+  // the retired top-level block is no setting any more
+  expect(() => applyConfig({ firewall: { model: "clef-flash" } } as never, root)).toThrow("no setting");
+});

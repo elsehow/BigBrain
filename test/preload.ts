@@ -17,6 +17,13 @@ const root = mkdtempSync(join(tmpdir(), "bb-test-vault-"));
 writeFileSync(join(root, "vault.yaml"), "integrations: {}\n");
 process.env["BIGBRAIN_VAULT"] = root;
 
+// The machine's Jev key turns the intake firewall on (lib/firewall.ts), and
+// it lives beside the shared-connections store: a developer's real key must
+// never put every test's arrival to the real Jev. Tests that want a key
+// point this at their own store.
+process.env["BIGBRAIN_SHARED_CONNECTIONS"] = join(mkdtempSync(join(tmpdir(), "bb-test-connections-")), "shared-connections.json");
+delete process.env["TYPESAFE_API_KEY"];
+
 // Catalog refresh is automatic in production; tests must explicitly inject a
 // fabricated transport before opting into model metadata network behavior.
 process.env.PI_OFFLINE = "1";

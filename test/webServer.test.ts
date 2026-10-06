@@ -109,6 +109,23 @@ describe("the route table", () => {
     expect(cfg.memory.interval).toBe(86_400_000);
   });
 
+  test("GET /api/config says whether the firewall is on: only with a Jev key, and not once turned off", () => {
+    const { saveJevKey } = require("../lib/jevSettings") as typeof import("../lib/jevSettings");
+    const store = process.env["BIGBRAIN_SHARED_CONNECTIONS"]!;
+    const yaml = join(process.env["BIGBRAIN_VAULT"]!, "vault.yaml");
+    const security = () => (call("GET", "/api/config") as { security: unknown }).security;
+    try {
+      expect(security()).toEqual({ remote_content: true, firewall: false, jev_key: false });
+      saveJevKey(store, "example-jev-key");
+      expect(security()).toEqual({ remote_content: true, firewall: true, jev_key: true });
+      writeFileSync(yaml, "integrations: {}\nsecurity:\n  firewall: false\n");
+      expect(security()).toEqual({ remote_content: true, firewall: false, jev_key: true });
+    } finally {
+      saveJevKey(store, null);
+      writeFileSync(yaml, "integrations: {}\n");
+    }
+  });
+
   test("the setup door is absent on a headless host", () => {
     // BIGBRAIN_DESKTOP is unset under the test runner, so the four
     // /api/setup* routes are not in the table at all — they 404 like any

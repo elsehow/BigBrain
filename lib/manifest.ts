@@ -46,37 +46,11 @@ export function parseCuration(raw: unknown): CurationConfig | undefined {
 }
 export const curationAgent = (manifest: Manifest): AgentId => manifest.curation?.agent ?? "claude";
 
-/** The intake firewall (lib/firewall.ts): a Jev/SystemOne `/v1/systemone`
- * endpoint that every arrival is screened against. No `url` means the app's
- * own local model (lib/firewallModel.ts), served by `bin/firewall.ts`.
- * Absent means off — an older vault keeps landing exactly as it did
- * (design-principles §5). */
-export interface FirewallConfig { url?: string; model: string; thresholds: { credential: number } }
-/** Tuned on deploy/firewall/eval with the bundled Clef-flash: a missed reset
- * link is the costly error, so the threshold sits low in the gap between
- * credential and ordinary mail. */
-export const FIREWALL_THRESHOLDS = { credential: 0.15 };
-export function parseFirewall(raw: unknown): FirewallConfig | undefined {
-  if (raw === undefined || raw === null) return undefined;
-  if (typeof raw !== "object" || Array.isArray(raw)) throw new Error("firewall must be a mapping");
-  const f = raw as Record<string, unknown>;
-  if (f.url !== undefined && (typeof f.url !== "string" || !/^https?:\/\/\S+$/.test(f.url.trim())))
-    throw new Error("firewall url must be http:// or https://");
-  const t = f.thresholds ?? {};
-  if (typeof t !== "object" || Array.isArray(t)) throw new Error("firewall thresholds must be a mapping");
-  const thresholds = { ...FIREWALL_THRESHOLDS };
-  for (const [k, v] of Object.entries(t)) {
-    // `malicious` was a second question, removed; a vault that set it keeps
-    // loading (design-principles §5) — a config error would stop intake.
-    if (k === "malicious") continue;
-    if (k !== "credential") throw new Error("firewall thresholds accepts credential only");
-    if (!(Number(v) > 0 && Number(v) < 1)) throw new Error(`firewall ${k} threshold must be between 0 and 1`);
-    thresholds[k] = Number(v);
-  }
-  const model = f.model === undefined ? "clef-flash" : String(f.model).trim();
-  if (!model) throw new Error("firewall model must not be empty");
-  return { ...(typeof f.url === "string" ? { url: f.url.trim() } : {}), model, thresholds };
-}
+/* A top-level `firewall:` block (`model: clef-flash`, a `url`, `thresholds`)
+ * is the retired local-model firewall's (#46). It is not read: the firewall
+ * is Jev's now and is on when a Jev key is set (`security.firewall`, below).
+ * A vault that still carries one loads as before and never waits on a model
+ * server that is gone (design-principles §5). */
 
 export type Auth = "max" | "api";
 
@@ -93,7 +67,6 @@ export interface Manifest {
   /** The credential both passes run on. */
   auth: Auth;
   curation?: CurationConfig;
-  firewall?: FirewallConfig;
   /** What the app may load from the web: a source's images and its page. */
   security: SecurityConfig;
   integrations: Record<string, Record<string, unknown>>;
@@ -245,6 +218,10 @@ function parseMemoryConfig(raw: unknown, gardener: PassConfig, fallbackAgent: Ag
 export interface SecurityConfig {
   /** Sources show their images and are read from their pages (on unless `security.remote_content: false`). */
   remoteContent: boolean;
+  /** The intake firewall (lib/firewall.ts) as the owner set it. Absent is the
+   * default — on whenever a Jev key is set; `false` keeps it off even then.
+   * With no Jev key it is off whatever this says (`firewallKey`). */
+  firewall?: boolean;
 }
 
 export function parseSecurity(raw: unknown): SecurityConfig {
@@ -252,7 +229,9 @@ export function parseSecurity(raw: unknown): SecurityConfig {
   if (typeof raw !== "object" || Array.isArray(raw)) throw new Error("vault.yaml: security must be a mapping");
   const v = (raw as Record<string, unknown>)["remote_content"];
   if (v !== undefined && typeof v !== "boolean") throw new Error("vault.yaml: security.remote_content must be true or false");
-  return { remoteContent: v !== false };
+  const f = (raw as Record<string, unknown>)["firewall"];
+  if (f !== undefined && typeof f !== "boolean") throw new Error("vault.yaml: security.firewall must be true or false");
+  return { remoteContent: v !== false, ...(f === undefined ? {} : { firewall: f }) };
 }
 
 export function loadManifest(root: string): Manifest {
@@ -262,7 +241,6 @@ export function loadManifest(root: string): Manifest {
   >;
 
   const curation = parseCuration(raw["curation"]);
-  const firewall = parseFirewall(raw["firewall"]);
   const fallbackAgent = curation?.agent ?? "claude";
   const gardener = parseGardener(raw, fallbackAgent);
   const memory = parseMemoryConfig(raw["memory"], gardener, fallbackAgent);
@@ -290,7 +268,6 @@ export function loadManifest(root: string): Manifest {
     ...(raw["feed"] != null ? { feed: parseFeed(raw["feed"], fallbackAgent) } : {}),
     ...(raw["gate"] != null ? { gate: parseGate(raw["gate"]) } : {}),
     ...(curation ? { curation } : {}),
-    ...(firewall ? { firewall } : {}),
   };
 }
 

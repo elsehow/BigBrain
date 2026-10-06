@@ -230,8 +230,10 @@ export interface ConfigInfo {
    * engine older than 0.1.29. */
   memory: import("../../../../lib/modelChoice").ModelChoice & { interval?: number };
   quick: import("../../../../lib/modelChoice").ModelChoice;
-  /** What the app may load from the web; absent from an older engine (on). */
-  security?: { remote_content: boolean };
+  /** What the app may load from the web; absent from an older engine (on).
+   * `firewall` is the intake firewall as it stands (on only with a Jev key),
+   * `jev_key` whether one is set; both absent from an older engine. */
+  security?: { remote_content: boolean; firewall?: boolean; jev_key?: boolean };
 }
 
 // vault.yaml entries first (manifest order), then integrations/ dirs not yet
@@ -297,7 +299,7 @@ export interface ConfigPatch {
   memory?: { agent: "claude" | "codex" | "pi"; model: string; reasoning?: string | null };
   quick?: { agent: "claude" | "codex" | "pi"; model: string; reasoning?: string | null };
   integrations?: IntegrationOp[];
-  security?: { remote_content: boolean };
+  security?: { remote_content?: boolean; firewall?: boolean };
 }
 
 export interface ConfigResult {
