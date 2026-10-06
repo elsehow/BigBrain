@@ -100,27 +100,35 @@ export function neighbours(field: Field, i: number, limit = 8): number[] {
 }
 
 // ── folding: names that are one thing ──────────────────────────────────────
-/** One key's worth of folding, offered on an opened entity: `keep` stays,
- * each of `fold` becomes an alias of it (the folds accept route). */
-export interface FoldOffer { keep: string; fold: string[]; why?: string }
+/** What an opened entity may be the same thing as, answered row by row.
+ * `keep` is the one that stays (its name the name): a proposal's own pick,
+ * else the twin the record knows best (most ties). Opened ON the keeper,
+ * each other member is a row, folded in one by one; opened elsewhere, the
+ * keeper is the only row, and folding goes into it (the rest are answered
+ * from the keeper, where the fold lands you). */
+export interface FoldOffer { keep: string; rows: string[]; kind: "twins" | "proposal"; why?: string }
 const RECORDED = /^ent_[a-f0-9]{20}$/;
-/** What opening entity `i` offers to fold into one: the memory pass's
- * proposal it belongs to (its own pick kept), else its same-name twins, the
- * one the record knows best (most ties) kept — less any twin you said is a
- * different thing (`rejected`, the fold log's pairs). Only entities this
- * vault's record holds can fold: a joined vault's node or a legacy note can't. */
+/** The offer on entity `i`: the memory pass's proposal it belongs to, else
+ * its same-name twins — less any you said is a different thing (`rejected`,
+ * the fold log's pairs). Only entities this vault's record holds fold: a
+ * joined vault's node or a legacy note never does. */
 export function foldOffer(field: Field, i: number, twins: ReadonlyMap<number, number[]>,
   proposals: ReadonlyArray<{ canonical: string; members: ReadonlyArray<{ id: string }>; why: string }>,
   rejected: ReadonlyArray<readonly [string, string]> = []): FoldOffer | null {
   const n = field.nodes[i];
   if (!n || !RECORDED.test(n.id)) return null;
-  const g = proposals.find((p) => p.members.some((m) => m.id === n.id));
-  if (g) return { keep: g.canonical, fold: g.members.map((m) => m.id).filter((id) => id !== g.canonical), why: g.why || undefined };
   const apart = new Set(rejected.flatMap(([a, b]) => (a === n.id ? [b] : b === n.id ? [a] : [])));
-  const group = [n, ...(twins.get(i) ?? []).map((j) => field.nodes[j]!)].filter((m) => RECORDED.test(m.id) && !apart.has(m.id));
-  if (group.length < 2) return null;
-  const keep = group.reduce((a, b) => (b.degree > a.degree ? b : a));
-  return { keep: keep.id, fold: group.filter((m) => m !== keep).map((m) => m.id) };
+  const ties = (id: string) => field.nodes[field.byId.get(id) ?? -1]?.degree ?? 0;
+  const g = proposals.find((p) => p.members.some((m) => m.id === n.id));
+  const kind = g ? "proposal" as const : "twins" as const;
+  const others = (g ? g.members.map((m) => m.id) : (twins.get(i) ?? []).map((j) => field.nodes[j]!.id))
+    .filter((id) => id !== n.id && RECORDED.test(id) && !apart.has(id))
+    .sort((a, b) => ties(b) - ties(a));
+  if (!others.length) return null;
+  const keep = g && g.canonical !== n.id && others.includes(g.canonical) ? g.canonical
+    : g ? n.id
+    : [n.id, ...others].reduce((a, b) => (ties(b) > ties(a) ? b : a));
+  return { keep, rows: keep === n.id ? others : [keep], kind, ...(g?.why ? { why: g.why } : {}) };
 }
 
 // ── search by name ─────────────────────────────────────────────────────────

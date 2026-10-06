@@ -581,8 +581,8 @@
       const apart = (j: number) => foldsApart.some(([a, b]) => (a === n.id && b === field!.nodes[j]!.id) || (b === n.id && a === field!.nodes[j]!.id));
       const tw = (twins.get(ent) ?? []).filter((j) => !apart(j)).map((j) => field!.nodes[j]!.label);
       const who = writersOf(n.id);
-      const same = tw.length ? `Also in your vault as “${tw.join("”, “")}”.`
-        : offer ? `Maybe the same as “${[offer.keep, ...offer.fold].filter((id) => id !== n.id).map(foldLabel).join("”, “")}”${offer.why ? `: ${offer.why}` : ""}.` : undefined;
+      // twins with nothing to answer (a joined vault's, a legacy note) are only named
+      const same = !offer && tw.length ? `Also in your vault as “${tw.join("”, “")}”.` : undefined;
       return {
         eyebrow: n.memory ? "Memory" : `${n.degree} ${n.degree === 1 ? "tie" : "ties"}`, name: n.label,
         status: who.length ? `Lately written about by ${who.join(", ")}.` : "", same,
@@ -790,15 +790,26 @@
   const errText = (e: unknown): string => (e instanceof Error ? e.message : String(e));
   const foldLabel = (id: string) => folds.flatMap((g) => g.members).find((m) => m.id === id)?.label
     ?? field?.nodes[field.byId.get(id) ?? -1]?.label ?? id;
-  /** F: fold what the opened entity offers into one — the folds accept route
-   * writes each an alias of the kept one — then draw the field anew, opened
-   * on the one that stands. */
-  async function fold(): Promise<void> {
-    const o = offer;
-    if (!o || folding) return;
+  const tiesOf = (id: string) => { const d = field?.nodes[field.byId.get(id) ?? -1]?.degree ?? 0; return `${d} ${d === 1 ? "tie" : "ties"}`; };
+  const openId = () => (ent != null && field ? field.nodes[ent]!.id : null);
+  /** Fold row `id`: into the opened entity when it's the keeper; else the
+   * opened one into `id` (the keeper, then). */
+  const foldRow = (id: string) => {
+    const o = offer, mine = openId();
+    if (o && mine) void settleFold(mine === o.keep ? api.acceptFold(mine, [id]) : api.acceptFold(id, [mine]));
+  };
+  /** Keep this name instead: the suggested keeper folds into the opened one. */
+  const keepMine = () => {
+    const o = offer, mine = openId();
+    if (o && mine && mine !== o.keep) void settleFold(api.acceptFold(mine, [o.keep]));
+  };
+  /** A fold written (the accept route makes each folded name an alias of the
+   * kept one): draw the field anew, opened on the one that stands. */
+  async function settleFold(act: ReturnType<typeof api.acceptFold>): Promise<void> {
+    if (folding) return;
     folding = true;
     try {
-      const done = await api.acceptFold(o.keep, o.fold);
+      const done = await act;
       await loadFolds();
       const graph = await api.graph();
       ent = null; entRows = null;
@@ -812,18 +823,16 @@
   async function loadFolds(): Promise<void> {
     try { const f = await api.folds(); folds = f.groups; foldsApart = f.rejected ?? []; } catch { /* no folds door: nothing offered */ }
   }
-  /** X: the opened entity is not the same thing as the rest of its offer —
-   * remembered (the fold log), so neither the twins nor the memory pass
-   * offer them together again. */
-  async function keepApart(): Promise<void> {
-    const o = offer, i = ent;
-    if (!o || folding || i == null || !field) return;
-    const me = field.nodes[i]!.id, others = [o.keep, ...o.fold].filter((id) => id !== me);
+  /** Not the same: the opened entity and row `id` are two things —
+   * remembered (the fold log), never offered together again. */
+  async function apartRow(id: string): Promise<void> {
+    const mine = openId();
+    if (!mine || folding) return;
     folding = true;
     try {
-      await api.rejectFold(me, others);
+      await api.rejectFold(mine, [id]);
       await loadFolds();
-      flash(`Kept “${foldLabel(me)}” apart from “${others.map(foldLabel).join("”, “")}”.`);
+      flash(`Kept “${foldLabel(mine)}” apart from “${foldLabel(id)}”.`);
     } catch (e) { flash(`Couldn’t keep them apart: ${errText(e)}`); }
     finally { folding = false; }
   }
@@ -1063,8 +1072,9 @@
     const slot = Number(e.key);
     if (slot >= 1 && slot <= bar.length) { take(e); const p = bar[slot - 1]!; if (openPilot === p.id) closePilot(); else openPilotChat(p.id); return true; }
     if (e.key === "\\" && openPilot) { take(e); toggleDesktop(); return true; }
-    if (e.key === "f" && ent != null && offer) { take(e); void fold(); return true; }
-    if (e.key === "x" && ent != null && offer) { take(e); void keepApart(); return true; }
+    // F and X answer the first candidate; the next moves up
+    if (e.key === "f" && ent != null && offer) { take(e); foldRow(offer.rows[0]!); return true; }
+    if (e.key === "x" && ent != null && offer) { take(e); void apartRow(offer.rows[0]!); return true; }
     if (e.key === "j" || e.key === "k") { take(e); stepFeed(e.key === "j" ? 1 : -1); return true; }
     if (e.key === "Enter" && e.shiftKey) { take(e); void startPilot(); return true; }
     if (e.key === "Enter" && cursor && ent == null) { const r = cursorRow(); if (r) { take(e); openSource(r); return true; } }
@@ -1147,19 +1157,26 @@
       <span class="eyebrow">{[hud.eyebrow, original() && "⌘O Open"].filter(Boolean).join(" · ")}</span>
       <h1>{hud.name}</h1>
       {#if hud.writing}<p><span class="spin" aria-label="Writing a summary"></span></p>{:else if hud.status}<p>{hud.status}</p>{/if}
-      {#if hud.same}
-        <!-- the question and its two answers, one unit -->
-        <div class="same" role="group" aria-label="Possibly the same thing">
-          <p>{hud.same}</p>
-          {#if offer}
-            <div class="acts">
-              {#if folding}<span class="busy">Saving…</span>
+      {#if hud.same}<p>{hud.same}</p>{/if}
+      {#if ent != null && offer}
+        {@const keeper = offer.keep === openId()}
+        <!-- each thing it may be, and its two answers: one unit -->
+        <div class="same" role="group" aria-label={offer.kind === "proposal" ? "Maybe the same" : "Also in your vault as"}>
+          <span class="same-head">{offer.kind === "proposal" ? "Maybe the same" : "Also in your vault as"}</span>
+          {#if offer.why}<p class="same-why">{offer.why}</p>{/if}
+          {#each offer.rows as id, k (id)}
+            <div class="cand">
+              <span class="cand-name">{foldLabel(id)} <small>· {tiesOf(id)}</small></span>
+              {#if folding}{#if k === 0}<span class="busy">Saving…</span>{/if}
               {:else}
-                <button type="button" onclick={() => void fold()}><kbd>F</kbd>Fold into one</button>
-                <button type="button" onclick={() => void keepApart()}><kbd>X</kbd>Not the same</button>
+                <span class="acts">
+                  <button type="button" onclick={() => foldRow(id)}>{#if k === 0}<kbd>F</kbd>{/if}{keeper ? "Fold in" : "Fold into this"}</button>
+                  <button type="button" onclick={() => void apartRow(id)}>{#if k === 0}<kbd>X</kbd>{/if}Not the same</button>
+                </span>
               {/if}
             </div>
-          {/if}
+          {/each}
+          {#if !keeper && !folding}<button type="button" class="keep-mine" onclick={keepMine}>Keep “{field?.nodes[ent]?.label}” as the name instead</button>{/if}
         </div>
       {/if}
     </header>
@@ -1540,12 +1557,20 @@
   h1 { margin: 0; font: 500 clamp(28px, 2.5vw, 36px)/1.05 var(--font-app); letter-spacing: -0.03em; }
   .hud p { margin: 0; max-width: 44ch; font: 400 14.5px/1.5 var(--font-app); color: color-mix(in srgb, var(--fg) 80%, var(--bg)); }
   .same { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; padding-left: 12px; border-left: 2px solid var(--rule); }
+  .same-head { font: 600 10px/1 var(--font-app); letter-spacing: 0.24em; text-transform: uppercase; color: var(--v2-muted); }
+  .hud .same-why { font-size: 13.5px; color: var(--v2-muted); }
+  .cand { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+  .cand-name { font: 500 14.5px/1.3 var(--font-app); }
+  .cand-name small { font-weight: 400; font-size: 12.5px; color: var(--v2-muted); }
   .acts { display: flex; gap: 8px; pointer-events: auto; }
+  .keep-mine { align-self: flex-start; padding: 0; border: 0; background: none; color: var(--v2-muted); font: 400 12.5px/1.4 var(--font-app);
+    text-decoration: underline; text-underline-offset: 2px; cursor: pointer; pointer-events: auto; text-shadow: none; }
+  .keep-mine:hover { color: var(--fg); }
   .acts button { display: inline-flex; align-items: center; gap: 7px; padding: 5px 10px 5px 6px; border: 1px solid var(--rule); border-radius: 7px;
     background: var(--bg); color: var(--fg); font: 500 12.5px/1 var(--font-app); cursor: pointer; text-shadow: none; }
   .acts button:hover { background: color-mix(in srgb, var(--fg) 6%, var(--bg)); }
   .acts kbd { min-width: 16px; padding: 2px 4px; border-radius: 4px; background: color-mix(in srgb, var(--fg) 8%, var(--bg)); font: 600 10.5px/1 var(--font-mono); text-align: center; }
-  .acts .busy { font: 400 12.5px/1.6 var(--font-app); color: var(--v2-muted); }
+  .cand .busy { font: 400 12.5px/1.6 var(--font-app); color: var(--v2-muted); }
 
   .search { position: absolute; top: 62px; left: calc(var(--app-gutter, 34px) - 8px); width: min(480px, calc(100% - 32px)); z-index: 2;
     border-radius: 11px; background: var(--bg); box-shadow: 0 0 0 1px var(--rule); overflow: hidden; animation: v2fade .14s ease-out; }

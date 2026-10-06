@@ -9,8 +9,9 @@
 // note every few seconds (entities and sources, one of them older than the
 // sorted feed), so its place can be watched moving; one concerns both sides
 // of the field (some entities twice, which count once); one has nothing
-// placeable yet. `?twins` gives two entities one name (Wren Hollis, twice) and a
-// standing fold proposal (Kestrel Books / Kestrel Books Ltd), for F's fold and X's
+// placeable yet. `?twins` gives three entities one name (Wren Hollis, kept for
+// its ties; Wren-Hollis; wren hollis) and a three-way fold proposal (Kestrel
+// Books, the pick; Kestrel Bookshop; Kestrel Books Ltd), for F's fold and X's
 // "not the same"; a fold
 // here takes the folded ones off the field, as the engine's alias would.
 import { mount } from "svelte";
@@ -35,10 +36,13 @@ const TWINS = twinScene ? [
   { id: hex("b"), title: "Wren Hollis", group: "entity", entity: true as const, degree: 7, path: `projection/entities/${hex("b")}.md`, x: -60, y: 120 },
   { id: hex("c"), title: "Kestrel Books", group: "entity", entity: true as const, degree: 6, path: `projection/entities/${hex("c")}.md`, x: 90, y: -110 },
   { id: hex("d"), title: "Kestrel Books Ltd", group: "entity", entity: true as const, degree: 1, path: `projection/entities/${hex("d")}.md`, x: -140, y: -40 },
+  { id: hex("e"), title: "wren hollis", group: "entity", entity: true as const, degree: 1, path: `projection/entities/${hex("e")}.md`, x: 30, y: 170 },
+  { id: hex("f"), title: "Kestrel Bookshop", group: "entity", entity: true as const, degree: 3, path: `projection/entities/${hex("f")}.md`, x: 170, y: -20 },
 ] : [];
 let apart: Array<[string, string]> = [];
 let proposals = twinScene ? [{ canonical: hex("c"), why: "the same bookshop, its registered name",
-  members: [{ id: hex("c"), label: "Kestrel Books", assertions: 6 }, { id: hex("d"), label: "Kestrel Books Ltd", assertions: 1 }] }] : [];
+  members: [{ id: hex("c"), label: "Kestrel Books", assertions: 6 }, { id: hex("f"), label: "Kestrel Bookshop", assertions: 3 },
+    { id: hex("d"), label: "Kestrel Books Ltd", assertions: 1 }] }] : [];
 const memory = empty ? [] : [{ id: "memory/atlas.md", title: "Atlas", group: "memory", degree: 3, path: "memory/atlas.md", x: 40, y: -30 }];
 let graph = { hash: empty ? "empty" : "field", nodes: [...entities, ...TWINS, ...memory],
   edges: empty ? [] : [...NAMES.slice(1).map((_, i) => ({ source: `ent_${i}`, target: `ent_${i + 1}`, weight: 2 })),
@@ -86,7 +90,9 @@ const fake = window.fetch;
   if (twinScene && url.pathname === "/api/entity/folds/reject") {
     const { member, others } = JSON.parse(String(init?.body ?? "{}")) as { member: string; others: string[] };
     apart = [...apart, ...others.map((o): [string, string] => (member < o ? [member, o] : [o, member]))];
-    proposals = proposals.filter((g) => !(g.members.some((m) => m.id === member) && g.members.some((m) => others.includes(m.id))));
+    // a refused pair splits off: the member leaves the group (as the engine's validation splits it)
+    proposals = proposals.map((g) => g.members.some((m) => m.id === member) && g.members.some((m) => others.includes(m.id))
+      ? { ...g, members: g.members.filter((m) => m.id !== member), canonical: g.canonical === member ? others[0]! : g.canonical } : g).filter((g) => g.members.length > 1);
     const label = (id: string) => graph.nodes.find((n) => n.id === id)?.title ?? id;
     return json({ member: { id: member, label: label(member) }, against: others.map((id) => ({ id, label: label(id) })) });
   }
@@ -96,7 +102,8 @@ const fake = window.fetch;
     const done = { canonical: { id: canonical, label: label(canonical) }, aliased: members.map((id) => ({ id, label: label(id) })) };
     graph = { ...graph, hash: `${graph.hash}-${members.join()}`, nodes: graph.nodes.filter((n) => !gone.has(n.id)),
       edges: graph.edges.map((e) => ({ ...e, source: gone.has(e.source) ? canonical : e.source, target: gone.has(e.target) ? canonical : e.target })) };
-    proposals = proposals.filter((g) => !g.members.some((m) => gone.has(m.id)));
+    proposals = proposals.map((g) => ({ ...g, members: g.members.filter((m) => !gone.has(m.id)),
+      canonical: gone.has(g.canonical) ? canonical : g.canonical })).filter((g) => g.members.length > 1);
     return json(done);
   }
   if (url.pathname === "/api/v2") return json({ authors: [], feed });
