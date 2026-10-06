@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "BigBrain",
-  "version": "0.7.35",
+  "version": "0.8.0",
   "identifier": "cool.bigbrain.desktop",
   "build": {
     "frontendDist": "http://127.0.0.1:4747",
