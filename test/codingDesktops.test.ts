@@ -153,3 +153,16 @@ test("a desktop started about a note reads it into the agent's instructions, so 
   expect(prompt).toContain("### Gone (memory/gone.md)\n(not read here: use read_note)");
   desktops.close();
 });
+
+test("a new desktop starts on the Pilot model chosen in Settings, not the engine default", async () => {
+  const { writeEnvValues } = await import("../lib/envFile");
+  const { ws, host } = await fakeHost([]);
+  const root = nativeVault(); roots.push(root);
+  const desktops = new CodingDesktops(root, { agents: new Agents(workspace(ws), new Harbor()), host });
+  writeEnvValues(root, { BIGBRAIN_PILOT_BACKEND: JSON.stringify({ adapter: "pi", provider: "anthropic", model: "claude-opus-5-5", reasoning: "medium" }) });
+  const made = desktops.create();
+  expect(made.model).toBe("anthropic/claude-opus-5-5");
+  expect(desktops.summary(made).model).toBe("claude-opus-5-5");
+  // a model named at creation (the draft's picker) still wins
+  expect(desktops.create({ model: "openai-codex/gpt-5.6-terra" }).model).toBe("openai-codex/gpt-5.6-terra");
+});

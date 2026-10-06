@@ -106,6 +106,8 @@
    * desktop, in the bar from then on; Esc before that and it's gone. */
   const drafting = (id: string | null | undefined): boolean => !!id && id.startsWith("draft:");
   let draft: { row: V2SortedRow; path: string; model?: string; titled?: boolean } | null = null;
+  /** The Pilot model from Settings › Models, as last read: what a draft desktop will start on. */
+  let pilotModel = DEFAULT_PILOT_BACKEND.model;
   let pilotsAll: PilotSummary[] = $state([]);
   let openPilot: string | null = $state(null);
   let detail: PilotDetail | null = $state(null);
@@ -437,12 +439,17 @@
     checkRemote(); delete notes[path];
     const title = r.title ?? r.headline;
     openPilot = `draft:${r.source}`;
-    detail = { id: openPilot, title, model: DEFAULT_PILOT_BACKEND.model, phase: "draft", lifecycle: "active", messages: [],
+    detail = { id: openPilot, title, model: pilotModel, phase: "draft", lifecycle: "active", messages: [],
       desktop: { views: [{ id: "v-source", kind: "note", path, title, at: r.added }], layout: { view: "v-source" }, arrangedBy: null } };
     scene?.hover(null);
     scene?.focusPilot(null);
     scene?.shift(shiftFor());
     void tick().then(() => { scene?.shift(shiftFor()); composer?.focus(true); });
+    const held = draft;
+    void pilotReq<{ model: string }>("/backend").then((b) => {
+      pilotModel = b.model;
+      if (draft === held && !held.model && detail) detail = { ...detail, model: b.model };
+    }, () => {});
   }
   /** The first message keeps a draft desktop: made for real, with its views, and the message sent. */
   async function keepDraft(text: string, inputId: string): Promise<void> {

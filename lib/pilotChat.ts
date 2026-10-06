@@ -33,8 +33,9 @@ import { sessionPath } from "./workSessionIdentity";
 import { WorkHistory } from "./workHistory";
 import { migratedPilotId, pilotFromWork, repairMigratedArchive } from "./pilotWorkMigration";
 import { createPilotBackend, validatePilotBackend, type PilotBackendFactory } from "./pilotBackend";
-import { DEFAULT_PILOT_BACKEND, migratePilotBackend, type PilotBackend, type PilotBackendConfig } from "./pilotBackendTypes";
-import { readEnvValues, writeEnvValues } from "./envFile";
+import { migratePilotBackend, type PilotBackend, type PilotBackendConfig } from "./pilotBackendTypes";
+import { writeEnvValues } from "./envFile";
+import { savedPilotBackend } from "./pilotDefault";
 
 import { NOTIFICATION_CHARS, NOTIFICATION_HARD_CHARS, PILOT_NOTIFICATION_TOOLS, type PilotNotification } from "./pilotNotifications";
 import { withCredits } from "./providerCredits";
@@ -141,8 +142,7 @@ export class PilotChats {
     entry.timer.unref?.();
   }
   defaultBackend(): PilotBackendConfig {
-    const saved = readEnvValues(this.root).BIGBRAIN_PILOT_BACKEND;
-    return saved ? validatePilotBackend(migratePilotBackend(JSON.parse(saved))) : { ...DEFAULT_PILOT_BACKEND };
+    return savedPilotBackend(this.root);
   }
   async models(requested?: { provider?: string; model: string }) { return (await import("./modelCatalog")).pilotModels(this.root, requested); }
   setDefaultBackend(value: unknown): PilotBackendConfig {
