@@ -23,7 +23,7 @@
   import { DEFAULT_PILOT_BACKEND } from "../../../../lib/pilotBackendTypes";
   import PilotMentionComposer from "./PilotMentionComposer.svelte";
   import ShortcutsSheet from "./ShortcutsSheet.svelte";
-  import { pressed } from "../lib/v2/shortcuts";
+  import { keyText, registerShortcuts, RANK } from "../lib/shortcuts.svelte";
   import { keyboardHints } from "../lib/keyboardHints.svelte";
   import { serializeMentions, type MentionItem } from "../../../../lib/pilotMentions";
   import { mentionRecents, mentionSearch } from "../lib/mentionSources";
@@ -243,7 +243,7 @@
   let renaming = $state(false);
   let renameText = $state("");
   let renameEl: HTMLInputElement | undefined = $state();
-  // the shortcuts sheet (?), drawn from lib/v2/shortcuts.ts
+  // the shortcuts sheet (?), drawn from the registry (lib/shortcuts.svelte.ts)
   let shortcutsOpen = $state(false);
   function startRename(): void {
     if (!detail) return;
@@ -775,7 +775,7 @@
   /** A pilot on the thing in hand, as the app's lists start one, titled "Re: …". */
   async function startPilot(): Promise<void> {
     const n = inHand();
-    if (!n) { flash("Open something first — Shift+Enter starts a pilot on it."); return; }
+    if (!n) { flash(`Open something first — ${keyText("start")} starts a Desktop on it.`); return; }
     await createPilot([n.path], `Re: ${n.label}`, [n.label]);
   }
   let noticeTimer: ReturnType<typeof setTimeout> | undefined;
@@ -980,53 +980,58 @@
     return i < 0 || !query.trim() ? [label, "", ""] : [label.slice(0, i), label.slice(i, i + query.trim().length), label.slice(i + query.trim().length)];
   };
 
-  /** True when this view took the key. Every key goes through `pressed`, so
-   * the shortcuts sheet (lib/v2/shortcuts.ts) lists exactly what this handles. */
-  function onKey(e: KeyboardEvent): boolean {
-    if (paused) return false;
-    // the sheet is open: it has the keys, and ? or Esc (the dialog's own) shut it
-    if (shortcutsOpen) { if (pressed("shortcuts", e)) { take(e); shortcutsOpen = false; } return true; }
-    // ⌘, (ctrl+, elsewhere): settings, the same view the app's gear opens
-    if (pressed("settings", e)) { take(e); openSettings(); return true; }
-    if (pressed("original", e) && original()) { take(e); void openOriginal(original()!); return true; }
-    // ⌘N before the modifier bail-out below, which swallowed it
-    if (pressed("new", e) && (e.metaKey || e.ctrlKey) && field) { take(e); void createPilot([]); return true; }
-    if (e.metaKey || e.ctrlKey || e.altKey || !field) return false;
-    if (composerEl?.contains(e.target as Node)) {
-      // the composer sends on Enter and keeps its @ menu's keys; an Esc it let through leaves it
-      if (pressed("composer-leave", e)) { take(e); if (drafting(openPilot) && !draftText.trim()) closePilot(); else composer?.blur(); return true; }
-      return false;
-    }
-    if (searching && e.target === qEl) {
-      // typing in the search box is ours entirely; the characters still land
-      if (pressed("search-move", e)) { take(e); setActive(active + (e.key === "ArrowDown" ? 1 : -1)); }
-      else if (pressed("search-start", e)) { take(e); void startPilot(); }
-      else if (pressed("search-open", e)) { take(e); commit(); }
-      else if (pressed("search-close", e)) { take(e); closeSearch(); }
-      return true;
-    }
-    const t = e.target as HTMLElement | null;
-    if (t?.tagName === "INPUT" || t?.tagName === "TEXTAREA" || t?.isContentEditable) return false;
-    // Esc always lets go of a selection, whatever else it backs out of
-    if (pressed("back", e)) getSelection()?.removeAllRanges();
-    if (pressed("shortcuts", e)) { take(e); shortcutsOpen = true; return true; }
-    if (pressed("search", e)) { take(e); openSearch(); return true; }
-    if (pressed("back", e) && pickerOpen) { take(e); pickerOpen = false; return true; }
-    if (pressed("back", e) && openPilot) { take(e); closePilot(); return true; }
-    if (pressed("back", e) && (ent != null || src)) { take(e); overview(); unlight(); return true; }
-    if (pressed("back", e) && cursor) { take(e); leaveFeed(); return true; }
-    if (pressed("new", e)) { take(e); void createPilot([]); return true; }
-    if (pressed("desktops", e)) {
-      const p = bar[Number(e.key) - 1];
-      if (p) { take(e); if (openPilot === p.id) closePilot(); else openPilotChat(p.id); return true; }
-    }
-    if (pressed("views", e) && openPilot) { take(e); toggleDesktop(); return true; }
-    if (pressed("feed", e)) { take(e); stepFeed(e.key === "j" ? 1 : -1); return true; }
-    if (pressed("start", e)) { take(e); void startPilot(); return true; }
-    if (pressed("open", e) && cursor && ent == null) { const r = cursorRow(); if (r) { take(e); openSource(r); return true; } }
-    return false;
+  /** Esc in the field: let go of any selection, then back out of the
+   * innermost thing open — the agent picker, the Desktop, the entity or
+   * source, the feed walk. False when there was nothing to back out of. */
+  function back(): boolean {
+    getSelection()?.removeAllRanges();
+    if (pickerOpen) pickerOpen = false;
+    else if (openPilot) closePilot();
+    else if (ent != null || src) { overview(); unlight(); }
+    else if (cursor) leaveFeed();
+    else return false;
+    return true;
   }
-  function take(e: KeyboardEvent): void { e.preventDefault(); e.stopPropagation(); }
+  /** "⌘O Open": a shortcut's key and what it does, or nothing when hints are
+   * off or nothing answers the key. */
+  const hint = (id: string, what: string) => keyboardHints.show && keyText(id) ? `${keyText(id)} ${what}` : "";
+
+  // This view's keys, registered while it's mounted: lib/shortcuts.svelte.ts
+  // dispatches them and lists them on the ? sheet.
+  onMount(() => {
+    const offs = [
+      registerShortcuts({ title: "Field", rank: RANK.field, when: () => !paused, shortcuts: [
+        { id: "search", label: "Search", keys: [{ key: "/" }], when: () => !!field, run: openSearch },
+        { id: "feed", label: "Step through the feed", keys: [{ key: ["j", "k"] }], when: () => !!field, run: (e) => stepFeed(e.key === "j" ? 1 : -1) },
+        { id: "open", label: "Open the selected row", keys: [{ key: "Enter", shift: false }], when: () => !!cursor && ent == null && !!cursorRow(), run: () => openSource(cursorRow()!) },
+        { id: "start", label: "Start a Desktop on what’s open", keys: [{ key: "Enter", shift: true }], when: () => !!field, run: () => void startPilot() },
+        { id: "desktops", label: "Open or close a Desktop", keys: [{ key: ["1", "2", "3", "4", "5", "6", "7", "8", "9"], label: "1–9" }], run: (e) => {
+          const p = bar[Number(e.key) - 1];
+          if (!p) return false;
+          if (openPilot === p.id) closePilot(); else openPilotChat(p.id);
+        } },
+        { id: "new", label: "New Desktop", keys: [{ key: "n", mod: true, shift: false }, { key: "n" }], when: () => !!field, run: () => void createPilot([]) },
+        { id: "views", label: "Show or hide the Desktop’s views", keys: [{ key: "\\" }], when: () => !!openPilot, run: toggleDesktop },
+        { id: "original", label: "Open the original source", keys: [{ key: "o", mod: true, shift: false }], when: () => !!original(), run: () => void openOriginal(original()!) },
+        { id: "back", label: "Back", keys: [{ key: "Escape" }], run: back },
+        // ⌘, (Ctrl+, elsewhere): the same view the app's gear opens
+        { id: "settings", label: "Settings", keys: [{ key: ",", mod: true }], run: openSettings },
+        { id: "shortcuts", label: "Shortcuts", keys: [{ key: "?" }], run: () => { shortcutsOpen = true; } },
+      ] }),
+      // typing in the search box is the box's: these, and the characters land
+      registerShortcuts({ title: "Search", rank: RANK.input, when: () => !paused && searching, input: () => qEl, shortcuts: [
+        { id: "search-move", label: "Move through results", keys: [{ key: ["ArrowUp", "ArrowDown"] }], run: (e) => setActive(active + (e.key === "ArrowDown" ? 1 : -1)) },
+        { id: "search-open", label: "Open the result", keys: [{ key: "Enter", shift: false }], run: () => commit() },
+        { id: "search-start", label: "Start a Desktop on the result", keys: [{ key: "Enter", shift: true }], run: () => void startPilot() },
+        { id: "search-close", label: "Close search", keys: [{ key: "Escape" }], run: closeSearch },
+      ] }),
+      // an Esc the composer's @ menu let through leaves the composer
+      registerShortcuts({ title: "Message box", rank: RANK.input, when: () => !paused, input: () => composerEl, shortcuts: [
+        { id: "composer-leave", label: "Leave the message box", keys: [{ key: "Escape" }], run: () => { if (drafting(openPilot) && !draftText.trim()) closePilot(); else composer?.blur(); } },
+      ] }),
+    ];
+    return () => offs.forEach((off) => off());
+  });
 </script>
 
 {#snippet tile(t: DesktopTile)}
@@ -1068,7 +1073,6 @@
 <svelte:head>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" />
 </svelte:head>
-<svelte:window onkeydown={onKey} />
 
 <div class="v2" bind:this={rootEl} style:--chat-w={chatWidth ? `${chatWidth}px` : null}>
   <div class="stage" bind:this={host}></div>
@@ -1087,9 +1091,9 @@
             aria-label={`Close ${p.title}`} title="Close this desktop: its processes stop; its conversation is kept">×</button>
         </span>
       {/each}
-      <button type="button" class="new" onclick={() => void createPilot([])} title="New pilot (⌘N)">+ <span class="k">⌘N</span></button>
-      <button type="button" class="find" onclick={openSearch}>Search <span class="k">/</span></button>
-      <button type="button" class="gear" onclick={openSettings} title="Settings (⌘,)" aria-label="Settings">
+      <button type="button" class="new" onclick={() => void createPilot([])} title={`New Desktop ${keyText("new") && `(${keyText("new")})`}`}>+ <span class="k keyboard-hint">{keyText("new")}</span></button>
+      <button type="button" class="find" onclick={openSearch}>Search <span class="k keyboard-hint">{keyText("search")}</span></button>
+      <button type="button" class="gear" onclick={openSettings} title={`Settings ${keyText("settings") && `(${keyText("settings")})`}`} aria-label="Settings">
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
           <circle cx="12" cy="12" r="3" />
           <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.08a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.08a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
@@ -1100,7 +1104,7 @@
 
   {#if hud}
     <header class="hud" bind:this={hudEl}>
-      <span class="eyebrow">{[hud.eyebrow, original() && "⌘O Open"].filter(Boolean).join(" · ")}</span>
+      <span class="eyebrow">{[hud.eyebrow, original() && hint("original", "Open")].filter(Boolean).join(" · ")}</span>
       <h1>{hud.name}</h1>
       {#if hud.writing}<p><span class="spin" aria-label="Writing a summary"></span></p>{:else if hud.status}<p>{hud.status}</p>{/if}
     </header>
@@ -1110,7 +1114,7 @@
     <div class="search" bind:this={searchEl} role="dialog" aria-label="Search by name">
       <div class="field">
         <input bind:this={qEl} bind:value={query} oninput={() => runQuery()} placeholder="Find anything by name…" aria-label="Find by name" autocomplete="off" spellcheck="false" />
-        <span class="k">Esc</span>
+        <span class="k keyboard-hint">{keyText("search-close")}</span>
       </div>
       {#if query.trim()}
         {#if !matches.length}<p class="none">Nothing in your vault is called “{query.trim()}”.</p>{/if}
@@ -1186,7 +1190,7 @@
             <button type="button" class="agent" onclick={() => void openPicker()} title="Change the agent for this conversation"
               disabled={detail.phase === "working"}>{detail.model} <span aria-hidden="true">▾</span></button>
           </div>
-          {#if desktopViews.length}<button type="button" class="find" class:lit={showDesktop} onclick={toggleDesktop} title="Show or hide this desktop's views (\)">{desktopViews.length} {desktopViews.length === 1 ? "view" : "views"} <span class="k">\</span></button>{/if}
+          {#if desktopViews.length}<button type="button" class="find" class:lit={showDesktop} onclick={toggleDesktop} title={`Show or hide this desktop's views ${keyText("views") && `(${keyText("views")})`}`}>{desktopViews.length} {desktopViews.length === 1 ? "view" : "views"} <span class="k keyboard-hint">{keyText("views")}</span></button>{/if}
         </div>
         {#if detail.contextNodes?.length}<p class="ctx">{detail.contextNodes.map((n) => n.title ?? n.id).join(" · ")}</p>{/if}
         {#if detail.changes?.length}
@@ -1221,9 +1225,9 @@
           {/key}
         </div>
         <div class="row">
-          <span class="k">{coding(detail.id) && detail.phase === "working" ? "↵ Steer" : "↵ Send"} · ⇧↵ New line · Esc Back</span>
+          <span class="k">{[hint("composer-send", coding(detail.id) && detail.phase === "working" ? "Steer" : "Send"), hint("composer-newline", "New line"), hint("composer-leave", "Back")].filter(Boolean).join(" · ")}</span>
           {#if detail.phase === "working"}<button type="button" class="find" onclick={() => void stopPilot()}>Stop</button>{/if}
-          {#if drafting(detail.id)}<span class="k">Not kept until you send{#if original()} · ⌘O Open original{/if}</span>
+          {#if drafting(detail.id)}<span class="k">{["Not kept until you send", original() && hint("original", "Open original")].filter(Boolean).join(" · ")}</span>
           {:else if coding(detail.id)}<button type="button" class="find" onclick={() => void archiveDesktop()} title="Stop its processes; its files and conversation stay">Archive</button>{/if}
         </div>
       </div></div>
@@ -1246,7 +1250,7 @@
       {#if !pickerAll && agentsList.some((a) => latestPerFamily(a.models).other.length)}
         <button type="button" class="other" onclick={() => (pickerAll = true)}>Other models<span class="k">{agentsList.reduce((n, a) => n + latestPerFamily(a.models).other.length, 0)} more</span></button>
       {/if}
-      <p class="k">Esc to close · the next reply comes from the one you pick</p>
+      <p class="k">{[hint("back", "to close"), "the next reply comes from the one you pick"].filter(Boolean).join(" · ")}</p>
     </div>
   {/if}
   {#if openPilot && detail && showDesktop}
@@ -1259,7 +1263,7 @@
     </aside>
   {/if}
 
-  {#if keyboardHints.show}<button type="button" class="hints" onclick={() => (shortcutsOpen = true)} aria-haspopup="dialog" aria-keyshortcuts="?"><kbd>?</kbd> Shortcuts</button>{/if}
+  {#if keyboardHints.show}<button type="button" class="hints" onclick={() => (shortcutsOpen = true)} aria-haspopup="dialog"><kbd>{keyText("shortcuts")}</kbd> Shortcuts</button>{/if}
   <ShortcutsSheet bind:open={shortcutsOpen} />
   {#if notice}<p class="notice" role="status">{notice}</p>{/if}
   {#if error}<p class="error">The v2 view couldn’t load: {error}</p>{/if}

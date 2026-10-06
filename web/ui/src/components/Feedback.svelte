@@ -32,13 +32,11 @@
     open = false; wake();
     trigger.focus();
   }
-  // FieldView calls this before global navigation shortcuts. Native dialog focus
-  // behavior varies between WebKit and Chrome, so wrap Tab explicitly.
-  export function key(event: KeyboardEvent) {
-    event.stopImmediatePropagation();
-    if (event.isComposing) return;
-    if (event.key === 'Escape') { event.preventDefault(); close(); return; }
-    if (event.key !== 'Tab') return;
+  // Focus stays inside: native dialog focus behavior varies between WebKit and
+  // Chrome, so wrap Tab explicitly. Esc is the dialog's own cancel; and being
+  // modal, it keeps the app's shortcuts (lib/shortcuts.svelte.ts) off.
+  function trapTab(event: KeyboardEvent) {
+    if (event.isComposing || event.key !== 'Tab') return;
     const controls = [...dialog.querySelectorAll<HTMLElement>('button:not(:disabled), textarea:not(:disabled), a[href]')];
     const index = controls.findIndex(control => control === document.activeElement);
     event.preventDefault();
@@ -71,7 +69,7 @@
 </script>
 
 <button bind:this={trigger} class="feedback-trigger" class:visible aria-haspopup="dialog" onclick={() => { if (!busy) sent = false; void show(); }} onfocus={wake}>Feedback</button>
-<dialog bind:this={dialog} aria-labelledby="feedback-title" oncancel={(event) => { event.preventDefault(); close(); }} onkeydown={key}>
+<dialog bind:this={dialog} aria-labelledby="feedback-title" oncancel={(event) => { event.preventDefault(); close(); }} onkeydown={trapTab}>
   <form onsubmit={send}>
     <header><h2 id="feedback-title">Feedback</h2><button type="button" aria-label="Close feedback" onclick={close}>×</button></header>
     {#if sent}

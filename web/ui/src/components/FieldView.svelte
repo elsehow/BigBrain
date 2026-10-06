@@ -11,24 +11,26 @@
   import { app, goto } from "../lib/store.svelte";
   import { isSettingsView } from "../lib/settingsViews";
   import { keyboardHints } from "../lib/keyboardHints.svelte";
+  import { keyText, registerShortcuts, RANK } from "../lib/shortcuts.svelte";
 
   const open = $derived(isSettingsView(app.view));
   // the hints toggle reaches every .keyboard-hint chip through app.css
   $effect(() => { document.documentElement.dataset.keyboardHints = keyboardHints.show ? "on" : "off"; });
   // the Feedback button shows while the pointer moves, as in Classic
   let awake = $state(false), feedbackOpen = $state(false);
-  let feedback = $state<{ key: (event: KeyboardEvent) => void }>();
   let sleep: ReturnType<typeof setTimeout> | undefined;
   const wake = () => { awake = true; clearTimeout(sleep); sleep = setTimeout(() => { awake = false; }, 2500); };
   const close = () => goto("home");
-  function onKey(e: KeyboardEvent): void {
-    // an open Feedback dialog has the keys (Esc closes it, Tab stays inside)
-    if (feedbackOpen) { feedback?.key(e); return; }
-    if (open && e.key === "Escape" && !e.defaultPrevented) { e.preventDefault(); e.stopPropagation(); close(); }
-  }
+  // Esc closes the panel, from any field in it. An open Feedback dialog is
+  // modal, so the registry hands its keys to the dialog instead.
+  $effect(() => {
+    if (open) return registerShortcuts({ title: "Settings", rank: RANK.panel, shortcuts: [
+      { id: "settings-close", label: "Close settings", keys: [{ key: "Escape", typing: true }], run: close },
+    ] });
+  });
 </script>
 
-<svelte:window onkeydowncapture={onKey} onpointermove={wake} />
+<svelte:window onpointermove={wake} />
 
 <div class="update"><TopStrips /></div>
 <DropZone />
@@ -36,14 +38,14 @@
 {#if open}
   <div class="scrim" role="presentation" onclick={close}></div>
   <aside class="panel" aria-label="Settings">
-    <button type="button" class="close" onclick={close} aria-label="Close settings" title="Close (Esc)">
+    <button type="button" class="close" onclick={close} aria-label="Close settings" title={`Close ${keyText("settings-close") && `(${keyText("settings-close")})`}`}>
       <svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m5 5 10 10M15 5 5 15" /></svg>
     </button>
     <SettingsScreens />
   </aside>
 {/if}
 <NotificationStack />
-<div class="feedback"><Feedback bind:this={feedback} bind:open={feedbackOpen} visible={awake} panel={open ? "settings" : "field"} expanded={false} {wake} /></div>
+<div class="feedback"><Feedback bind:open={feedbackOpen} visible={awake} panel={open ? "settings" : "field"} expanded={false} {wake} /></div>
 
 <style>
   .scrim { position: fixed; inset: 0; z-index: 20; background: color-mix(in srgb, var(--bg) 35%, transparent); }

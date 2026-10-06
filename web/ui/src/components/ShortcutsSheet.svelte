@@ -1,18 +1,22 @@
 <script lang="ts">
-  // The shortcuts sheet: Field's whole key table (lib/v2/shortcuts.ts),
-  // opened by ? or the corner chip. V2View owns the keys while it's open.
+  // The shortcuts sheet: every key something mounted answers right now, read
+  // from the registry (lib/shortcuts.svelte.ts) — so it can't list a dead one.
   import { tick, untrack } from "svelte";
-  import { isMac } from "../lib/dom";
-  import { keyLabel, shortcutGroups } from "../lib/v2/shortcuts";
+  import { keyLabel, registerShortcuts, RANK, shortcutGroups } from "../lib/shortcuts.svelte";
 
   let { open = $bindable(false) }: { open?: boolean } = $props();
   let dialog: HTMLDialogElement;
-  const mac = isMac();
-  const groups = shortcutGroups();
+  const groups = $derived(shortcutGroups());
 
   $effect(() => {
     if (open) untrack(() => { if (!dialog.open) dialog.showModal(); void tick().then(() => dialog.focus()); });
     else dialog?.close();
+  });
+  // while it's open the sheet is modal, so these are the only keys that answer
+  $effect(() => {
+    if (open) return registerShortcuts({ title: "Shortcuts", rank: RANK.modal, root: () => dialog, shortcuts: [
+      { id: "shortcuts-close", label: "Close", keys: [{ key: "?" }, { key: "Escape" }], run: () => { open = false; } },
+    ] });
   });
 </script>
 
@@ -21,12 +25,12 @@
   oncancel={(e) => { e.preventDefault(); open = false; }} onclose={() => { open = false; }}
   onclick={(e) => { if (e.target === dialog) open = false; }}>
   <header><h2 id="shortcuts-title">Shortcuts</h2><button type="button" class="x" onclick={() => (open = false)} aria-label="Close shortcuts">×</button></header>
-  {#each groups as g (g.group)}
+  {#each groups as g (g.title)}
     <section>
-      <h3>{g.group}</h3>
+      <h3>{g.title}</h3>
       <dl>
         {#each g.items as s (s.id)}
-          <div><dt>{s.label}</dt><dd>{#each s.keys as b, k (k)}{#if k}<span class="or">or</span>{/if}<kbd>{keyLabel(b, mac)}</kbd>{/each}</dd></div>
+          <div><dt>{s.label}</dt><dd>{#each s.keys as b, k (k)}{#if k}<span class="or">or</span>{/if}<kbd>{keyLabel(b)}</kbd>{/each}</dd></div>
         {/each}
       </dl>
     </section>
