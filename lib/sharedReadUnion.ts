@@ -1,6 +1,8 @@
 import { sharedGraphLayout } from './sharedGraphLayout';
 /** Read-only federation. Shared-only paths stay namespaced; a personal source's
- * opaque origin key links its shared copy back to the same local graph item. */
+ * opaque origin key links its shared copy back to the same local graph item,
+ * and an entity is one entity in every vault: its id is its name's (lib/ids.ts),
+ * read through YOUR alias log, so a joined vault's "Ada" is your Ada. */
 import {readConnections,connectionStorePath,sharedRequest,type SharedConnection} from './sharedConnections';
 import {sourceKey} from './sharedRules';
 import {readSourceInsertionLog,insertionEventRel,type SourceInsertion} from './insertionLog';
@@ -14,6 +16,8 @@ import {join} from 'node:path';
 import {SHARED_AST_CITE} from './ids';
 import {memoryTreeFiles} from './memoryTree';
 import type {RecentEntry} from './viewTypes';
+import {entityAliasResolver} from './entityAliasLog';
+import type {ProjectedEntityAssertion} from './assertionEntityView';
 const remotePath=(c:SharedConnection,id:string)=>`shared/${c.id}/${id}.md`;
 async function pages<T>(c:SharedConnection,kind:string):Promise<T[]>{const rows:T[]=[];let cursor:string|null=null;do{const p:{items:T[];next_cursor:string|null}=await sharedRequest(c,`/v1/${kind}?limit=200${cursor?'&cursor='+encodeURIComponent(cursor):''}`);rows.push(...p.items);cursor=p.next_cursor;}while(cursor);return rows;}
 export function vaultFilter(header: string | string[] | undefined): string[] { return typeof header === "string" ? [...new Set(header.split(",").filter(Boolean))] : []; }
@@ -31,18 +35,31 @@ export async function unionGraph(root:string,graph:Graph,filter:string[] = []):P
  if(!readConnections(connectionStorePath()).length)return graph;
  const local=localSources(root),cites=sharedCitations(root),citing=new Set<string>(),drawn=new Set<string>(),paths=new Map(graph.nodes.flatMap(n=>[n.path,...(n.memberPaths??[])].filter((p):p is string=>!!p).map(p=>[p,n])));
  const nodes=graph.nodes.map(n=>({...n,vaults:['personal']})),byId=new Map(nodes.map(n=>[n.id,n])),edges=[...graph.edges];
+ // One entity across vaults: keyed by the id it resolves to here, it is your
+ // node when you have one, else the first joined vault's, and every other
+ // vault's mentions land on it. A node's degree counts each tie once, however
+ // many vaults draw it; one drawn twice is a heavier thread.
+ const resolveEntity=entityAliasResolver(root),entityAt=new Map<string,typeof nodes[number]>(nodes.filter(n=>n.entity).map(n=>[n.id,n]));
+ const pair=(a:string,b:string)=>a<b?a+'\0'+b:b+'\0'+a,edgeAt=new Map(edges.map(e=>[pair(e.source,e.target),e])),madeBy=new Map<string,string>();
  for(const {c,view} of await views(filter)){
  const ids=new Map<string,string>();
  for(const n of view.graph.nodes){const source=view.sources.find(s=>'source:'+s.id===n.id),personal=source?local.get(source.source_id):undefined,existing=personal?paths.get(insertionEventRel(personal)):undefined;
  if(existing){ids.set(n.id,existing.id);byId.get(existing.id)!.vaults.push(c.id);continue;}
- const id=`shared:${c.id}:${n.id}`;ids.set(n.id,id);
+ const entityId=n.entity?resolveEntity({id:n.id,label:n.title}).id:undefined,same=entityId?entityAt.get(entityId):undefined;
+ if(same){ids.set(n.id,same.id);if(!same.vaults.includes(c.id))same.vaults.push(c.id);continue;}
+ const id=`shared:${c.id}:${n.id}`;ids.set(n.id,id);madeBy.set(id,c.id);
  const localNode=personal?localPaths.get(insertionEventRel(personal)):undefined;
- if(localNode)remoteCopies.set(localNode.id,[...(remoteCopies.get(localNode.id)??[]),id]);nodes.push({...n,id,path:remotePath(c,source?.id??n.id),vaults:[c.id]});}
- for(const e of view.graph.edges)edges.push({...e,source:ids.get(e.source)!,target:ids.get(e.target)!});
+ if(localNode)remoteCopies.set(localNode.id,[...(remoteCopies.get(localNode.id)??[]),id]);
+ const made={...n,id,path:remotePath(c,source?.id??n.id),vaults:[c.id]};nodes.push(made);byId.set(id,made);if(entityId)entityAt.set(entityId,made);}
+ for(const e of view.graph.edges){const source=ids.get(e.source)!,target=ids.get(e.target)!,key=pair(source,target),seen=edgeAt.get(key);
+  if(seen){seen.weight=(seen.weight??1)+1;continue;}
+  const edge={...e,source,target};edgeAt.set(key,edge);edges.push(edge);
+  // this vault's projection already counted it on the nodes it made
+  for(const end of [source,target])if(madeBy.get(end)!==c.id){const node=byId.get(end);if(node)node.degree++;}}
  // A memory folded from this vault's claims stands beside their entities.
  for(const m of personalGraph.nodes)if(m.group==='memory'&&m.path)for(const [vault,ast] of cites.get(m.path)??[]){
   if(vault!==c.id)continue;
-  for(const e of view.assertions.find(a=>a.id===ast)?.entities??[]){const target=ids.get(e.id),key=m.id+'\0'+target;if(target&&!drawn.has(key)){drawn.add(key);edges.push({source:m.id,target});citing.add(m.id);}}
+  for(const e of view.assertions.find(a=>a.id===ast)?.entities??[]){const target=ids.get(e.id);if(!target)continue;const key=pair(m.id,target);if(!drawn.has(key)&&!edgeAt.has(key)){drawn.add(key);const edge={source:m.id,target};edgeAt.set(key,edge);edges.push(edge);citing.add(m.id);}}
  }
  }
  if(!includesPersonal(filter)){
@@ -80,5 +97,27 @@ export async function unionNote(path:string){
  if(m[2]!.startsWith('ins_')){const s=await sharedRequest<SourceInsertion>(c,'/v1/evidence/'+m[2]);return {path,content:sourceInsertionMarkdown(s)};}
  const view=sharedProjection(await pages<SourceInsertion>(c,'evidence'),await pages<AssertionView>(c,'assertions'));
  const note=view.note(`projection/entities/${m[2]}.md`);if(!note)return null;
- return {...note,path,projectedEntity:note.projectedEntity?{...note.projectedEntity,assertions:note.projectedEntity.assertions.map(a=>({...a,entities:a.entities.map(e=>({...e,path:remotePath(c,e.id)})),sources:a.sources.map(s=>({...s,path:remotePath(c,s.insertion_id)}))}))}:undefined};
+ return {...note,path,projectedEntity:note.projectedEntity?{...note.projectedEntity,assertions:note.projectedEntity.assertions.map(a=>remoteAssertion(c,a))}:undefined};
+}
+type SharedRow=NonNullable<NonNullable<ReturnType<ReturnType<typeof sharedProjection>['note']>>['projectedEntity']>['assertions'][number];
+/** A joined vault's claim, its links pointed at that vault and marked with it. */
+const remoteAssertion=(c:SharedConnection,a:SharedRow)=>({...a,entities:a.entities.map(e=>({...e,path:remotePath(c,e.id)})),sources:a.sources.map(s=>({...s,path:remotePath(c,s.insertion_id)})),vault:{id:c.id,name:c.name}});
+/** What the joined vaults claim about each of `ids` (entity ids as this vault
+ * resolves them), so opening an entity reads every vault's claims about it,
+ * each marked with its vault. A vault that hasn't answered in `waitMs` is
+ * left out rather than waited on: your own claims never stall behind one. */
+export async function sharedEntityClaims(root:string,ids:readonly string[],filter:string[] = [],waitMs=4000):Promise<Map<string,ProjectedEntityAssertion[]>>{
+ const out=new Map<string,ProjectedEntityAssertion[]>();
+ if(!ids.length||!readConnections(connectionStorePath()).length)return out;
+ const want=new Set(ids),resolve=entityAliasResolver(root);
+ let timer:ReturnType<typeof setTimeout>|undefined;
+ const answered=await Promise.race([views(filter),new Promise<Awaited<ReturnType<typeof views>>>(r=>{timer=setTimeout(()=>r([]),waitMs);})]).finally(()=>clearTimeout(timer));
+ for(const {c,view} of answered){
+  const named=new Map(view.assertions.flatMap(a=>a.entities).map(e=>[e.id,e]));
+  for(const e of named.values()){const id=resolve(e).id;if(!want.has(id))continue;
+   const rows=out.get(id)??[],seen=new Set(rows.map(r=>r.id));
+   for(const a of view.note(`projection/entities/${e.id}.md`)?.projectedEntity?.assertions??[])if(!seen.has(a.id)){seen.add(a.id);rows.push(remoteAssertion(c,a) as unknown as ProjectedEntityAssertion);}
+   out.set(id,rows);}
+ }
+ return out;
 }

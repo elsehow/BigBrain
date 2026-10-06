@@ -7,7 +7,7 @@
   // one the pilot names itself, \ shows or hides the desktop's views, Esc back out.
   // Pilots are the real agents: /api/pilot/chat sessions, placed over their
   // context, and their chat opens here as a flat column over the field.
-  import { onMount, tick, untrack } from "svelte";
+  import { onMount, tick } from "svelte";
   import { api } from "../lib/api";
   import { app, goto } from "../lib/store.svelte";
   import type { GraphData } from "../lib/types";
@@ -566,10 +566,7 @@
     if (src) return { ...titled(src.row), status: src.text ?? "", writing: src.text === "" };
     // the row walked to: its source's full title, as an opened source's
     const walked = ent == null ? cursorRow() : null;
-    if (walked) {
-      const said = walkSummary?.source === walked.source ? walkSummary.text : null;
-      return { ...titled(walked), status: said ?? "", writing: said === "" };
-    }
+    if (walked) return { ...titled(walked), status: "", writing: false };
     if (ent != null) {
       const n = field.nodes[ent]!;
       const tw = (twins.get(ent) ?? []).map((j) => field!.nodes[j]!.label);
@@ -704,22 +701,6 @@
     // walked to (j/k), it opens as an entity does, its headline beside it;
     // only pointed at, it's named and the camera holds still
     scene?.source(r && field ? { label: r.title ?? r.headline, entities: feedEntities(r), open: !openPilot && !src && r !== rowOver, text: r.headline } : null);
-  });
-  /** Quick's summary of the row walked to, under its title in the upper left.
-   * It starts once the walk settles, as the search's does, so passing over a
-   * row doesn't ask for one. */
-  let walkSummary: { source: string; text: string } | null = $state(null);
-  $effect(() => {
-    const r = cursor != null && ent == null && !src && !openPilot && !searching ? cursorRow() : null;
-    if (!r?.path || data) return;
-    const { path, source } = r;
-    if (untrack(() => walkSummary?.source === source)) return;
-    const t = setTimeout(() => {
-      walkSummary = { source, text: "" };
-      void briefing(path, (text) => { if (walkSummary?.source === source) walkSummary = { source, text }; })
-        .then((ok) => { if (!ok && walkSummary?.source === source && !walkSummary.text) walkSummary = null; });
-    }, 350);
-    return () => clearTimeout(t);
   });
   /** Back from a row pointed at: the row in hand is drawn opened (above), not lit. */
   const unlight = () => scene?.hover(null);

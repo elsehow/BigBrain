@@ -4,7 +4,7 @@ import { withVaultSnapshot, projectedMarkdown } from "./vaultReadModel";
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { assertionGraphEvidenceCached, assertionGraphEvidenceAsync } from "./graphCache";
-import { sourceInsertionCached } from "./assertionEntityView";
+import { sourceInsertionCached, type ProjectedEntityAssertion, type ProjectedEntityView } from "./assertionEntityView";
 import { briefingEvidence, runBriefingModel, type BriefingModel } from "./entityBriefing";
 import { findNode } from "./graphIdentity";
 import { contextConnections } from "./contextConnections";
@@ -38,7 +38,11 @@ export interface NoteBriefing {
 }
 export type NoteBriefingRequest = string | (GraphViewState & { purpose?: "unread" });
 
-function readBriefingItem(root: string, path: string, graph: ReturnType<typeof assertionGraphEvidenceCached>["graph"]): BriefingItem {
+/** Claims about an entity from beyond this vault (the joined shared vaults,
+ * lib/sharedReadUnion.ts), by entity id: read alongside its own. */
+export type OtherClaims = ReadonlyMap<string, readonly ProjectedEntityAssertion[]>;
+
+function readBriefingItem(root: string, path: string, graph: ReturnType<typeof assertionGraphEvidenceCached>["graph"], others?: OtherClaims): BriefingItem {
   const selected = graph.nodes[findNode(graph.nodes, path)];
   const resolvedPath = selected?.path ?? path;
   const note = resolveNote(root, resolvedPath, { source: sourceInsertionCached, markdown: path => {
@@ -48,21 +52,23 @@ function readBriefingItem(root: string, path: string, graph: ReturnType<typeof a
   if (!note || note.kind === "session") throw new Error("This note is not available for a briefing.");
   const node = graph.nodes[findNode(graph.nodes, note.id)];
   const id = node?.id ?? note.id;
-  const text = note.kind === "entity" ? briefingEvidence(note.entity).map(a => `${a.created_at} (${a.confidence}) ${a.text}`).join("\n")
+  const withOthers = (entity: ProjectedEntityView): ProjectedEntityView =>
+    others?.get(entity.id)?.length ? { ...entity, assertions: [...entity.assertions, ...others.get(entity.id)!] } : entity;
+  const text = note.kind === "entity" ? briefingEvidence(withOthers(note.entity)).map(a => `${a.created_at} (${a.confidence}${a.vault ? `, from the shared vault ${a.vault.name}` : ""}) ${a.text}`).join("\n")
     : note.kind === "thread" ? note.thread.members.map(s => `${s.title}\n${s.body}`).join("\n\n")
     : note.kind === "source" ? note.source.body : note.markdown.raw;
   return { id, path: resolvedPath, title: note.title, kind: note.kind === "entity" || resolvedPath.startsWith("entities/") ? "entity"
     : note.kind === "thread" || note.kind === "source" ? "source" : "markdown", text: text.slice(0, 16_000), revision: sha256hex(text) };
 }
 
-export function noteBriefingInput(root: string, request: NoteBriefingRequest): NoteBriefingInput {
-  return withVaultSnapshot(root, () => briefingInputFromSnapshot(root, request));
+export function noteBriefingInput(root: string, request: NoteBriefingRequest, others?: OtherClaims): NoteBriefingInput {
+  return withVaultSnapshot(root, () => briefingInputFromSnapshot(root, request, others));
 }
 
-function briefingInputFromSnapshot(root: string, request: NoteBriefingRequest): NoteBriefingInput {
+function briefingInputFromSnapshot(root: string, request: NoteBriefingRequest, others?: OtherClaims): NoteBriefingInput {
   const { graph, connections: observed } = assertionGraphEvidenceCached(root);
   const state = canonicalGraphView(graph.nodes, typeof request === "string" ? { selected: [request], excluded: [] } : request);
-  const items = state.selected.map(id => readBriefingItem(root, id, graph)).filter(item => !isUserNode(item, graph.userNote));
+  const items = state.selected.map(id => readBriefingItem(root, id, graph, others)).filter(item => !isUserNode(item, graph.userNote));
   if (!items.length) throw new Error("Choose at least one note for a briefing.");
   const selected = new Set(items.map(item => item.id));
   const links: BriefingConnection[] = contextConnections(graph, [...selected], state.excluded, Object.fromEntries(items.map(item => [item.id, item.text]))).flatMap(({ node, selected }) =>
@@ -236,9 +242,17 @@ export function briefingCacheFile(root: string, ids: string[], excluded: string[
 
 export type NoteBriefingEvent = { type: "preview"; text: string } | { type: "complete"; briefing: NoteBriefing } | { type: "error"; error: string };
 
-async function readNoteBriefingInput(root: string, request: NoteBriefingRequest): Promise<NoteBriefingInput> {
+/** The entity ids a request names: what other vaults may hold claims about. */
+export const requestedEntities = (request: NoteBriefingRequest): string[] =>
+  [...new Set((typeof request === "string" ? [request] : request.selected).flatMap(key => key.match(/ent_[a-f0-9]{20}/g) ?? []))];
+
+/** The briefing's input, read once the record is warm; `others` fetches what
+ * lies beyond this vault about the entities it names. */
+export async function readNoteBriefingInput(root: string, request: NoteBriefingRequest,
+  others?: (ids: string[]) => Promise<OtherClaims>): Promise<NoteBriefingInput> {
   await assertionGraphEvidenceAsync(root);
-  return noteBriefingInput(root, request);
+  const ids = requestedEntities(request);
+  return noteBriefingInput(root, request, others && ids.length ? await others(ids) : undefined);
 }
 
 export function createNoteBriefingService(run: BriefingModel = runBriefingModel,

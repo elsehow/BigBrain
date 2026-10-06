@@ -3,7 +3,7 @@ import {IntegrationAccounts} from '../lib/integrationAccounts';
 import {inclusionReviewApi} from '../lib/inclusionReviewApi';
 import {inclusionBackfillApi} from '../lib/inclusionBackfillApi';
 import {tickIntegrationAdmission} from '../lib/integrationAdmission';
-import { unionGraph, unionRecent, unionSearch, unionNote, vaultFilter, includesPersonal } from '../lib/sharedReadUnion';
+import { unionGraph, unionRecent, unionSearch, unionNote, vaultFilter, includesPersonal, sharedEntityClaims } from '../lib/sharedReadUnion';
 import { jevSettingsApi } from '../lib/jevSettingsApi';
 import { optionalJevKey } from '../lib/jevSettings';
 import { sharedSettingsApi } from '../lib/sharedSettingsApi';
@@ -72,7 +72,7 @@ import { insertionFiler, sourceInsertionMarkdown } from "../lib/sourceFeed";
 import { assertionsFromSource, projectedEntityMarkdown, truncatedEntityView, sourceThreadForInsertion, sourceInsertionCached } from "../lib/assertionEntityView";
 import { insertionEventRel, sourceMoment } from "../lib/insertionLog";
 import { foldsRoutes } from "../lib/entityFolds";
-import { noteBriefingRoutes } from "../lib/noteBriefing";
+import { createNoteBriefingService, noteBriefingRoutes, readNoteBriefingInput } from "../lib/noteBriefing";
 import { noteRelationRoutes } from "../lib/noteRelation";
 import { sourceReadStateRoutes, graphWithReadState } from "../lib/sourceReadStateApi";
 import { sourceOrigin } from "../lib/sourceOrigin";
@@ -308,7 +308,7 @@ function noteList({ res, url }: Ctx): void {
   json(res, 200, { dir, notes: listNotes(dir) });
 }
 
-async function noteRead({ res, url }: Ctx): Promise<void> {
+async function noteRead({ req, res, url }: Ctx): Promise<void> {
   const rel = url.searchParams.get("path") ?? "";
   if(rel.startsWith('shared/')){try{const note=await unionNote(rel);json(res,note?200:404,note??{error:'Shared source unavailable'});}catch{json(res,404,{error:'Shared source unavailable'});}return;}
   const resolved = resolveNote(ROOT, rel, { markdown: path => {
@@ -328,7 +328,11 @@ async function noteRead({ res, url }: Ctx): Promise<void> {
     });
   }
   if (resolved?.kind === "entity") {
-    const projectedEntity = resolved.entity;
+    // the joined vaults' claims about it read alongside your own, each marked with its vault
+    const filter = req.headers?.["x-bigbrain-vault-filter"];
+    const shared = filter === "personal" ? [] : (await sharedEntityClaims(ROOT, [resolved.entity.id], vaultFilter(filter))).get(resolved.entity.id) ?? [];
+    const projectedEntity = shared.length ? { ...resolved.entity, assertions: [...resolved.entity.assertions, ...shared]
+      .sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id)) } : resolved.entity;
     recordUse(ROOT, rel, "web");
     // `assertions=N` — the viewer's progressive read: the LATEST N
     // assertions plus the true total, and a header-only markdown stub
@@ -769,7 +773,8 @@ export const ROUTES: readonly Route[] = [
   { method: "GET", path: "/api/vault", handler: vaultIndex },
   { method: "GET", path: "/api/notes", handler: noteList },
   { method: "GET", path: "/api/note", handler: noteRead },
-  ...noteBriefingRoutes(ROOT),
+  // an entity's briefing reads the joined vaults' claims about it too
+  ...noteBriefingRoutes(ROOT, createNoteBriefingService(undefined, (root, request) => readNoteBriefingInput(root, request, (ids) => sharedEntityClaims(root, ids)))),
   ...noteRelationRoutes(ROOT),
   ...sourceReadStateRoutes(ROOT, undefined, applicationActions),
   { method: "GET", path: "/api/file", handler: fileRead },
