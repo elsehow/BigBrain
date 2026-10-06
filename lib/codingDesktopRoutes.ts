@@ -6,11 +6,14 @@
 import { AgentsError } from "../packages/agents/src";
 import { CodingDesktopError, type CodingDesktops } from "./codingDesktops";
 import { json, readBody, THEME_SHEET, type Route } from "./httpx";
+import { withContextSourcesOf } from "./contextSources";
+import type { Graph } from "./graph";
 
 const message = (e: unknown) => e instanceof CodingDesktopError || e instanceof AgentsError ? e.message : "Could not update the desktop.";
 const status = (e: unknown) => e instanceof CodingDesktopError ? e.status : e instanceof AgentsError ? 400 : 500;
 
-export function codingDesktopRoutes(desktops: CodingDesktops): Route[] {
+/** `graph`, as for Pilot's list: each context source with the entities it concerns. */
+export function codingDesktopRoutes(desktops: CodingDesktops, options: { graph?: () => Promise<Graph> } = {}): Route[] {
   const post = (path: string, fn: (body: Record<string, unknown>) => unknown): Route => ({ method: "POST", path: `/api/desktops/${path}`, handler: ({ req, res }) => {
     if (req.headers["content-type"]?.split(";")[0]?.trim() !== "application/json") return json(res, 415, { error: "JSON required." });
     if (req.headers.origin) {
@@ -27,7 +30,7 @@ export function codingDesktopRoutes(desktops: CodingDesktops): Route[] {
     void Promise.resolve().then(() => fn(url)).then(result => json(res, 200, result)).catch(e => json(res, status(e), { error: message(e) }));
   } });
   return [
-    get("", () => ({ desktops: desktops.list() })),
+    get("", async () => ({ desktops: await withContextSourcesOf(desktops.list(), options.graph) })),
     get("/session", url => desktops.detail(url.searchParams.get("id"))),
     { method: "GET", path: "/api/desktops/events", handler: ({ req, url, res }) => {
       try { desktops.stream(url.searchParams.get("id"), Number(url.searchParams.get("since")) || 0, res, fn => req.on("close", fn)); }

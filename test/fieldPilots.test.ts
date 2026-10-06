@@ -7,8 +7,11 @@ const spots: Array<[string, number, number]> = [["west_a", -12, -4], ["west_b", 
 const nodes = spots.map(([id, x, z], i) => ({ i, id, label: id, path: `projection/entities/${id}.md`, degree: 2, memory: false, named: true, p: [x, 3, z] as [number, number, number] }));
 const field = { nodes, byId: new Map(nodes.map((n) => [n.id, n.i])), edges: [], strong: [], hubs: new Set<number>() } as unknown as Field;
 const at = (id: string) => field.nodes[field.byId.get(id)!]!.p;
-const desk = (context: string[]): PilotSummary => ({ id: "pilot-1", title: "Desk", model: "m", phase: "working", context } as PilotSummary);
-const place = (context: string[], sources?: Map<string, string[]>) => placePilots(field, [desk(context)], sources)[0]!;
+// a source in context arrives as the engine serves it: a context node
+// carrying the entities its claims mention (lib/contextSources.ts)
+const desk = (context: string[], sources: Record<string, string[]> = {}): PilotSummary => ({ id: "pilot-1", title: "Desk", model: "m", phase: "working", context,
+  contextNodes: Object.entries(sources).map(([id, entities]) => ({ id, path: id, title: id, group: "source", entities })) } as PilotSummary);
+const place = (context: string[], sources?: Record<string, string[]>) => placePilots(field, [desk(context, sources)])[0]!;
 const near = (p: readonly number[], q: readonly number[]) => Math.hypot(p[0]! - q[0]!, p[2]! - q[2]!);
 
 test("a Desktop stands among what it concerns, in the field's own band", () => {
@@ -24,7 +27,7 @@ test("it stands at the average of the entities it concerns", () => {
 });
 
 test("an entity counts once, however many of its notes lead to it", () => {
-  const sources = new Map([["sources/report.md", ["east_a"]]]);
+  const sources = { "sources/report.md": ["east_a"] };
   expect(place(["west_a", "east_a", "sources/report.md", "east_a"], sources).p).toEqual(place(["west_a", "east_a"]).p);
 });
 
@@ -35,13 +38,17 @@ test("the order notes were read in makes no difference", () => {
 });
 
 test("a source stands where the entities it mentions do", () => {
-  const d = place(["sources/report.md"], new Map([["sources/report.md", ["east_a", "east_b"]]]));
+  const d = place(["sources/report.md"], { "sources/report.md": ["east_a", "east_b"] });
   expect(near(d.p, at("east_a"))).toBeLessThan(3);
   expect(d.ctx.length).toBe(2);
 });
 
 test("a context note can be named by its path", () => {
   expect(near(place(["projection/entities/east_b.md"]).p, at("east_b"))).toBeLessThan(2);
+});
+
+test("a source the gardener hasn't filed yet places nothing", () => {
+  expect(place(["sources/new.md"], { "sources/new.md": [] }).ctx).toEqual([]);
 });
 
 test("with nothing placeable it waits above the middle", () => {

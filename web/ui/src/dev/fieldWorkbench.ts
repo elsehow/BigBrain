@@ -6,9 +6,10 @@
 // shows the update banner, `?credits` a provider out of usage credits beside it,
 // `?working` a Desktop at work (its cube turning). `?reading` puts the
 // Desktops among what they concern: one reads its way across the field, a
-// note every few seconds (entities and sources), so its place can be watched
-// moving; one concerns both sides of the field (some entities twice, which
-// count once); one has nothing placeable yet.
+// note every few seconds (entities and sources, one of them older than the
+// sorted feed), so its place can be watched moving; one concerns both sides
+// of the field (some entities twice, which count once); one has nothing
+// placeable yet.
 import { mount } from "svelte";
 import "../design/tokens.css";
 import "../app.css";
@@ -41,7 +42,11 @@ const sorted = empty ? [] : [
 let outOfCredits = new URLSearchParams(location.search).has("credits");
 const reading = new URLSearchParams(location.search).has("reading");
 // a walk across the field: Harbor lab's side, then down past Kit to the orrery
-const WALK = ["ent_4", "log/insertions/2026-10/ins_c.json", "ent_6", "ent_5", "ent_3", "ent_2", "log/insertions/2026-10/ins_a.json", "ent_0", "ent_1", "ent_7"];
+const WALK = ["ent_4", "log/insertions/2026-10/ins_c.json", "ent_6", "log/insertions/2026-08/ins_old.json", "ent_3", "ent_2", "log/insertions/2026-10/ins_a.json", "ent_0", "ent_1", "ent_7"];
+// what the engine knows of each source (lib/contextSources.ts): the sorted
+// feed's, and one from before the feed began
+const SOURCES = [...sorted.map((r) => ({ id: r.source, path: r.path, title: r.title, entities: r.entities })),
+  { id: "ins_old", path: "log/insertions/2026-08/ins_old.json", title: "Ridgeway trail notes", entities: ["ent_5", "ent_7"] }];
 const started = Date.now();
 const READ_MS = 2500;
 const CONTEXT: Record<string, () => string[]> = {
@@ -69,7 +74,9 @@ const fake = window.fetch;
     for (const s of body.sessions) {
       const ctx = CONTEXT[s.title];
       if (!ctx) continue;
-      s.context = ctx(); s.contextNodes = [];
+      s.context = ctx();
+      s.contextNodes = SOURCES.filter((src) => s.context!.includes(src.id) || s.context!.includes(src.path))
+        .map((src) => ({ id: s.context!.includes(src.id) ? src.id : src.path, path: src.path, title: src.title, group: "source", entities: src.entities }));
       if (s.title === "Atlas planning") s.phase = "working";
     }
     return json(body);

@@ -4,8 +4,12 @@ import { json, readBody, type Route } from "./httpx";
 import { pilotChatDetail } from "./pilotChatSummary";
 import { PilotError } from "./pilot";
 import { PilotChats } from "./pilotChat";
+import { withContextSourcesOf } from "./contextSources";
+import type { Graph } from "./graph";
 
-export function pilotChatRoutes(sessions: PilotChats): Route[] {
+/** `graph`, when given, is the vault's primary graph: the list serves each
+ * context source with the entities it concerns (lib/contextSources.ts). */
+export function pilotChatRoutes(sessions: PilotChats, options: { graph?: () => Promise<Graph> } = {}): Route[] {
   sessions.startMaintenance();
   const post = (path: string, fn: (body: Record<string, unknown>) => unknown): Route => ({ method: "POST", path: `/api/pilot/chat/${path}`, handler: ({ req, res }) => {
     if (req.headers["content-type"]?.split(";")[0]?.trim() !== "application/json") return json(res, 415, { error: "JSON required." });
@@ -33,7 +37,12 @@ export function pilotChatRoutes(sessions: PilotChats): Route[] {
       catch { json(res, 503, { error: "Could not load Pilot models." }); }
     } },
     post("image", b => sessions.uploadImage(b.data, b.name)),
-    { method: "GET", path: "/api/pilot/chat", handler: ({ url, res }) => json(res, 200, { sessions: sessions.summaries(url.searchParams.get("query") ?? "", url.searchParams.has("ids") ? url.searchParams.get("ids")!.split(",") : undefined), issues: sessions.loadIssues }) },
+    { method: "GET", path: "/api/pilot/chat", handler: async ({ url, res }) => {
+      try {
+        const rows = sessions.summaries(url.searchParams.get("query") ?? "", url.searchParams.has("ids") ? url.searchParams.get("ids")!.split(",") : undefined);
+        json(res, 200, { sessions: await withContextSourcesOf(rows, options.graph), issues: sessions.loadIssues });
+      } catch { json(res, 500, { error: "Could not list Pilot conversations." }); }
+    } },
     { method: "GET", path: "/api/pilot/chat/session", handler: ({ url, res }) => {
       try { json(res, 200, pilotChatDetail(sessions.get(url.searchParams.get("id")))); }
       catch { json(res, 404, { error: "Pilot conversation is unavailable." }); }

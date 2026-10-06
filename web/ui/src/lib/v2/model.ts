@@ -142,7 +142,8 @@ export interface PilotSummary {
   live?: string;
   activity?: string;
   context?: string[];
-  contextNodes?: Array<{ id: string; path?: string; title?: string; group?: string }>;
+  /** A source among them carries the entities its claims mention (lib/contextSources.ts). */
+  contextNodes?: Array<{ id: string; path?: string; title?: string; group?: string; entities?: string[] }>;
 }
 export interface FieldPilot {
   id: string;
@@ -168,20 +169,23 @@ export function barPilots(sessions: readonly PilotSummary[], keep: string | null
 }
 
 /** A Desktop stands among what it concerns: the set of entities it has
- * read or been given, directly or through a source that mentions them
- * (`sourceEntities`, path → entity ids). Each counts once, however it came
- * and however often; reading order makes no difference. It stands at their
- * average, in the nodes' own height band, nudged off any dot it would cover.
- * One with nothing placeable waits above the middle; then they're pushed
- * apart so none sits inside another. The field never moves for them. */
-export function placePilots(field: Field, sessions: readonly PilotSummary[], sourceEntities?: ReadonlyMap<string, readonly string[]>): FieldPilot[] {
+ * read or been given, directly or through a source that mentions them (the
+ * `entities` the engine serves on a source's context node). Each counts
+ * once, however it came and however often; reading order makes no
+ * difference. It stands at their average, in the nodes' own height band,
+ * nudged off any dot it would cover. One with nothing placeable waits above
+ * the middle; then they're pushed apart so none sits inside another. The
+ * field never moves for them. */
+export function placePilots(field: Field, sessions: readonly PilotSummary[]): FieldPilot[] {
   const byPath = new Map(field.nodes.map((n) => [n.path, n.i]));
-  const resolve = (ref: string): number[] => {
-    const i = field.byId.get(ref) ?? byPath.get(ref);
-    if (i != null) return [i];
-    return (sourceEntities?.get(ref) ?? []).map((id) => field.byId.get(id)).filter((x): x is number => x != null);
-  };
   const out: FieldPilot[] = sessions.map((s, k) => {
+    const sources = new Map<string, string[]>();
+    for (const n of s.contextNodes ?? []) if (n.entities) for (const ref of [n.id, n.path]) if (ref) sources.set(ref, n.entities);
+    const resolve = (ref: string): number[] => {
+      const i = field.byId.get(ref) ?? byPath.get(ref);
+      if (i != null) return [i];
+      return (sources.get(ref) ?? []).map((id) => field.byId.get(id)).filter((x): x is number => x != null);
+    };
     const refs = [...(s.context ?? []), ...(s.contextNodes ?? []).map((n) => n.path ?? n.id)];
     const ctx = [...new Set(refs.flatMap(resolve))].sort((a, b) => a - b);
     if (!ctx.length) return { id: s.id, title: s.title, model: s.model, phase: s.phase, ctx, p: [(k - (sessions.length - 1) / 2) * 3, 6.2, -1.2] };
