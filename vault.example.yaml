@@ -149,13 +149,11 @@ quick:
   preference: recommended
 
 # The intake firewall (lib/firewall.ts, deploy/firewall/README.md): every
-# arrival is screened by a decision model before anything stores it. A
-# password-reset link, sign-in code, key or password is withheld: never
-# landed, never staged, never read by an agent. Off unless this block is
-# present; once on it fails CLOSED (if the model cannot answer,
-# nothing gets in, and pollers retry). `bigbrain firewall install` downloads
-# the local model and writes this block.
+# arrival is screened by Jev before anything stores it. A password-reset
+# link, sign-in code, key or password is withheld: never landed, never
+# staged, never read by an agent. On whenever a Jev key is set (settings ->
+# security), off without one; once on it fails CLOSED (if Jev cannot answer,
+# nothing gets in, and pollers retry).
 #
-# firewall:
-#   model: clef-flash # local, run by the app; or url: <a /v1/systemone endpoint>
-#   # thresholds: { credential: 0.15 }
+# security:
+#   firewall: false # keep it off even with a Jev key; absent is the default

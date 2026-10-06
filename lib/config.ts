@@ -13,7 +13,7 @@ import { RETIRED_INTEGRATIONS } from "./personas";
  * loads vault.yaml fresh — so an applied change takes effect on the next run.
  */
 
-import { loadManifest, parseCuration, parseFirewall, type CurationConfig, type AgentId } from "./manifest";
+import { loadManifest, parseCuration, type CurationConfig, type AgentId } from "./manifest";
 import { modelPreference, type ModelPreference, MODEL_ID, readModelChoice, validateModelChoice, type ModelChoice } from "./modelChoice";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -96,15 +96,14 @@ export interface ConfigPatch {
   memory?: ModelChoicePatch;
   quick?: ModelChoicePatch;
   integrations?: IntegrationOp[];
-  /** The intake firewall block (lib/manifest.ts parseFirewall); null turns
-   * it off. */
-  firewall?: { model?: string; url?: string } | null;
-  /** What the app may load from the web (lib/manifest.ts parseSecurity). */
-  security?: { remote_content: boolean };
+  /** What the app may load from the web, and the intake firewall
+   * (lib/manifest.ts parseSecurity). Each key is optional: a patch names
+   * what it changes. */
+  security?: { remote_content?: boolean; firewall?: boolean };
 }
 
 /** ConfigPatch's own field list, for the unknown-key refusal above. */
-const PATCH_KEYS = new Set(["curation", "gardener", "memory", "quick", "integrations", "firewall", "security"]);
+const PATCH_KEYS = new Set(["curation", "gardener", "memory", "quick", "integrations", "security"]);
 
 export interface ConfigResult {
   changed: string[]; // vault-relative paths actually modified (empty = no-op)
@@ -305,8 +304,14 @@ export function applyConfig(patch: ConfigPatch, root: string): ConfigResult {
     );
 
   const curation = parseCuration(patch.curation);
-  if (patch.firewall) parseFirewall(patch.firewall);
-  if (patch.security !== undefined && typeof patch.security?.remote_content !== "boolean") throw new Error("security.remote_content must be true or false");
+  if (patch.security !== undefined) {
+    const s = patch.security as Record<string, unknown> | null;
+    if (!s || typeof s !== "object" || Array.isArray(s)) throw new Error("security must be a mapping");
+    if (Object.keys(s).some((k) => k !== "remote_content" && k !== "firewall"))
+      throw new Error("security accepts remote_content and firewall only");
+    for (const k of ["remote_content", "firewall"])
+      if (s[k] !== undefined && typeof s[k] !== "boolean") throw new Error(`security.${k} must be true or false`);
+  }
   // validate the pure parts first — no partial writes on a bad patch
   const models: [string, string | undefined, string[]][] = [
     ["gardener", patch.gardener?.model, ["gardener", "queue"]],
@@ -336,7 +341,7 @@ export function applyConfig(patch: ConfigPatch, root: string): ConfigResult {
 
   const integrationOps = patch.integrations ?? [];
   const touchesYaml =
-    !!curation || models.some(([, raw]) => raw !== undefined && raw.trim()) || integrationOps.length > 0 || patch.firewall !== undefined || patch.security !== undefined;
+    !!curation || models.some(([, raw]) => raw !== undefined && raw.trim()) || integrationOps.length > 0 || patch.security !== undefined;
   const yamlPath = join(root, "vault.yaml");
   const doc = touchesYaml ? parseDocument(readFileSync(yamlPath, "utf8")) : null;
   if (integrationOps.length) validateIntegrationOps(integrationOps, doc!);
@@ -349,19 +354,23 @@ export function applyConfig(patch: ConfigPatch, root: string): ConfigResult {
     yamlDirty = true;
     summary.push(`curation → ${curation.agent}/${curation.model}`);
   }
-  if (patch.firewall !== undefined && JSON.stringify(doc!.toJS().firewall ?? null) !== JSON.stringify(patch.firewall)) {
-    if (patch.firewall === null) doc!.delete("firewall");
-    else doc!.set("firewall", patch.firewall);
-    yamlDirty = true;
-    summary.push(patch.firewall === null ? "firewall off" : `firewall → ${patch.firewall.url ?? `local ${patch.firewall.model ?? "clef-flash"}`}`);
-  }
-  if (patch.security !== undefined && doc!.getIn(["security", "remote_content"]) !== patch.security.remote_content) {
+  const remote = patch.security?.remote_content;
+  if (remote !== undefined && doc!.getIn(["security", "remote_content"]) !== remote) {
     // on is the default: the key is written only to turn it off
-    if (patch.security.remote_content) doc!.deleteIn(["security", "remote_content"]); else doc!.setIn(["security", "remote_content"], false);
-    if (doc!.get("security") instanceof YAMLMap && !(doc!.get("security") as YAMLMap).items.length) doc!.delete("security");
+    if (remote) doc!.deleteIn(["security", "remote_content"]); else doc!.setIn(["security", "remote_content"], false);
     yamlDirty = true;
-    summary.push(`remote content ${patch.security.remote_content ? "on" : "off"}`);
+    summary.push(`remote content ${remote ? "on" : "off"}`);
   }
+  // The firewall's default follows the Jev key (lib/firewall.ts firewallKey),
+  // so the owner's choice is written either way: off stays off when a key is
+  // added, on stays on when one is replaced.
+  const firewall = patch.security?.firewall;
+  if (firewall !== undefined && doc!.getIn(["security", "firewall"]) !== firewall) {
+    doc!.setIn(["security", "firewall"], firewall);
+    yamlDirty = true;
+    summary.push(`firewall ${firewall ? "on" : "off"}`);
+  }
+  if (doc?.get("security") instanceof YAMLMap && !(doc!.get("security") as YAMLMap).items.length) doc!.delete("security");
   for (const [label, role, blocks] of [["gardener", patch.gardener, ["gardener", "queue"]], ["memory", patch.memory, ["memory"]], ["quick", patch.quick, ["quick"]]] as const) {
     if (!role?.model.trim()) continue;
     const where = blocks.find(b => doc!.hasIn([b])) ?? blocks[0]!;

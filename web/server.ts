@@ -5,6 +5,7 @@ import {inclusionBackfillApi} from '../lib/inclusionBackfillApi';
 import {tickIntegrationAdmission} from '../lib/integrationAdmission';
 import { unionGraph, unionRecent, unionSearch, unionNote, vaultFilter, includesPersonal } from '../lib/sharedReadUnion';
 import { jevSettingsApi } from '../lib/jevSettingsApi';
+import { optionalJevKey } from '../lib/jevSettings';
 import { sharedSettingsApi } from '../lib/sharedSettingsApi';
 import { tickRules } from '../lib/sharedRules';
 import { tickPublishing } from '../lib/sharedAssertionPublish';
@@ -41,6 +42,7 @@ import { dieWithSupervisor } from "../lib/parentWatch";
 import { configSave, integrationsInfo } from "../lib/configWrite";
 import { allowLoopbackRequest, armor, dispatch, json, readBody, send, type Ctx, type Route } from "../lib/httpx";
 import { dropErrorStatus } from "../lib/door";
+import { firewallKey } from "../lib/firewall";
 import { landDirective, landDrop } from "../lib/landItem";
 import { voiceMessagesFor } from "../lib/voice";
 import { createLive } from "../lib/liveEvents";
@@ -742,7 +744,8 @@ function configRead({ res }: Ctx): void {
     // instead of a constant that was wrong for any vault off the default
     memory: { ...manifest.memory, interval: manifest.memory.intervalMs },
     quick: manifest.quick,
-    security: { remote_content: manifest.security.remoteContent },
+    // the firewall as it stands: on with a Jev key unless turned off (lib/firewall.ts firewallKey)
+    security: { remote_content: manifest.security.remoteContent, firewall: !!firewallKey(ROOT), jev_key: !!optionalJevKey(connectionStorePath()) },
   });
 }
 

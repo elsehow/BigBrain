@@ -3,8 +3,6 @@
 #
 #   src-tauri/binaries/bun-<target-triple>   the sidecar: bun itself, the
 #                                            runtime that runs the engine
-#   src-tauri/binaries/llama-server-<triple> the firewall's model server
-#                                            (build-llama-server.sh)
 #   src-tauri/resources/engine/              the engine tree the sidecar runs
 #                                            (bin/ lib/ integrations/ prompts/
 #                                            deploy/ clients/ packages/ web/ui/dist/
@@ -17,7 +15,7 @@
 # keep working unchanged.
 #
 #   sh build-resources.sh             everything (what `tauri build` runs)
-#   sh build-resources.sh --bun-only  just the sidecars, for `tauri dev`
+#   sh build-resources.sh --bun-only  just the sidecar, for `tauri dev`
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 engine=$(cd "$here/.." && pwd)
@@ -32,8 +30,6 @@ cp "$bun" "$here/src-tauri/binaries/bun-$triple"
 # 755, not just +x: bun ships itself read-only, and the bundler's signing
 # step (`xattr -cr` on the bundle, then codesign) needs to write it
 chmod 755 "$here/src-tauri/binaries/bun-$triple"
-
-sh "$here/build-llama-server.sh"
 
 dest="$here/src-tauri/resources/engine"
 if [ "${1:-}" = "--bun-only" ]; then

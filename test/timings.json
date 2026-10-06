@@ -67,7 +67,6 @@
   "test/feedStage.test.ts": 0.1,
   "test/feedback.test.ts": 0.0,
   "test/fieldMemory.test.ts": 0.0,
-  "test/firewallLocal.test.ts": 1.5,
   "test/firstRun.test.ts": 0.2,
   "test/firstRunPrerequisite.test.ts": 0.2,
   "test/gardenerProgress.test.ts": 0.8,

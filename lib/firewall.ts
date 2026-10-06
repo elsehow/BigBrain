@@ -1,11 +1,10 @@
-/** The intake firewall. Every arrival is put to a decision model — the
- * Jev/SystemOne API, answered by Cloudflare's Clef on this machine or by a
- * hosted endpoint — BEFORE anything persists it. One yes/no question: does
- * it carry a credential? If that clears its threshold the item is WITHHELD:
- * not landed, not staged, never read by an agent. The one trace it leaves is a metadata
- * line (source, sender, date, reason, scores — never the subject, which is
- * where a one-time code lives) so a false positive can be seen and the
- * threshold tuned (deploy/firewall/eval).
+/** The intake firewall. Every arrival is put to Jev (TypeSafe's SystemOne
+ * API, lib/sharedJev.ts) BEFORE anything persists it. One yes/no question:
+ * does it carry a credential? If that clears its threshold the item is
+ * WITHHELD: not landed, not staged, never read by an agent. The one trace it
+ * leaves is a metadata line (source, sender, date, reason, scores — never the
+ * subject, which is where a one-time code lives) so a false positive can be
+ * seen and the threshold tuned (deploy/firewall/eval).
  *
  * The threat this exists for is a password-reset email: an agent that can
  * request a reset and then read the link out of the record owns the
@@ -13,19 +12,38 @@
  * nothing and admits nothing; the caller retries (a poller leaves the item
  * at its source) or refuses (a drop says so).
  *
- * Only lib/door.ts calls this. No firewall block in vault.yaml means off; a
- * block without a `url` means the app's local model (lib/firewallModel.ts). */
+ * On whenever a Jev key is set (the one key store, lib/jevSettings.ts),
+ * unless the owner turned it off (`security.firewall: false`); with no key it
+ * is off. It is decided per arrival, so a key added before an integration's
+ * first poll screens that poll. Only lib/door.ts calls this. */
 
 import { appendFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { parseEnvelope } from "./envelope";
-import { firewallToken } from "./env";
+import { firewallUrl } from "./env";
 import { ensureDir } from "./fsx";
 import { looksBinary, type Attachment } from "./intake";
-import { localFirewallUrl } from "./firewallModel";
-import { loadManifest, type FirewallConfig } from "./manifest";
+import { optionalJevKey } from "./jevSettings";
+import { loadManifest } from "./manifest";
+import { connectionStorePath } from "./sharedConnections";
+import { JEV_MODEL, JEV_URL } from "./sharedJev";
 import { ensureSpool, spoolDir } from "./spool";
 import { OutOfCredits, outOfCredits, withCredits } from "./providerCredits";
+
+/** The Jev key the firewall screens with, or undefined when it is off for
+ * this vault: no vault.yaml (a scratch root), turned off, or no key. An
+ * unreadable vault.yaml or key store throws, so it can never silently turn
+ * the firewall off. */
+export function firewallKey(root: string, store: string = connectionStorePath()): string | undefined {
+  if (!existsSync(join(root, "vault.yaml"))) return undefined;
+  if (loadManifest(root).security.firewall === false) return undefined;
+  return optionalJevKey(store);
+}
+
+/** A missed reset link is the costly error, so the threshold sits low in the
+ * gap between credential and ordinary mail. Tuned on deploy/firewall/eval
+ * with the retired local model; rerun the eval against Jev to move it. */
+export const FIREWALL_THRESHOLD = 0.15;
 
 export const QUESTIONS = {
   credential: {
@@ -39,8 +57,8 @@ export const QUESTIONS = {
 // A second question, "is this malicious?", withheld genuine payment and
 // account mail at the rate it caught phishing (0.89–0.91 on real payment and
 // brokerage notices); it was removed until it can be evaluated on real mail.
-// Clef answers a request's questions jointly, so adding one back shifts the
-// credential scores: rerun deploy/firewall/eval.
+// A model may answer a request's questions jointly, so adding one back can
+// shift the credential scores: rerun deploy/firewall/eval.
 type Question = keyof typeof QUESTIONS;
 export type Scores = Record<Question, number>;
 
@@ -52,13 +70,11 @@ export type Verdict =
 export class FirewallUnavailable extends Error {}
 class TooLarge extends Error {}
 
-/** A decision model reads a bounded prompt — Clef's reference code silently
- * drops what is past 16k tokens, llama.cpp refuses what exceeds its batch
- * (8192, bin/firewall-server.ts) — so a long item goes in overlapping windows
- * and its score is the worst window. Windows are characters, the limit is
- * tokens: base64 runs ~0.75 tokens a character, so 8000 characters stays
- * under the batch with room for the schema. A window the server still calls
- * too large is halved and asked again (`askWindow`). */
+/** A decision model reads a bounded prompt, so a long item goes in
+ * overlapping windows and its score is the worst window. Windows are
+ * characters, the limit is tokens: base64 runs ~0.75 tokens a character. A
+ * window the endpoint still calls too large is halved and asked again
+ * (`askWindow`). */
 const WINDOW = 8_000;
 const OVERLAP = 800;
 const MIN_WINDOW = 500;
@@ -86,15 +102,15 @@ export function screenedText(content: string, attachments: readonly Attachment[]
   return parts.join("\n\n");
 }
 
-async function ask(cfg: FirewallConfig, state: string, fetchImpl: typeof fetch): Promise<Scores> {
-  const url = cfg.url ?? localFirewallUrl();
-  const token = firewallToken();
+async function ask(key: string, state: string, fetchImpl: typeof fetch): Promise<Scores> {
+  const url = firewallUrl() ?? JEV_URL;
   let res: Response;
   try {
     res = await fetchImpl(url, {
       method: "POST",
-      headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
-      body: JSON.stringify({ model: cfg.model, state, questions: QUESTIONS }),
+      redirect: "error",
+      headers: { "content-type": "application/json", authorization: `Bearer ${key}` },
+      body: JSON.stringify({ model: JEV_MODEL, state, questions: QUESTIONS }),
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
   } catch (e) {
@@ -102,7 +118,7 @@ async function ask(cfg: FirewallConfig, state: string, fetchImpl: typeof fetch):
   }
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
-    if (/too large/i.test(detail)) throw new TooLarge();
+    if (res.status === 413 || /too large/i.test(detail)) throw new TooLarge();
     if (outOfCredits(res.status, detail)) throw new OutOfCredits("typesafe", detail.slice(0, 300));
     throw new FirewallUnavailable(`firewall answered ${res.status} at ${url}`);
   }
@@ -117,15 +133,15 @@ async function ask(cfg: FirewallConfig, state: string, fetchImpl: typeof fetch):
 
 /** Ask about one window; one the server refuses as too large is split in
  * two overlapping halves, each asked, the worst score kept. */
-async function askWindow(cfg: FirewallConfig, state: string, fetchImpl: typeof fetch): Promise<Scores> {
+async function askWindow(key: string, state: string, fetchImpl: typeof fetch): Promise<Scores> {
   try {
-    return await ask(cfg, state, fetchImpl);
+    return await ask(key, state, fetchImpl);
   } catch (e) {
     if (!(e instanceof TooLarge)) throw e;
     if (state.length <= MIN_WINDOW) throw new FirewallUnavailable(`firewall refused even a ${state.length}-character window as too large`);
     const half = Math.ceil(state.length / 2);
-    const a = await askWindow(cfg, state.slice(0, half + OVERLAP / 2), fetchImpl);
-    const b = await askWindow(cfg, state.slice(half - OVERLAP / 2), fetchImpl);
+    const a = await askWindow(key, state.slice(0, half + OVERLAP / 2), fetchImpl);
+    const b = await askWindow(key, state.slice(half - OVERLAP / 2), fetchImpl);
     return { credential: Math.max(a.credential, b.credential) };
   }
 }
@@ -138,16 +154,14 @@ export async function screen(
   attachments: readonly Attachment[] = [],
   fetchImpl: typeof fetch = fetch,
 ): Promise<Verdict> {
-  // No vault.yaml at all (a scratch root) is no firewall; an unreadable or
-  // malformed one throws, so it can never silently turn the firewall off.
-  const cfg = existsSync(join(root, "vault.yaml")) ? loadManifest(root).firewall : undefined;
-  if (!cfg) return { pass: true };
+  const key = firewallKey(root);
+  if (!key) return { pass: true };
   const scores: Scores = { credential: 0 };
   try {
     // a hosted firewall can run out of credits: noted (the base says so), and still unavailable — closed
     await withCredits(root, "typesafe", "firewall", async () => {
       for (const state of windows(screenedText(content, attachments))) {
-        const s = await askWindow(cfg, state, fetchImpl);
+        const s = await askWindow(key, state, fetchImpl);
         scores.credential = Math.max(scores.credential, s.credential);
       }
     });
@@ -155,7 +169,7 @@ export async function screen(
     if (e instanceof OutOfCredits) throw new FirewallUnavailable("firewall: out of usage credits");
     throw e;
   }
-  if (scores.credential >= cfg.thresholds.credential) return { pass: false, reason: "credential", scores };
+  if (scores.credential >= FIREWALL_THRESHOLD) return { pass: false, reason: "credential", scores };
   return { pass: true, scores };
 }
 
