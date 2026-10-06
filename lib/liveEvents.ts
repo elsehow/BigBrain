@@ -52,6 +52,17 @@ export type LiveWatchFn = (
   onError: (err: NodeJS.ErrnoException) => void
 ) => { close: () => void };
 
+// On Linux this needs Bun >= 1.3.14 (CI pins it). Every recursive fs.watch in
+// a Bun process shares one inotify thread and one directory-scan pool, and
+// older Bun wedged both, silently and for the life of the process (#124):
+// before 1.3.11 one read() of 128+ queued inotify events (a pull, an rm -rf)
+// left the thread replaying that buffer forever (oven-sh/bun#27667); before
+// 1.3.13 closing a watcher while its scan was still running deadlocked a pool
+// thread (oven-sh/bun#29391), and handleWatchError closes mid-scan by
+// definition. Once every pool thread was stuck, new watchers watched only
+// their root. Nothing reaches onError in either case, and reopening cannot
+// help: the stuck state belongs to the runtime, not to this watcher. 1.3.13
+// still hung a stress run outright; 1.3.14 rewrote fs.watch (oven-sh/bun#29952).
 export const defaultLiveWatch: LiveWatchFn = (root, onChange, onError) => {
   const w = fsWatch(root, { recursive: true }, (_event, filename) =>
     onChange(filename?.toString() ?? "")

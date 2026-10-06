@@ -39,7 +39,10 @@ Run `bun run ci:browser` locally when a change touches what a browser test cover
 
 ## One local command per suite
 
-Use Bun 1.3.9 and install root dependencies with `bun install --frozen-lockfile`.
+Use Bun 1.3.14 and install root dependencies with `bun install --frozen-lockfile`.
+It is the floor on Linux, not a preference: older Bun wedges recursive `fs.watch`
+for the rest of the process, silently (#124, the `ci:stress` failure; see
+`lib/liveEvents.ts`).
 Nested UI installation is frozen too. Then:
 
 ```sh
@@ -136,7 +139,7 @@ Manual runs on feature branches provide validation without creating main inciden
 
 `native.yml` runs on macOS for desktop sources/resources, supervisor/native
 lifecycle entry points, native harness changes, and its own workflow, plus manual
-requests. It pins Rust 1.95.0 and Bun 1.3.9 and uses the committed Cargo lockfile.
+requests. It pins Rust 1.95.0 and Bun 1.3.14 and uses the committed Cargo lockfile.
 Run the same check locally with `sh bin/ci-native.sh`. It compiles the native
 binary, runs Rust lifecycle tests (readiness/ownership, shim behavior, startup
 failure, process-group shutdown), and tests the native containment harness's
