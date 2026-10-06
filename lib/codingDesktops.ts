@@ -18,7 +18,7 @@ import { writeAtomic } from "./fsx";
 import { pilotToolCall } from "./pilot";
 import { arrangeDesktop, closeView, desktopDetail, desktopReference, DESKTOP_TOOLS, DesktopError, emptyDesktop, loopbackUrl, MAX_PAGE_HTML, MAX_VIEWS, noteTitle, openView, SHOW_HTML_TOOL, SHOW_PAGE_TOOL, type DesktopView, type PilotDesktop } from "./pilotDesktop";
 import { namingMoment, type TaskNamer } from "./pilotTaskName";
-import { DEFAULT_PILOT_BACKEND } from "./pilotBackendTypes";
+import { savedPilotBackend } from "./pilotDefault";
 import { spoolDir } from "./spool";
 
 export interface CodingDesktopRecord {
@@ -105,6 +105,12 @@ export class CodingDesktops {
     return r;
   }
 
+  /** Settings › Models' Pilot choice, as `provider/model`. */
+  private defaultModel(): string {
+    const d = savedPilotBackend(this.root);
+    return `${d.provider}/${d.model}`;
+  }
+
   /** `views`: vault notes already on the desktop when it opens (a feed item
    * opened as a desktop shows its source); each must be a note in the vault. */
   create(input: { title?: unknown; context?: unknown; model?: unknown; views?: unknown } = {}): CodingDesktopRecord {
@@ -123,7 +129,7 @@ export class CodingDesktops {
       desktop = openView(desktop ?? emptyDesktop(), { kind: "note", path: v.path, title: v.title, at: now }, viewId());
     }
     return this.save({ id, title, created: now, updated: now,
-      ...(typeof input.model === "string" && input.model.includes("/") ? { model: input.model } : {}),
+      model: typeof input.model === "string" && input.model.includes("/") ? input.model : this.defaultModel(),
       ...(context?.length ? { context } : {}), ...(desktop ? { desktop } : {}) });
   }
 
@@ -140,7 +146,7 @@ export class CodingDesktops {
     return {
       id: r.id, kind: "coding" as const, title: r.title, titleSource: r.titleSource ?? "auto",
       // the model's own name, as the bar shows a Pilot's
-      model: (r.model ?? `${DEFAULT_PILOT_BACKEND.provider}/${DEFAULT_PILOT_BACKEND.model}`).split("/").slice(1).join("/"),
+      model: (r.model ?? this.defaultModel()).split("/").slice(1).join("/"),
       phase, lifecycle: "active" as const, created: r.created, updated: r.updated,
       lastActivityAt: events.at(-1)?.at ?? r.updated,
       ...(running(events) ? { activity: running(events) } : {}),

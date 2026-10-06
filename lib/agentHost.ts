@@ -9,7 +9,7 @@
  */
 import type { HostTool, OpenOptions } from "../packages/agents/src";
 import { notePayload } from "./noteRead";
-import { DEFAULT_PILOT_BACKEND } from "./pilotBackendTypes";
+import { savedPilotBackend } from "./pilotDefault";
 import { pilotToolCall, pilotTools } from "./pilot";
 import { createCatalogRuntime, exactCatalogModel } from "./run/modelCatalogRefresh";
 import { configureVaultModelAuth } from "./run/piModelRuntime";
@@ -48,13 +48,15 @@ export async function agentHost(root: string, modelName?: string): Promise<OpenO
   const sdk = await loadPi();
   const signal = AbortSignal.timeout(20_000);
   const runtime = await createCatalogRuntime(sdk, signal, root);
-  const [provider, id] = modelName ? modelName.split("/", 2) as [string, string] : [DEFAULT_PILOT_BACKEND.provider!, DEFAULT_PILOT_BACKEND.model];
+  const saved = savedPilotBackend(root);
+  const [provider, id] = modelName ? modelName.split("/", 2) as [string, string] : [saved.provider!, saved.model];
   const model = await exactCatalogModel(runtime, provider, id, signal);
   if (!model) throw new Error(`No model ${provider}/${id}. Choose one in Settings › Models, or pass --model <provider>/<model>.`);
   const subscription = runtime.isUsingSubscription(provider);
   return {
     modelRuntime: runtime, model, instructions: AGENT_INSTRUCTIONS, tools: vaultTools(root), elsewhere: vaultElsewhere(root),
-    thinkingLevel: (DEFAULT_PILOT_BACKEND.reasoning ?? "low") as OpenOptions["thinkingLevel"],
+    // the saved reasoning belongs to the saved model; another model keeps the default
+    thinkingLevel: ((provider === saved.provider && id === saved.model ? saved.reasoning : undefined) ?? "low") as OpenOptions["thinkingLevel"],
     wrapStream: (stream: StreamFn) => (async (m, context, options) => {
       await configureVaultModelAuth(runtime, root);
       if (m.provider === "anthropic" && (await runtime.checkAuth("anthropic", { signal: options?.signal }))?.type !== "oauth")
