@@ -99,6 +99,27 @@ export function neighbours(field: Field, i: number, limit = 8): number[] {
   return field.edges.filter(([a, b]) => a === i || b === i).sort((x, y) => y[2] - x[2]).slice(0, limit).map(([a, b]) => (a === i ? b : a));
 }
 
+// ── folding: names that are one thing ──────────────────────────────────────
+/** One key's worth of folding, offered on an opened entity: `keep` stays,
+ * each of `fold` becomes an alias of it (the folds accept route). */
+export interface FoldOffer { keep: string; fold: string[]; why?: string }
+const RECORDED = /^ent_[a-f0-9]{20}$/;
+/** What opening entity `i` offers to fold into one: the memory pass's
+ * proposal it belongs to (its own pick kept), else its same-name twins, the
+ * one the record knows best (most ties) kept. Only entities this vault's
+ * record holds can fold: a joined vault's node or a legacy note can't. */
+export function foldOffer(field: Field, i: number, twins: ReadonlyMap<number, number[]>,
+  proposals: ReadonlyArray<{ canonical: string; members: ReadonlyArray<{ id: string }>; why: string }>): FoldOffer | null {
+  const n = field.nodes[i];
+  if (!n || !RECORDED.test(n.id)) return null;
+  const g = proposals.find((p) => p.members.some((m) => m.id === n.id));
+  if (g) return { keep: g.canonical, fold: g.members.map((m) => m.id).filter((id) => id !== g.canonical), why: g.why || undefined };
+  const group = [n, ...(twins.get(i) ?? []).map((j) => field.nodes[j]!)].filter((m) => RECORDED.test(m.id));
+  if (group.length < 2) return null;
+  const keep = group.reduce((a, b) => (b.degree > a.degree ? b : a));
+  return { keep: keep.id, fold: group.filter((m) => m !== keep).map((m) => m.id) };
+}
+
 // ── search by name ─────────────────────────────────────────────────────────
 export const normName = (s: string): string => s.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "");
 

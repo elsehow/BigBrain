@@ -10,8 +10,8 @@
   import { onMount, tick } from "svelte";
   import { api } from "../lib/api";
   import { app, goto } from "../lib/store.svelte";
-  import type { GraphData } from "../lib/types";
-  import { barPilots, buildField, latestPerFamily, neighbours, placePilots, searchNames, twinsOf, type Field, type PilotSummary, type V2Feed, type V2FeedRow } from "../lib/v2/model";
+  import type { FoldGroup, GraphData } from "../lib/types";
+  import { barPilots, buildField, foldOffer, latestPerFamily, neighbours, placePilots, searchNames, twinsOf, type Field, type PilotSummary, type V2Feed, type V2FeedRow } from "../lib/v2/model";
   import { md, sanitizeHtml } from "../lib/markdown";
   import { Readability } from "@mozilla/readability";
   import { openExternal } from "../lib/native";
@@ -69,6 +69,9 @@
   /** Bumped when the scene is drawn anew, so what it's showing is handed back. */
   let sceneRev = $state(0);
   let twins = new Map<number, number[]>();
+  /** The memory pass's standing fold proposals (/api/entity/folds). */
+  let folds: FoldGroup[] = $state([]);
+  let folding = $state(false);
 
   let ent: number | null = $state(null);
   let entRows: V2FeedRow[] | null = $state(null);
@@ -559,6 +562,8 @@
   let sortedShown = $derived(sorted.toReversed());
 
   // the feed: an opened entity's own record, else the vault's latest
+  /** What the opened entity offers to fold into one (F): its proposal, else its twins. */
+  const offer = $derived(field && ent != null && !data ? foldOffer(field, ent, twins, folds) : null);
   let rows = $derived.by(() => (!writing ? [] : ent != null && entRows ? entRows.slice(-6) : writing.feed.slice(-6)));
   let hud = $derived.by((): { eyebrow: string; name: string; status: string; writing?: boolean } | null => {
     if (!field || !writing || searching || openPilot) return null;
@@ -573,7 +578,8 @@
       const who = writersOf(n.id);
       return {
         eyebrow: n.memory ? "Memory" : `${n.degree} ${n.degree === 1 ? "tie" : "ties"}`, name: n.label,
-        status: (who.length ? `Lately written about by ${who.join(", ")}.` : "") + (tw.length ? ` Also in your vault as “${tw.join("”, “")}”.` : ""),
+        status: (who.length ? `Lately written about by ${who.join(", ")}.` : "") + (tw.length ? ` Also in your vault as “${tw.join("”, “")}”.`
+          : offer ? ` Maybe the same as “${[offer.keep, ...offer.fold].filter((id) => id !== n.id).map(foldLabel).join("”, “")}”${offer.why ? `: ${offer.why}` : ""}.` : ""),
       };
     }
     return null;
@@ -584,6 +590,7 @@
       const [graph, sq] = data ? [data.graph, data.v2] : await Promise.all([api.graph(), api.v2()]);
       writing = sq;
       refreshSorted();
+      if (!data) void api.folds().then((f) => { folds = f.groups; }).catch(() => {});
       await drawField(graph);
     } catch (e) {
       error = errText(e);
@@ -775,6 +782,27 @@
   }
   let noticeTimer: ReturnType<typeof setTimeout> | undefined;
   const errText = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+  const foldLabel = (id: string) => folds.flatMap((g) => g.members).find((m) => m.id === id)?.label
+    ?? field?.nodes[field.byId.get(id) ?? -1]?.label ?? id;
+  /** F: fold what the opened entity offers into one — the folds accept route
+   * writes each an alias of the kept one — then draw the field anew, opened
+   * on the one that stands. */
+  async function fold(): Promise<void> {
+    const o = offer;
+    if (!o || folding) return;
+    folding = true;
+    try {
+      const done = await api.acceptFold(o.keep, o.fold);
+      folds = (await api.folds().catch(() => null))?.groups ?? folds;
+      const graph = await api.graph();
+      ent = null; entRows = null;
+      await drawField(graph);
+      const i = field?.byId.get(done.canonical.id);
+      if (i != null) void openEntity(i);
+      flash(`Folded ${done.aliased.map((a) => `“${a.label}”`).join(", ")} into “${done.canonical.label}”.`);
+    } catch (e) { flash(`Couldn’t fold: ${errText(e)}`); }
+    finally { folding = false; }
+  }
   function flash(text: string): void { notice = text; clearTimeout(noticeTimer); noticeTimer = setTimeout(() => { notice = ""; }, 4200); }
 
   /** An entity's own latest assertions, dated by when each claim was first recorded. */
@@ -1011,6 +1039,7 @@
     const slot = Number(e.key);
     if (slot >= 1 && slot <= bar.length) { take(e); const p = bar[slot - 1]!; if (openPilot === p.id) closePilot(); else openPilotChat(p.id); return true; }
     if (e.key === "\\" && openPilot) { take(e); toggleDesktop(); return true; }
+    if (e.key === "f" && ent != null && offer) { take(e); void fold(); return true; }
     if (e.key === "j" || e.key === "k") { take(e); stepFeed(e.key === "j" ? 1 : -1); return true; }
     if (e.key === "Enter" && e.shiftKey) { take(e); void startPilot(); return true; }
     if (e.key === "Enter" && cursor && ent == null) { const r = cursorRow(); if (r) { take(e); openSource(r); return true; } }
@@ -1090,7 +1119,7 @@
 
   {#if hud}
     <header class="hud" bind:this={hudEl}>
-      <span class="eyebrow">{[hud.eyebrow, original() && "⌘O Open"].filter(Boolean).join(" · ")}</span>
+      <span class="eyebrow">{[hud.eyebrow, original() && "⌘O Open", offer && (folding ? "Folding…" : "F Fold into one")].filter(Boolean).join(" · ")}</span>
       <h1>{hud.name}</h1>
       {#if hud.writing}<p><span class="spin" aria-label="Writing a summary"></span></p>{:else if hud.status}<p>{hud.status}</p>{/if}
     </header>
@@ -1249,7 +1278,7 @@
     </aside>
   {/if}
 
-  <p class="hints" aria-hidden="true"><span>/ Search</span><span>j k Feed</span>{#if cursor && ent == null}<span>↵ Open</span>{/if}<span>⇧↵ Pilot</span><span>1–9 Pilots</span><span>⌘N New</span>{#if openPilot && desktopViews.length}<span>\ Views</span>{/if}{#if ent != null || src || cursor}<span>Esc Back</span>{/if}</p>
+  <p class="hints" aria-hidden="true"><span>/ Search</span><span>j k Feed</span>{#if cursor && ent == null}<span>↵ Open</span>{/if}<span>⇧↵ Pilot</span><span>1–9 Pilots</span><span>⌘N New</span>{#if openPilot && desktopViews.length}<span>\ Views</span>{/if}{#if offer}<span>F Fold</span>{/if}{#if ent != null || src || cursor}<span>Esc Back</span>{/if}</p>
   {#if notice}<p class="notice" role="status">{notice}</p>{/if}
   {#if error}<p class="error">The v2 view couldn’t load: {error}</p>{/if}
   {#if field && !field.nodes.length && !openPilot}
