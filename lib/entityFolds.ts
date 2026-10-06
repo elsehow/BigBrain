@@ -182,7 +182,14 @@ export type RejectedPair = (a: string, b: string) => boolean;
  * table so a pair refused before one side was folded holds against the
  * canonical it folded into. */
 export function rejectedPairs(root: string): RejectedPair {
-  const keys = new Set<string>();
+  const keys = new Set(rejectedPairList(root).map(([a, b]) => pairKey(a, b)));
+  return (a, b) => keys.has(pairKey(a, b));
+}
+
+/** Every refused pair, each side resolved as rejectedPairs resolves it: what
+ * the viewer needs to stop offering a same-name pair you said are two. */
+export function rejectedPairList(root: string): Array<[string, string]> {
+  const out = new Map<string, [string, string]>();
   const canon = new Map<string, string>();
   const resolve = (id: string): string => {
     let c = canon.get(id);
@@ -192,8 +199,11 @@ export function rejectedPairs(root: string): RejectedPair {
     }
     return c;
   };
-  for (const event of readEntityFoldRejectLog(root)) keys.add(pairKey(resolve(event.pair[0].id), resolve(event.pair[1].id)));
-  return (a, b) => keys.has(pairKey(a, b));
+  for (const event of readEntityFoldRejectLog(root)) {
+    const a = resolve(event.pair[0].id), b = resolve(event.pair[1].id);
+    if (a !== b) out.set(pairKey(a, b), a < b ? [a, b] : [b, a]);
+  }
+  return [...out.values()];
 }
 
 /** A group as the model writes it — and as a standing group is fed back
@@ -378,14 +388,17 @@ export interface FoldsView {
   proposedAt: string | null;
   model?: string;
   groups: FoldGroup[];
+  /** Pairs you said are not one thing (lib/entityFoldLog.ts). */
+  rejected: Array<[string, string]>;
 }
 
 export function liveFolds(root: string): FoldsView {
   const folds = readEntityFolds(root);
-  if (!folds) return { proposedAt: null, groups: [] };
   syncAssertionProjection(root);
+  const rejected = rejectedPairList(root);
+  if (!folds) return { proposedAt: null, groups: [], rejected };
   const { groups } = validateFolds(folds.groups.map(rawGroup), entityCensus(root), rejectedPairs(root));
-  return { proposedAt: folds.proposedAt, model: folds.model, groups };
+  return { proposedAt: folds.proposedAt, model: folds.model, groups, rejected };
 }
 
 /** The proposals for a terminal. */

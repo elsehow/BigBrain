@@ -99,6 +99,34 @@ export function neighbours(field: Field, i: number, limit = 8): number[] {
   return field.edges.filter(([a, b]) => a === i || b === i).sort((x, y) => y[2] - x[2]).slice(0, limit).map(([a, b]) => (a === i ? b : a));
 }
 
+// ── folding: names that are one thing ──────────────────────────────────────
+/** The merges an opened entity is part of, each `from` → `keep`: every
+ * other member of its group folding into the one that stays (a proposal's own
+ * pick, else the most-tied twin). The same rows show on every member's page;
+ * the opened entity's own row comes first. */
+export interface FoldOffer { keep: string; rows: string[]; kind: "twins" | "proposal"; why?: string }
+const RECORDED = /^ent_[a-f0-9]{20}$/;
+/** The offer on entity `i`: the memory pass's proposal it belongs to, else
+ * its same-name twins — less any pair you said are two things (`rejected`,
+ * the fold log's pairs). Only entities this vault's record holds fold: a
+ * joined vault's node or a legacy note never does. */
+export function foldOffer(field: Field, i: number, twins: ReadonlyMap<number, number[]>,
+  proposals: ReadonlyArray<{ canonical: string; members: ReadonlyArray<{ id: string }>; why: string }>,
+  rejected: ReadonlyArray<readonly [string, string]> = []): FoldOffer | null {
+  const n = field.nodes[i];
+  if (!n || !RECORDED.test(n.id)) return null;
+  const apart = (a: string, b: string) => rejected.some(([x, y]) => (x === a && y === b) || (x === b && y === a));
+  const ties = (id: string) => field.nodes[field.byId.get(id) ?? -1]?.degree ?? 0;
+  const g = proposals.find((p) => p.members.some((m) => m.id === n.id));
+  const members = (g ? g.members.map((m) => m.id) : [n.id, ...(twins.get(i) ?? []).map((j) => field.nodes[j]!.id)])
+    .filter((id) => RECORDED.test(id) && (id === n.id || !apart(id, n.id)));
+  if (members.length < 2) return null;
+  const keep = g && members.includes(g.canonical) ? g.canonical : members.reduce((a, b) => (ties(b) > ties(a) ? b : a));
+  const rows = members.filter((id) => id !== keep && !apart(id, keep))
+    .sort((a, b) => Number(b === n.id) - Number(a === n.id) || ties(b) - ties(a));
+  return rows.length ? { keep, rows, kind: g ? "proposal" : "twins", ...(g?.why ? { why: g.why } : {}) } : null;
+}
+
 // ── search by name ─────────────────────────────────────────────────────────
 export const normName = (s: string): string => s.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "");
 

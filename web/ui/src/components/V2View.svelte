@@ -10,8 +10,8 @@
   import { onMount, tick } from "svelte";
   import { api } from "../lib/api";
   import { app, goto } from "../lib/store.svelte";
-  import type { GraphData } from "../lib/types";
-  import { barPilots, buildField, latestPerFamily, neighbours, placePilots, searchNames, twinsOf, type Field, type PilotSummary, type V2Feed, type V2FeedRow } from "../lib/v2/model";
+  import type { FoldGroup, GraphData } from "../lib/types";
+  import { barPilots, buildField, foldOffer, latestPerFamily, neighbours, placePilots, searchNames, twinsOf, type Field, type PilotSummary, type V2Feed, type V2FeedRow } from "../lib/v2/model";
   import { md, sanitizeHtml } from "../lib/markdown";
   import { Readability } from "@mozilla/readability";
   import { openExternal } from "../lib/native";
@@ -72,6 +72,11 @@
   /** Bumped when the scene is drawn anew, so what it's showing is handed back. */
   let sceneRev = $state(0);
   let twins = new Map<number, number[]>();
+  /** The memory pass's standing fold proposals (/api/entity/folds). */
+  let folds: FoldGroup[] = $state([]);
+  /** Pairs you said are not one thing: never offered again. */
+  let foldsApart: Array<[string, string]> = $state([]);
+  let folding = $state(false);
 
   let ent: number | null = $state(null);
   let entRows: V2FeedRow[] | null = $state(null);
@@ -564,8 +569,11 @@
   let sortedShown = $derived(sorted.toReversed());
 
   // the feed: an opened entity's own record, else the vault's latest
+  /** What the opened entity offers to fold into one (F): its proposal, else its twins. */
+  const offer = $derived(field && ent != null && !data ? foldOffer(field, ent, twins, folds, foldsApart) : null);
   let rows = $derived.by(() => (!writing ? [] : ent != null && entRows ? entRows.slice(-6) : writing.feed.slice(-6)));
-  let hud = $derived.by((): { eyebrow: string; name: string; status: string; writing?: boolean } | null => {
+  /** `same`: what it may be the same thing as, said where F and X answer it. */
+  let hud = $derived.by((): { eyebrow: string; name: string; status: string; writing?: boolean; same?: string } | null => {
     if (!field || !writing || searching || openPilot) return null;
     const titled = (r: V2SortedRow) => ({ eyebrow: [r.via, when(r.added)].filter(Boolean).join(" · "), name: r.title ?? r.headline });
     if (src) return { ...titled(src.row), status: src.text ?? "", writing: src.text === "" };
@@ -574,11 +582,15 @@
     if (walked) return { ...titled(walked), status: "", writing: false };
     if (ent != null) {
       const n = field.nodes[ent]!;
-      const tw = (twins.get(ent) ?? []).map((j) => field!.nodes[j]!.label);
+      // a twin you said is a different thing isn't "also" this one
+      const apart = (j: number) => foldsApart.some(([a, b]) => (a === n.id && b === field!.nodes[j]!.id) || (b === n.id && a === field!.nodes[j]!.id));
+      const tw = (twins.get(ent) ?? []).filter((j) => !apart(j)).map((j) => field!.nodes[j]!.label);
       const who = writersOf(n.id);
+      // twins with nothing to answer (a joined vault's, a legacy note) are only named
+      const same = !offer && tw.length ? `Also in your vault as “${tw.join("”, “")}”.` : undefined;
       return {
         eyebrow: n.memory ? "Memory" : `${n.degree} ${n.degree === 1 ? "tie" : "ties"}`, name: n.label,
-        status: (who.length ? `Lately written about by ${who.join(", ")}.` : "") + (tw.length ? ` Also in your vault as “${tw.join("”, “")}”.` : ""),
+        status: who.length ? `Lately written about by ${who.join(", ")}.` : "", same,
       };
     }
     return null;
@@ -589,6 +601,7 @@
       const [graph, sq] = data ? [data.graph, data.v2] : await Promise.all([api.graph(), api.v2()]);
       writing = sq;
       refreshSorted();
+      if (!data) void loadFolds();
       await drawField(graph);
     } catch (e) {
       error = errText(e);
@@ -780,6 +793,45 @@
   }
   let noticeTimer: ReturnType<typeof setTimeout> | undefined;
   const errText = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+  const foldLabel = (id: string) => folds.flatMap((g) => g.members).find((m) => m.id === id)?.label
+    ?? field?.nodes[field.byId.get(id) ?? -1]?.label ?? id;
+  const openId = () => (ent != null && field ? field.nodes[ent]!.id : null);
+  /** Accept `from` → the keeper: it becomes an alias of the keeper. */
+  const acceptMerge = (from: string) => { if (offer) void settleFold(api.acceptFold(offer.keep, [from]), from === openId() ? offer.keep : openId()); };
+  /** A fold written (the accept route makes each folded name an alias of the
+   * kept one): draw the field anew, opened on the one that stands. */
+  async function settleFold(act: ReturnType<typeof api.acceptFold>, land: string | null): Promise<void> {
+    if (folding) return;
+    folding = true;
+    try {
+      const done = await act;
+      await loadFolds();
+      const graph = await api.graph();
+      ent = null; entRows = null;
+      await drawField(graph);
+      // back on the page you were on, unless it was the one folded away
+      const i = field?.byId.get(land ?? done.canonical.id) ?? field?.byId.get(done.canonical.id);
+      if (i != null) void openEntity(i);
+      flash(`Folded ${done.aliased.map((a) => `“${a.label}”`).join(", ")} into “${done.canonical.label}”.`);
+    } catch (e) { flash(`Couldn’t fold: ${errText(e)}`); }
+    finally { folding = false; }
+  }
+  async function loadFolds(): Promise<void> {
+    try { const f = await api.folds(); folds = f.groups; foldsApart = f.rejected ?? []; } catch { /* no folds door: nothing offered */ }
+  }
+  /** Reject `from` → the keeper: two things — remembered (the fold log),
+   * never offered together again. */
+  async function rejectMerge(from: string): Promise<void> {
+    const keep = offer?.keep;
+    if (!keep || folding) return;
+    folding = true;
+    try {
+      await api.rejectFold(from, [keep]);
+      await loadFolds();
+      flash(`Kept “${foldLabel(from)}” apart from “${foldLabel(keep)}”.`);
+    } catch (e) { flash(`Couldn’t keep them apart: ${errText(e)}`); }
+    finally { folding = false; }
+  }
   function flash(text: string): void { notice = text; clearTimeout(noticeTimer); noticeTimer = setTimeout(() => { notice = ""; }, 4200); }
 
   /** An entity's own latest assertions, dated by when each claim was first recorded. */
@@ -1107,6 +1159,26 @@
       <span class="eyebrow">{[hud.eyebrow, original() && hint("original", "Open")].filter(Boolean).join(" · ")}</span>
       <h1>{hud.name}</h1>
       {#if hud.writing}<p><span class="spin" aria-label="Writing a summary"></span></p>{:else if hud.status}<p>{hud.status}</p>{/if}
+      {#if hud.same}<p>{hud.same}</p>{/if}
+      {#if ent != null && offer}
+        <!-- the merge, the same on every page it touches -->
+        <div class="same" role="group" aria-label="Merge?">
+          <span class="same-head">Merge?</span>
+          {#if offer.why}<p class="same-why">{offer.why}</p>{/if}
+          {#each offer.rows as from (from)}
+            <div class="cand">
+              <span class="cand-name">{foldLabel(from)} <span class="arrow">→</span> {foldLabel(offer.keep)}</span>
+              {#if !folding}
+                <span class="acts">
+                  <button type="button" onclick={() => acceptMerge(from)}>Accept</button>
+                  <button type="button" onclick={() => void rejectMerge(from)}>Reject</button>
+                </span>
+              {/if}
+            </div>
+          {/each}
+          {#if folding}<span class="busy">Saving…</span>{/if}
+        </div>
+      {/if}
     </header>
   {/if}
 
@@ -1485,6 +1557,17 @@
   .eyebrow { font: 600 10px/1 var(--font-app); letter-spacing: 0.24em; text-transform: uppercase; color: var(--v2-muted); }
   h1 { margin: 0; font: 500 clamp(28px, 2.5vw, 36px)/1.05 var(--font-app); letter-spacing: -0.03em; }
   .hud p { margin: 0; max-width: 44ch; font: 400 14.5px/1.5 var(--font-app); color: color-mix(in srgb, var(--fg) 80%, var(--bg)); }
+  .same { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; padding-left: 12px; border-left: 2px solid var(--rule); }
+  .same-head { font: 600 10px/1 var(--font-app); letter-spacing: 0.24em; text-transform: uppercase; color: var(--v2-muted); }
+  .hud .same-why { font-size: 13.5px; color: var(--v2-muted); }
+  .cand { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+  .cand-name { font: 500 14.5px/1.3 var(--font-app); }
+  .cand-name .arrow { color: var(--v2-muted); }
+  .acts { display: flex; gap: 8px; pointer-events: auto; }
+  .acts button { display: inline-flex; align-items: center; padding: 5px 10px; border: 1px solid var(--rule); border-radius: 7px;
+    background: var(--bg); color: var(--fg); font: 500 12.5px/1 var(--font-app); cursor: pointer; text-shadow: none; }
+  .acts button:hover { background: color-mix(in srgb, var(--fg) 6%, var(--bg)); }
+  .same .busy { font: 400 12.5px/1.6 var(--font-app); color: var(--v2-muted); }
 
   .search { position: absolute; top: 62px; left: calc(var(--app-gutter, 34px) - 8px); width: min(480px, calc(100% - 32px)); z-index: 2;
     border-radius: 11px; background: var(--bg); box-shadow: 0 0 0 1px var(--rule); overflow: hidden; animation: v2fade .14s ease-out; }

@@ -9,7 +9,11 @@
 // note every few seconds (entities and sources, one of them older than the
 // sorted feed), so its place can be watched moving; one concerns both sides
 // of the field (some entities twice, which count once); one has nothing
-// placeable yet.
+// placeable yet. `?twins` gives three entities one name (Wren Hollis, kept for
+// its ties; Wren-Hollis; wren hollis) and a three-way fold proposal (Kestrel
+// Books, the pick; Kestrel Bookshop; Kestrel Books Ltd), for Merge?'s Accept and
+// Reject; an accept here takes the merged ones off the field, as the engine's
+// alias would.
 import { mount } from "svelte";
 import "../design/tokens.css";
 import "../app.css";
@@ -25,9 +29,24 @@ await installGraphFixture();
 const NAMES = ["Orrery repair", "Atlas survey", "Kit Brennan", "Briar Lowe", "Harbor lab", "Ridgeway trail", "Lantern grant", "Quill press", "Tidewater review", "Marlow studio"];
 const entities = empty ? [] : NAMES.map((title, i) => ({ id: `ent_${i}`, title, group: "entity", entity: true as const, degree: 10 - i,
   path: `projection/entities/ent_${i}.md`, x: Math.cos(i * 0.9) * (80 + i * 18), y: Math.sin(i * 0.9) * (80 + i * 18) }));
+const twinScene = new URLSearchParams(location.search).has("twins");
+const hex = (c: string) => `ent_${c.repeat(20)}`;
+const TWINS = twinScene ? [
+  { id: hex("a"), title: "Wren-Hollis", group: "entity", entity: true as const, degree: 2, path: `projection/entities/${hex("a")}.md`, x: 150, y: 60 },
+  { id: hex("b"), title: "Wren Hollis", group: "entity", entity: true as const, degree: 7, path: `projection/entities/${hex("b")}.md`, x: -60, y: 120 },
+  { id: hex("c"), title: "Kestrel Books", group: "entity", entity: true as const, degree: 6, path: `projection/entities/${hex("c")}.md`, x: 90, y: -110 },
+  { id: hex("d"), title: "Kestrel Books Ltd", group: "entity", entity: true as const, degree: 1, path: `projection/entities/${hex("d")}.md`, x: -140, y: -40 },
+  { id: hex("e"), title: "wren hollis", group: "entity", entity: true as const, degree: 1, path: `projection/entities/${hex("e")}.md`, x: 30, y: 170 },
+  { id: hex("f"), title: "Kestrel Bookshop", group: "entity", entity: true as const, degree: 3, path: `projection/entities/${hex("f")}.md`, x: 170, y: -20 },
+] : [];
+let apart: Array<[string, string]> = [];
+let proposals = twinScene ? [{ canonical: hex("c"), why: "the same bookshop, its registered name",
+  members: [{ id: hex("c"), label: "Kestrel Books", assertions: 6 }, { id: hex("f"), label: "Kestrel Bookshop", assertions: 3 },
+    { id: hex("d"), label: "Kestrel Books Ltd", assertions: 1 }] }] : [];
 const memory = empty ? [] : [{ id: "memory/atlas.md", title: "Atlas", group: "memory", degree: 3, path: "memory/atlas.md", x: 40, y: -30 }];
-const graph = { hash: empty ? "empty" : "field", nodes: [...entities, ...memory],
-  edges: empty ? [] : NAMES.slice(1).map((_, i) => ({ source: `ent_${i}`, target: `ent_${i + 1}`, weight: 2 })) };
+let graph = { hash: empty ? "empty" : "field", nodes: [...entities, ...TWINS, ...memory],
+  edges: empty ? [] : [...NAMES.slice(1).map((_, i) => ({ source: `ent_${i}`, target: `ent_${i + 1}`, weight: 2 })),
+    ...TWINS.map((t, i) => ({ source: t.id, target: `ent_${i + 1}`, weight: 1 }))] };
 const at = (min: number) => new Date(Date.UTC(2026, 9, 5, 9, min)).toISOString();
 const feed = empty ? [] : NAMES.slice(0, 4).map((name, i) => ({ id: `ast_${i}`, at: at(i), author: null, by: "you", model: false, text: `${name} was noted.`, entities: [`ent_${i}`] }));
 const sorted = empty ? [] : [
@@ -59,6 +78,34 @@ const fake = window.fetch;
   const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url, location.origin);
   const json = (v: unknown, status = 200) => new Response(JSON.stringify(v), { status, headers: { "content-type": "application/json" } });
   if (url.pathname === "/api/graph") return json(graph);
+  // recents from this vault, not the fixture's: what search lists before you type
+  if (url.pathname === "/api/recent") {
+    const rows = [...sorted.map((r) => ({ path: r.path, title: r.title, modified: Date.parse(r.added), author: "intake", action: "added", band: "service" })),
+      ...graph.nodes.filter((n) => n.path).map((n, i) => ({ path: n.path, title: n.title, modified: Date.parse(at(0)) - i * 60_000, author: "gardener", action: "added", band: "engine" }))]
+      .sort((a, b) => b.modified - a.modified);
+    const offset = Number(url.searchParams.get("offset") ?? 0), limit = Number(url.searchParams.get("limit") ?? 40);
+    return json({ recent: rows.slice(offset, offset + limit), total: rows.length, nextOffset: offset + limit < rows.length ? offset + limit : null });
+  }
+  if (twinScene && url.pathname === "/api/entity/folds") return json({ proposedAt: "2026-10-05T09:00:00.000Z", model: "claude-x", groups: proposals, rejected: apart });
+  if (twinScene && url.pathname === "/api/entity/folds/reject") {
+    const { member, others } = JSON.parse(String(init?.body ?? "{}")) as { member: string; others: string[] };
+    apart = [...apart, ...others.map((o): [string, string] => (member < o ? [member, o] : [o, member]))];
+    // a refused pair splits off: the member leaves the group (as the engine's validation splits it)
+    proposals = proposals.map((g) => g.members.some((m) => m.id === member) && g.members.some((m) => others.includes(m.id))
+      ? { ...g, members: g.members.filter((m) => m.id !== member), canonical: g.canonical === member ? others[0]! : g.canonical } : g).filter((g) => g.members.length > 1);
+    const label = (id: string) => graph.nodes.find((n) => n.id === id)?.title ?? id;
+    return json({ member: { id: member, label: label(member) }, against: others.map((id) => ({ id, label: label(id) })) });
+  }
+  if (twinScene && url.pathname === "/api/entity/folds/accept") {
+    const { canonical, members } = JSON.parse(String(init?.body ?? "{}")) as { canonical: string; members: string[] };
+    const gone = new Set(members), label = (id: string) => graph.nodes.find((n) => n.id === id)?.title ?? id;
+    const done = { canonical: { id: canonical, label: label(canonical) }, aliased: members.map((id) => ({ id, label: label(id) })) };
+    graph = { ...graph, hash: `${graph.hash}-${members.join()}`, nodes: graph.nodes.filter((n) => !gone.has(n.id)),
+      edges: graph.edges.map((e) => ({ ...e, source: gone.has(e.source) ? canonical : e.source, target: gone.has(e.target) ? canonical : e.target })) };
+    proposals = proposals.map((g) => ({ ...g, members: g.members.filter((m) => !gone.has(m.id)),
+      canonical: gone.has(g.canonical) ? canonical : g.canonical })).filter((g) => g.members.length > 1);
+    return json(done);
+  }
   if (url.pathname === "/api/v2") return json({ authors: [], feed });
   if (url.pathname === "/api/v2/sorted") return json({ rows: sorted });
   if (url.pathname === "/api/v2/entity") return json({ rows: feed.filter((r) => r.entities.includes(url.searchParams.get("id") ?? "")) });
