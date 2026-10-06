@@ -11,8 +11,8 @@
 // of the field (some entities twice, which count once); one has nothing
 // placeable yet. `?twins` gives three entities one name (Wren Hollis, kept for
 // its ties; Wren-Hollis; wren hollis) and a three-way fold proposal (Kestrel
-// Books, the pick; Kestrel Bookshop; Kestrel Books Ltd), for F's fold and X's
-// "not the same"; a fold
+// Books, the pick; Kestrel Bookshop; Kestrel Books Ltd), for Merge?'s Accept and
+// Reject; an accept
 // here takes the folded ones off the field, as the engine's alias would.
 import { mount } from "svelte";
 import "../design/tokens.css";

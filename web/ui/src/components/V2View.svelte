@@ -790,22 +790,12 @@
   const errText = (e: unknown): string => (e instanceof Error ? e.message : String(e));
   const foldLabel = (id: string) => folds.flatMap((g) => g.members).find((m) => m.id === id)?.label
     ?? field?.nodes[field.byId.get(id) ?? -1]?.label ?? id;
-  const tiesOf = (id: string) => { const d = field?.nodes[field.byId.get(id) ?? -1]?.degree ?? 0; return `${d} ${d === 1 ? "tie" : "ties"}`; };
   const openId = () => (ent != null && field ? field.nodes[ent]!.id : null);
-  /** Fold row `id`: into the opened entity when it's the keeper; else the
-   * opened one into `id` (the keeper, then). */
-  const foldRow = (id: string) => {
-    const o = offer, mine = openId();
-    if (o && mine) void settleFold(mine === o.keep ? api.acceptFold(mine, [id]) : api.acceptFold(id, [mine]));
-  };
-  /** Keep this name instead: the suggested keeper folds into the opened one. */
-  const keepMine = () => {
-    const o = offer, mine = openId();
-    if (o && mine && mine !== o.keep) void settleFold(api.acceptFold(mine, [o.keep]));
-  };
+  /** Accept `from` → the keeper: it becomes an alias of the keeper. */
+  const acceptMerge = (from: string) => { if (offer) void settleFold(api.acceptFold(offer.keep, [from]), from === openId() ? offer.keep : openId()); };
   /** A fold written (the accept route makes each folded name an alias of the
    * kept one): draw the field anew, opened on the one that stands. */
-  async function settleFold(act: ReturnType<typeof api.acceptFold>): Promise<void> {
+  async function settleFold(act: ReturnType<typeof api.acceptFold>, land: string | null): Promise<void> {
     if (folding) return;
     folding = true;
     try {
@@ -814,7 +804,8 @@
       const graph = await api.graph();
       ent = null; entRows = null;
       await drawField(graph);
-      const i = field?.byId.get(done.canonical.id);
+      // back on the page you were on, unless it was the one folded away
+      const i = field?.byId.get(land ?? done.canonical.id) ?? field?.byId.get(done.canonical.id);
       if (i != null) void openEntity(i);
       flash(`Folded ${done.aliased.map((a) => `“${a.label}”`).join(", ")} into “${done.canonical.label}”.`);
     } catch (e) { flash(`Couldn’t fold: ${errText(e)}`); }
@@ -823,16 +814,16 @@
   async function loadFolds(): Promise<void> {
     try { const f = await api.folds(); folds = f.groups; foldsApart = f.rejected ?? []; } catch { /* no folds door: nothing offered */ }
   }
-  /** Not the same: the opened entity and row `id` are two things —
-   * remembered (the fold log), never offered together again. */
-  async function apartRow(id: string): Promise<void> {
-    const mine = openId();
-    if (!mine || folding) return;
+  /** Reject `from` → the keeper: two things — remembered (the fold log),
+   * never offered together again. */
+  async function rejectMerge(from: string): Promise<void> {
+    const keep = offer?.keep;
+    if (!keep || folding) return;
     folding = true;
     try {
-      await api.rejectFold(mine, [id]);
+      await api.rejectFold(from, [keep]);
       await loadFolds();
-      flash(`Kept “${foldLabel(mine)}” apart from “${foldLabel(id)}”.`);
+      flash(`Kept “${foldLabel(from)}” apart from “${foldLabel(keep)}”.`);
     } catch (e) { flash(`Couldn’t keep them apart: ${errText(e)}`); }
     finally { folding = false; }
   }
@@ -1072,9 +1063,6 @@
     const slot = Number(e.key);
     if (slot >= 1 && slot <= bar.length) { take(e); const p = bar[slot - 1]!; if (openPilot === p.id) closePilot(); else openPilotChat(p.id); return true; }
     if (e.key === "\\" && openPilot) { take(e); toggleDesktop(); return true; }
-    // F and X answer the first candidate; the next moves up
-    if (e.key === "f" && ent != null && offer) { take(e); foldRow(offer.rows[0]!); return true; }
-    if (e.key === "x" && ent != null && offer) { take(e); void apartRow(offer.rows[0]!); return true; }
     if (e.key === "j" || e.key === "k") { take(e); stepFeed(e.key === "j" ? 1 : -1); return true; }
     if (e.key === "Enter" && e.shiftKey) { take(e); void startPilot(); return true; }
     if (e.key === "Enter" && cursor && ent == null) { const r = cursorRow(); if (r) { take(e); openSource(r); return true; } }
@@ -1159,24 +1147,22 @@
       {#if hud.writing}<p><span class="spin" aria-label="Writing a summary"></span></p>{:else if hud.status}<p>{hud.status}</p>{/if}
       {#if hud.same}<p>{hud.same}</p>{/if}
       {#if ent != null && offer}
-        {@const keeper = offer.keep === openId()}
-        <!-- each thing it may be, and its two answers: one unit -->
-        <div class="same" role="group" aria-label={offer.kind === "proposal" ? "Maybe the same" : "Also in your vault as"}>
-          <span class="same-head">{offer.kind === "proposal" ? "Maybe the same" : "Also in your vault as"}</span>
+        <!-- the merge, the same on every page it touches -->
+        <div class="same" role="group" aria-label="Merge?">
+          <span class="same-head">Merge?</span>
           {#if offer.why}<p class="same-why">{offer.why}</p>{/if}
-          {#each offer.rows as id, k (id)}
+          {#each offer.rows as from (from)}
             <div class="cand">
-              <span class="cand-name">{foldLabel(id)} <small>· {tiesOf(id)}</small></span>
-              {#if folding}{#if k === 0}<span class="busy">Saving…</span>{/if}
-              {:else}
+              <span class="cand-name">{foldLabel(from)} <span class="arrow">→</span> {foldLabel(offer.keep)}</span>
+              {#if !folding}
                 <span class="acts">
-                  <button type="button" onclick={() => foldRow(id)}>{#if k === 0}<kbd>F</kbd>{/if}{keeper ? "Fold in" : "Fold into this"}</button>
-                  <button type="button" onclick={() => void apartRow(id)}>{#if k === 0}<kbd>X</kbd>{/if}Not the same</button>
+                  <button type="button" onclick={() => acceptMerge(from)}>Accept</button>
+                  <button type="button" onclick={() => void rejectMerge(from)}>Reject</button>
                 </span>
               {/if}
             </div>
           {/each}
-          {#if !keeper && !folding}<button type="button" class="keep-mine" onclick={keepMine}>Keep “{field?.nodes[ent]?.label}” as the name instead</button>{/if}
+          {#if folding}<span class="busy">Saving…</span>{/if}
         </div>
       {/if}
     </header>
@@ -1561,16 +1547,12 @@
   .hud .same-why { font-size: 13.5px; color: var(--v2-muted); }
   .cand { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
   .cand-name { font: 500 14.5px/1.3 var(--font-app); }
-  .cand-name small { font-weight: 400; font-size: 12.5px; color: var(--v2-muted); }
+  .cand-name .arrow { color: var(--v2-muted); }
   .acts { display: flex; gap: 8px; pointer-events: auto; }
-  .keep-mine { align-self: flex-start; padding: 0; border: 0; background: none; color: var(--v2-muted); font: 400 12.5px/1.4 var(--font-app);
-    text-decoration: underline; text-underline-offset: 2px; cursor: pointer; pointer-events: auto; text-shadow: none; }
-  .keep-mine:hover { color: var(--fg); }
-  .acts button { display: inline-flex; align-items: center; gap: 7px; padding: 5px 10px 5px 6px; border: 1px solid var(--rule); border-radius: 7px;
+  .acts button { display: inline-flex; align-items: center; padding: 5px 10px; border: 1px solid var(--rule); border-radius: 7px;
     background: var(--bg); color: var(--fg); font: 500 12.5px/1 var(--font-app); cursor: pointer; text-shadow: none; }
   .acts button:hover { background: color-mix(in srgb, var(--fg) 6%, var(--bg)); }
-  .acts kbd { min-width: 16px; padding: 2px 4px; border-radius: 4px; background: color-mix(in srgb, var(--fg) 8%, var(--bg)); font: 600 10.5px/1 var(--font-mono); text-align: center; }
-  .cand .busy { font: 400 12.5px/1.6 var(--font-app); color: var(--v2-muted); }
+  .same .busy { font: 400 12.5px/1.6 var(--font-app); color: var(--v2-muted); }
 
   .search { position: absolute; top: 62px; left: calc(var(--app-gutter, 34px) - 8px); width: min(480px, calc(100% - 32px)); z-index: 2;
     border-radius: 11px; background: var(--bg); box-shadow: 0 0 0 1px var(--rule); overflow: hidden; animation: v2fade .14s ease-out; }

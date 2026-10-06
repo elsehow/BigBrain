@@ -100,16 +100,14 @@ export function neighbours(field: Field, i: number, limit = 8): number[] {
 }
 
 // ── folding: names that are one thing ──────────────────────────────────────
-/** What an opened entity may be the same thing as, answered row by row.
- * `keep` is the one that stays (its name the name): a proposal's own pick,
- * else the twin the record knows best (most ties). Opened ON the keeper,
- * each other member is a row, folded in one by one; opened elsewhere, the
- * keeper is the only row, and folding goes into it (the rest are answered
- * from the keeper, where the fold lands you). */
+/** The merges an opened entity is part of, each `from` → `keep`: every
+ * other member of its group folding into the one that stays (a proposal's own
+ * pick, else the most-tied twin). The same rows show on every member's page;
+ * the opened entity's own row comes first. */
 export interface FoldOffer { keep: string; rows: string[]; kind: "twins" | "proposal"; why?: string }
 const RECORDED = /^ent_[a-f0-9]{20}$/;
 /** The offer on entity `i`: the memory pass's proposal it belongs to, else
- * its same-name twins — less any you said is a different thing (`rejected`,
+ * its same-name twins — less any pair you said are two things (`rejected`,
  * the fold log's pairs). Only entities this vault's record holds fold: a
  * joined vault's node or a legacy note never does. */
 export function foldOffer(field: Field, i: number, twins: ReadonlyMap<number, number[]>,
@@ -117,18 +115,16 @@ export function foldOffer(field: Field, i: number, twins: ReadonlyMap<number, nu
   rejected: ReadonlyArray<readonly [string, string]> = []): FoldOffer | null {
   const n = field.nodes[i];
   if (!n || !RECORDED.test(n.id)) return null;
-  const apart = new Set(rejected.flatMap(([a, b]) => (a === n.id ? [b] : b === n.id ? [a] : [])));
+  const apart = (a: string, b: string) => rejected.some(([x, y]) => (x === a && y === b) || (x === b && y === a));
   const ties = (id: string) => field.nodes[field.byId.get(id) ?? -1]?.degree ?? 0;
   const g = proposals.find((p) => p.members.some((m) => m.id === n.id));
-  const kind = g ? "proposal" as const : "twins" as const;
-  const others = (g ? g.members.map((m) => m.id) : (twins.get(i) ?? []).map((j) => field.nodes[j]!.id))
-    .filter((id) => id !== n.id && RECORDED.test(id) && !apart.has(id))
-    .sort((a, b) => ties(b) - ties(a));
-  if (!others.length) return null;
-  const keep = g && g.canonical !== n.id && others.includes(g.canonical) ? g.canonical
-    : g ? n.id
-    : [n.id, ...others].reduce((a, b) => (ties(b) > ties(a) ? b : a));
-  return { keep, rows: keep === n.id ? others : [keep], kind, ...(g?.why ? { why: g.why } : {}) };
+  const members = (g ? g.members.map((m) => m.id) : [n.id, ...(twins.get(i) ?? []).map((j) => field.nodes[j]!.id)])
+    .filter((id) => RECORDED.test(id) && (id === n.id || !apart(id, n.id)));
+  if (members.length < 2) return null;
+  const keep = g && members.includes(g.canonical) ? g.canonical : members.reduce((a, b) => (ties(b) > ties(a) ? b : a));
+  const rows = members.filter((id) => id !== keep && !apart(id, keep))
+    .sort((a, b) => Number(b === n.id) - Number(a === n.id) || ties(b) - ties(a));
+  return rows.length ? { keep, rows, kind: g ? "proposal" : "twins", ...(g?.why ? { why: g.why } : {}) } : null;
 }
 
 // ── search by name ─────────────────────────────────────────────────────────

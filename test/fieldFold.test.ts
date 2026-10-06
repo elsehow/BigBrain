@@ -9,21 +9,17 @@ const at = (f: ReturnType<typeof field>, id: string) => f.byId.get(id)!;
 
 const D = "ent_dddddddddddddddddddd";
 
-test("on the keeper, every other twin is a row to fold in, most-tied first", () => {
+test("every other twin merges into the most-tied, the same rows on every page, your own first", () => {
   const f = field(node(A, "Avery Quill", 2, 1), node(B, "Avery-Quill", 40, 2), node(C, "avery quill", 5, 3), node(D, "Bo Lark", 5, 4));
   expect(foldOffer(f, at(f, B), twinsOf(f), [])).toEqual({ keep: B, rows: [C, A], kind: "twins" });
+  expect(foldOffer(f, at(f, A), twinsOf(f), [])).toEqual({ keep: B, rows: [A, C], kind: "twins" });
   expect(foldOffer(f, at(f, D), twinsOf(f), [])).toBeNull();
-});
-
-test("off the keeper, the keeper is the one row: fold into it", () => {
-  const f = field(node(A, "Avery Quill", 2, 1), node(B, "Avery-Quill", 40, 2), node(C, "avery quill", 5, 3));
-  expect(foldOffer(f, at(f, A), twinsOf(f), [])).toEqual({ keep: B, rows: [B], kind: "twins" });
 });
 
 test("a proposal keeps its own pick, wherever you open it", () => {
   const f = field(node(A, "Trail Map", 9, 1), node(B, "TrailAtlas", 3, 2), node(C, "Trailmap app", 1, 3));
   const proposals = [{ canonical: B, members: [{ id: A }, { id: B }, { id: C }], why: "renamed" }];
-  expect(foldOffer(f, at(f, A), twinsOf(f), proposals)).toEqual({ keep: B, rows: [B], kind: "proposal", why: "renamed" });
+  expect(foldOffer(f, at(f, A), twinsOf(f), proposals)).toEqual({ keep: B, rows: [A, C], kind: "proposal", why: "renamed" });
   expect(foldOffer(f, at(f, B), twinsOf(f), proposals)).toEqual({ keep: B, rows: [A, C], kind: "proposal", why: "renamed" });
 });
 
@@ -32,8 +28,9 @@ test("only this vault's recorded entities fold: a joined vault's node is left ou
   expect(foldOffer(f, at(f, A), twinsOf(f), [])).toBeNull();
 });
 
-test("a twin you said is a different thing is not offered again", () => {
+test("a pair you rejected is not offered again", () => {
   const f = field(node(A, "Avery Quill", 2, 1), node(B, "Avery-Quill", 40, 2), node(C, "Avery quill", 3, 3));
-  expect(foldOffer(f, at(f, A), twinsOf(f), [], [[A, B]])).toEqual({ keep: C, rows: [C], kind: "twins" });
+  expect(foldOffer(f, at(f, A), twinsOf(f), [], [[A, B]])).toEqual({ keep: C, rows: [A], kind: "twins" });
+  expect(foldOffer(f, at(f, B), twinsOf(f), [], [[A, B]])).toEqual({ keep: B, rows: [C], kind: "twins" });
   expect(foldOffer(f, at(f, A), twinsOf(f), [], [[A, B], [A, C]])).toBeNull();
 });
