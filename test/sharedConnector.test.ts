@@ -801,6 +801,31 @@ describe("/mcp", () => {
     expect((await tool(w, w.ada, "read_record", { id, chars: 100_001 })).isError).toBe(true);
   });
 
+  test("members' text reaches an agent screened and fenced with its provenance; fresh sign-in mail is held", async () => {
+    const w = world();
+    const reset = await drop(w, w.ada, "Pump portal access", "Sam forwarded the pump portal reset: https://pumps.example/account/reset?token=Q8vX2mT7pL4nR9bW so we can log in.");
+    const a = await claim(w, w.ada, "[[Pump Portal]] access was reset for the cooperative.", [reset]);
+    const ev = (await tool(w, w.ada, "read_record", { id: reset })).text;
+    expect(ev).toContain('<untrusted-data kind="source" from="ada" title="Pump portal access" received=');
+    expect(ev).toContain("[sign-in link withheld — open the original]");
+    expect(ev).not.toContain("Q8vX2mT7pL4nR9bW");
+    // the lines clients read before are all still there
+    expect(ev).toContain("# Pump portal access");
+    expect(ev).toContain("Submitted by Ada (@ada)");
+    expect(ev).toContain(a);
+    const hits = (await tool(w, w.ada, "search_vault", { query: "pump portal" })).text;
+    expect(hits).toContain("   <untrusted-data>…");
+    expect(hits).not.toContain("Q8vX2mT7pL4nR9bW");
+    expect((await tool(w, w.ada, "read_record", { id: a })).text).toContain('<untrusted-data kind="source" from="Ada (@ada)"');
+    // a sign-in message dropped minutes after it arrived: its body waits
+    const res = await req(w, "POST", "/v1/evidence", { token: w.ada, json: { title: "Your Larkspur verification code", body: "Use 482910 to finish signing in.",
+      origin: { kind: "email", author: "Larkspur <security@larkspur.example>", date: new Date(Date.now() - 60_000).toISOString() } } });
+    const code = (await res.json()).id as string;
+    const held = (await tool(w, w.ada, "read_record", { id: code })).text;
+    expect(held).toContain("Sign-in mail received under 10 minutes ago");
+    expect(held).not.toContain("482910");
+  });
+
   test("a withdrawn contribution is not readable, searchable, listed or in recent", async () => {
     const w = world();
     const id = await drop(w, w.ada, "Draft lighthouse memo", "The lighthouse keeper rota is unconfirmed.");

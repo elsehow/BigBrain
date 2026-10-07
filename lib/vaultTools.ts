@@ -7,6 +7,7 @@ import { clampLimit, scanSurface, type SearchFilters } from "./searchCore";
 import { fmBody, fmRaw, fmSerialize } from "./wire";
 import { openStaged } from "./stage";
 import { nextWork, submitWire, WORK_BATCH_LIMIT, WORK_KINDS, type WorkKind } from "./work";
+import { memoryForAgents, noteForAgent, rowsForAgent } from "./agentReads";
 
 /** A tool-level refusal the transport should mark `isError` — the message
  * is for the calling model, so it says what would work. */
@@ -62,7 +63,9 @@ function searchTool(ctx: VaultToolContext, args: Record<string, unknown>): unkno
   const n = clampLimit(args["n"] === undefined ? null : String(args["n"]), 20);
   const r = scanSurface(ctx.root, q, n, ctx.via, { now: new Date(), filters });
   if (!r.ok) throw new VaultToolError(r.reason);
-  return { hits: r.hits, relaxation: r.relaxation, applied_filters: r.applied_filters, only_agent_records: r.only_agent_records };
+  // The gardener reads the record raw; every other reader is an agent (lib/agentReads.ts).
+  const hits = ctx.via === "gardener" ? r.hits : rowsForAgent(ctx.root, r.hits);
+  return { hits, relaxation: r.relaxation, applied_filters: r.applied_filters, only_agent_records: r.only_agent_records };
 }
 
 const NOTE_CHARS_DEFAULT = 40_000;
@@ -71,7 +74,7 @@ const NOTE_CHARS_MAX = 80_000;
 /** The pi source tool's chunk contract, restored (#514 parity run): a huge
  * note is sliced with an honest length, never silently clipped by the
  * transport — the caller pages with start/chars. */
-function sliceNote(note: { markdown: string }, args: Record<string, unknown>): unknown {
+function sliceNote<T extends { markdown: string }>(note: T, args: Record<string, unknown>): T {
   const md = note.markdown;
   const start = Math.min(Math.max(0, Math.trunc(Number(args["start"]) || 0)), md.length);
   const chars = Math.min(Math.max(1, Math.trunc(Number(args["chars"]) || NOTE_CHARS_DEFAULT)), NOTE_CHARS_MAX);
@@ -90,14 +93,15 @@ function readNoteTool(ctx: VaultToolContext, args: Record<string, unknown>): unk
   const p = notePayload(ctx.root, str(args["path"]), window);
   if (p.status !== 200) throw new VaultToolError(p.error);
   recordUse(ctx.root, p.rel, ctx.via);
-  return sliceNote(p.note, args);
+  if (ctx.via === "gardener") return sliceNote(p.note, args);
+  return noteForAgent(ctx.root, p.rel, p.note, note => sliceNote(note, args));
 }
 
 function loadMemoryTool(ctx: VaultToolContext): unknown {
   const r = memoryRead(ctx.root);
   if (r.status !== 200)
     throw new VaultToolError(r.status === 404 ? "no such memory file" : "forbidden path");
-  return r.text;
+  return ctx.via === "gardener" ? r.text : memoryForAgents(r.text);
 }
 
 function dropTool(ctx: VaultToolContext, args: Record<string, unknown>): unknown {

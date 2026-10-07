@@ -32,8 +32,8 @@ function provider(onConnect?:()=>Promise<void>) {
  let calls=0,closes=0;
  const client=()=>({on(){},connect:async()=>{calls++;await onConnect?.();},close(){closes++;},mailbox:{exists:1,uidValidity:77n},capabilities:new Set(),
  getMailboxLock:async(_p:unknown,o:any)=>{expect(o.readOnly).toBe(true);return {release(){}};},search:async()=>[1],
- fetchAll:async()=>[{uid:1,envelope:{subject:"Project Atlas"},flags:new Set(),size:50}],
- fetchOne:async()=>({uid:1,envelope:{subject:"Project Atlas"},flags:new Set(),size:50,source:Buffer.from("Subject: Project Atlas\r\n\r\nWe chose the smaller design.")}),
+ fetchAll:async()=>[{uid:1,envelope:{subject:"Project Atlas"},flags:new Set(),size:50,internalDate:new Date("2026-01-02T09:00:00Z")}],
+ fetchOne:async()=>({uid:1,envelope:{subject:"Project Atlas"},flags:new Set(),size:50,internalDate:new Date("2026-01-02T09:00:00Z"),source:Buffer.from("Subject: Project Atlas\r\n\r\nWe chose the smaller design.")}),
  }) as unknown as ImapFlow;
  return {client,calls:()=>calls,closes:()=>closes};
 }
@@ -60,6 +60,10 @@ test("Pilot and authenticated MCP use the same account-scoped reads without reme
  expect(pilot.result.messages).toEqual(external.result.messages);
  expect(pilot.provenance).toMatchObject({account:"me@example.com",remembered:false,scope:"live_source"});
  const body:any=await handleMcpTool(ctx,"inbox_read",{ref:external.result.messages[0].ref});expect(body.result.selected.body).toContain("smaller design");
+ // what an agent reads names its origin: mail is outside the person, its body fenced as data
+ expect(body.provenance).toMatchObject({integration:"email",account:"me@example.com",kind:"email",trusted:false});
+ expect(body.result.selected.provenance).toMatchObject({kind:"email",trusted:false,received:"2026-01-02T09:00:00.000Z"});
+ expect(body.result.selected.body.startsWith('<untrusted-data kind="email"')).toBe(true);
  expect(readSourceInsertionLog(f.root)).toHaveLength(0);expect(stagedItems(f.root,"email")).toHaveLength(0);
  const count=p.calls();
  for(const actor of [{kind:"pilot" as const},{kind:"mcp" as const,token:f.credential.token,storePath:f.store}]) {

@@ -164,10 +164,10 @@ test("a desktop started about a note reads it for the agent, as data in its firs
   expect(system).not.toContain("gear train");
   expect(user).toHaveLength(2);
   expect(user[1]).toBe("summarize this");
-  expect(user[0]).toContain('<untrusted-data kind="curated note" title="Gears" path="memory/gears.md">\n# Gears\n\nThe orrery\'s gear train runs a 3:1 reduction.');
+  expect(user[0]).toMatch(/<untrusted-data kind="memory" title="Gears" updated="[^"]+" path="memory\/gears.md">\n# Gears\n\nThe orrery's gear train runs a 3:1 reduction./);
   // a long note is cut honestly, with where to pick up
   expect(user[0]).toMatch(/\[cut at 12000 of \d+ characters: read_note with start 12000 for the rest\]/);
-  expect(user[0]).toContain('<untrusted-data kind="curated note" title="Gone" path="memory/gone.md">\n(not read here: use read_note)\n</untrusted-data>');
+  expect(user[0]).toContain('<untrusted-data kind="memory" title="Gone" path="memory/gone.md">\n(not read here: use read_note)\n</untrusted-data>');
   desktops.close();
 });
 

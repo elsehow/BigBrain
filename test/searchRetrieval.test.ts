@@ -38,7 +38,9 @@ test("the gastro OR query finds openable health memory ahead of the old pilot an
   const alternatives = ["gastro", "GI", "gastroenterology", "appointment"];
   const mcp = handleMcpTool(ctx, "search_vault", { queries: alternatives }) as any;
   const pilot = await pilotToolCall(root, "search_vault", { queries: alternatives }) as any;
-  expect(mcp.hits).toEqual(result.hits);
+  // an agent's hits are the same hits, each naming its provenance (lib/agentReads.ts)
+  expect(mcp.hits.map((h: { path: string }) => h.path)).toEqual(result.hits.map(h => h.path));
+  expect(mcp.hits.map((h: { provenance: { kind: string } }) => h.provenance.kind)).toEqual(["memory", "memory", "agent"]);
   expect(pilot).toEqual(mcp);
   const cli = spawnSync(process.execPath, [join(ENGINE_ROOT, "bin/search.ts"), q, "--json", "--limit", "20"], {
     env: { ...process.env, BIGBRAIN_VAULT: root }, encoding: "utf8",

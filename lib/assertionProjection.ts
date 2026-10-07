@@ -974,6 +974,23 @@ export function projectedSourcesById(
   return out;
 }
 
+/** Sources' envelopes and authors, never their bodies, by insertion id:
+ * what a reader's provenance is decided from (lib/provenance.ts). */
+export function projectedSourceMetadata(
+  root: string,
+  ids: readonly string[],
+  db?: Database
+): Map<string, SourceMetadata> {
+  const out = new Map<string, SourceMetadata>();
+  if (!ids.length || (!db && !existsSync(assertionDbPath(root)))) return out;
+  reading(root, db, (handle) => {
+    eachByIds<{ insertion_id: string; header_json: string }>(handle, ids, (placeholders) =>
+      `SELECT insertion_id, header_json FROM sources WHERE insertion_id IN (${placeholders})`,
+      (row) => out.set(row.insertion_id, JSON.parse(row.header_json) as SourceMetadata));
+  });
+  return out;
+}
+
 /** The columns ranking a hit needs — id, source, title, dates — and nothing
  * else. `projectedSourcesById` parses each cited event's JSON, body included:
  * ranking a one-letter prefix parsed 46MB of transcript to read 650 titles

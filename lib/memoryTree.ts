@@ -27,6 +27,7 @@
 import { existsSync, readFileSync, readdirSync, lstatSync } from "node:fs";
 import { join } from "node:path";
 import { machinePath } from "./run/machineTools";
+import { stripMemoryProvenance } from "./memoryProvenance";
 
 export const MEMORY_MAX_FILES = 1;
 export const MEMORY_TARGET_WORDS = 3_000;
@@ -63,7 +64,8 @@ export function measureTree(root: string): TreeMeasure {
   const files = memoryTreeFiles(root);
   const perFile = files.map((f): [string, number] => [
     f,
-    readFileSync(join(root, "memory", f), "utf8").split(/\s+/).filter(Boolean).length,
+    // a claim's source stamp is the runner's, not words the budget holds the pass to
+    stripMemoryProvenance(readFileSync(join(root, "memory", f), "utf8")).split(/\s+/).filter(Boolean).length,
   ]);
   return { files, words: perFile.reduce((n, [, w]) => n + w, 0), perFile };
 }
