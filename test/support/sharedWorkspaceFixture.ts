@@ -16,6 +16,7 @@ import {readSourceInsertionLog} from '../../lib/insertionLog';
 import {serializeMentions} from '../../lib/pilotMentions';
 import {searchRuleEntities} from '../../lib/sharedRuleMentions';
 import { appendSourceInsertionEvent, sourceInsertion } from '../../lib/insertionLog';
+import { viewerReady } from '../../lib/viewerSession';
 const home = mkdtempSync(join(tmpdir(), 'bb-shell-browser-')), personal = join(home,'personal'), shared = join(home,'shared'), members = join(home,'members.json'), connections = join(home,'connections.json');
 for (const root of [personal,shared]) { mkdirSync(root); writeFileSync(join(root,'vault.yaml'),root===shared?'shared: true\n':'integrations: {}\n'); }
 appendSourceInsertionEvent(personal, sourceInsertion({id:'example-private',title:'Personal sentinel',from:'Example owner',from_kind:'person',date:'2026-09-29',source:'web'}, 'Private fixture text only.'));
@@ -55,10 +56,14 @@ try{
 const invite=issueSharedInvite(members,'owner',endpoint);
 const readonly = await saveConnection(connections,{name:'Example read only',endpoint,token:reader.token});
 const probe=createServer(); await new Promise<void>(r=>probe.listen(0,'127.0.0.1',r));const port=(probe.address() as {port:number}).port;await new Promise<void>(r=>probe.close(()=>r()));
-const child = Bun.spawn(['bun','web/server.ts'],{env:{...process.env,BIGBRAIN_VAULT:personal,BIGBRAIN_WEB_PORT:String(port),BIGBRAIN_SHARED_CONNECTIONS:connections,PI_OFFLINE:'1',NODE_ENV:'test'},stdout:'ignore',stderr:'pipe'});
+// The viewer's session file lives under HOME (lib/viewerSession.ts): a scratch one.
+const viewerHome = join(home,'home'); mkdirSync(viewerHome);
+const child = Bun.spawn(['bun','web/server.ts'],{env:{...process.env,HOME:viewerHome,BIGBRAIN_VAULT:personal,BIGBRAIN_WEB_PORT:String(port),BIGBRAIN_SHARED_CONNECTIONS:connections,PI_OFFLINE:'1',NODE_ENV:'test'},stdout:'ignore',stderr:'pipe'});
 void new Response(child.stderr).text().then(log=>{if(log)process.stderr.write(log);});
 void child.exited.then(code=>{if(code)console.error('Fixture web server exited with status '+code);});
-const metadata = {invite,base:`http://127.0.0.1:${port}`,endpoint,token:owner.token,readonly:readonly.id,source:source.id,home};
+const secret = await viewerReady(port, join(viewerHome,'.config','bigbrain'));
+if (!secret) throw Error('Fixture web server did not answer with its session');
+const metadata = {invite,base:`http://127.0.0.1:${port}`,secret,endpoint,token:owner.token,readonly:readonly.id,source:source.id,home};
 writeFileSync(join(home,'browser.json'),JSON.stringify(metadata),{mode:0o600});
 console.log(join(home,'browser.json'));
 process.stdin.on('data',data=>{ if(data.toString().trim()==='revoke') revokeCredential(members,owner.credential.id); });

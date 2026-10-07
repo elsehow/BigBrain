@@ -2,7 +2,7 @@
 const assert = require('node:assert/strict');
 const { spawn } = require('node:child_process');
 const { once } = require('node:events');
-const { mkdtempSync, rmSync, existsSync, realpathSync } = require('node:fs');
+const { mkdtempSync, rmSync, existsSync, readFileSync, realpathSync } = require('node:fs');
 const { createServer } = require('node:net');
 const { tmpdir } = require('node:os');
 const { join, resolve } = require('node:path');
@@ -27,10 +27,13 @@ const { chromium } = require('./browserHarness.cjs');
   child.stderr.on('data', data => { stderr += data; });
   try {
     const base = `http://127.0.0.1:${port}`;
+    // The door answers only this launch's session, which the supervisor
+    // writes under HOME before it binds (lib/viewerSession.ts).
+    const secret = () => { try { return readFileSync(join(home, '.config', 'bigbrain', `viewer-session-${port}`), 'utf8').trim(); } catch { return ''; } };
     let identity;
     for (let attempt = 0; attempt < 150; attempt++) {
       try {
-        const response = await fetch(`${base}/api/engine`, { signal: AbortSignal.timeout(500) });
+        const response = await fetch(`${base}/api/engine`, { headers: { authorization: `Bearer ${secret()}` }, signal: AbortSignal.timeout(500) });
         if (response.ok) { identity = await response.json(); break; }
       } catch { /* waiting for the supervisor */ }
       assert.equal(child.exitCode, null, stderr);
@@ -44,7 +47,8 @@ const { chromium } = require('./browserHarness.cjs');
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
     // Never mock /api/setup or /api/engine: these are the actual first-run routes.
-    await page.goto(base);
+    await page.goto(`${base}/api/session?k=${secret()}`);
+    assert.equal(page.url(), `${base}/`);
     const wizard = page.getByRole('dialog', { name: 'Set up BigBrain' });
     await wizard.getByRole('heading', { name: 'Where should your vault live?', exact: true }).waitFor();
     await wizard.getByRole('button', { name: 'CREATE', exact: true }).click();

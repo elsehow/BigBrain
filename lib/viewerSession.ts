@@ -77,6 +77,20 @@ export function viewerLink(port: number, secret: string, now = Date.now()): stri
   return `http://127.0.0.1:${port}${SESSION_PATH}?t=${expiry}&s=${linkMac(secret, expiry)}`;
 }
 
+/** The secret of the viewer answering on `port`, once it answers with it —
+ * for a launcher that starts one and opens a browser on it. A file left by
+ * an earlier run on the same port does not count. */
+export async function viewerReady(port: number, dir?: string, tries = 100): Promise<string | null> {
+  for (let i = 0; i < tries; i++) {
+    const secret = readViewerSession(port, dir);
+    try {
+      if (secret && (await fetch(`http://127.0.0.1:${port}/api/engine`, { headers: { authorization: `Bearer ${secret}` } })).ok) return secret;
+    } catch { /* not listening yet */ }
+    await Bun.sleep(100);
+  }
+  return null;
+}
+
 /** The header a native caller (a script, a probe) sends; empty when this
  * port has no session on disk. */
 export function viewerAuthorization(port: number, dir?: string): Record<string, string> {

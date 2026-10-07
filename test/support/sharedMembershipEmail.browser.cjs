@@ -10,9 +10,11 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
 (async()=>{let browser;try{
  for(let i=0;!output.includes('\n')&&i<150;i++){if(child.exitCode!==null)throw Error(errors);await pause(100);}
  const fixture=JSON.parse(readFileSync(output.trim().split('\n')[0],'utf8'));
- for(let i=0;i<100;i++){try{if((await fetch(fixture.base+'/api/vault')).ok)break;}catch{}await pause(100);}
+ // The viewer answers only its session (lib/viewerSession.ts): the fixture hands it on.
+ const viewerFetch=(url,init={})=>fetch(url,{...init,headers:{authorization:'Bearer '+fixture.secret,...init.headers}});
+ for(let i=0;i<100;i++){try{if((await viewerFetch(fixture.base+'/api/vault')).ok)break;}catch{}await pause(100);}
  const owner=(path,body)=>fetch(fixture.endpoint+path,{method:body?'POST':'GET',headers:{Authorization:'Bearer '+fixture.token,'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined}).then(r=>r.json());
- browser=await chromium.launch({channel:process.env.PLAYWRIGHT_CHANNEL||'chrome',headless:true});const page=await browser.newPage({viewport:{width:1440,height:1000}});const pageErrors=[];page.on('pageerror',e=>pageErrors.push(e.message));
+ browser=await chromium.launch({channel:process.env.PLAYWRIGHT_CHANNEL||'chrome',headless:true});const page=await browser.newPage({viewport:{width:1440,height:1000}});await page.goto(fixture.base+'/api/session?k='+fixture.secret);const pageErrors=[];page.on('pageerror',e=>pageErrors.push(e.message));
  await page.goto(fixture.base+'/#sharedVaultSettings');
  // The join link pasted into the app is refused with directions, before any request.
  await page.getByRole('button',{name:'+ Connect vault',exact:true}).click();await page.getByLabel('Invite link',{exact:true}).fill(fixture.endpoint+'/join');await page.getByRole('dialog').getByRole('button',{name:'Connect',exact:true}).click();
