@@ -48,6 +48,7 @@ import { dropErrorStatus, FirewallUnavailable } from "./door";
 import { IntakeError } from "./intake";
 import { landDirective, landDrop } from "./landItem";
 import { jailMemoryPath, noteMarkdownText, notePayload } from "./noteRead";
+import { memoryForAgents, noteForAgent, rowsForAgent } from "./agentReads";
 import { TEND_JOURNAL_DIR, tendJournalFiles } from "./tend";
 import { journalFiles, readQueueJournalFile, type QueueJournalRecord } from "./run/journal";
 import { landVoice, VoiceError } from "./voice";
@@ -379,18 +380,22 @@ function noteHandler({ root, url, now, json, record, setBytes }: RouteCtx): Resp
   if (p.status !== 200) return json(p.status, { error: p.error });
   // Most note fetches follow a wikilink rather than a search; the
   // offline join drops the ones that attribute to nothing.
-  recordUse(root, p.rel, gardenerVia(url, record), now());
+  const via = gardenerVia(url, record);
+  recordUse(root, p.rel, via, now());
+  // An agent reads it as local MCP does: provenance beside it, outside text
+  // screened and fenced (lib/agentReads.ts). The gardener reads raw.
+  const note = via === "gardener" ? p.note : noteForAgent(root, p.rel, p.note, n => n, now().getTime());
   if (format === "markdown") {
     // The same note as text with its newlines intact — the plugin saves this
     // beside a big note's JSON so a line-addressed reader can slice it.
-    const buf = Buffer.from(noteMarkdownText(p.note), "utf8");
+    const buf = Buffer.from(noteMarkdownText(note), "utf8");
     setBytes(buf.byteLength);
     return new Response(buf, {
       status: 200,
       headers: { "Content-Type": "text/markdown; charset=utf-8", ...CORS },
     });
   }
-  return json(200, p.note);
+  return json(200, note);
 }
 
 // The product's shared query surface (lib/searchCore.ts): sources,
@@ -418,7 +423,8 @@ function searchHandler({ root, url, now, json, log, record }: RouteCtx): Respons
   const type = (url.searchParams.get("type") ?? "").trim();
   if (type && type !== "reference" && type !== "entity")
     return json(400, { error: `bad type "${type}" — use type=reference or type=entity` });
-  const r = scanSurface(root, q, n, gardenerVia(url, record), {
+  const via = gardenerVia(url, record);
+  const r = scanSurface(root, q, n, via, {
     now: now(),
     filters: {
       ...(url.searchParams.get("source")?.trim() && { source: url.searchParams.get("source")!.trim().toLowerCase() }),
@@ -445,15 +451,18 @@ function searchHandler({ root, url, now, json, log, record }: RouteCtx): Respons
   }
   // `relaxation` rides only when it fired: an agent seeing it knows these
   // hits came from the any-term rung, not the exact query (#361).
-  return json(200, { hits: r.hits, ...(r.relaxation ? { relaxation: r.relaxation } : {}),
+  // An agent's hits wear their provenance, as over local MCP (lib/agentReads.ts).
+  const hits = via === "gardener" ? r.hits : rowsForAgent(root, r.hits, now().getTime());
+  return json(200, { hits, ...(r.relaxation ? { relaxation: r.relaxation } : {}),
     applied_filters: r.applied_filters, only_agent_records: r.only_agent_records });
 }
 
-// The memory tree (#105): the index, or one topic file, as written.
-// Raw markdown on purpose — links are NOT resolved the way /v1/note
-// resolves them, because the consumer is an agent that follows each
-// `[[memory/slug]]` back here with `?path=slug` and each record link
-// through /v1/note.
+// The memory tree (#105): the index, or one topic file, as written, save
+// that a claim drawn from outside arrives fenced with its source
+// (lib/memoryProvenance.ts). Raw markdown on purpose — links are NOT
+// resolved the way /v1/note resolves them, because the consumer is an
+// agent that follows each `[[memory/slug]]` back here with `?path=slug`
+// and each record link through /v1/note.
 //
 // No recordUse here, deliberately (#359): this door's traffic is
 // dominated by session-start machinery auto-fetching the working set —
@@ -461,13 +470,14 @@ function searchHandler({ root, url, now, json, log, record }: RouteCtx): Respons
 // The asymmetry with the web viewer, which DOES record its memory reads,
 // is intentional: there the read is a person clicking. The tree is bounded (lib/memoryRun.ts: 9 files,
 // ~3,300 words), so there is nothing to paginate.
-function memoryHandler({ root, url, json, setBytes }: RouteCtx): Response {
+function memoryHandler({ root, url, json, setBytes, record }: RouteCtx): Response {
   const slug = url.searchParams.get("path") ?? "";
   const abs = jailMemoryPath(root, slug ? `${slug}.md` : "MEMORY.md");
   if (!abs) return json(403, { error: "forbidden path" });
   try {
     if (!statSync(abs).isFile()) return json(404, { error: "not a file" });
-    const buf = readFileSync(abs);
+    const raw = readFileSync(abs, "utf8");
+    const buf = Buffer.from(gardenerVia(url, record) === "gardener" ? raw : memoryForAgents(raw), "utf8");
     setBytes(buf.byteLength);
     return new Response(buf, {
       status: 200,

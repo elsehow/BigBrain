@@ -175,11 +175,13 @@ describe("search on an assertion-native vault", () => {
     expect(body.hits.map((h) => h.path)).toEqual([entPath, rel(kickoff), rel(staffing), "memory/MEMORY.md", rel(fieldnote)]);
     // The entity hit wears its newest evidence: snippet from the latest
     // assertion (wikilinks flattened), date from that assertion's source.
+    // Its claims rest on meetings, so the snippet is fenced as data (lib/agentReads.ts).
     expect(body.hits[0]).toEqual(expect.objectContaining({
       path: entPath,
       title: "Briar Calder",
       date: "2026-08-14",
-      snippet: "Briar Calder asked for a second engineer.",
+      snippet: "<untrusted-data>Briar Calder asked for a second engineer.</untrusted-data>",
+      provenance: expect.objectContaining({ kind: "entity", trusted: false }),
     }));
     expect(body.hits[1]).toEqual(expect.objectContaining({
       path: `log/insertions/2026-08/${kickoff.id}.json`,
@@ -187,7 +189,7 @@ describe("search on an assertion-native vault", () => {
       date: "2026-08-10",
     }));
     // The entity-grounded snippet is the assertion, wikilinks flattened.
-    expect(body.hits[1]!.snippet).toBe("Briar Calder owns the vault migration plan.");
+    expect(body.hits[1]!.snippet).toBe("<untrusted-data>Briar Calder owns the vault migration plan.</untrusted-data>");
   });
 
   test("an entity-label term answers the entity and its assertion-grounded sources", async () => {

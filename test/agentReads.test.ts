@@ -16,6 +16,9 @@ import { pilotToolCall } from "../lib/pilot";
 import { fenceUntrusted, sourceTrusted } from "../lib/provenance";
 import { handleVaultTool } from "../lib/vaultTools";
 import { insertion, nativeVault } from "./support/vault";
+import { join } from "node:path";
+import { makeApiHandler } from "../lib/api";
+import { mintToken } from "../lib/auth";
 
 const roots: string[] = [];
 afterAll(() => roots.forEach(r => rmSync(r, { recursive: true, force: true })));
@@ -127,6 +130,74 @@ describe("search_vault", () => {
     expect(hit.title).not.toContain("482910");
     const raw = handleVaultTool({ root, via: "gardener" }, "search_vault", { query: "Larkspur" }) as { hits: Array<Record<string, unknown>> };
     expect(raw.hits.every(h => h.provenance === undefined)).toBe(true);
+  });
+});
+
+describe("the HTTP doors (/v1/note, /v1/search, /v1/memory)", () => {
+  const minutesAgo = (n: number) => new Date(Date.now() - n * 60_000).toISOString();
+  const fresh = insertion({ id: `ins_${"f".repeat(24)}`, source_id: "src-fresh", title: "Your Kestrel verification code",
+    author: { kind: "user", id: "Kestrel <security@kestrel.example>" }, received_at: minutesAgo(2), body: "Use 731905 to finish signing in.",
+    envelope: { id: "src-fresh", source: "email", kind: "email", from: "Kestrel <security@kestrel.example>", from_kind: "person" } });
+  const mom = insertion({ id: `ins_${"b".repeat(24)}`, source_id: "src-mom", title: "Photos from Sunday",
+    author: { kind: "user", id: "Mom <mom@example.net>" }, received_at: minutesAgo(1), body: "Here are the rest of them, love you.",
+    envelope: { id: "src-mom", source: "email", kind: "email", from: "Mom <mom@example.net>", from_kind: "person" } });
+  const STAMPED = `# Memory\n- Dana asked for invoices by Friday. [[ast_${"1".repeat(24)}]] <!-- from: [{"kind":"email","from":"Dana Okafor"}] -->\n- I want the orrery finished by spring.\n`;
+
+  function door(memory = STAMPED) {
+    const root = nativeVault({ insertions: [mail, mine, fresh, mom], files: { "memory/MEMORY.md": memory } }); roots.push(root);
+    const store = join(root, ".state/tokens.json");
+    const { token } = mintToken(store, root, "plugin", ["vault:read"]);
+    const { token: tend } = mintToken(store, root, "tend", ["vault:read", "tend"]);
+    const handler = makeApiHandler({ root, storePath: store, log: () => {} });
+    const get = (path: string, as = token) => handler(new Request(`http://api.test${path}`, { headers: { Authorization: `Bearer ${as}` } }));
+    return { root, get, tend };
+  }
+
+  test("/v1/note hands a remote agent the same envelope as local MCP, in JSON and as markdown", async () => {
+    const { root, get } = door();
+    const path = insertionEventRel(mail);
+    const served = await (await get(`/v1/note?path=${encodeURIComponent(path)}`)).json() as Read;
+    expect(served).toEqual(handleMcpTool({ root, via: "cli" }, "read_note", { path }) as Read);
+    expect(served.provenance).toMatchObject({ kind: "email", trusted: false });
+    expect(served.markdown).not.toContain("482910");
+    const text = await (await get(`/v1/note?path=${encodeURIComponent(path)}&format=markdown`)).text();
+    expect(text).toContain('<untrusted-data kind="email"');
+    expect(text).not.toContain("482910");
+  });
+
+  test("/v1/search hits carry provenance, as over MCP", async () => {
+    const { root, get } = door();
+    const { hits } = await (await get("/v1/search?q=Larkspur")).json() as { hits: Array<{ path: string; provenance: unknown; snippet: string }> };
+    const mcp = handleMcpTool({ root, via: "cli" }, "search_vault", { query: "Larkspur" }) as { hits: unknown[] };
+    expect(hits).toEqual(mcp.hits as typeof hits);
+    expect(hits.find(h => h.path === insertionEventRel(mail))!.provenance).toMatchObject({ kind: "email", trusted: false });
+  });
+
+  test("/v1/memory fences outside claims; memory without stamps, and the gardener's read, are as written", async () => {
+    const { get, tend } = door();
+    const text = await (await get("/v1/memory")).text();
+    expect(text).toContain('- <untrusted-data kind="email" from="Dana Okafor">Dana asked for invoices by Friday.');
+    expect(text).toContain("\n- I want the orrery finished by spring.\n");
+    expect(await (await get("/v1/memory?via=gardener", tend)).text()).toBe(STAMPED);
+    const plain = "# Memory\n- Prefers morning meetings.\n";
+    expect(await (await door(plain).get("/v1/memory")).text()).toBe(plain);
+  });
+
+  test("fresh sign-in mail in the record is held on both doors; other fresh mail is not", async () => {
+    const { root, get } = door();
+    for (const read of [
+      await (await get(`/v1/note?path=${encodeURIComponent(insertionEventRel(fresh))}`)).json() as Read & { held?: string },
+      handleMcpTool({ root, via: "cli" }, "read_note", { path: insertionEventRel(fresh) }) as Read & { held?: string },
+    ]) {
+      expect(read.held).toContain("Sign-in mail received under 10 minutes ago");
+      expect(JSON.stringify(read)).not.toContain("731905");
+    }
+    const { hits } = await (await get("/v1/search?q=Kestrel")).json() as { hits: Array<{ snippet: string; held?: string }> };
+    expect(hits[0]!.held).toBeTruthy();
+    expect(JSON.stringify(hits)).not.toContain("731905");
+    const note = await (await get(`/v1/note?path=${encodeURIComponent(insertionEventRel(mom))}`)).json() as Read & { held?: string };
+    expect(note.held).toBeUndefined();
+    expect(note.markdown).toContain("Here are the rest of them, love you.");
   });
 });
 
