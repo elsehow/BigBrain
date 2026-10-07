@@ -1,6 +1,9 @@
 > Historical reference: app-owned agent execution has been removed. These grants
-> no longer launch or authorize workers. See [retired project workers](project-workers.md)
-> and [current model roles](pilot-providers.md).
+> no longer launch or authorize workers, and Pilot no longer runs commands:
+> `run_command`, `request_access` and the Codex-backed OS command sandbox
+> described under "Pilot local work" are gone. See
+> [retired project workers](project-workers.md), [current model roles](pilot-providers.md),
+> and [coding desktops](design/coding-desktops.md) for where agents run commands now.
 
 # Worker access
 
