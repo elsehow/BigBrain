@@ -6,7 +6,7 @@ import { subscriptionConnected } from "./subscriptionConnection";
 import { spawn } from "node:child_process";
 import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { assertionLockDir } from "./assertionAgent";
 import { engineIdentity } from "./engine";
 import { handoffProcessEnv } from "./env";
@@ -291,9 +291,17 @@ export function renderBundle(r: DiagnosticsReport, app: string | null): string {
 }
 
 export function osOpen(target: string, platform: string = process.platform): boolean {
-  const cmd = platform === "darwin" ? "open" : "xdg-open";
+  return handOff(platform === "darwin" ? "open" : "xdg-open", [target]);
+}
+
+/** Show a file without opening it: selected in Finder; elsewhere, its folder. */
+export function osReveal(target: string, platform: string = process.platform): boolean {
+  return platform === "darwin" ? handOff("open", ["-R", target]) : handOff("xdg-open", [dirname(target)]);
+}
+
+function handOff(cmd: string, args: string[]): boolean {
   try {
-    const child = spawn(cmd, [target], { detached: true, stdio: "ignore", env: handoffProcessEnv() });
+    const child = spawn(cmd, args, { detached: true, stdio: "ignore", env: handoffProcessEnv() });
     child.once("error", () => { /* not installed — the path is on screen */ });
     child.unref();
     return true;

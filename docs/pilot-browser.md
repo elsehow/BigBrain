@@ -1,3 +1,10 @@
+> Historical reference: Pilot no longer runs commands or drives a browser.
+> `run_command`, `request_browser`, `start_preview` and `browser` were removed
+> with app-owned execution, along with the Codex-backed command sandbox they ran
+> in; the app neither installs nor launches Chromium. See
+> [retired project workers](project-workers.md), and
+> [coding desktops](design/coding-desktops.md) for where agents run commands now.
+
 # Pilot previews and browser testing
 
 Pilot can show and test a self-contained static site or built web app without

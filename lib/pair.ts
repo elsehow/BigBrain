@@ -18,9 +18,10 @@
  *   extension  POST /v1/pair {code, client} → the code, once, for a token (lib/api.ts)
  *
  * The code is eight characters from a 32-letter alphabet (no 0/O/1/I),
- * lives ten minutes, and dies on first use — a page guessing at loopback
- * has 2^40 tries against a ten-minute window, and every miss costs it a
- * delay. The engine names the token, not the extension: the browser says
+ * lives ten minutes, and dies on first use or on its tenth miss — a page
+ * guessing at loopback gets ten tries against 2^40, every miss costs it a
+ * delay, and the person mints a fresh code if a guesser spent theirs. The
+ * engine names the token, not the extension: the browser says
  * what it is (`chrome`, `firefox`), the engine adds the machine, so the
  * label in the app was minted, never typed.
  *
@@ -41,6 +42,8 @@ import { writeAtomic } from "./fsx";
 
 /** How long a minted code is good for. */
 export const PAIR_TTL_MS = 10 * 60_000;
+/** Wrong codes one pending code survives; the last one spends it. */
+export const PAIR_MAX_MISSES = 10;
 /** What a browser needs: drop pages, queue a note about them. Never read. */
 const PAIR_SCOPES = ["inbox:write"] as const;
 
@@ -56,20 +59,28 @@ export interface PendingPair {
   expires: string;
 }
 
+/** On disk the code also counts the misses against it. */
+interface StoredPair extends PendingPair {
+  misses: number;
+}
+
 const canon = (code: string): string => code.toUpperCase().replace(/[^A-Z0-9]/g, "");
 
-function readPending(root: string): PendingPair | null {
+function readPending(root: string): StoredPair | null {
   const file = pairFile(root);
   if (!existsSync(file)) return null;
   try {
-    const p = JSON.parse(readFileSync(file, "utf8")) as Partial<PendingPair>;
+    const p = JSON.parse(readFileSync(file, "utf8")) as Partial<StoredPair>;
     return typeof p.code === "string" && typeof p.expires === "string" && typeof p.created === "string"
-      ? { code: p.code, created: p.created, expires: p.expires }
+      ? { code: p.code, created: p.created, expires: p.expires, misses: typeof p.misses === "number" ? p.misses : 0 }
       : null;
   } catch {
     return null;
   }
 }
+
+const writePending = (root: string, p: StoredPair): void =>
+  writeAtomic(pairFile(root), JSON.stringify(p, null, 2) + "\n", 0o600);
 
 function clearPending(root: string): void {
   try {
@@ -89,7 +100,7 @@ export function mintPairCode(root: string, now: Date = new Date()): PendingPair 
     created: now.toISOString(),
     expires: new Date(now.getTime() + PAIR_TTL_MS).toISOString(),
   };
-  writeAtomic(pairFile(root), JSON.stringify(pending, null, 2) + "\n", 0o600);
+  writePending(root, { ...pending, misses: 0 });
   return pending;
 }
 
@@ -97,6 +108,11 @@ export function mintPairCode(root: string, now: Date = new Date()): PendingPair 
  * removed on the way out, so the file never outlives its ten minutes by
  * more than the next look. */
 export function pendingPair(root: string, now: Date = new Date()): PendingPair | null {
+  const p = livePending(root, now);
+  return p && { code: p.code, created: p.created, expires: p.expires };
+}
+
+function livePending(root: string, now: Date = new Date()): StoredPair | null {
   const p = readPending(root);
   if (!p) return null;
   if (Date.parse(p.expires) <= now.getTime()) {
@@ -136,7 +152,8 @@ export interface RedeemResult {
 
 /** Trade the pending code for a credential. Null when there is no pending
  * code, it has expired, or `code` is not it — one answer for all three, so
- * a guesser learns nothing. On success the code is spent, any live token
+ * a guesser learns nothing. A miss counts against the code, and the
+ * PAIR_MAX_MISSES-th spends it. On success the code is spent, any live token
  * already named for this browser on this machine is superseded, and a
  * person-device token is minted in the owner's name: clips land as the
  * person's own, which is what a page they chose to keep is. */
@@ -146,11 +163,16 @@ export function redeemPairCode(
   client: string,
   opts: { owner: string; storePath?: string; machine?: string; now?: Date }
 ): RedeemResult | null {
-  const pending = pendingPair(root, opts.now);
+  const pending = livePending(root, opts.now);
   if (!pending) return null;
   const want = Buffer.from(canon(pending.code));
   const got = Buffer.from(canon(code));
-  if (want.length !== got.length || !timingSafeEqual(want, got)) return null;
+  if (want.length !== got.length || !timingSafeEqual(want, got)) {
+    const misses = pending.misses + 1;
+    if (misses >= PAIR_MAX_MISSES) clearPending(root);
+    else writePending(root, { ...pending, misses });
+    return null;
+  }
   clearPending(root);
 
   const storePath = opts.storePath ?? tokenStorePath(root);

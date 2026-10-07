@@ -139,6 +139,12 @@ fn engine_root(bundle: PathBuf) -> (PathBuf, EngineSource) {
 /// neither may drift.
 const SHIM_MARKER: &str = "# installed by BigBrain.app";
 
+/// One single-quoted sh word: nothing inside expands (`$`, backticks), and
+/// a quote in the path closes, escapes and reopens.
+fn sh_quote(path: &Path) -> String {
+    format!("'{}'", path.display().to_string().replace('\'', r"'\''"))
+}
+
 fn shim_text(bun: &Path, engine: &Path) -> String {
     format!(
         "#!/bin/sh\n{SHIM_MARKER} — the `bigbrain` command, running the engine inside the app.\n\
@@ -147,10 +153,10 @@ fn shim_text(bun: &Path, engine: &Path) -> String {
          # this command and the two run the same code. Your own script here is\n\
          # left alone. The engine, for tools that read it (lib/bigbrainCommand.ts):\n\
          # engine: {}\n\
-         exec \"{}\" \"{}\" \"$@\"\n",
+         exec {} {} \"$@\"\n",
         engine.display(),
-        bun.display(),
-        engine.join("bin/cli.ts").display()
+        sh_quote(bun),
+        sh_quote(&engine.join("bin/cli.ts"))
     )
 }
 
@@ -170,6 +176,10 @@ enum Shim {
 /// Make `bigbrain` run this engine: written over a missing command, our own
 /// earlier shim, or a CLI install's symlink; anything else is left alone.
 fn install_shim(link: &Path, bun: &Path, engine: &Path) -> std::io::Result<Shim> {
+    // A line break would end the `# engine:` comment and start a command.
+    if [bun, engine].iter().any(|p| p.to_string_lossy().contains('\n')) {
+        return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "a path with a line break cannot go in the shim"));
+    }
     let wanted = shim_text(bun, engine);
     match fs::symlink_metadata(link) {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
@@ -623,12 +633,17 @@ fn show_main(app: &AppHandle) {
 #[derive(Default)]
 struct WindowExpansion(Mutex<bool>);
 
+/// Where Homebrew puts the AeroSpace CLI (Apple silicon, Intel). Never PATH:
+/// what a shell's PATH names first is not the app's to run.
+#[cfg(target_os = "macos")]
+const AEROSPACE: [&str; 2] = ["/opt/homebrew/bin/aerospace", "/usr/local/bin/aerospace"];
+
 #[cfg(target_os = "macos")]
 fn aerospace_window(window: &tauri::WebviewWindow) -> Option<(String, String, bool)> {
     if window.label() != "main" { return None; }
     let title = window.title().ok()?;
     let pid = std::process::id().to_string();
-    for executable in ["aerospace", "/opt/homebrew/bin/aerospace", "/usr/local/bin/aerospace"] {
+    for executable in AEROSPACE {
         let Ok(output) = Command::new(executable).args([
             "list-windows", "--all", "--format",
             "%{app-pid}|%{window-id}|%{window-is-fullscreen}|%{window-title}",
@@ -954,18 +969,77 @@ fn viewer_base(web_port: u16) -> String {
 /// first (web/ui/src/lib/links.ts); this is the floor under it, for the
 /// path no click handler saw. `about:` (the empty page a webview may start
 /// on) is the webview's own.
+///
+/// wry (0.55) hands the policy a URL and nothing about which frame asked,
+/// so a frame's navigation lands here too. A desktop's `url` view frames a
+/// page on another loopback port (an agent's dev server), and refusing it
+/// left the frame blank and opened the page in the browser instead: those
+/// stay, and `send_home` keeps them out of the window itself. Only http,
+/// https and mailto ever reach the opener — it runs whatever the OS maps a
+/// URL to, and a file: or app-scheme URL is a program, not a page.
 fn stay_on(app: &AppHandle, home: &tauri::Url) -> impl Fn(&tauri::Url) -> bool + Send + 'static {
     let app = app.clone();
     let home = home.clone();
     move |url| {
-        if url.scheme() == "about" || (url.origin() == home.origin() && url.path() == home.path()) {
+        if stays(&home, url) {
             return true;
         }
-        if let Err(e) = app.opener().open_url(url.as_str(), None::<&str>) {
-            log::warn!("could not open {url} outside the app: {e}");
-        }
+        open_outside(&app, url);
         false
     }
+}
+
+fn stays(home: &tauri::Url, url: &tauri::Url) -> bool {
+    url.scheme() == "about" || (url.origin() == home.origin() && url.path() == home.path()) || loopback_page(home, url)
+}
+
+/// What a `url` view frames: http on another loopback origin, as
+/// lib/pilotDesktop.ts loopbackUrl and the viewer's CSP frame-src allow.
+fn loopback_page(home: &tauri::Url, url: &tauri::Url) -> bool {
+    url.scheme() == "http" && matches!(url.host_str(), Some("127.0.0.1" | "localhost")) && url.origin() != home.origin()
+}
+
+fn browser_url(url: &tauri::Url) -> bool {
+    matches!(url.scheme(), "http" | "https" | "mailto")
+}
+
+fn open_outside(app: &AppHandle, url: &tauri::Url) {
+    if !browser_url(url) {
+        log::warn!("not opening a {}: URL outside the app", url.scheme());
+    } else if let Err(e) = app.opener().open_url(url.as_str(), None::<&str>) {
+        log::warn!("could not open {url} outside the app: {e}");
+    }
+}
+
+/// Page loads are the window's own (WebKit reports none for a frame), so a
+/// loopback page the policy let through for a frame and that landed in the
+/// window instead is sent to the browser, and the window back home.
+fn send_home(app: &AppHandle, home: &tauri::Url) -> impl Fn(tauri::WebviewWindow, tauri::webview::PageLoadPayload<'_>) + Send + Sync + 'static {
+    let app = app.clone();
+    let home = home.clone();
+    move |window, load| {
+        if load.event() == tauri::webview::PageLoadEvent::Started && loopback_page(&home, load.url()) {
+            open_outside(&app, load.url());
+            let _ = window.navigate(home.clone());
+        }
+    }
+}
+
+/// capabilities/default.json grants the viewer's commands to the engine's
+/// two default viewer origins (:4747, and :4757 for the dev loop), not to
+/// every loopback port: an agent's dev server in a `url` view gets none. A
+/// window on any other origin (BIGBRAIN_WEB_PORT moved it, or the dev loop's
+/// vite via BIGBRAIN_WEB_URL) gets the same grant for that origin alone, at
+/// launch. None when the file already names it.
+fn viewer_capability(origin: &str) -> Option<String> {
+    let mut cap: serde_json::Value = serde_json::from_str(include_str!("../capabilities/default.json")).ok()?;
+    let urls = cap.pointer_mut("/remote/urls")?.as_array_mut()?;
+    if urls.iter().any(|u| u == origin) {
+        return None;
+    }
+    *urls = vec![origin.into()];
+    cap["identifier"] = "viewer-origin".into();
+    Some(cap.to_string())
 }
 
 /// The main viewer window.
@@ -973,6 +1047,9 @@ fn build_windows(app: &AppHandle, base: &str) -> Result<(), Box<dyn std::error::
     // The viewer window. Closing it hides it — the engine keeps
     // gardening; the cube, the Dock icon and Cmd-Tab bring it back.
     let url: tauri::Url = base.parse()?;
+    if let Some(cap) = viewer_capability(&url.origin().ascii_serialization()) {
+        app.add_capability(cap)?;
+    }
     // The window is NAMED BigBrain — Mission Control, Cmd-Tab and the
     // Window menu all read that — but the title bar does not SAY so
     // (Nick, 2026-08-28: "remove 'BigBrain' from this menubar"). A
@@ -984,6 +1061,7 @@ fn build_windows(app: &AppHandle, base: &str) -> Result<(), Box<dyn std::error::
     #[allow(unused_mut)]
     let mut builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url.clone()))
         .on_navigation(stay_on(app, &url))
+        .on_page_load(send_home(app, &url))
         .title("BigBrain")
         .inner_size(1280.0, 860.0)
         .min_inner_size(720.0, 480.0)
@@ -1145,7 +1223,30 @@ mod tests {
         let text = shim_text(Path::new("/App.app/bun"), Path::new("/App.app/engine"));
         assert!(text.starts_with("#!/bin/sh\n# installed by BigBrain.app"));
         assert!(text.contains("\n# engine: /App.app/engine\n"));
-        assert!(text.ends_with("exec \"/App.app/bun\" \"/App.app/engine/bin/cli.ts\" \"$@\"\n"));
+        assert!(text.ends_with("exec '/App.app/bun' '/App.app/engine/bin/cli.ts' \"$@\"\n"));
+    }
+
+    #[test]
+    fn the_shim_runs_paths_as_written_whatever_they_hold() {
+        // An app moved under a folder whose name sh would expand.
+        let dir = scratch("quote").join("it's $(touch pwned) `touch pwned2` $HOME");
+        let engine = engine_tree(&dir.join("engine"));
+        let bun = dir.join("bun");
+        fs::write(&bun, "#!/bin/sh\nprintf '%s\\n' \"$@\"\n").unwrap();
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&bun, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let link = dir.join("bigbrain");
+        assert_eq!(install_shim(&link, &bun, &engine).unwrap(), Shim::Installed);
+        let out = Command::new("/bin/sh").arg(&link).arg("a b").current_dir(&dir).output().unwrap();
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        assert_eq!(String::from_utf8_lossy(&out.stdout), format!("{}\na b\n", engine.join("bin/cli.ts").display()));
+        assert!(!dir.join("pwned").exists() && !dir.join("pwned2").exists());
+
+        let broken = dir.join("line\nbreak");
+        assert!(install_shim(&dir.join("other"), &bun, &broken).is_err());
+        assert!(!dir.join("other").exists());
     }
 
     #[test]
@@ -1362,6 +1463,51 @@ mod tests {
         let _ = fake.kill();
         let _ = fake.wait();
         assert!(!supervisor_alive(fake.id()));
+    }
+
+    #[test]
+    fn navigation_keeps_the_viewer_lets_loopback_frames_load_and_opens_only_web_urls() {
+        let u = |s: &str| s.parse::<tauri::Url>().unwrap();
+        let home = u("http://127.0.0.1:4747/");
+        for s in ["http://127.0.0.1:4747/", "http://127.0.0.1:4747/#/note/x", "http://127.0.0.1:4747/?q=1", "about:blank", "about:srcdoc"] {
+            assert!(stays(&home, &u(s)), "{s}");
+        }
+        // A `url` view's frame (an agent's dev server). The policy also sees
+        // frames, and these used to be cancelled and opened in the browser.
+        for s in ["http://127.0.0.1:5173/", "http://localhost:3000/app?x=1", "http://localhost:4747/"] {
+            assert!(stays(&home, &u(s)) && loopback_page(&home, &u(s)), "{s}");
+        }
+        assert!(stays(&u("http://127.0.0.1:5173/"), &u("http://127.0.0.1:4757/")), "the dev loop's engine, framed under vite");
+        assert!(!loopback_page(&home, &home), "the window's own home is never sent home");
+        for s in ["http://127.0.0.1:4747/api/file?x=1", "https://example.com/a", "https://127.0.0.1:5173/", "http://127.0.0.2:5173/", "http://192.168.1.2:8080/", "mailto:a@example.com"] {
+            assert!(!stays(&home, &u(s)) && browser_url(&u(s)), "{s}");
+        }
+        for s in ["file:///Applications/Calculator.app", "x-some-app://run?cmd=1", "ftp://example.com/f", "smb://host/share", "tel:+15555550100", "data:text/html,hi", "blob:http://127.0.0.1:4747/abc"] {
+            assert!(!stays(&home, &u(s)) && !browser_url(&u(s)), "{s}");
+        }
+    }
+
+    #[test]
+    fn the_viewer_capability_follows_the_window_origin_and_no_other() {
+        use tauri::utils::acl::capability::CapabilityFile;
+        assert_eq!(viewer_capability("http://127.0.0.1:4747"), None);
+        assert_eq!(viewer_capability("http://127.0.0.1:4757"), None);
+        let file: serde_json::Value = serde_json::from_str(include_str!("../capabilities/default.json")).unwrap();
+        let cap: serde_json::Value = serde_json::from_str(&viewer_capability("http://127.0.0.1:5173").unwrap()).unwrap();
+        assert_eq!(cap["remote"]["urls"], serde_json::json!(["http://127.0.0.1:5173"]));
+        assert_eq!(cap["permissions"], file["permissions"]);
+        assert_eq!(cap["windows"], file["windows"]);
+        assert_ne!(cap["identifier"], file["identifier"]);
+        // add_capability panics on a capability that does not parse.
+        let parsed: CapabilityFile = viewer_capability("http://127.0.0.1:5173").unwrap().parse().unwrap();
+        assert!(matches!(parsed, CapabilityFile::Capability(_)));
+        assert!(!file["remote"]["urls"].as_array().unwrap().iter().any(|u| u.as_str().unwrap().contains('*')));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn aerospace_is_run_only_from_fixed_absolute_paths() {
+        assert!(AEROSPACE.iter().all(|p| Path::new(p).is_absolute()));
     }
 
     #[test]

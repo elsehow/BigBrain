@@ -11,18 +11,24 @@
  * — one act, "open the origin", whoever asks — so a client without a
  * browser of its own is not turned away.
  *
+ * A copy out of the CAS is opened the way a browser opens a download: it
+ * carries the quarantine mark first, so Gatekeeper asks before anything in
+ * it runs, and a kind the OS would run or follow rather than read (an app,
+ * a script, a .webloc) is only shown in Finder.
+ *
  * Desktop-only, like the themes and diagnostics doors: the file opens on
  * the machine the app runs on, and that is the machine the person is at.
- * `open` is injectable for the same reason theirs is — the real one puts
- * a Preview window on the screen of whoever runs `bun test`.
+ * `open` and `reveal` are injectable for the same reason theirs are — the
+ * real ones put a window on the screen of whoever runs `bun test`.
  */
 
+import { spawnSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, extname, join } from "node:path";
 import { getBlobPath } from "./blobs";
 import { sha256hex } from "./hash";
-import { osOpen } from "./diagnostics";
+import { osOpen, osReveal } from "./diagnostics";
 import { json, readBody, send, type Route } from "./httpx";
 import { readSourceInsertionPath } from "./sourceFeed";
 import { sourceThreadView } from "./assertionEntityView";
@@ -44,17 +50,38 @@ export function materializedPath(sha256: string, name: string, base: string = jo
   return join(base, sha256, safeName(name, sha256));
 }
 
+/** Kinds the OS runs, installs or follows somewhere else when opened. */
+const RUNS = new Set([
+  "app", "pkg", "mpkg", "dmg", "jar", "jnlp", "mobileconfig", "shortcut", "workflow", "action",
+  "prefpane", "saver", "kext", "bundle", "plugin", "dylib", "xpc", "osax",
+  "command", "tool", "terminal", "sh", "bash", "zsh", "csh", "tcsh", "ksh", "fish",
+  "py", "pyw", "pl", "rb", "scpt", "scptd", "applescript",
+  "webloc", "fileloc", "inetloc", "url", "desktop", "lnk",
+  "exe", "msi", "bat", "cmd", "com", "scr", "ps1", "vbs", "appimage", "run",
+]);
+
+export const runsWhenOpened = (name: string): boolean => RUNS.has(extname(name).slice(1).toLowerCase());
+
+/** The mark a browser puts on a download (`com.apple.quarantine`), naming
+ * BigBrain as the agent. macOS only; elsewhere there is nothing to mark. */
+export function quarantine(path: string, platform: string = process.platform, now: Date = new Date()): boolean {
+  if (platform !== "darwin") return true;
+  const value = `0081;${Math.floor(now.getTime() / 1000).toString(16)};BigBrain;`;
+  return spawnSync("/usr/bin/xattr", ["-w", "com.apple.quarantine", value, path], { stdio: "ignore" }).status === 0;
+}
+
 export type OpenResult =
-  | { ok: true; origin: SourceOrigin; opened: string }
+  | { ok: true; origin: SourceOrigin; opened: string; revealed?: true }
   | { ok: false; origin: SourceOrigin | null; error: string };
 
 /** Open one source's origin. Pure over its inputs but for the copy and the
- * open — `base` and `open` are the two seams the test holds. */
+ * open — `base`, `open` and `reveal` are the seams the test holds. */
 export function openSourceOrigin(
   root: string,
   path: string,
   open: (target: string) => boolean = osOpen,
   base?: string,
+  reveal: (target: string) => boolean = osReveal,
 ): OpenResult {
   const source = readSourceInsertionPath(root, path) ?? sourceThreadView(root, path)?.members[0];
   if (!source) return { ok: false, origin: null, error: "no such source" };
@@ -78,10 +105,13 @@ export function openSourceOrigin(
     mkdirSync(dirname(dest), { recursive: true });
     copyFileSync(blob, dest);
   }
+  // Marked on every open: a copy laid out before the mark existed gets it too.
+  if (!quarantine(dest) || runsWhenOpened(dest))
+    return reveal(dest) ? { ok: true, origin, opened: dest, revealed: true } : { ok: false, origin, error: "nothing here can show a file" };
   return open(dest) ? { ok: true, origin, opened: dest } : { ok: false, origin, error: "nothing here knows how to open a file" };
 }
 
-export function sourceOpenRoutes(root: string, open: (target: string) => boolean = osOpen, base?: string): Route[] {
+export function sourceOpenRoutes(root: string, open: (target: string) => boolean = osOpen, base?: string, reveal: (target: string) => boolean = osReveal): Route[] {
   return [
     {
       method: "POST",
@@ -93,7 +123,7 @@ export function sourceOpenRoutes(root: string, open: (target: string) => boolean
         } catch {
           return send(res, 400, JSON.stringify({ error: "a JSON body naming the source's path" }));
         }
-        const r = openSourceOrigin(root, path, open, base);
+        const r = openSourceOrigin(root, path, open, base, reveal);
         if (r.ok) return json(res, 200, r);
         json(res, r.origin ? 500 : 404, r);
       },
