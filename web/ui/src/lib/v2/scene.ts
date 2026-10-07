@@ -11,6 +11,8 @@
 
 import * as THREE from "three";
 import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
+import { LineSegments2 } from "three/examples/jsm/lines/LineSegments2.js";
+import { LineSegmentsGeometry } from "three/examples/jsm/lines/LineSegmentsGeometry.js";
 import type { Field, FieldPilot } from "./model";
 import { createWireCube, type WireCube } from "./wireCube";
 
@@ -62,6 +64,10 @@ export interface V2Scene {
 
 /** Memory glass is a little see-through even at rest. */
 const GLASS_OPACITY = 0.95;
+// The field's weight (tuned live on a real vault, 2026-10-06): dots a little
+// larger than first drawn, edges finer. Desktops' cubes keep their own hairline.
+const EDGE_PX = 0.5;
+const NODE_SCALE = 1.45;
 const LENS = Math.tan(THREE.MathUtils.degToRad(17)) / Math.tan(THREE.MathUtils.degToRad(10));
 const OVERVIEW_AT = { az: 0.05, el: 0.55, dist: 30, target: new THREE.Vector3(0, 3, -4) };
 
@@ -127,7 +133,7 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
   points.renderOrder = 3;
   points.frustumCulled = false;
   scene.add(points);
-  const baseSize = field.nodes.map((n) => (n.named ? 4.5 + 1.2 * Math.log1p(n.degree) : 1.8 + 0.75 * Math.log1p(n.degree)));
+  const baseSize = field.nodes.map((n) => NODE_SCALE * (n.named ? 4.5 + 1.2 * Math.log1p(n.degree) : 1.8 + 0.75 * Math.log1p(n.degree)));
   const P = field.nodes.map((n) => new THREE.Vector3(...n.p));
 
   // ── sources: hidden at rest; the one in hand is a node like any other ────
@@ -154,11 +160,13 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
   for (const s of sources) labelLayer.append(s.L);
 
   // ── lines ────────────────────────────────────────────────────────────────
+  // fat lines (a GL line is always 1px), drawn in device pixels: resize() fits each to the canvas
+  const lineMats = new Set<LineMaterial>();
   const lineSet = (pairs: Array<[THREE.Vector3, THREE.Vector3]>, opacity: number) => {
-    const g = new THREE.BufferGeometry();
-    g.setAttribute("position", new THREE.Float32BufferAttribute(pairs.flatMap(([a, b]) => [a.x, a.y, a.z, b.x, b.y, b.z]), 3));
-    const m = new THREE.LineBasicMaterial({ transparent: true, opacity, depthWrite: false });
-    const l = new THREE.LineSegments(g, m);
+    const g = new LineSegmentsGeometry().setPositions(new Float32Array(pairs.flatMap(([a, b]) => [a.x, a.y, a.z, b.x, b.y, b.z])));
+    const m = new LineMaterial({ linewidth: EDGE_PX, transparent: true, opacity, depthWrite: false });
+    lineMats.add(m);
+    const l = new LineSegments2(g, m);
     l.renderOrder = 1;
     l.frustumCulled = false;
     scene.add(l);
@@ -166,10 +174,11 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
   };
   const strong = lineSet(field.strong.map(([a, b]) => [P[a]!, P[b]!]), 0.14);
   const dynamic = (max: number) => {
-    const g = new THREE.BufferGeometry();
-    g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(max * 6), 3));
-    g.setAttribute("color", new THREE.BufferAttribute(new Float32Array(max * 6), 3));
-    const l = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false }));
+    const pos = new Float32Array(max * 6), rgb = new Float32Array(max * 6);
+    const g = new LineSegmentsGeometry().setPositions(pos).setColors(rgb);
+    const m = new LineMaterial({ linewidth: EDGE_PX, vertexColors: true, transparent: true, depthWrite: false });
+    lineMats.add(m);
+    const l = new LineSegments2(g, m);
     l.frustumCulled = false;
     l.renderOrder = 2;
     scene.add(l);
@@ -178,11 +187,15 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
       begin() { k = 0; },
       add(a: THREE.Vector3, b: THREE.Vector3, ca: THREE.Color, cb: THREE.Color) {
         if (k >= max) return;
-        a.toArray(g.attributes.position!.array, k * 6); b.toArray(g.attributes.position!.array, k * 6 + 3);
-        ca.toArray(g.attributes.color!.array, k * 6); cb.toArray(g.attributes.color!.array, k * 6 + 3);
+        a.toArray(pos, k * 6); b.toArray(pos, k * 6 + 3);
+        ca.toArray(rgb, k * 6); cb.toArray(rgb, k * 6 + 3);
         k++;
       },
-      end() { g.setDrawRange(0, k * 2); g.attributes.position!.needsUpdate = true; g.attributes.color!.needsUpdate = true; },
+      end() {
+        g.instanceCount = k;
+        (g.attributes["instanceStart"] as THREE.InterleavedBufferAttribute).data.needsUpdate = true;
+        (g.attributes["instanceColorStart"] as THREE.InterleavedBufferAttribute).data.needsUpdate = true;
+      },
     };
   };
   const ties = dynamic(160 + 64);
@@ -213,7 +226,6 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
     thickness: 2.4, ior: 1.6, dispersion: 12, clearcoat: 0.8, clearcoatRoughness: 0.02, specularIntensity: 0.8, envMapIntensity: 0.6,
     polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
   // hairlines are drawn in device pixels, so each knows the canvas's size
-  const lineMats = new Set<LineMaterial>();
   const fit = (m: LineMaterial) => m.resolution.set(W * renderer.getPixelRatio(), H * renderer.getPixelRatio());
   const hairline = () => { const m = new LineMaterial({ linewidth: 1, transparent: true }); fit(m); lineMats.add(m); return m; };
   interface Pilot { d: FieldPilot; cube: WireCube; line: LineMaterial; seam: LineMaterial; label: HTMLDivElement & { w?: number; h?: number; op?: number }; scale: number; vis: number; clock: number; at: THREE.Vector3 }
@@ -357,6 +369,13 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
     if (o !== L.op) { L.style.opacity = String(o); L.style.visibility = o <= 0 ? "hidden" : "visible"; L.op = o; }
   };
   const v3 = new THREE.Vector3();
+  /** How far a label stands off its dot, in CSS px: 9 for a dot of the usual size, and the
+   * dot's visible radius plus a margin when it is drawn bigger. A point is `size * uRef / depth`
+   * px across (pMat's shader); about 0.47 of that is the bright core. */
+  const labelGap = (p: THREE.Vector3, size: number) => {
+    const d = -v3.copy(p).applyMatrix4(camera.matrixWorldInverse).z;
+    return d > 0 ? Math.max(9, 0.235 * size * pMat.uniforms["uRef"]!.value / d + 6) : 9;
+  };
   const toScreen = (p: THREE.Vector3, out: { x: number; y: number; ok: boolean }) => {
     v3.copy(p).project(camera);
     out.x = (v3.x * 0.5 + 0.5) * W; out.y = (-v3.y * 0.5 + 0.5) * H; out.ok = v3.z < 1 && v3.z > -1;
@@ -472,7 +491,7 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
     scene.environment = pmrem.fromScene(room, 0.04).texture;
     panel.geometry.dispose(); (panel.material as THREE.Material).dispose();
     for (const pl of pilots.values()) pl.line.color.copy(col.fg);
-    (strong.material as THREE.LineBasicMaterial).color.copy(col.fg);
+    strong.material.color.copy(col.fg);
     for (const g of memory) {
       // all but colourless: the faintest ink in it, so it reads as glass, not smoke
       g.mat.color.setRGB(1, 1, 1).lerp(col.fg, 0.02);
@@ -546,7 +565,7 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
     });
     aSize.needsUpdate = true; aColor.needsUpdate = true; aAlpha.needsUpdate = true;
     // a source in hand: the field's own lines step back so its ties read
-    (strong.material as THREE.LineBasicMaterial).opacity = 0.14 * searchDim * (1 - 0.5 * dim) * (1 - 0.6 * srcHeld);
+    strong.material.opacity = 0.14 * searchDim * (1 - 0.5 * dim) * (1 - 0.6 * srcHeld);
 
     // memory glass recedes with everything else when something is in play
     for (const g of memory) {
@@ -584,7 +603,7 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
     placeLabels();
   };
 
-  type Cand = { L: HTMLDivElement & { w?: number; h?: number; full?: boolean; op?: number }; x: number; y: number; op: number; full: boolean; pri: number; pointed: boolean };
+  type Cand = { L: HTMLDivElement & { w?: number; h?: number; full?: boolean; op?: number }; x: number; y: number; g: number; op: number; full: boolean; pri: number; pointed: boolean };
   const placed: number[][] = [];
   const placeLabels = () => {
     placed.length = 0;
@@ -619,7 +638,8 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
       if (s.vis < 0.04 || !s1.ok) { if (s.L.op !== 0) place(s.L, -999, -999, 0); continue; }
       if (s.L.w == null) { s.L.w = s.L.offsetWidth; s.L.h = s.L.offsetHeight; }
       // right of its dot, or left when a long name would run off the window
-      const x = s1.x + 9 + s.L.w > W - 12 ? s1.x - 9 - s.L.w : s1.x + 9;
+      const g = labelGap(s.at, hubSize);
+      const x = s1.x + g + s.L.w > W - 12 ? s1.x - g - s.L.w : s1.x + g;
       place(s.L, x, s1.y, s.vis);
       placed.push([x - 4, s1.y - s.L.h! / 2 - 3, x + s.L.w + 4, s1.y + s.L.h! / 2 + 3]);
     }
@@ -650,7 +670,8 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
       if (!s1.ok) { place(lab, -999, -999, 0); continue; }
       // the opened entity's caption is placed first and never moves; a
       // relation then finds room around its tie, ahead of every plain name
-      cand.push({ L: lab, x: s1.x + 9, y: s1.y, op, full, pointed, pri: (related ? 9e3 : full ? 1e4 : pointed ? 8e3 : 0) + heat[i]! * 2e3 + match[i]! * 400 + Math.log1p(n.degree) * 5 + (n.named ? 20 : 0) });
+      const g = labelGap(P[i]!, (aSize.array as Float32Array)[i]!);
+      cand.push({ L: lab, x: s1.x + g, y: s1.y, g, op, full, pointed, pri: (related ? 9e3 : full ? 1e4 : pointed ? 8e3 : 0) + heat[i]! * 2e3 + match[i]! * 400 + Math.log1p(n.degree) * 5 + (n.named ? 20 : 0) });
     }
     cand.sort((a, b) => b.pri - a.pri);
     const rect = (x: number, y: number, w: number, h: number) => [x - 4, y - h / 2 - 3, x + w + 4, y + h / 2 + 3];
@@ -662,8 +683,8 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
       // either side, within the window; one with no room anywhere waits
       let at: [number, number][] = [[c.x, c.y]];
       if (c.full) {
-        const left = c.x - 18 - w, up = c.y - h / 2 - 10, down = c.y + h / 2 + 10;
-        at = ([[c.x, c.y], [left, c.y], [c.x - 9, up], [c.x - 9, down], [left + 9, up], [left + 9, down]] as [number, number][])
+        const v = c.g + 1, left = c.x - 2 * c.g - w, up = c.y - h / 2 - v, down = c.y + h / 2 + v;
+        at = ([[c.x, c.y], [left, c.y], [c.x - c.g, up], [c.x - c.g, down], [left + c.g, up], [left + c.g, down]] as [number, number][])
           .filter(([x]) => x >= 12 && x + w <= W - 12);
         if (!at.length) at = [[Math.max(12, Math.min(c.x, W - 12 - w)), c.y]];
       }
