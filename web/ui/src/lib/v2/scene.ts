@@ -124,25 +124,29 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
   const pointVertex = /* glsl */`
       attribute float aSize; attribute vec3 aColor; attribute float aAlpha;
       uniform float uPx, uRef, uFogNear, uFogFar;
-      varying vec3 vC; varying float vA;
+      varying vec3 vC; varying float vA; varying float vPx;
       void main() {
         vec4 mv = modelViewMatrix * vec4(position, 1.0);
         gl_Position = projectionMatrix * mv;
         float d = -mv.z;
         gl_PointSize = max(1.5, aSize * uPx * uRef / d);
+        vPx = gl_PointSize;
         vC = aColor;
         vA = aAlpha * (1.0 - smoothstep(uFogNear, uFogFar, d));
       }`;
   const pMat = new THREE.ShaderMaterial({
-    uniforms: { uFogNear: fog.near, uFogFar: fog.far, uPx: { value: 1 }, uRef: { value: 36 } },
+    uniforms: { uFogNear: fog.near, uFogFar: fog.far, uPx: { value: 1 }, uRef: { value: 36 }, uSoft: { value: 1 }, uHalo: { value: 1 } },
     vertexShader: pointVertex,
+    // the dot's edge: uSoft 1 is the shipped soft rim, 0 a crisp one antialiased over a pixel
     fragmentShader: /* glsl */`
-      varying vec3 vC; varying float vA;
+      uniform float uSoft, uHalo;
+      varying vec3 vC; varying float vA; varying float vPx;
       void main() {
         float d = length(gl_PointCoord - 0.5) * 2.0;
         if (d > 1.0) discard;
-        float core = 1.0 - smoothstep(0.38, 0.55, d);
-        float halo = (1.0 - d) * (1.0 - d) * 0.22;
+        float aa = mix(1.0 / vPx, 0.085, uSoft);
+        float core = 1.0 - smoothstep(0.465 - aa, 0.465 + aa, d);
+        float halo = (1.0 - d) * (1.0 - d) * 0.22 * uHalo;
         gl_FragColor = vec4(vC, vA * max(core, halo));
         #include <colorspace_fragment>
       }`,
@@ -188,23 +192,24 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
   const sAlpha = new THREE.BufferAttribute(new Float32Array(S), 1);
   sGeo.setAttribute("aSize", sSize); sGeo.setAttribute("aColor", sColor); sGeo.setAttribute("aAlpha", sAlpha);
   // the same dot as an entity's, with a shape of its own (field look: hole, square, turn)
-  const shape = { uHole: { value: 0 }, uSquare: { value: 0 }, uTurn: { value: 0 } };
+  const shape = { uHole: { value: 0 }, uSquare: { value: 0 }, uTurn: { value: 0 }, uSoft: { value: 1 }, uHalo: { value: 1 } };
   const sMat = new THREE.ShaderMaterial({
     uniforms: { ...pMat.uniforms, ...shape },
     vertexShader: pointVertex,
     fragmentShader: /* glsl */`
-      uniform float uHole, uSquare, uTurn;
-      varying vec3 vC; varying float vA;
+      uniform float uHole, uSquare, uTurn, uSoft, uHalo;
+      varying vec3 vC; varying float vA; varying float vPx;
       void main() {
         vec2 c = (gl_PointCoord - 0.5) * 2.0;
         float a = uTurn * 0.7853982;
         c = mat2(cos(a), -sin(a), sin(a), cos(a)) * c;
         float d = mix(length(c), max(abs(c.x), abs(c.y)), uSquare);
         if (d > 1.0) discard;
-        float core = 1.0 - smoothstep(0.38, 0.55, d);
+        float aa = mix(1.0 / vPx, 0.085, uSoft);
+        float core = 1.0 - smoothstep(0.465 - aa, 0.465 + aa, d);
         float rIn = 0.4 * uHole;
-        if (uHole > 0.001) core *= smoothstep(rIn - 0.08, rIn, d);
-        float halo = (1.0 - d) * (1.0 - d) * 0.22 * (1.0 - uHole);
+        if (uHole > 0.001) core *= smoothstep(rIn - max(aa, 0.04), rIn, d);
+        float halo = (1.0 - d) * (1.0 - d) * 0.22 * uHalo * (1.0 - uHole);
         gl_FragColor = vec4(vC, vA * max(core, halo));
         #include <colorspace_fragment>
       }`,
@@ -687,6 +692,8 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
       const sz = sSize.array as Float32Array, sc = sColor.array as Float32Array, sa = sAlpha.array as Float32Array;
       placeSources();
       shape.uHole.value = look.srcHole; shape.uSquare.value = look.srcSquare; shape.uTurn.value = look.srcTurn;
+      shape.uSoft.value = look.srcSoft; shape.uHalo.value = look.srcHalo;
+      pMat.uniforms["uSoft"]!.value = look.entSoft; pMat.uniforms["uHalo"]!.value = look.entHalo;
       const step = THREE.MathUtils.lerp(1, 0.3, dim) * searchDim * (1 - 0.6 * srcHeld);
       const rest = look.srcAlpha * step;
       srcInk.copy(dust).lerp(col.fg, look.srcTone).lerp(col.act, look.srcAccent);

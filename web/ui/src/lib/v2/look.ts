@@ -33,11 +33,17 @@ export interface FieldLook {
   entTone: number;
   /** 0 the shipped size; 1 also sized by how many sources mention it. */
   entByTies: number;
+  /** A dot's rim: 1 the shipped soft edge, 0 crisp (antialiased over a pixel). */
+  entSoft: number;
+  srcSoft: number;
+  /** The faint glow around a dot, times the shipped one. */
+  entHalo: number;
+  srcHalo: number;
 }
 
 export const LOOK_DEFAULTS: Readonly<FieldLook> = Object.freeze({
   srcSize: 1, srcByTies: 0, srcAlpha: 0.75, srcTone: 0, srcAccent: 0, srcHole: 0, srcSquare: 0, srcTurn: 0,
-  srcLift: 0, srcFlat: 0, srcTies: 0, entSize: 1, entAlpha: 1, entTone: 0, entByTies: 0,
+  srcLift: 0, srcFlat: 0, srcTies: 0, entSize: 1, entAlpha: 1, entTone: 0, entByTies: 0, entSoft: 1, srcSoft: 1, entHalo: 1, srcHalo: 1,
 });
 
 export const look: FieldLook = { ...LOOK_DEFAULTS };

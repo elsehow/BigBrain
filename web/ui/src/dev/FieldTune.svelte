@@ -15,6 +15,8 @@
     { key: "srcHole", label: "Hollow (ring)", min: 0, max: 1, step: 0.01 },
     { key: "srcSquare", label: "Square", min: 0, max: 1, step: 0.01 },
     { key: "srcTurn", label: "Turn 45°", min: 0, max: 1, step: 0.01 },
+    { key: "srcSoft", label: "Soft edge", min: 0, max: 1, step: 0.01 },
+    { key: "srcHalo", label: "Halo", min: 0, max: 2, step: 0.01 },
     { key: "srcLift", label: "Height", min: -5, max: 5, step: 0.1 },
     { key: "srcFlat", label: "Flatten to a plane", min: 0, max: 1, step: 0.01 },
     { key: "srcTies", label: "Ties at rest", min: 0, max: 0.5, step: 0.005 },
@@ -24,6 +26,8 @@
     { key: "entByTies", label: "Size by mentions", min: 0, max: 1, step: 0.05 },
     { key: "entAlpha", label: "Opacity", min: 0, max: 1.6, step: 0.01 },
     { key: "entTone", label: "Ink (dust → full)", min: 0, max: 1, step: 0.01 },
+    { key: "entSoft", label: "Soft edge", min: 0, max: 1, step: 0.01 },
+    { key: "entHalo", label: "Halo", min: 0, max: 2, step: 0.01 },
   ];
   const KEY = "bigbrain.field-tune";
 
