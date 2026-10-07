@@ -954,17 +954,59 @@ fn viewer_base(web_port: u16) -> String {
 /// first (web/ui/src/lib/links.ts); this is the floor under it, for the
 /// path no click handler saw. `about:` (the empty page a webview may start
 /// on) is the webview's own.
+///
+/// wry (0.55) hands the policy a URL and nothing about which frame asked,
+/// so a frame's navigation lands here too. A desktop's `url` view frames a
+/// page on another loopback port (an agent's dev server), and refusing it
+/// left the frame blank and opened the page in the browser instead: those
+/// stay, and `send_home` keeps them out of the window itself. Only http,
+/// https and mailto ever reach the opener — it runs whatever the OS maps a
+/// URL to, and a file: or app-scheme URL is a program, not a page.
 fn stay_on(app: &AppHandle, home: &tauri::Url) -> impl Fn(&tauri::Url) -> bool + Send + 'static {
     let app = app.clone();
     let home = home.clone();
     move |url| {
-        if url.scheme() == "about" || (url.origin() == home.origin() && url.path() == home.path()) {
+        if stays(&home, url) {
             return true;
         }
-        if let Err(e) = app.opener().open_url(url.as_str(), None::<&str>) {
-            log::warn!("could not open {url} outside the app: {e}");
-        }
+        open_outside(&app, url);
         false
+    }
+}
+
+fn stays(home: &tauri::Url, url: &tauri::Url) -> bool {
+    url.scheme() == "about" || (url.origin() == home.origin() && url.path() == home.path()) || loopback_page(home, url)
+}
+
+/// What a `url` view frames: http on another loopback origin, as
+/// lib/pilotDesktop.ts loopbackUrl and the viewer's CSP frame-src allow.
+fn loopback_page(home: &tauri::Url, url: &tauri::Url) -> bool {
+    url.scheme() == "http" && matches!(url.host_str(), Some("127.0.0.1" | "localhost")) && url.origin() != home.origin()
+}
+
+fn browser_url(url: &tauri::Url) -> bool {
+    matches!(url.scheme(), "http" | "https" | "mailto")
+}
+
+fn open_outside(app: &AppHandle, url: &tauri::Url) {
+    if !browser_url(url) {
+        log::warn!("not opening a {}: URL outside the app", url.scheme());
+    } else if let Err(e) = app.opener().open_url(url.as_str(), None::<&str>) {
+        log::warn!("could not open {url} outside the app: {e}");
+    }
+}
+
+/// Page loads are the window's own (WebKit reports none for a frame), so a
+/// loopback page the policy let through for a frame and that landed in the
+/// window instead is sent to the browser, and the window back home.
+fn send_home(app: &AppHandle, home: &tauri::Url) -> impl Fn(tauri::WebviewWindow, tauri::webview::PageLoadPayload<'_>) + Send + Sync + 'static {
+    let app = app.clone();
+    let home = home.clone();
+    move |window, load| {
+        if load.event() == tauri::webview::PageLoadEvent::Started && loopback_page(&home, load.url()) {
+            open_outside(&app, load.url());
+            let _ = window.navigate(home.clone());
+        }
     }
 }
 
@@ -984,6 +1026,7 @@ fn build_windows(app: &AppHandle, base: &str) -> Result<(), Box<dyn std::error::
     #[allow(unused_mut)]
     let mut builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url.clone()))
         .on_navigation(stay_on(app, &url))
+        .on_page_load(send_home(app, &url))
         .title("BigBrain")
         .inner_size(1280.0, 860.0)
         .min_inner_size(720.0, 480.0)
@@ -1362,6 +1405,28 @@ mod tests {
         let _ = fake.kill();
         let _ = fake.wait();
         assert!(!supervisor_alive(fake.id()));
+    }
+
+    #[test]
+    fn navigation_keeps_the_viewer_lets_loopback_frames_load_and_opens_only_web_urls() {
+        let u = |s: &str| s.parse::<tauri::Url>().unwrap();
+        let home = u("http://127.0.0.1:4747/");
+        for s in ["http://127.0.0.1:4747/", "http://127.0.0.1:4747/#/note/x", "http://127.0.0.1:4747/?q=1", "about:blank", "about:srcdoc"] {
+            assert!(stays(&home, &u(s)), "{s}");
+        }
+        // A `url` view's frame (an agent's dev server). The policy also sees
+        // frames, and these used to be cancelled and opened in the browser.
+        for s in ["http://127.0.0.1:5173/", "http://localhost:3000/app?x=1", "http://localhost:4747/"] {
+            assert!(stays(&home, &u(s)) && loopback_page(&home, &u(s)), "{s}");
+        }
+        assert!(stays(&u("http://127.0.0.1:5173/"), &u("http://127.0.0.1:4757/")), "the dev loop's engine, framed under vite");
+        assert!(!loopback_page(&home, &home), "the window's own home is never sent home");
+        for s in ["http://127.0.0.1:4747/api/file?x=1", "https://example.com/a", "https://127.0.0.1:5173/", "http://127.0.0.2:5173/", "http://192.168.1.2:8080/", "mailto:a@example.com"] {
+            assert!(!stays(&home, &u(s)) && browser_url(&u(s)), "{s}");
+        }
+        for s in ["file:///Applications/Calculator.app", "x-some-app://run?cmd=1", "ftp://example.com/f", "smb://host/share", "tel:+15555550100", "data:text/html,hi", "blob:http://127.0.0.1:4747/abc"] {
+            assert!(!stays(&home, &u(s)) && !browser_url(&u(s)), "{s}");
+        }
     }
 
     #[test]
