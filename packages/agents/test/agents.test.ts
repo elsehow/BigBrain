@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Agents, AgentsError, codingTools, commandEnv, discardWork, Harbor, landWork, loginEnv, releaseLeases, scopeOf, startWork, workspace, type Launcher, type ToolContext } from "../src";
+import { Agents, AgentsError, codingTools, commandEnv, discardWork, Harbor, landWork, loginEnv, releaseLeases, scopeOf, startWork, workDiff, workspace, type Launcher, type ToolContext } from "../src";
 
 const mac = process.platform === "darwin";
 /** Off macOS commands have no sandbox and are refused (sandbox.test.ts); these tests of everything else run them bare there. */
@@ -182,6 +182,25 @@ describe("worktrees on request", () => {
       expect(await landWork(ws, "desk-l", "orrery", "pr")).toEqual({ how: "pr", branch: "desktop/desk-l", url: "https://example.invalid/orrery/pull/7" });
     } finally { process.env.PATH = path; }
     expect(sh(ws.root, "git", "--git-dir", origin, "rev-parse", "desktop/desk-l")).toBe(sh(work.path, "git", "rev-parse", "HEAD"));
+  });
+
+  test("land shows its commits and diff first, and brings home only what was reviewed", async () => {
+    const { ws, home } = scene();
+    const work = await startWork(ws, "desk-r", "orrery");
+    writeFileSync(join(work.path, "src", "ratios.ts"), "export const moon = 1.5;\n");
+    git(work.path, "commit", "-q", "-am", "Fix the moon ratio");
+    const shown = await workDiff(ws, "desk-r", "orrery");
+    expect(shown).toMatchObject({ project: "orrery", branch: "desktop/desk-r", head: sh(work.path, "git", "rev-parse", "HEAD"), cut: false });
+    expect(shown.commits.map(c => c.subject)).toEqual(["Fix the moon ratio"]);
+    expect(shown.patch).toContain("+export const moon = 1.5;");
+    // the agent commits again after the person looked: nothing lands until they look again
+    writeFileSync(join(work.path, "src", "ratios.ts"), "export const moon = 9;\n");
+    git(work.path, "commit", "-q", "-am", "Something else");
+    const origin = join(ws.root, "origin.git");
+    sh(ws.root, "git", "init", "-q", "--bare", origin);
+    sh(home, "git", "remote", "add", "origin", origin);
+    await expect(landWork(ws, "desk-r", "orrery", "pr", shown.head)).rejects.toThrow(/since you reviewed it/);
+    expect(sh(ws.root, "git", "--git-dir", origin, "branch", "--list")).toBe("");
   });
 
   test("discard removes the worktree and its branch", async () => {
