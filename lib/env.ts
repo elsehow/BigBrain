@@ -21,8 +21,8 @@ const str = (name: string): string | undefined => {
 };
 
 /** A bare `PORT=` in the vault's .env reaches EVERY server the vault starts
- * (bun autoloads .env with cwd = vault), which is why each has its own knob
- * and this fallback is last. */
+ * (the supervisor passes the file's settings on, vaultEnvSettings), which is
+ * why each has its own knob and this fallback is last. */
 const port = (name: string, fallback: number): number =>
   Number(str(name) ?? str("PORT") ?? fallback);
 
@@ -123,16 +123,85 @@ export const noRetrievalLog = (): boolean => Boolean(str("BIGBRAIN_NO_RETRIEVAL_
 /** How many test files bin/test-parallel.ts runs at once; 0 = one per CPU. */
 export const testJobs = (): number => Number(str("BIGBRAIN_TEST_JOBS") ?? 0);
 
-/** A handoff worker gets authentication and OS basics, not the viewer's
- * OpenAI key, mail passwords, or gardener role. MCP reads its own config. */
-export function handoffProcessEnv(): Record<string, string> {
+// ── what a child inherits ────────────────────────────────────────────────────
+
+/** Every bun process the engine starts runs with this flag. Bun otherwise
+ * loads `<cwd>/.env` into process.env, and with cwd = the vault that file
+ * holds provider keys and mail passwords; from process.env they would reach
+ * every child. Credentials are read from the file when needed
+ * (lib/envFile.ts readEnvValues); engine settings kept there are passed on
+ * explicitly (vaultEnvSettings). */
+export const NO_ENV_FILE = "--no-env-file";
+
+/** The engine's own settings: the names the readers above take, plus the
+ * runtime's. The supervisor and the CLI pass these to their children; the
+ * credentials among the readers (CREDENTIAL_ENV) never. */
+export const ENGINE_ENV = [
+  "BIGBRAIN_VAULT", "BIGBRAIN_SHARED_VAULT", "BIGBRAIN_PILOT_CONTEXT_ROOT", "BIGBRAIN_PILOT_DEV_PORT", "BIGBRAIN_PILOT_UI_PORT",
+  "PORT", "BIGBRAIN_WEB_PORT", "BIGBRAIN_API_PORT", "BIGBRAIN_SHARED_PORT",
+  "BIGBRAIN_DESKTOP", "BIGBRAIN_SUPERVISOR_PID", "BIGBRAIN_DEV", "BIGBRAIN_WORKSPACE", "BIGBRAIN_AGENT_SCRIPT",
+  "BIGBRAIN_ROLE", "BIGBRAIN_WORK_ID", "BIGBRAIN_OWNER_EMAIL",
+  "BIGBRAIN_TOKENS", "BIGBRAIN_CLIENT_TOKENS", "BIGBRAIN_SHARED_MEMBERS", "BIGBRAIN_SHARED_PUBLIC_URL", "BIGBRAIN_SHARED_GOOGLE_CLIENT_ID",
+  "BIGBRAIN_ASSERTION_DB", "BIGBRAIN_NO_RETRIEVAL_LOG", "BIGBRAIN_TEST_JOBS",
+  "BIGBRAIN_POSTHOG_TOKEN", "BIGBRAIN_POSTHOG_REGION", "BIGBRAIN_SHARED_CONNECTIONS", "BIGBRAIN_FIREWALL_URL",
+  "NODE_ENV", "PI_OFFLINE",
+] as const;
+
+/** Model providers' settings that Pi and the SDKs under it read from the
+ * environment: where a model runs, which project or region bills it. None is a
+ * credential. Keys reach Pi's runtime directly (lib/run/piModelRuntime.ts);
+ * secrets kept in the vault's .env beside these (AWS_SECRET_ACCESS_KEY,
+ * AWS_SESSION_TOKEN, AWS_BEARER_TOKEN_BEDROCK, *_CUSTOM_HEADERS) stay there. */
+export const MODEL_ENV = [
+  "OPENAI_BASE_URL", "OPENAI_ORG_ID", "OPENAI_PROJECT_ID", "ANTHROPIC_BASE_URL",
+  "AZURE_OPENAI_BASE_URL", "AZURE_OPENAI_RESOURCE_NAME", "AZURE_OPENAI_API_VERSION", "AZURE_OPENAI_DEPLOYMENT_NAME_MAP",
+  "GOOGLE_CLOUD_PROJECT", "GCLOUD_PROJECT", "GOOGLE_CLOUD_LOCATION", "GOOGLE_APPLICATION_CREDENTIALS",
+  "AWS_PROFILE", "AWS_REGION", "AWS_DEFAULT_REGION", "AWS_CONFIG_FILE", "AWS_SHARED_CREDENTIALS_FILE",
+  "AWS_BEDROCK_BASE_URL", "AWS_BEDROCK_SKIP_AUTH", "AWS_BEDROCK_FORCE_HTTP1", "AWS_BEDROCK_FORCE_CACHE",
+  "CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_GATEWAY_ID", "PI_CACHE_RETENTION",
+] as const;
+
+/** The settings a vault's .env may carry for the engine's processes. */
+export const SETTINGS_ENV: readonly string[] = [...ENGINE_ENV, ...MODEL_ENV];
+
+/** Credentials BigBrain manages, wherever they turn up. Per-account copies
+ * carry a `__<ACCOUNT>` suffix (lib/integrationAccess.ts, lib/emailConfig.ts). */
+export const CREDENTIAL_ENV = [
+  "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GRANOLA_API_KEY", "THAT_TRACKS_API_KEY", "TYPESAFE_API_KEY",
+  "BIGBRAIN_IMAP_PASSWORD", "BIGBRAIN_MCP_TOKEN", "BIGBRAIN_SHARED_GOOGLE_CLIENT_SECRET",
+] as const;
+export const isCredentialEnv = (name: string): boolean =>
+  CREDENTIAL_ENV.some((c) => name === c || name.startsWith(`${c}__`));
+
+/** OS basics, network trust, and where tools keep their own config. */
+const BASICS = [
+  "HOME", "PATH", "TMPDIR", "USER", "LOGNAME", "SHELL", "LANG", "LC_ALL", "LC_CTYPE", "TZ", "TERM",
+  "SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS",
+  "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY", "https_proxy", "http_proxy", "no_proxy",
+  "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "CLAUDE_CONFIG_DIR", "CODEX_HOME",
+];
+
+const pick = (names: readonly string[], prefixes: readonly string[] = []): Record<string, string> => {
   const env: Record<string, string> = {};
-  for (const name of ["HOME", "PATH", "TMPDIR", "USER", "LOGNAME", "LANG", "LC_ALL", "SSL_CERT_FILE", "NODE_EXTRA_CA_CERTS"]) {
-    const value = str(name);
-    if (value) env[name] = value;
-  }
+  for (const [k, v] of Object.entries(process.env))
+    if (v?.trim() && (names.includes(k) || prefixes.some((p) => k.startsWith(p))) && !isCredentialEnv(k)) env[k] = v;
   return env;
-}
+};
+
+/** A handoff worker, or an external CLI (claude, codex), gets OS basics: not
+ * the viewer's OpenAI key, mail passwords, or gardener role. MCP reads its
+ * own config. */
+export const handoffProcessEnv = (): Record<string, string> => pick(BASICS);
+
+/** What `git` runs with: its own settings, and the ssh agent a push
+ * authenticates through. */
+export const gitProcessEnv = (): Record<string, string> => pick([...BASICS, "SSH_AUTH_SOCK"], ["GIT_"]);
+
+/** What an engine child (a job, publish, init) inherits: everything git
+ * gets, the engine's settings, and Pi's and the model providers' (the model
+ * runtime runs in-process). */
+export const engineProcessEnv = (): Record<string, string> =>
+  pick([...BASICS, "SSH_AUTH_SOCK", ...SETTINGS_ENV], ["GIT_", "PI_"]);
 
 /** Public ingestion settings; consent remains a separate installation preference. */
 export const posthogToken = (): string | undefined => str("BIGBRAIN_POSTHOG_TOKEN");

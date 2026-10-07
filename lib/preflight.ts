@@ -13,7 +13,8 @@ import { homedir } from "node:os";
 // door before one exists), so the root is asked for lazily, below.
 import type { Auth } from "./manifest";
 import { ENGINE_ROOT, requireVaultRoot } from "./engine";
-import { readEnvValues } from "./envFile";
+import { engineProcessEnv, handoffProcessEnv } from "./env";
+import { readEnvValues, vaultEnvSettings } from "./envFile";
 import { bigbrainCommandPath, engineBehindCommand } from "./bigbrainCommand";
 
 export interface Check {
@@ -37,24 +38,38 @@ export function jobsPath(): string {
   return [join(homedir(), ".local", "bin"), dirname(process.execPath), ...system].join(":");
 }
 
+/** The environment the supervisor's children get (bin/desktop.ts): named
+ * variables only. A credential reaches a job by reading the vault's .env,
+ * never by inheritance (lib/env.ts NO_ENV_FILE). */
+export function jobEnv(root: string, extra?: Record<string, string>): Record<string, string> {
+  return {
+    ...vaultEnvSettings(root),
+    ...engineProcessEnv(),
+    BIGBRAIN_VAULT: root,
+    BIGBRAIN_DESKTOP: "1",
+    HOME: homedir(),
+    PATH: jobsPath(),
+    ...extra,
+  };
+}
+
 function runs(cmd: string, args: string[], env?: Record<string, string | undefined>): boolean {
   const r = spawnSync(cmd, args, {
     timeout: 10_000,
     stdio: "ignore",
-    env: env ? { ...process.env, ...env } : undefined,
+    env: { ...handoffProcessEnv(), ...env },
   });
   return r.status === 0;
 }
 
 function envHasKey(root: string, key: string): boolean {
-  if (process.env[key]) return true;
   // The one .env parser (lib/envFile.ts) — not a third hand-rolled regex (#635).
   return Boolean(readEnvValues(root)[key]);
 }
 
-/** Under `auth: api`: is the key where the gardener will look — the
- * process environment, or the vault's .env (bun loads it from the job's
- * cwd, which is the vault). */
+/** Under `auth: api`: is the key where the gardener will look — the vault's
+ * .env, read on demand. Engine processes no longer inherit it (lib/env.ts
+ * NO_ENV_FILE), so a key only in some environment is not one it can use. */
 export function apiKeyPresent(root: string): boolean {
   return envHasKey(root, "ANTHROPIC_API_KEY");
 }

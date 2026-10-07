@@ -14,6 +14,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { ENGINE_ROOT } from "../lib/engine";
+import { NO_ENV_FILE } from "../lib/env";
 
 const read = (rel: string): string => readFileSync(join(ENGINE_ROOT, rel), "utf8");
 
@@ -65,6 +66,11 @@ describe("every #[tauri::command] is spelled the same in all four places", () =>
 });
 
 describe("the literals the two languages agree on by hand", () => {
+  test("the app starts the supervisor without bun's .env autoload, as the engine starts its jobs", () => {
+    const start = LIB_RS.slice(LIB_RS.indexOf("fn start_supervisor("));
+    expect(start.slice(0, start.indexOf(".arg(supervisor)"))).toContain(`.arg("${NO_ENV_FILE}")`);
+  });
+
   test("the shim marker the app writes is the one the engine looks for", () => {
     const rust = LIB_RS.match(/const SHIM_MARKER: &str = "([^"]+)"/)?.[1];
     const ts = read("lib/bigbrainCommand.ts").match(/APP_SHIM_MARKER = "([^"]+)"/)?.[1];

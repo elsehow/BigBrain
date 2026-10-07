@@ -21,7 +21,7 @@
  */
 import { createInterface } from "node:readline";
 import { Agents, type Desktop, type LandHow, type Stamped } from "../packages/agents/src";
-import { agentHost } from "../lib/agentHost";
+import { agentHost, hostAgents } from "../lib/agentHost";
 import { requireVaultRoot } from "../lib/engine";
 
 const dim = (s: string) => process.stdout.isTTY ? `\x1b[2m${s}\x1b[0m` : s;
@@ -103,7 +103,7 @@ async function converse(agents: Agents, id: string, modelFlag: string | undefine
 
 const args = process.argv.slice(2);
 const sub = args.shift();
-const agents = new Agents();
+const agents = hostAgents(requireVaultRoot());
 try {
   if (sub === "run") {
     const desktop = flag(args, "--desktop") ?? `d-${crypto.randomUUID().slice(0, 6)}`;

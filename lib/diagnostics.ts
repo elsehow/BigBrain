@@ -9,6 +9,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { assertionLockDir } from "./assertionAgent";
 import { engineIdentity } from "./engine";
+import { handoffProcessEnv } from "./env";
 import { json, send, type Route } from "./httpx";
 import { alive } from "./parentWatch";
 import { loadManifest, type Auth } from "./manifest";
@@ -292,7 +293,7 @@ export function renderBundle(r: DiagnosticsReport, app: string | null): string {
 export function osOpen(target: string, platform: string = process.platform): boolean {
   const cmd = platform === "darwin" ? "open" : "xdg-open";
   try {
-    const child = spawn(cmd, [target], { detached: true, stdio: "ignore" });
+    const child = spawn(cmd, [target], { detached: true, stdio: "ignore", env: handoffProcessEnv() });
     child.once("error", () => { /* not installed — the path is on screen */ });
     child.unref();
     return true;

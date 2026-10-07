@@ -13,7 +13,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import type { ServerResponse } from "node:http";
 import { isAbsolute, join, normalize } from "node:path";
 import { Agents, type Desktop, type HostTool, type LandHow, type OpenOptions, type Stamped } from "../packages/agents/src";
-import { agentHost } from "./agentHost";
+import { agentHost, hostAgents } from "./agentHost";
 import { writeAtomic } from "./fsx";
 import { pilotToolCall } from "./pilot";
 import { arrangeDesktop, closeView, desktopDetail, desktopReference, DESKTOP_TOOLS, DesktopError, emptyDesktop, loopbackUrl, MAX_PAGE_HTML, MAX_VIEWS, noteTitle, openView, SHOW_HTML_TOOL, SHOW_PAGE_TOOL, type DesktopView, type PilotDesktop } from "./pilotDesktop";
@@ -81,7 +81,7 @@ export class CodingDesktops {
   private naming = new Map<string, number>();
 
   constructor(private root: string, private options: { agents?: Agents; host?: HostFn; nameTask?: TaskNamer; themeUrl?: string } = {}) {
-    this.agents = options.agents ?? new Agents();
+    this.agents = options.agents ?? hostAgents(root);
     this.dir = join(spoolDir(root), "coding-desktops");
     mkdirSync(this.dir, { recursive: true });
     // After a restart no agent is running, so any tagged process is left over.
