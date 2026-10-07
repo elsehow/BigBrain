@@ -29,6 +29,10 @@ export interface ToolContext {
   elsewhere?(path: string): string | undefined;
   /** The host's word on a shell command before it runs (OpenOptions.shell). */
   shell?(command: string): string | undefined;
+  /** The host's word on a file write before it lands (OpenOptions.write). */
+  write?(path: string): string | undefined;
+  /** Told what a file held when the file tools read or wrote it (OpenOptions.file). */
+  file?(how: "read" | "wrote", path: string, content: string): void | Promise<void>;
 }
 
 const READ_LINES = 2000, READ_CHARS = 60_000, OUTPUT_CHARS = 30_000;
@@ -49,14 +53,22 @@ function locate(ctx: ToolContext, path: string): { abs: string; rel: string; inP
   return { abs, rel, ...(first && listProjects(ctx.ws).some(p => p.name === first) ? { inPlace: first } : {}) };
 }
 
-/** The file tools never write into a repository's .git (its hooks and config run code), however the path is spelled or linked. */
-function outsideGit(abs: string, rel: string): void {
+/** Where a write lands, links followed: the file's real path. Never inside a
+ * repository's .git (its hooks and config run code), however the path is spelled or linked. */
+function landing(abs: string, rel: string): string {
   let at = abs;
   while (!existsSync(at) && dirname(at) !== at) at = dirname(at);
   // a broken link would be followed to wherever it names
   if (at !== abs && lstatSync(abs, { throwIfNoEntry: false })?.isSymbolicLink()) throw new AgentsError(`${rel} is a broken link; the file tools don't write through it.`);
-  const git = (p: string) => p.split(sep).some(s => s.toLowerCase() === ".git");
-  if (git(rel) || git(realpathSync(at))) throw new AgentsError(`${rel} is inside a .git folder; the file tools don't write there.`);
+  const real = join(realpathSync(at), relative(at, abs));
+  if ([rel, real].some(p => p.split(sep).some(s => s.toLowerCase() === ".git"))) throw new AgentsError(`${rel} is inside a .git folder; the file tools don't write there.`);
+  return real;
+}
+
+/** The host's word on a write, before it lands. */
+function mayWrite(ctx: ToolContext, real: string): void {
+  const refused = ctx.write?.(real);
+  if (refused) throw new AgentsError(refused);
 }
 
 /** Editing a project in place takes its lease; another desktop's lease means start_work instead. */
@@ -77,7 +89,9 @@ export function codingTools(ctx: ToolContext): AgentTool[] {
         const { abs, rel } = locate(ctx, str(a.path, "a path"));
         if (!existsSync(abs)) throw new AgentsError(`${rel} doesn't exist.`);
         if (statSync(abs).isDirectory()) throw new AgentsError(`${rel} is a folder; use ls.`);
-        const lines = readFileSync(abs, "utf8").split("\n");
+        const body = readFileSync(abs, "utf8");
+        await ctx.file?.("read", realpathSync(abs), body);
+        const lines = body.split("\n");
         const from = Math.max(1, Number(a.offset) || 1), count = Math.min(READ_LINES, Number(a.limit) || READ_LINES);
         let text = lines.slice(from - 1, from - 1 + count).map((l, i) => `${from + i}\t${l}`).join("\n");
         if (text.length > READ_CHARS) text = text.slice(0, READ_CHARS) + "\n… (cut; read a smaller window)";
@@ -103,10 +117,12 @@ export function codingTools(ctx: ToolContext): AgentTool[] {
       async run(a) {
         const where = locate(ctx, str(a.path, "a path"));
         if (typeof a.content !== "string") throw new AgentsError("Give the file's content.");
-        outsideGit(where.abs, where.rel);
+        const real = landing(where.abs, where.rel);
+        mayWrite(ctx, real);
         lease(ctx, where.inPlace);
         mkdirSync(dirname(where.abs), { recursive: true });
         writeFileSync(where.abs, a.content);
+        await ctx.file?.("wrote", real, a.content);
         return { text: `Wrote ${where.rel} (${a.content.length} characters).`, label: `Wrote ${where.rel}`, ok: true };
       },
     },
@@ -119,13 +135,17 @@ export function codingTools(ctx: ToolContext): AgentTool[] {
         const oldText = str(a.old, "the exact text to replace");
         if (typeof a.new !== "string") throw new AgentsError("Give the replacement text.");
         if (!existsSync(where.abs)) throw new AgentsError(`${where.rel} doesn't exist.`);
-        outsideGit(where.abs, where.rel);
-        lease(ctx, where.inPlace);
+        const real = landing(where.abs, where.rel);
         const body = readFileSync(where.abs, "utf8");
+        await ctx.file?.("read", real, body);
+        mayWrite(ctx, real);
+        lease(ctx, where.inPlace);
         const count = body.split(oldText).length - 1;
         if (!count) throw new AgentsError(`That text isn't in ${where.rel}. Read the file again; it may have changed.`);
         if (count > 1 && a.all !== true) throw new AgentsError(`That text appears ${count} times in ${where.rel}; include more context, or set all.`);
-        writeFileSync(where.abs, a.all === true ? body.split(oldText).join(a.new) : body.replace(oldText, () => a.new as string));
+        const next = a.all === true ? body.split(oldText).join(a.new) : body.replace(oldText, () => a.new as string);
+        writeFileSync(where.abs, next);
+        await ctx.file?.("wrote", real, next);
         const n = a.all === true ? count : 1;
         return { text: `Edited ${where.rel} (${n} replacement${n === 1 ? "" : "s"}).`, label: `Edited ${where.rel}`, ok: true };
       },

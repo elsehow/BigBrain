@@ -43,6 +43,12 @@ export interface OpenOptions {
   /** The host's word on a shell command before it runs: a refusal the agent
    * is given instead of running it, or undefined to run it. Asked each time. */
   shell?: (command: string) => string | undefined;
+  /** The host's word on a file write before it lands, by the file's real path:
+   * a refusal the agent is given instead, or undefined to write it. */
+  write?: (path: string) => string | undefined;
+  /** Told what a file held, by real path, each time the file tools read or
+   * wrote it; the tool returns once it settles. */
+  file?: (how: "read" | "wrote", path: string, content: string) => void | Promise<void>;
   /** Material the host hands over as data, not instructions (such as untrusted
    * content the desktop was started about): the session's first message, ahead
    * of the person's, kept in the session and never in the instructions. */
@@ -142,7 +148,7 @@ export class Desktop {
 
     const tools: AgentTool[] = [
       ...codingTools({
-        ws: this.ws, desktop: this.id, harbor: this.harbor, elsewhere: options.elsewhere, shell: options.shell,
+        ws: this.ws, desktop: this.id, harbor: this.harbor, elsewhere: options.elsewhere, shell: options.shell, write: options.write, file: options.file,
         started: (r: WorkRecord) => this.emit({ type: "work.started", project: r.project, branch: r.branch, path: r.path, ms: r.ms, cloned: r.cloned }),
         server: (port, job, command) => {
           this.emit({ type: "server.started", port, job, command });

@@ -91,6 +91,23 @@ describe("the agent's world", () => {
     expect(readFileSync(join(home, ".gitignore"), "utf8")).toContain("dist/");
   });
 
+  test("the host hears what the file tools read and wrote, by real path, and can refuse a write wherever a link points", async () => {
+    const { ws, home } = scene();
+    const heard: string[] = [];
+    const ctx: ToolContext = { ...ctxFor(ws, "desk-files"), write: p => p.endsWith("/package.json") ? "Not that file." : undefined,
+      file: (how, p, content) => { heard.push(`${how} ${p.slice(home.length + 1)} ${content.length}`); } };
+    await tool(ctx, "read").run({ path: "projects/orrery/src/ratios.ts" }, signal());
+    await tool(ctx, "write").run({ path: "projects/orrery/src/gear.ts", content: "x" }, signal());
+    await tool(ctx, "edit").run({ path: "projects/orrery/src/gear.ts", old: "x", new: "yy" }, signal());
+    expect(heard).toEqual(["read src/ratios.ts 25", "wrote src/gear.ts 1", "read src/gear.ts 1", "wrote src/gear.ts 2"]);
+    writeFileSync(join(home, "package.json"), "{}\n");
+    symlinkSync(join(home, "package.json"), join(home, "notes.json"));
+    for (const path of ["projects/orrery/package.json", "projects/orrery/notes.json"])
+      await expect(tool(ctx, "write").run({ path, content: '{"scripts":{}}' }, signal())).rejects.toThrow("Not that file.");
+    await expect(tool(ctx, "edit").run({ path: "projects/orrery/notes.json", old: "{}", new: "[]" }, signal())).rejects.toThrow("Not that file.");
+    expect(readFileSync(join(home, "package.json"), "utf8")).toBe("{}\n");
+  });
+
   test("the host can turn the shell off: the command isn't run, and the host hears what it was", async () => {
     const { ws, home } = scene();
     const asked: string[] = [];

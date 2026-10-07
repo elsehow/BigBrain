@@ -13,22 +13,25 @@
  * tools read) reaches the agent as data, never instructions, and turns its
  * shell off until the person allows it (allowShell).
  */
-import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import type { ServerResponse } from "node:http";
-import { isAbsolute, join, normalize } from "node:path";
+import { basename, isAbsolute, join, normalize, relative } from "node:path";
 import { Agents, type Desktop, type HostTool, type LandHow, type OpenOptions, type Stamped } from "../packages/agents/src";
 import { agentHost } from "./agentHost";
 import { writeAtomic } from "./fsx";
+import { sha256hex } from "./hash";
 import { sourceMoment } from "./insertionLog";
+import { notePayload } from "./noteRead";
 import { resolveNote } from "./noteResolution";
 import { pilotToolCall } from "./pilot";
 import { arrangeDesktop, closeView, desktopDetail, desktopReference, DESKTOP_TOOLS, DesktopError, emptyDesktop, loopbackUrl, MAX_PAGE_HTML, MAX_VIEWS, noteTitle, openView, SHOW_HTML_TOOL, SHOW_PAGE_TOOL, type DesktopView, type PilotDesktop } from "./pilotDesktop";
 import { namingMoment, type TaskNamer } from "./pilotTaskName";
 import { savedPilotBackend } from "./pilotDefault";
-import { isSourceThreadPath } from "./sourceThreads";
 import { spoolDir } from "./spool";
 
-/** Untrusted material that reached the agent: a note its desktop was started about (`via: "start"`), or what a tool read. */
+/** Untrusted material that reached the agent: a note its desktop was started
+ * about (`via: "start"`), what a tool read, or a file a tainted desktop wrote
+ * (`via: "file"`). `key` names it by what it said, for the person's allowance. */
 export interface TaintSource { key: string; via: string; title: string; at: string }
 
 export interface CodingDesktopRecord {
@@ -72,11 +75,39 @@ const untrustedNote = (path: string): boolean => !CURATED.test(normalize(path));
 const LIVE_READERS = new Map([["email_read", "your email"], ["email_search", "your email"], ["inbox_read", "your inbox"], ["inbox_list", "your inbox"],
   ["granola_read", "your Granola notes"], ["granola_tools", "your Granola notes"]]);
 
-/** A note's identity for the person's allowance: its path, and for a thread (which grows) its newest member. */
+/** Host tools that list sources: titles, snippets and senders are their text. */
+const LISTERS = new Set(["search_vault", "recent"]);
+
+/** Files that run code without anyone asking (scripts, configs that load
+ * code, hooks, an environment loader): a tainted desktop can't write them. */
+const AUTORUN = /(?:^|\/)(?:package\.json|vite\.config\.[^/]+|bunfig\.toml|\.mcp\.json|\.envrc|makefile|\.claude\/settings[^/]*\.json|\.vscode\/tasks\.json|\.husky\/.+)$/i;
+
+const hashOf = (v: unknown) => sha256hex(typeof v === "string" ? v : JSON.stringify(v) ?? "").slice(0, 16);
+
+/** A note's identity for the person's allowance: its path and what it says
+ * now, so a note that changes (a thread that grows, a drop rewritten) is new material. */
 function noteKey(root: string, path: string): string {
   const p = normalize(path);
-  const r = isSourceThreadPath(p) ? resolveNote(root, p, { markdown: () => undefined }) : undefined;
-  return r?.kind === "thread" ? `${p}#${r.thread.members[0]?.id}` : p;
+  const r = notePayload(root, p);
+  return `${p}#${r.status === 200 ? hashOf(r.note.markdown) : "unread"}`;
+}
+
+/** A listing for a desktop whose shell is on: a row from outside (a source,
+ * or anything not a curated note) shows only its path, kind and date. */
+function redacted(out: unknown): unknown {
+  const o = out as Record<string, unknown> | null;
+  const key = Array.isArray(o?.hits) ? "hits" : Array.isArray(o?.recent) ? "recent" : undefined;
+  if (!o || !key) return out;
+  const word = (v: unknown) => typeof v === "string" && /^[\w.-]{1,40}$/.test(v) ? v : undefined;
+  const day = (v: unknown) => typeof v === "string" && /^\d{4}-\d{2}-\d{2}[\dT:.Z+-]{0,20}$/.test(v) ? v : undefined;
+  let n = 0;
+  const rows = (o[key] as Array<Record<string, unknown> | null>).map(h => {
+    if (typeof h?.path === "string" && !untrustedNote(h.path)) return h;
+    n++;
+    const kept = { path: h?.path, source: word(h?.source), type: word(h?.type), date: day(h?.date), at: day(h?.at), when: day(h?.when) };
+    return Object.fromEntries(Object.entries(kept).filter(e => e[1] !== undefined));
+  });
+  return n ? { ...o, [key]: rows, untrusted: `${n} of these ${n === 1 ? "is" : "are"} from outside your person, shown only by path, kind and date. read_note shows the text, and turns this desktop's shell off until your person allows it.` } : out;
 }
 
 /** Where a note came from, as far as the record says: a source's or thread's connector and sender, and when it arrived. */
@@ -249,13 +280,14 @@ export class CodingDesktops {
       const host = await (this.options.host ?? agentHost)(this.root, r.model);
       const context = r.context ?? [];
       // a desktop recorded before taint was kept still holds what it was started about
-      for (const s of this.seeds(context, "")) this.taint(id, s);
+      for (const s of this.seeds(context, "")) await this.taint(id, s);
       const theme = this.options.themeUrl;
       const showing = `\n## Showing things\nTo show your person a result (a report, a comparison, a table, a chart), use show_html with plain semantic HTML: no CSS, style attributes or scripts. It is dressed in their BigBrain theme.` +
         (theme ? ` For a page you serve yourself, use the same style: put <link rel="stylesheet" href="${theme}"> in its head instead of writing CSS (a served page can't load files from disk).` : "") +
         ` Serve pages with a server that reloads them when files change, so you never restart it or show the page again after an edit: the project's own dev server if it has one, otherwise \`npx --yes vite <folder> --host 127.0.0.1 --port <port> --strictPort\`.`;
       const desktop = await this.agents.open(id, { ...host, instructions: host.instructions + aboutSection(context.length) + UNTRUSTED + showing,
         preface: await aboutData(this.root, context), shell: command => this.shellOff(id, command),
+        write: path => this.writeOff(id, path), file: (how, path, content) => this.filed(id, how, path, content),
         tools: [...(host.tools ?? []), ...this.viewTools(id)].map(t => this.watched(id, t)) });
       desktop.events.subscribe(e => this.broadcast(id, e));
       return desktop;
@@ -394,29 +426,66 @@ export class CodingDesktops {
   }
 
   // ── untrusted material ────────────────────────────────────────────────────
-  /** Untrusted material reached the agent: its shell is off until the person allows it. What they allowed it despite doesn't count again. */
-  private taint(id: string, why: Omit<TaintSource, "at">): void {
+  /** Untrusted material reached the agent: its shell is off until the person
+   * allows it, and what it already runs is stopped (a server or watcher would
+   * run what it writes next). What they allowed it despite doesn't count again. */
+  private async taint(id: string, why: Omit<TaintSource, "at">): Promise<void> {
     const r = this.get(id);
     const sources = r.taint?.sources ?? [];
     if (r.allowed?.keys.includes(why.key) || sources.some(s => s.key === why.key)) return;
+    const was = !!r.taint;
     r.taint = { ...r.taint, sources: [...sources, { ...why, at: new Date().toISOString() }].slice(0, MAX_TAINT) };
     this.save(r);
+    if (!was) await this.agents.harbor.stopDesktop(id).catch(() => 0);
   }
 
-  /** A host tool that taints the desktop when what it hands the agent came from outside: any live integration read, or read_note on anything but a curated note. */
+  /** A host tool that hands the agent material from outside: a live
+   * integration read or read_note on anything but a curated note taints the
+   * desktop; a listing shows sources only by path while its shell is on. */
   private watched(id: string, t: HostTool): HostTool {
     const live = LIVE_READERS.get(t.name);
+    if (LISTERS.has(t.name)) return { ...t, execute: async (args, signal) => {
+      const out = await t.execute(args, signal);
+      return this.get(id).taint ? out : redacted(out);
+    } };
     if (!live && t.name !== "read_note") return t;
     return { ...t, execute: async (args, signal) => {
-      if (live) this.taint(id, { key: `${t.name} ${JSON.stringify(args)}`.slice(0, 300), via: t.name, title: live });
       const out = await t.execute(args, signal);
       const path = typeof args.path === "string" ? args.path : "";
-      if (!live && untrustedNote(path)) {
+      if (live) await this.taint(id, { key: `${t.name}#${hashOf(out)}`, via: t.name, title: live });
+      else if (untrustedNote(path)) {
         const title = (out as { title?: unknown } | null)?.title;
-        this.taint(id, { key: noteKey(this.root, path), via: t.name, title: typeof title === "string" ? title.slice(0, 120) : path });
+        await this.taint(id, { key: noteKey(this.root, path), via: t.name, title: typeof title === "string" ? title.slice(0, 120) : path });
       }
       return out;
     } };
+  }
+
+  /** Writes, asked before each: a tainted desktop can't write a file that runs code on its own. */
+  private writeOff(id: string, path: string): string | undefined {
+    if (!this.get(id).taint || !AUTORUN.test(path)) return undefined;
+    return `The shell is off for this desktop because it has read untrusted content, and ${basename(path)} can run code on its own, so it was not written. Your person can allow the shell for this desktop: tell them what you wanted to change and why.`;
+  }
+
+  /** Files that tainted desktops wrote, by content: a ledger, so their words
+   * don't reach another desktop's agent as a plain project file. */
+  private get written(): string { return join(this.dir, "written.jsonl"); }
+
+  /** What the file tools read or wrote. A tainted desktop's writes are ledgered;
+   * reading a ledgered file another desktop wrote, unchanged, taints the reader. */
+  private async filed(id: string, how: "read" | "wrote", path: string, content: string): Promise<void> {
+    if (!content.trim()) return;
+    const hash = hashOf(content);
+    if (how === "wrote") {
+      if (this.get(id).taint) appendFileSync(this.written, JSON.stringify({ hash, path, desktop: id, at: new Date().toISOString() }) + "\n", { mode: 0o600 });
+      return;
+    }
+    if (!existsSync(this.written)) return;
+    const by = readFileSync(this.written, "utf8").split("\n").filter(Boolean)
+      .map(l => JSON.parse(l) as { hash: string; desktop: string }).find(w => w.hash === hash && w.desktop !== id);
+    if (!by) return;
+    const rel = relative(realpathSync(this.agents.ws.root), path);
+    await this.taint(id, { key: `file#${hash}`, via: "file", title: `${rel.startsWith("..") ? path : rel}, written by a desktop that read untrusted content` });
   }
 
   /** The shell, asked before each command: off while the desktop holds untrusted material. The refused command is kept for the person to see. */
@@ -434,7 +503,9 @@ export class CodingDesktops {
       const r = this.get(id);
       r.desktop = rule(() => step(r.desktop ?? emptyDesktop()));
       this.save(r);
-      return desktopReference(r.desktop);
+      const ref = desktopReference(r.desktop);
+      // a source's title is its text: shown once read_note has turned the shell off
+      return r.taint ? ref : { ...ref, views: ref.views.map(v => v.kind === "note" && untrustedNote(v.path) ? { ...v, title: "(from outside your person: read_note shows it)" } : v) };
     };
     const def = (name: string) => [...DESKTOP_TOOLS, SHOW_PAGE_TOOL, SHOW_HTML_TOOL].find(t => t.name === name)!;
     const tool = (name: string, run: (a: Record<string, unknown>) => Promise<unknown>, label: (a: Record<string, unknown>) => string): HostTool =>
