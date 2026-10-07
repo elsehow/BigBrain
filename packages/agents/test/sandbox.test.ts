@@ -5,7 +5,7 @@ import { createServer as httpServer, type Server } from "node:http";
 import { connect, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { allowedHost, confinement, EgressProxy, Harbor, privateAddress, profileInput, Seatbelt, startWork, takeLease, workspace, type SandboxPolicy } from "../src";
+import { allowedHost, confinement, EgressProxy, Harbor, privateAddress, profileInput, scopeOf, Seatbelt, startWork, takeLease, workspace, type SandboxPolicy } from "../src";
 
 const mac = process.platform === "darwin";
 const roots: string[] = [];
@@ -31,7 +31,8 @@ async function scene(policy: Omit<SandboxPolicy, "deny"> & { egress?: EgressProx
   const outside = scratch("sandbox-outside-");
   const egress = policy.egress ?? new EgressProxy({ hosts: () => policy.hosts?.() ?? [] });
   const full: SandboxPolicy = { ...policy, deny: () => [secrets], caches: [] };
-  const h = new Harbor({ env: { PATH: process.env.PATH, HOME: process.env.HOME, SSH_AUTH_SOCK: "/tmp/invented-agent.sock" }, settleMs: 400, waitMs: 4000, graceMs: 500,
+  // its own scope: another test file's engine sweeping its leftovers never stops these
+  const h = new Harbor({ env: { PATH: process.env.PATH, HOME: process.env.HOME, SSH_AUTH_SOCK: "/tmp/invented-agent.sock" }, scope: scopeOf(root), settleMs: 400, waitMs: 4000, graceMs: 500,
     launcher: new Seatbelt(full, egress, { tmp: join(root, "tmp") }) });
   const work = await startWork(ws, "desk-sb", "orrery");
   const sh = async (command: string, cwd = work.path, untrusted = false, desktop = "desk-sb") => {
