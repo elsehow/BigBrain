@@ -9,7 +9,7 @@
  * Commands run in Harbor (harbor.ts). Every result carries a plain-language
  * label for the desktop's activity line.
  */
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import type { Harbor } from "./harbor";
 import { startWork, type WorkRecord } from "./worktree";
@@ -27,6 +27,8 @@ export interface ToolContext {
   server(port: number, job: number, command: string): void;
   /** The host's word on a path outside the workspace (OpenOptions.elsewhere). */
   elsewhere?(path: string): string | undefined;
+  /** The host's word on a shell command before it runs (OpenOptions.shell). */
+  shell?(command: string): string | undefined;
 }
 
 const READ_LINES = 2000, READ_CHARS = 60_000, OUTPUT_CHARS = 30_000;
@@ -45,6 +47,16 @@ function locate(ctx: ToolContext, path: string): { abs: string; rel: string; inP
   const rel = relative(ctx.ws.root, abs) || ".";
   const first = inside(ctx.ws.projects) ? relative(ctx.ws.projects, abs).split(sep)[0] : undefined;
   return { abs, rel, ...(first && listProjects(ctx.ws).some(p => p.name === first) ? { inPlace: first } : {}) };
+}
+
+/** The file tools never write into a repository's .git (its hooks and config run code), however the path is spelled or linked. */
+function outsideGit(abs: string, rel: string): void {
+  let at = abs;
+  while (!existsSync(at) && dirname(at) !== at) at = dirname(at);
+  // a broken link would be followed to wherever it names
+  if (at !== abs && lstatSync(abs, { throwIfNoEntry: false })?.isSymbolicLink()) throw new AgentsError(`${rel} is a broken link; the file tools don't write through it.`);
+  const git = (p: string) => p.split(sep).some(s => s.toLowerCase() === ".git");
+  if (git(rel) || git(realpathSync(at))) throw new AgentsError(`${rel} is inside a .git folder; the file tools don't write there.`);
 }
 
 /** Editing a project in place takes its lease; another desktop's lease means start_work instead. */
@@ -91,6 +103,7 @@ export function codingTools(ctx: ToolContext): AgentTool[] {
       async run(a) {
         const where = locate(ctx, str(a.path, "a path"));
         if (typeof a.content !== "string") throw new AgentsError("Give the file's content.");
+        outsideGit(where.abs, where.rel);
         lease(ctx, where.inPlace);
         mkdirSync(dirname(where.abs), { recursive: true });
         writeFileSync(where.abs, a.content);
@@ -106,6 +119,7 @@ export function codingTools(ctx: ToolContext): AgentTool[] {
         const oldText = str(a.old, "the exact text to replace");
         if (typeof a.new !== "string") throw new AgentsError("Give the replacement text.");
         if (!existsSync(where.abs)) throw new AgentsError(`${where.rel} doesn't exist.`);
+        outsideGit(where.abs, where.rel);
         lease(ctx, where.inPlace);
         const body = readFileSync(where.abs, "utf8");
         const count = body.split(oldText).length - 1;
@@ -122,6 +136,8 @@ export function codingTools(ctx: ToolContext): AgentTool[] {
       label: a => `Running ${short(String(a.command ?? ""))}`,
       async run(a, signal) {
         const command = str(a.command, "a command");
+        const refused = ctx.shell?.(command);
+        if (refused) return { text: refused, label: `Didn't run ${short(command)}: the shell is off`, ok: false };
         const where = locate(ctx, typeof a.cwd === "string" && a.cwd ? a.cwd : "projects");
         const result = await ctx.harbor.run(ctx.desktop, command, where.abs, signal);
         const tail = (s: string) => s.length > OUTPUT_CHARS ? "… (earlier output cut)\n" + s.slice(-OUTPUT_CHARS) : s;

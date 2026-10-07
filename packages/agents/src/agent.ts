@@ -40,6 +40,13 @@ export interface OpenOptions {
   /** What to tell the agent about a path outside its workspace that the host
    * knows, such as one a host tool reads; undefined leaves the plain refusal. */
   elsewhere?: (path: string) => string | undefined;
+  /** The host's word on a shell command before it runs: a refusal the agent
+   * is given instead of running it, or undefined to run it. Asked each time. */
+  shell?: (command: string) => string | undefined;
+  /** Material the host hands over as data, not instructions (such as untrusted
+   * content the desktop was started about): the session's first message, ahead
+   * of the person's, kept in the session and never in the instructions. */
+  preface?: string;
 }
 
 /** What the agent is told about where it works; the host's instructions come first. */
@@ -135,7 +142,7 @@ export class Desktop {
 
     const tools: AgentTool[] = [
       ...codingTools({
-        ws: this.ws, desktop: this.id, harbor: this.harbor, elsewhere: options.elsewhere,
+        ws: this.ws, desktop: this.id, harbor: this.harbor, elsewhere: options.elsewhere, shell: options.shell,
         started: (r: WorkRecord) => this.emit({ type: "work.started", project: r.project, branch: r.branch, path: r.path, ms: r.ms, cloned: r.cloned }),
         server: (port, job, command) => {
           this.emit({ type: "server.started", port, job, command });
@@ -172,6 +179,8 @@ export class Desktop {
     const { session } = await sdk.createAgentSession({ cwd: this.folder, agentDir: state, modelRuntime: options.modelRuntime, model: options.model,
       thinkingLevel: options.thinkingLevel, resourceLoader, settingsManager, sessionManager, tools: customTools.map(t => t.name), customTools });
     if (options.wrapStream) session.agent.streamFunction = options.wrapStream(session.agent.streamFunction);
+    if (options.preface && !session.messages.length)
+      await session.sendCustomMessage({ customType: "preface", content: options.preface, display: false }, { triggerTurn: false });
     session.subscribe(event => {
       if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") this.emit({ type: "message.delta", text: event.assistantMessageEvent.delta });
       if (event.type === "message_end" && event.message.role === "assistant") {
