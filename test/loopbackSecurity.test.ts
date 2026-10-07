@@ -72,7 +72,8 @@ describe("production HTTP entrypoints enforce the boundary", () => {
     const probe = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: () => new Response() });
     const port = probe.port!; probe.stop(true);
     const child = Bun.spawn([process.execPath, entry], {
-      env: { ...process.env, BIGBRAIN_VAULT: root, BIGBRAIN_WEB_PORT: String(port), BIGBRAIN_SUPERVISOR_PID: "", BIGBRAIN_DEV: "1" },
+      // The supervisor tightens ~/.config/bigbrain at start: never the real one.
+      env: { ...process.env, BIGBRAIN_VAULT: root, BIGBRAIN_WEB_PORT: String(port), BIGBRAIN_SUPERVISOR_PID: "", BIGBRAIN_DEV: "1", ...(entry === "bin/desktop.ts" ? { HOME: root } : {}) },
       stdin: "pipe", stdout: "ignore", stderr: "ignore",
     });
     try {
