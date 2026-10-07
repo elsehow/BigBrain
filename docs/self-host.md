@@ -260,6 +260,8 @@ The vault directory is yours and is left alone.
   gardener makes no model request when nothing is due.
 - Enabled integrations contact their own services; provider read-state actions
   can update those services when explicitly requested.
+- Hardcover, once connected → `api.hardcover.app`, only when an agent looks
+  something up ([docs/hardcover.md](hardcover.md)).
 - The app's update check → wherever it is published, on launch.
 - `git push origin main`, if and only if you configured an origin.
 - Optional usage and performance summaries → PostHog US, only after you

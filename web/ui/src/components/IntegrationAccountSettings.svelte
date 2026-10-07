@@ -14,7 +14,7 @@
  import IntegrationReads from "./IntegrationReads.svelte";
  import {onMount} from 'svelte';
  const {source}:{source:string}=$props();
-  type Account={gmail?:boolean;google?:boolean;host?:string;removable?:boolean;email?:{startAt:string;attachments:boolean;backfill?:{since:string}};granola?:{backfill?:{since:string}};sync?:{ok:boolean;error?:string};auth?:{phase:string;url?:string;error?:string};identity?:unknown;label:string;name:string;account:string;connected:boolean;grants?:{caller:string;access:Access}[];capabilities:{read:string|null;write:string|null}};
+  type Account={gmail?:boolean;google?:boolean;host?:string;removable?:boolean;email?:{startAt:string;attachments:boolean;backfill?:{since:string}};granola?:{backfill?:{since:string}};sync?:{ok:boolean;error?:string};auth?:{phase:string;url?:string;error?:string};identity?:unknown;signIn?:boolean;reconnect?:boolean;label:string;name:string;account:string;connected:boolean;grants?:{caller:string;access:Access}[];capabilities:{read:string|null;write:string|null}};
  let newLabel=$state(''),newKey=$state(''),adding=$state(false),destination=$state('this vault');
  let history=$state<Record<string,string>>({});
  let includeHistory=$state<Record<string,boolean>>({});
@@ -30,6 +30,8 @@
  const granted=(account:Account,caller:string):Access=>account.grants?.find(g=>g.caller===caller)?.access??'off';
  const accessOf=(account:Account,caller:string):Access=>changed[account.account]?.[caller]??granted(account,caller);
  const grantChanges=(account:Account)=>{const c=Object.entries(changed[account.account]??{});return c.length?{grants:c.map(([caller,access])=>({caller,access}))}:{};};
+ /** This source's accounts sign in through the browser: an added one needs only a name. */
+ const signsIn=$derived(accounts.some(a=>a.signIn));
  type Where='connection'|'save'|'list'|'add';
  /** One message at a time, shown where the action happened. */
  let feedback=$state<{where:Where;account:string|null;error:boolean;text:string}|null>(null);
@@ -38,8 +40,8 @@
  async function request(body?:unknown){const r=await fetch('/api/integration-accounts',body?{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)}:undefined);const v=await r.json();if(!r.ok)throw Error(v.error||'Could not load account settings.');return v;}
  function accountLabel(account:Account){
    if(account.label!==source)return account.label;
-   const identity=account.identity as {email?:unknown}|undefined;
-   return typeof identity?.email==='string'?identity.email:'Account';
+   const identity=account.identity as {email?:unknown;username?:unknown}|undefined;
+   return typeof identity?.email==='string'?identity.email:typeof identity?.username==='string'?identity.username:'Account';
  }
  function accept(v:{accounts:Account[];destination?:string;callers?:{id:string;label:string;expired?:boolean}[]}){destination=v.destination??"this vault";accounts=v.accounts.filter(a=>a.name===source);callers=v.callers??[];
   // a change the server now holds is no longer pending
@@ -49,7 +51,7 @@
    const timer=setInterval(()=>{if(!busy&&accounts.some(a=>a.auth?.phase==='browser'||a.auth?.phase==='starting'))void request().then(accept).catch(e=>say('list',null,e.message,true));},1500);
    return()=>clearInterval(timer);
  });
- async function act(account:Account,action:string){busy=true;feedback=null;const where=placeOf(action),who=action==='remove'?null:account.account;const importing=(source==='email'||source==='granola')&&includeHistory[account.account]?history[account.account]:'';try{accept(await request({name:source,account:account.account,action,key:keys[account.account],...(action==='save'?grantChanges(account):{}),...(source==='email'?{attachments:account.email?.attachments??false}:{}),...(source==='email'||source==='granola'?{backfillSince:includeHistory[account.account]?history[account.account]:undefined}:{})}));if(action==='credentials')keys[account.account]='';if(action==='save'){includeHistory[account.account]=false;history[account.account]='';}if(source==='granola'&&action==='connect'){const url=accounts.find(a=>a.account===account.account)?.auth?.url;if(url)await openExternal(url);}say(where,who,action==='connect'?(accounts.find(a=>a.account===account.account)?.connected?'Connected.':'Finish sign-in in your browser.'):action==='disconnect'?'Disconnected.':action==='cancel'?'Sign-in cancelled.':action==='remove'?`Removed ${accountLabel(account)}.`:importing?`Saved. Importing ${items} since ${importing}.`:'Saved.');}catch(e){say(where,who,e instanceof Error?e.message:'Could not save.',true);}finally{busy=false;if(action==='credentials'&&source==='email')keys[account.account]='';}}
+ async function act(account:Account,action:string){busy=true;feedback=null;const where=placeOf(action),who=action==='remove'?null:account.account;const importing=(source==='email'||source==='granola')&&includeHistory[account.account]?history[account.account]:'';try{accept(await request({name:source,account:account.account,action,key:keys[account.account],...(action==='save'?grantChanges(account):{}),...(source==='email'?{attachments:account.email?.attachments??false}:{}),...(source==='email'||source==='granola'?{backfillSince:includeHistory[account.account]?history[account.account]:undefined}:{})}));if(action==='credentials')keys[account.account]='';if(action==='save'){includeHistory[account.account]=false;history[account.account]='';}if(action==='connect'){const url=accounts.find(a=>a.account===account.account)?.auth?.url;if(url)await openExternal(url);}say(where,who,action==='connect'?(accounts.find(a=>a.account===account.account)?.connected?'Connected.':'Finish sign-in in your browser.'):action==='disconnect'?'Disconnected.':action==='cancel'?'Sign-in cancelled.':action==='remove'?`Removed ${accountLabel(account)}.`:importing?`Saved. Importing ${items} since ${importing}.`:'Saved.');}catch(e){say(where,who,e instanceof Error?e.message:'Could not save.',true);}finally{busy=false;if(action==='credentials'&&source==='email')keys[account.account]='';}}
  /** A calendar date typed as YYYY-MM-DD, today or earlier; '' when it is not one. */
  function pastDate(text:string):string{
   const t=text.trim();if(!/^\d{4}-\d{2}-\d{2}$/.test(t))return '';
@@ -69,14 +71,15 @@
 </script>
 {#snippet note(where:Where,account:string|null)}{#if feedback&&feedback.where===where&&feedback.account===account}<p class="note" role={feedback.error?'alert':'status'}>{feedback.text}</p>{/if}{/snippet}
 <section class="settings-list account-list" aria-label={`${source} accounts`}>
- {#each accounts as account(account.account)}<details bind:open={expanded[account.account]} class="settings-row account-row"><summary><strong>{accountLabel(account)}</strong><span>{account.connected ? "Connected" : "Not connected"}</span></summary>
+ {#each accounts as account(account.account)}<details bind:open={expanded[account.account]} class="settings-row account-row"><summary><strong>{accountLabel(account)}</strong><span>{account.reconnect ? "Needs reconnecting" : account.connected ? "Connected" : "Not connected"}</span></summary>
   <div class="account-settings">
   <div class="account-connection">
   {#if source==='email'}<details><summary>{account.google?'App password':'Password'}</summary><label>{account.google?'New app password':'New password'}<input type="password" autocomplete="new-password" bind:value={keys[account.account]} placeholder={account.google?'16-character Google app password':'Inbox password'}/></label><button disabled={busy||!keys[account.account]?.trim()} onclick={()=>act(account,'credentials')}>Reconnect</button></details>{/if}
   {#if source==='that-tracks'}<details><summary>Credentials</summary><label>API key<input type="password" autocomplete="new-password" bind:value={keys[account.account]} placeholder="Leave blank to keep the saved key"/></label><button disabled={busy||!keys[account.account]?.trim()} onclick={()=>act(account,'credentials')}>Save key</button></details>{/if}
-  {#if source==='granola'&&account.identity}<details><summary>Signed-in account</summary><pre>{typeof account.identity==='string'?account.identity:JSON.stringify(account.identity,null,2)}</pre></details>{/if}
+  {#if account.signIn&&account.identity}<details><summary>Signed-in account</summary><pre>{typeof account.identity==='string'?account.identity:JSON.stringify(account.identity,null,2)}</pre></details>{/if}
   {#if account.auth?.phase==='browser'}
     <div class="actions"><button onclick={()=>account.auth?.url&&openExternal(account.auth.url)}>Continue sign-in</button><button disabled={busy} onclick={()=>act(account,'cancel')}>Cancel</button></div>
+  {:else if account.reconnect}<div class="actions"><button disabled={busy} onclick={()=>act(account,'connect')}>Reconnect</button><button disabled={busy} onclick={()=>act(account,'disconnect')}>Disconnect</button></div>
   {:else if !account.connected}<button disabled={busy} onclick={()=>act(account,'connect')}>Connect</button>{:else}<button disabled={busy} onclick={()=>act(account,'disconnect')}>Disconnect</button>{/if}
   {#if account.auth?.error}<p role="alert">{account.auth.error}</p>{/if}
   {@render note('connection',account.account)}
@@ -127,7 +130,7 @@
    <button disabled={busy||!newLabel.trim()}>{busy?'Checking…':'Add feed'}</button>
   </form>{/if}{@render note('add',null)}
  {/if}
- {#if source!=='email'&&source!=='that-tracks'&&source!=='rss'}<button class="settings-add" onclick={()=>adding=!adding}>{adding ? 'Cancel' : 'New account +'}</button>{#if adding}<form onsubmit={e=>{e.preventDefault();void add();}}><label>Account name<input bind:value={newLabel} maxlength="120"/></label>{#if source!=='granola'}<label>API key<input type="password" autocomplete="new-password" bind:value={newKey}/></label>{/if}<button disabled={busy||!newLabel.trim()||(source!=='granola'&&!newKey.trim())}>Add account</button></form>{/if}{@render note('add',null)}{/if}
+ {#if source!=='email'&&source!=='that-tracks'&&source!=='rss'}<button class="settings-add" onclick={()=>adding=!adding}>{adding ? 'Cancel' : 'New account +'}</button>{#if adding}<form onsubmit={e=>{e.preventDefault();void add();}}><label>Account name<input bind:value={newLabel} maxlength="120"/></label>{#if !signsIn}<label>API key<input type="password" autocomplete="new-password" bind:value={newKey}/></label>{/if}<button disabled={busy||!newLabel.trim()||(!signsIn&&!newKey.trim())}>Add account</button></form>{/if}{@render note('add',null)}{/if}
 </section>
 <style>
  .account-list{box-sizing:border-box;padding-left:20px;border-left:1px solid var(--rule);margin-top:20px}

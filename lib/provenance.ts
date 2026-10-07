@@ -24,7 +24,7 @@
  * attributes, and nothing inside can close the fence. */
 import { insertionEventRel, sourceMoment, type SourceMetadata } from "./insertionLog";
 
-export type OriginKind = "memory" | "entity" | "note" | "source" | "email" | "granola" | "rss" | "web" | "drop" | "agent";
+export type OriginKind = "memory" | "entity" | "note" | "source" | "email" | "granola" | "hardcover" | "rss" | "web" | "drop" | "agent";
 
 export interface Provenance {
   kind: OriginKind;

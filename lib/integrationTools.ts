@@ -45,7 +45,7 @@ export interface IntegrationCall {
   ms: number;
   /** What the agent received, as JSON bytes; 0 unless ok. */
   resultBytes: number;
-  /** Messages, thread messages, content blocks or results it received; 0 if none. */
+  /** Messages, thread messages, content blocks, results or books it received; 0 if none. */
   items: number;
   /** Credentials screened out of the result. */
   screened: number;
@@ -69,7 +69,7 @@ const argsSummary = (args: Record<string, unknown>) =>
 const items = (r: unknown): number => {
   if (Array.isArray(r)) return r.length;
   const o = (r && typeof r === "object" ? r : {}) as Record<string, unknown>;
-  return ["messages", "thread", "content", "results"].reduce((n, k) => n + (Array.isArray(o[k]) ? (o[k] as unknown[]).length : 0), 0);
+  return ["messages", "thread", "content", "results", "books"].reduce((n, k) => n + (Array.isArray(o[k]) ? (o[k] as unknown[]).length : 0), 0);
 };
 function report(call: IntegrationCall): void {
   Object.freeze(call.argsSummary); Object.freeze(call);

@@ -5,7 +5,7 @@ import { existsSync } from "node:fs";
 import { z } from "zod";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
-import { GRANOLA_READ_TOOLS, granolaConnection, withGranola } from "../granolaMcp";
+import { cancelGranolaSignIn, disconnectGranola, GRANOLA_READ_TOOLS, granolaConnection, granolaSignInStatus, startGranolaSignIn, withGranola } from "../granolaMcp";
 import { readEnvValues } from "../envFile";
 import { sha256hex } from "../hash";
 import { upstreamForAgent, upstreamToolsForAgent } from "../agentReads";
@@ -63,7 +63,9 @@ export const granola: Integration = {
     added: root => existsSync(policyPath(root, "granola", "granola")) || extraAccounts(root, "granola").length > 0 || !!readEnvValues(root).GRANOLA_API_KEY },
   origin: "granola",
   // envKey: the retired API key, still part of a legacy activation's fingerprint
-  credential: { kind: "oauth", envKey: a => accountEnvKey("GRANOLA_API_KEY", "granola", a), signedIn: (root, a) => !!granolaConnection(root, a) },
+  credential: { kind: "oauth", envKey: a => accountEnvKey("GRANOLA_API_KEY", "granola", a), signedIn: (root, a) => !!granolaConnection(root, a),
+    signIn: { start: (root, a, onConnected) => startGranolaSignIn(root, a, onConnected), status: granolaSignInStatus, cancel: cancelGranolaSignIn,
+      disconnect: disconnectGranola, identity: (root, a) => granolaConnection(root, a)?.identity } },
   accounts: root => ["granola", ...extraAccounts(root, "granola").map(a => a.id)],
   fingerprint: (root, account) => sha256hex(JSON.stringify([account, granolaConnection(root, account)?.generation ?? "disconnected"])),
   live: { read: "Read current meeting notes, transcripts and folders via Granola MCP. Does not change meetings or remember evidence.", write: null },
