@@ -34,7 +34,7 @@ export function provenanceOf(root: string, path: string): Provenance {
     const abs = rel.endsWith(".md") && (jailMemoryNotePath(root, rel) ?? jailPath(root, rel));
     return abs ? readNoteFile(root, abs) : undefined;
   } });
-  if (!r) return { kind: "note", trusted: false, path: p };
+  if (!r) return { kind: p.startsWith("memory/") ? "memory" : /^(?:projection\/)?entities\//u.test(p) ? "entity" : isSourceInsertionPath(p) ? "source" : "note", trusted: false, path: p };
   if (r.kind === "source") return sourceProvenance(r.source, r.path);
   if (r.kind === "thread") {
     const latest = sourceProvenance(r.thread.members[0]!, r.path);

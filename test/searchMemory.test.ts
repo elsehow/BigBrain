@@ -58,8 +58,11 @@ test("UI scan, MCP and CLI return the same openable memory results", () => {
   const web = scanSurface(root, "clinic appointment", 20, "web", { ledger: false });
   expect(web.ok && web.hits).toEqual(expected.hits);
   const ctx = { root, via: "api" as const };
-  const mcp = handleMcpTool(ctx, "search_vault", { query: "clinic appointment" }) as { hits: SearchHit[] };
-  expect(mcp.hits).toEqual(expected.hits);
+  const mcp = handleMcpTool(ctx, "search_vault", { query: "clinic appointment" }) as { hits: (SearchHit & { provenance: { kind: string } })[] };
+  // an agent's hits are the same hits, each naming its provenance (lib/agentReads.ts)
+  expect(mcp.hits.map(h => h.path)).toEqual(expected.hits.map(h => h.path));
+  expect(mcp.hits.filter(h => h.evidence === "memory").map(({ provenance: _, ...h }) => h)).toEqual(expected.hits.filter(h => h.evidence === "memory"));
+  expect(mcp.hits.map(h => h.provenance.kind)).toEqual(expected.hits.map(h => h.evidence === "memory" ? "memory" : expect.any(String)));
   expect(cli(root, "clinic appointment")).toEqual(expected.hits);
   const topic = mcp.hits.find(h => h.path === "memory/health.md")!;
   const note = handleMcpTool(ctx, "read_note", { path: topic.path }) as { markdown: string };

@@ -14,7 +14,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { SourceInsertion } from "../lib/insertionLog";
+import { insertionEventRel, type SourceInsertion } from "../lib/insertionLog";
 import { appendAssertionEvent, assertionEntityId, createAssertionEvent } from "../lib/assertionLog";
 import { handleMcpTool, MCP_INSTRUCTIONS, mcpToolList, McpToolError, type McpContext } from "../lib/mcp";
 import { handleVaultTool } from "../lib/vaultTools";
@@ -213,13 +213,15 @@ describe("read_note", () => {
       markdown: string; markdown_length: number; truncated: boolean; end: number;
     };
     expect(first.truncated).toBe(true);
-    expect(first.markdown.length).toBe(40_000);
+    // a reference note came from outside: the window is fenced, and offsets count the text inside
+    expect(first.end).toBe(40_000);
+    expect(first.markdown.startsWith('<untrusted-data kind="note" title="Big note"')).toBe(true);
     expect(first.markdown_length).toBeGreaterThan(60_000);
     const rest = handleMcpTool(ctx(root), "read_note", { path: "references/big.md", start: first.end, chars: 80_000 }) as {
       markdown: string; truncated: boolean;
     };
     expect(rest.truncated).toBe(false);
-    expect(rest.markdown.endsWith("TAIL")).toBe(true);
+    expect(rest.markdown.endsWith("TAIL\n</untrusted-data>")).toBe(true);
     const whole = handleMcpTool(ctx(root), "read_note", { path: "references/curated.md" }) as Record<string, unknown>;
     expect(whole["truncated"]).toBeUndefined();
   });
@@ -397,7 +399,10 @@ describe("register — desktop client wiring", () => {
 
 describe("stdio round-trip", () => {
   test("initialize → tools/list → tools/call against a spawned server", async () => {
-    const root = vault();
+    const mail = insertion({ title: "Your Larkspur sign-in code", received_at: "2026-10-01T09:00:00.000Z",
+      body: "Use 482910 to finish signing in to Larkspur.",
+      envelope: { id: "src-larkspur", source: "email", kind: "email", from: "Larkspur <alerts@larkspur.example>", from_kind: "person" } });
+    const root = vault(mail);
     const store=join(root,".tokens"), clients=new ConnectedClients(root,store), setup=clients.create({name:"test-client",kind:"generic"});
     const proc = Bun.spawn(
       [process.execPath, join(import.meta.dir, "..", "bin", "mcp.ts")],
@@ -459,6 +464,18 @@ describe("stdio round-trip", () => {
       const call = (await waitFor(3)) as { content?: { text: string }[]; isError?: boolean };
       expect(call.isError).toBeFalsy();
       expect(call.content?.[0]?.text).toContain("# Memory index");
+      // a client that parsed read_note and search_vault before parses them now: the
+      // same fields, each item's provenance added beside them
+      send({ jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "read_note", arguments: { path: insertionEventRel(mail) } } });
+      const read = JSON.parse(((await waitFor(4)) as { content: { text: string }[] }).content[0]!.text) as Record<string, unknown>;
+      expect(read).toMatchObject({ path: insertionEventRel(mail), title: "Your Larkspur sign-in code", source: "email", links: [],
+        provenance: { kind: "email", trusted: false, from: "Larkspur <alerts@larkspur.example>", path: insertionEventRel(mail) } });
+      expect(read["markdown"]).toContain("[one-time code withheld — open in Mail]");
+      expect(read["markdown"]).not.toContain("482910");
+      send({ jsonrpc: "2.0", id: 5, method: "tools/call", params: { name: "search_vault", arguments: { query: "Larkspur" } } });
+      const found = JSON.parse(((await waitFor(5)) as { content: { text: string }[] }).content[0]!.text) as { hits: Record<string, unknown>[] };
+      expect(found.hits[0]).toMatchObject({ path: insertionEventRel(mail), title: "Your Larkspur sign-in code", source: "email", provenance: { kind: "email", trusted: false } });
+      expect(Object.keys(found.hits[0]!)).toEqual(expect.arrayContaining(["path", "title", "snippet", "score", "date"]));
     } finally {
       proc.kill();
       await reader.catch(() => {});
