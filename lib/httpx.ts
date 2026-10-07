@@ -112,9 +112,12 @@ export function allowLoopbackRequest(req: IncomingMessage, res: ServerResponse):
 
   const site = req.headers["sec-fetch-site"];
   // The one thing other pages on this machine may load: the theme sheet that
-  // agents' served pages link (lib/codingDesktopRoutes.ts). Same-site only, so
-  // a loopback page on another port, never a website.
-  if (site === "same-site" && ["GET", "HEAD"].includes(req.method ?? "GET") && req.url?.split("?")[0] === THEME_SHEET) return true;
+  // agents' served pages link (lib/codingDesktopRoutes.ts). From a loopback
+  // page only, never a website: one on another port (same-site), or one under
+  // the other loopback name, where the viewer frames them (web/ui
+  // loopbackFrame.ts), which a website cannot claim as its referrer.
+  if ((site === "same-site" || (site === "cross-site" && loopbackReferrer(req.headers.referer))) &&
+    ["GET", "HEAD"].includes(req.method ?? "GET") && req.url?.split("?")[0] === THEME_SHEET) return true;
   if (site !== undefined && site !== "same-origin" && site !== "none")
     return refuse(403, "The app's own origin is required.");
   const origin = req.headers.origin;
@@ -134,6 +137,15 @@ export function allowLoopbackRequest(req: IncomingMessage, res: ServerResponse):
     if (type !== "application/json") return refuse(415, "Use application/json for app requests.");
   }
   return true;
+}
+
+function loopbackReferrer(referer: string | undefined): boolean {
+  try {
+    const from = new URL(referer ?? "");
+    return from.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(from.hostname);
+  } catch {
+    return false;
+  }
 }
 
 /** Reply with a body already serialized. API responses are live vault

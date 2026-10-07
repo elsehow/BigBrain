@@ -17,6 +17,7 @@
   import { openExternal } from "../lib/native";
   import { openOrigin } from "../lib/origin";
   import { pageDoc, themeSheet, themeVars } from "../lib/pageTheme";
+  import { otherLoopback } from "../lib/loopbackFrame";
   import type { V2Scene } from "../lib/v2/scene";
   import { plainText as plain, type V2SortedRow } from "../../../../lib/v2Feed";
   import type { DesktopTile, DesktopView } from "../../../../lib/pilotDesktop";
@@ -1148,14 +1149,15 @@
     {#if v}
       {@const srcMeta = v.kind === "note" ? notes[v.path]?.source : undefined}
       <article class="view" aria-label={v.title}>
-        <header><span class="vt">{v.title}</span>{#if v.kind === "url"}<a class="vp" href={v.path} target="_blank" rel="noopener" title="Open in a browser">{v.path} ↗</a>{:else if srcMeta}<span class="vp" title={v.path}>{srcMeta.via[0]!.toUpperCase() + srcMeta.via.slice(1)}{srcMeta.date ? ` · ${when(srcMeta.date)}` : ""}{srcMeta.page ? ` · read from ${srcMeta.page}` : ""}</span>{:else if v.kind === "note"}<span class="vp">{v.path}</span>{:else}<span class="vp"></span>{/if}
+        <header><span class="vt">{v.title}</span>{#if v.kind === "url"}<a class="vp" href={otherLoopback(v.path)} target="_blank" rel="noopener" title="Open in a browser">{v.path} ↗</a>{:else if srcMeta}<span class="vp" title={v.path}>{srcMeta.via[0]!.toUpperCase() + srcMeta.via.slice(1)}{srcMeta.date ? ` · ${when(srcMeta.date)}` : ""}{srcMeta.page ? ` · read from ${srcMeta.page}` : ""}</span>{:else if v.kind === "note"}<span class="vp">{v.path}</span>{:else}<span class="vp"></span>{/if}
           <button type="button" class="px" onclick={() => void closeView(v.id)} aria-label={`Close ${v.title}`} title="Close — the agent leaves it closed">×</button></header>
         {#if v.kind === "html"}
           <!-- the agent's page, in this person's theme; scripts don't run -->
           <iframe class="vpage vhtml" sandbox="" title={v.title} srcdoc={pageDoc(v.html ?? "", pageVars)}></iframe>
         {:else if v.kind === "url"}
-          <!-- a page on this machine (the engine's CSP allows nothing else) -->
-          {#key v.at}<iframe class="vpage" src={v.path} title={v.title} sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"></iframe>{/key}
+          <!-- a page on this machine (the engine's CSP allows nothing else), under
+               the other loopback name so it is sent none of the viewer's cookies -->
+          {#key v.at}<iframe class="vpage" src={otherLoopback(v.path)} title={v.title} sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"></iframe>{/key}
         {:else}
           <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
           <div class="vbody" onclick={(e) => loadHeld(e) || citation(e)}>

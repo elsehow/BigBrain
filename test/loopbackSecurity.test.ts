@@ -51,7 +51,11 @@ test("loopback guard rejects browser/rebinding requests before any handler runs"
     expect(reached).toBe(0);
     // An agent's page on another loopback port may load the theme sheet, and nothing else
     expect((await http(port, THEME_SHEET, { host, "sec-fetch-site": "same-site" })).status).toBe(200);
+    // ...including one the viewer frames under the other loopback name
+    expect((await http(port, THEME_SHEET, { host, "sec-fetch-site": "cross-site", referer: "http://localhost:5173/" })).status).toBe(200);
     for (const [path, headers, method] of [[THEME_SHEET, { host, "sec-fetch-site": "cross-site" }, "GET"], [THEME_SHEET, { host: "rebind.example", "sec-fetch-site": "same-site" }, "GET"],
+      [THEME_SHEET, { host, "sec-fetch-site": "cross-site", referer: "https://attacker.example/" }, "GET"], [THEME_SHEET, { host, "sec-fetch-site": "cross-site", referer: "http://localhost.example/" }, "GET"],
+      ["/api/private", { host, "sec-fetch-site": "cross-site", referer: "http://localhost:5173/" }, "GET"],
       [THEME_SHEET, { host, "sec-fetch-site": "same-site", "content-type": "application/json" }, "POST"], [`${THEME_SHEET}/..`, { host, "sec-fetch-site": "same-site" }, "GET"]] as const)
       expect((await http(port, path, headers, method, method === "POST" ? "{}" : undefined)).status).toBe(403);
     expect((await http(port, "/", { host, "sec-fetch-site": "none" })).status).toBe(200);
