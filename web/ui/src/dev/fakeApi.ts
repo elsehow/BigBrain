@@ -1489,10 +1489,13 @@ export function installFakeApi(): void {
     onmessage: ((e: MessageEvent) => void) | null = null;
     constructor() {
       setTimeout(() => this.onopen?.(new Event("open")), 0);
+      window.addEventListener("workbench-change", this.ping);
     }
+    /** A vault change ping, as the engine sends when something is filed. */
+    private ping = () => this.onmessage?.(new MessageEvent("message", { data: "{}" }));
     private listeners = new Map<string, Set<(event: MessageEvent) => void>>();
     private receive = (event: Event) => { for (const fn of this.listeners.get("application") ?? []) fn(new MessageEvent("application", { data: JSON.stringify((event as CustomEvent).detail) })); };
-    close(): void { window.removeEventListener("workbench-application", this.receive); }
+    close(): void { window.removeEventListener("workbench-application", this.receive); window.removeEventListener("workbench-change", this.ping); }
     addEventListener(name: string, fn: (event: MessageEvent) => void): void {
       if (!this.listeners.has(name)) this.listeners.set(name, new Set());
       this.listeners.get(name)!.add(fn);

@@ -678,19 +678,21 @@
     field = buildField(graph);
     twins = twinsOf(field);
     const { createV2Scene } = await import("../lib/v2/scene");
+    const camera = scene?.camera();
     scene?.dispose();
     scene = createV2Scene(host, field, {
       blockers: () => [hudEl, feedEl, searching ? searchEl : undefined, chatEl, sidebarEl].filter((e): e is HTMLElement => !!e).map((e) => e.getBoundingClientRect()).filter((r) => r.height > 0),
       onPick,
       onPickPilot: (id) => (openPilot === id ? closePilot() : openPilotChat(id)),
       onHover: relateTie,
-    });
+    }, camera);
     scene.setPilots(placePilots(field, bar));
     sceneRev++;
   }
   /** The vault changed (the engine's /api/events ping, as the app's views
    * hear it): the feed and the record re-read at once; a changed graph is
-   * redrawn when you are at the overview, so nothing moves under a hand. */
+   * redrawn when nothing is open and no drag is under way, from the camera
+   * where you left it, so nothing moves under a hand. */
   let graphStale = false;
   async function onVaultChange(): Promise<void> {
     relations.clear();
@@ -704,7 +706,7 @@
   }
   let heldGraph: GraphData | null = null;
   function redrawIfIdle(): void {
-    if (!graphStale || !heldGraph || ent != null || src || searching || openPilot) return;
+    if (!graphStale || !heldGraph || ent != null || src || searching || openPilot || scene?.dragging()) return;
     graphStale = false;
     void drawField(heldGraph).then(unlight);
     heldGraph = null;
