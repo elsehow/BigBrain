@@ -7,12 +7,13 @@
  * or ref. `trusted` is true only for what the person wrote, or what the
  * vault's passes wrote from nothing else:
  *
- * - a source, when a door only the person uses stamped it as theirs from a
- *   verified credential (`from_kind: person` through the viewer, their
- *   device token, the CLI or the identity declaration; never a poller, whose
- *   `from_kind: person` names the sender) and it is their own words: a
- *   directive, request, observation, identity declaration, note, idea or
- *   dream that carries no url and no file;
+ * - a source, when it came as the person (`from_kind: person`) through a
+ *   door only they type into: the viewer, the terminal or the identity
+ *   declaration. Never a token door (the HTTP API that paired devices, the
+ *   browser extension and the plugin use, which a web page or an agent can
+ *   drive) and never a poller, whose `from_kind: person` names the sender.
+ *   And it is their own words: a directive, request, observation, identity
+ *   declaration, note, idea or dream that carries no url and no file;
  * - an entity dossier, when every source each of its claims cites is trusted;
  * - memory, unless the memory pass stamped claims in it as drawn from outside
  *   (lib/memoryProvenance.ts); those claims are fenced one by one;
@@ -61,16 +62,24 @@ export const fenceAbout = (p: Provenance, title?: string): Record<string, string
 
 const word = (v: unknown): string | undefined => typeof v === "string" && v.trim() ? v.trim() : undefined;
 
-/** Doors only the person uses, where `from_kind: person` is stamped from their own verified credential. */
-const OWNER_DOORS = new Set(["web", "api", "cli", "user-bootstrap"]);
+/** Doors only the person types into: the viewer and its drop zone, the terminal, the identity declaration. */
+const OWNER_DOORS = new Set(["web", "cli", "user-bootstrap"]);
+/** Doors a person drops through, the token API among them: where a person's arrival is a drop. */
+const DROP_DOORS = new Set([...OWNER_DOORS, "api"]);
+
+/** The door an arrival came through: its stamped source, or for a voice
+ * arrival, which carries none, the prefix its door gave its id ("web-…"
+ * from the viewer, "api-…" from the token API). */
+const doorOf = (envelope: Record<string, unknown>): string | undefined =>
+  word(envelope["source"]) ?? /^([a-z]+)-\d{4}-\d{2}-\d{2}T/u.exec(word(envelope["id"]) ?? "")?.[1];
+
 /** Kinds that are the person's own words rather than material they passed along. */
 const OWN_WORDS = new Set(["directive", "request", "observation", "identity-declaration", "note", "idea", "dream"]);
 
 /** The trust rule for one source's envelope (or a markdown note's frontmatter). */
 export function sourceTrusted(envelope: Record<string, unknown>): boolean {
-  const source = word(envelope["source"]);
   return envelope["from_kind"] === "person"
-    && (source === undefined || OWNER_DOORS.has(source))
+    && OWNER_DOORS.has(doorOf(envelope) ?? "")
     && OWN_WORDS.has(word(envelope["kind"]) ?? "")
     && !word(envelope["url"]) && !word(envelope["filename"])
     && !(Array.isArray(envelope["attachments"]) && envelope["attachments"].length);
@@ -84,7 +93,7 @@ export function originOf(envelope: Record<string, unknown>): OriginKind {
   if (source === "rss") return "rss";
   if (envelope["from_kind"] === "agent" || source === "mcp" || source === "pilot" || source === "agent-chat") return "agent";
   if (kind === "web-clip" || kind === "pdf-import" || word(envelope["url"])) return "web";
-  if (envelope["from_kind"] === "person" && (source === undefined || OWNER_DOORS.has(source))) return "drop";
+  if (envelope["from_kind"] === "person" && (source === undefined || DROP_DOORS.has(source))) return "drop";
   return "source";
 }
 

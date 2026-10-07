@@ -32,10 +32,10 @@ const mail = insertion({
   envelope: { id: "src-mail", source: "email", kind: "email", from: "Dana Okafor <dana@example.invalid>", from_kind: "person" },
 });
 const mine = insertion({
-  id: `ins_${"d".repeat(24)}`, source_id: "src-mine", title: "Orrery gearing",
+  id: `ins_${"d".repeat(24)}`, source_id: "web-2026-10-02T09-00-00-a1b2c3", title: "Orrery gearing",
   author: { kind: "user", id: "web" }, received_at: "2026-10-02T09:00:00.000Z",
   body: "The orrery keeps its 3:1 gearing.",
-  envelope: { id: "src-mine", kind: "directive", from: "web", from_kind: "person", submitted_via: "web" },
+  envelope: { id: "web-2026-10-02T09-00-00-a1b2c3", kind: "directive", from: "web", from_kind: "person", submitted_via: "web" },
 });
 
 const claim = (text: string, sources: SourceInsertion[]): AssertionEvent => {
