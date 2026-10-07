@@ -163,6 +163,14 @@ export interface GraphNode {
   /** An entity's other names: the aliases folded into it. */
   aliases?: string[];
   entityType?: string;
+  /** Entity nodes only: the graph ids of the sources this entity IS — a
+   * document extracted as its own subject (lib/entitySourceLog.ts) — newest
+   * arrival first. The viewer draws the pair as one node; a click opens the
+   * first. Absent when it is no source. */
+  opens?: string[];
+  /** Source nodes only: the entity id this source is drawn as (the reverse
+   * of an entity's `opens`). */
+  drawnAs?: string;
   path?: string | null;
   // Filed-by facet (additive): the arrival's provenance, the same fields the
   // feed's rows carry — one filedByLabel maps a node and its row to the same

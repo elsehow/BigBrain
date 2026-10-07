@@ -33,3 +33,29 @@ test("a laid-out source sits between what it mentions; an unplaced one over it; 
   expect([two!.p[0], two!.p[2]]).toEqual([c!.p[0], c!.p[2]]);
   expect(field.sources.map((s) => s.id)).not.toContain("source:ins_3");
 });
+
+// an entity that IS a source (the server's `opens` / `drawnAs`): one node
+const linkedGraph = (link: boolean) => ({ hash: "h", nodes: [
+  { ...entity("ent_p", 0, 0), ...(link ? { opens: ["source:ins_new", "source:ins_old"] } : {}) }, entity("ent_q", 100, 0),
+  { ...source("ins_old", 10, 0), memberPaths: ["log/insertions/2026-09/ins_old_2.json"], ...(link ? { drawnAs: "ent_p" } : {}) },
+  { ...source("ins_new", 20, 0), ...(link ? { drawnAs: "ent_p" } : {}) },
+  { ...source("ins_x", 50, 0), drawnAs: "ent_gone" },
+], edges: [
+  { source: "ent_p", target: "ent_q", weight: 3 },
+  { source: "source:ins_old", target: "ent_p" }, { source: "source:ins_x", target: "ent_q" },
+] } as unknown as GraphData);
+
+test("a source drawn as an entity has no dot of its own; its paths are the entity's, in its order, and the entity is unchanged", () => {
+  const linked = buildField(linkedGraph(true)), plain = buildField(linkedGraph(false));
+  expect(linked.sources.map((s) => s.id)).toEqual(["source:ins_x"]);
+  expect(linked.nodes[0]!.opens).toEqual(["log/insertions/2026-10/ins_new.json", "log/insertions/2026-10/ins_old.json", "log/insertions/2026-09/ins_old_2.json"]);
+  expect(linked.nodes[1]!.opens).toBeUndefined();
+  expect(linked.nodes.map((n) => n.p)).toEqual(plain.nodes.map((n) => n.p));
+  expect(linked.edges).toEqual(plain.edges);
+  expect([...linked.hubs]).toEqual([...plain.hubs]);
+});
+
+test("a source drawn as an entity that isn't in the field stays a source", () => {
+  const [x] = buildField(linkedGraph(true)).sources;
+  expect(x).toMatchObject({ id: "source:ins_x", paths: ["log/insertions/2026-10/ins_x.json"], ties: [1] });
+});

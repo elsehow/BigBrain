@@ -3,7 +3,7 @@
 // (V2View.svelte) reads it, and neither reshapes it.
 
 import type { V2Feed, V2FeedRow } from "../../../../../lib/v2Feed";
-import type { GraphData } from "../types";
+import type { GraphData, GraphNode } from "../types";
 
 export type { V2Feed, V2FeedRow };
 
@@ -20,6 +20,10 @@ export interface FieldNode {
   p: [number, number, number];
   /** Labelled at rest: a hub or a memory topic. */
   named: boolean;
+  /** An entity that IS a source (/api/graph's `opens`): those sources' note
+   * paths, in its `opens` order, so the first is what a click opens. The
+   * pair is this one node; the source draws no dot of its own. */
+  opens?: string[];
 }
 /** A source: the graph's own source node, on the entities' floor plan. Kept
  * apart from `nodes`, so search, ties, folds and Desktops read entities alone. */
@@ -108,8 +112,19 @@ export function buildField(graph: GraphData): Field {
     set.add(i);
   };
   for (const e of graph.edges) { mention(e.source, e.target); mention(e.target, e.source); }
+  const pathsOf = (n: GraphNode): string[] => {
+    const path = n.path === undefined ? n.id : n.path;
+    return [...(path ? [path] : []), ...(n.memberPaths ?? [])];
+  };
+  // A source drawn as an entity here (/api/graph's `drawnAs`: a document
+  // taken for its own subject) is that entity's one node, whatever the
+  // switch says: its paths go on the entity, and it has no dot of its own.
+  // Drawn as an entity that isn't here, it stays a source.
+  const linked = new Map<number, GraphNode[]>();
   const sources: FieldSource[] = [];
   for (const n of sourceNodes) {
+    const as = n.drawnAs == null ? undefined : byId.get(n.drawnAs);
+    if (as != null) { linked.set(as, [...(linked.get(as) ?? []), n]); continue; }
     const ties = [...(mentions.get(n.id) ?? [])];
     const lift = 3 + (unit(n.id) - 0.5) * 2.6;
     let p: [number, number, number];
@@ -120,8 +135,11 @@ export function buildField(graph: GraphData): Field {
       p = [0, lift, 0];
       for (const i of ties) { p[0] += nodes[i]!.p[0] / ties.length; p[2] += nodes[i]!.p[2] / ties.length; }
     } else continue;
-    const path = n.path === undefined ? n.id : n.path;
-    sources.push({ id: n.id, label: n.title, paths: [...(path ? [path] : []), ...(n.memberPaths ?? [])], p, ties });
+    sources.push({ id: n.id, label: n.title, paths: pathsOf(n), p, ties });
+  }
+  for (const [i, own] of linked) {
+    const order = drawn[i]!.opens ?? [], rank = (n: GraphNode) => (order.includes(n.id) ? order.indexOf(n.id) : order.length);
+    nodes[i]!.opens = own.sort((a, b) => rank(a) - rank(b)).flatMap(pathsOf);
   }
 
   return { nodes, byId, edges, strong: strongEdges(nodes, edges), hubs, sources };

@@ -740,22 +740,29 @@
     return () => { clearInterval(timer); clearTimeout(pending); scene?.dispose(); };
   });
 
-  /** A click in the field: open what's under it; empty space backs out. */
+  /** A click in the field: open what's under it; empty space backs out. An
+   * entity that is a source opens the source. */
   function onPick(i: number | null): void {
     if (i == null) { if (openPilot) closePilot(); else if ((ent != null || src) && !searching) overview(); return; }
+    const n = field?.nodes[i];
+    if (n?.opens?.length) return openSourceAt(n.opens, n.opens[0]!, n.label, [n.id]);
     if (searching) { searching = false; scene?.search(null); }
     if (openPilot) { openPilot = null; detail = null; scene?.focusPilot(null); }
     if (i !== ent) void openEntity(i);
   }
-  /** A click on a source drawn at rest: opened as its feed row is (one not in
-   * the feed is opened the same way, as search's are). */
+  /** A click on a source drawn at rest. */
   function onPickSource(k: number): void {
     const f = field, s = f?.sources[k];
-    if (!f || !s) return;
+    if (f && s) openSourceAt(s.paths, s.id, s.label, s.ties.map((i) => f.nodes[i]!.id));
+  }
+  /** A source picked in the field, opened as its feed row is: the row for
+   * the first of its paths the feed has; one not in the feed opens the same
+   * way, as search's are. */
+  function openSourceAt(paths: string[], id: string, label: string, entities: string[]): void {
     if (searching) { searching = false; scene?.search(null); }
     if (openPilot) { openPilot = null; detail = null; scene?.focusPilot(null); }
-    openSource(sorted.find((r) => r.path && s.paths.includes(r.path))
-      ?? { source: s.id, section: "know", headline: s.label, due: null, added: "", entities: s.ties.map((i) => f.nodes[i]!.id), title: s.label, path: s.paths[0] });
+    openSource(paths.map((p) => sorted.find((r) => r.path === p)).find((r) => r)
+      ?? { source: id, section: "know", headline: label, due: null, added: "", entities, title: label, path: paths[0] });
   }
   /** Slide the field's centre clear of the panels: right of a left column, left of the sidebar. */
   const shiftFor = () => {
