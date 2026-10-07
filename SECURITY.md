@@ -19,9 +19,13 @@ report suspected vulnerabilities even if an update is not possible.
 ## Security model
 
 - BigBrain is a single-user application running as your OS account. The viewer
-  and first-run server bind to loopback and have no user login. Local programs
-  running as your account are trusted. Do not expose these servers through a
-  public reverse proxy or share their forwarded ports with untrusted users.
+  and first-run server bind to loopback and require a session secret the app
+  creates at each launch, in an owner-only file under `~/.config/bigbrain/`;
+  the app's window and `bigbrain open` give it to a browser as a cookie.
+  Pilot's tools are denied that folder. Other local programs that can read
+  your account's files can read the secret, so they remain trusted. Do not
+  expose these servers through a public reverse proxy or share their
+  forwarded ports with untrusted users.
 - The separate integration HTTP API uses scoped, revocable bearer tokens.
   Local MCP clients use individual credentials. A memory-reading grant permits
   reading the vault's memory; this is not a multi-user or per-note access system.

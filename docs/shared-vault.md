@@ -150,10 +150,10 @@ describes for the intake API:
   proxies to `127.0.0.1:4749`) when members reach it over the internet —
   still bound to loopback, the proxy is what is reachable.
 
-Never publish `:4749` directly, never put the unauthenticated web viewer
-(`:4747`) in front of a shared vault, and never point the desktop app's
-`BIGBRAIN_VAULT` at the shared directory — the viewer trusts localhost and
-would show the whole record to anyone on that machine. Nothing here
+Never publish `:4749` directly, never put the web viewer (`:4747`) in front
+of a shared vault, and never point the desktop app's `BIGBRAIN_VAULT` at the
+shared directory — the viewer has one operator and would show the whole
+record to whoever holds its session on that machine. Nothing here
 deploys anything; the operator follows
 [deploy/shared-vault/README.md](../deploy/shared-vault/README.md).
 

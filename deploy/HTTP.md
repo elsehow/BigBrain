@@ -39,7 +39,8 @@ bigbrain auth revoke <id>
 1. **DNS** — point a record (e.g. `vault.example.com`) at the host.
 2. **TLS proxy** — `deploy/Caddyfile.example`; Caddy fetches certificates
    itself. Never expose `:4748` directly. The web viewer (`:4747`) stays
-   off the proxy — it has no auth; reach it over `ssh -L` as ever.
+   off the proxy — it has one operator; reach it over `ssh -L` with
+   `bigbrain open --print` ([self-host](../docs/self-host.md)).
 3. **Run the engine** — the app supervises the `api` child and restarts
    it if it dies (log at `.state/logs/api.log`).
 4. **Mint** a token (above).

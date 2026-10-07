@@ -19,9 +19,10 @@ BigBrain.app/Contents/
 
 `lib.rs` resolves the vault (`BIGBRAIN_VAULT` → `~/.config/bigbrain/vault` →
 `~/vault`) and the engine (below), spawns `bun engine/bin/desktop.ts` with a
-stdin pipe, waits for the viewer port, opens a webview on
-`http://127.0.0.1:4747/`, puts the cube in the menu bar, and kills the child
-on exit. If something already answers
+stdin pipe, waits for the viewer to answer with this launch's session
+(`~/.config/bigbrain/viewer-session-4747`, written by the supervisor before
+it binds), opens a webview on `http://127.0.0.1:4747/` through the session
+bootstrap, puts the cube in the menu bar, and kills the child on exit. If something already answers
 on the engine's ports (a second copy of the app, an engine started from a
 checkout) it attaches instead of starting another engine.
 

@@ -39,7 +39,7 @@ The two HTTP services bind to loopback:
 | job | what | when |
 |---|---|---|
 | `api` | intake + read API, `127.0.0.1:4748`, drop-token auth | always |
-| `web` | the viewer, `http://localhost:4747`, no auth (loopback only) | always |
+| `web` | the viewer, `http://127.0.0.1:4747`, loopback only, this launch's session required | always |
 | `tend` | gardener and memory jobs through the selected provider and role-scoped tools | every 5 min; exits in milliseconds when nothing is due |
 | `publish` | `git push origin main` — offsite copy, **opt-in** | every 15 min; a no-op with a one-line note when the vault has no `origin` |
 
@@ -159,16 +159,22 @@ a first memory pass. Run journals record provider/model attribution and usage.
 - **HTTP integrations**: put a TLS proxy in front of `127.0.0.1:4748`
   ([HTTP setup](../deploy/HTTP.md)) and use a scoped credential. Local MCP
   plugins do not provide a remote-vault transport.
-- **The viewer from another machine**: `:4747` has no login of its own —
-  use `ssh -L 4747:127.0.0.1:4747 <host>` and open
-  `http://127.0.0.1:4747` locally. SSH can connect over a private network
-  such as Tailscale. The viewer accepts only loopback Host values and its
-  own browser origin; a machine-name or Tailscale-address URL is refused.
-  Do not publish it through a reverse proxy or share the forwarded port:
-  a local connection has the owner's authority. Local scripts that write
-  to viewer routes must send `Content-Type: application/json`, including
-  an empty JSON object for actions without arguments. The authenticated
-  `:4748` integration API has a separate contract and is unchanged.
+- **The viewer outside the app**: every viewer route needs the session the
+  app creates at each launch, kept in `~/.config/bigbrain/viewer-session-4747`
+  (owner-only). In a browser on the same machine, run `bigbrain open`. From
+  another machine, use `ssh -L 4747:127.0.0.1:4747 <host>`, run
+  `bigbrain open --print` on the host, and open the printed link locally
+  within two minutes; it sets the session cookie and redirects to the
+  viewer. The cookie ends when that browser quits, and every app launch
+  starts a new session. SSH can connect over a private network such as
+  Tailscale. The viewer accepts only loopback Host values and its own
+  browser origin; a machine-name or Tailscale-address URL is refused. Do
+  not publish it through a reverse proxy or share the forwarded port: a
+  session has the owner's authority. Local scripts send
+  `Authorization: Bearer $(cat ~/.config/bigbrain/viewer-session-4747)`, and
+  for writes `Content-Type: application/json`, including an empty JSON
+  object for actions without arguments. The authenticated `:4748`
+  integration API has a separate contract and is unchanged.
 
 Report vulnerabilities privately via [SECURITY.md](../SECURITY.md).
 

@@ -43,8 +43,8 @@ export interface Route {
  * The note renderer sanitizes every `{@html}` body (DOMPurify), so this is
  * the second wall: a future `{@html}` that forgets sanitizeHtml(), or a
  * DOMPurify bypass, becomes a blocked console line instead of a script on
- * the origin that holds the whole vault behind unauthenticated loopback
- * routes. Scripts: this origin's bundle only — no inline, no eval. Styles
+ * the origin that holds the whole vault, and the session cookie that
+ * opens it. Scripts: this origin's bundle only — no inline, no eval. Styles
  * keep 'unsafe-inline' for now: the Svelte templates set a handful of
  * `style=` attributes and sanitized markdown may carry them, and CSS is
  * not code. The Google Fonts pair is the typeface tokens.css imports; a
@@ -93,9 +93,11 @@ export function armor(res: ServerResponse): void {
 /** The theme stylesheet, served to agents' own pages on other loopback ports. */
 export const THEME_SHEET = "/api/desktops/theme.css";
 
-/** The unauthenticated viewer and setup door trust local programs, not arbitrary
- * websites. Loopback binding alone does not prevent DNS rebinding or browser
- * writes. Apply this before ALL routes, including reads and first-run setup.
+/** The browser half of the viewer's and setup door's boundary; the launch's
+ * session (lib/viewerSession.ts) is checked right after it. Loopback binding
+ * alone does not prevent DNS rebinding or browser writes, and a session
+ * cookie rides along with a browser's requests. Apply this before ALL routes,
+ * including reads and first-run setup.
  * No forwarded header grants access. A local dev proxy may preserve its own
  * loopback Host and Origin; the TCP listener's port need not equal that Host. */
 export function allowLoopbackRequest(req: IncomingMessage, res: ServerResponse): boolean {
