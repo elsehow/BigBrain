@@ -10,7 +10,8 @@ import { deactivateIntegration, integrationActive } from "../lib/integrationAcce
 import { integrationToolCall } from "../lib/integrationTools";
 import { pilotToolCall, pilotTools } from "../lib/pilot";
 import { handleMcpTool, mcpToolList, type McpContext } from "../lib/mcp";
-import { mintToken, revokeToken } from "../lib/auth";
+import { revokeToken } from "../lib/auth";
+import { ConnectedClients } from "../lib/connectedClients";
 import { loadManifest } from "../lib/manifest";
 import { readSourceInsertionLog } from "../lib/insertionLog";
 import { admitStaged, passStaged } from "../lib/stage";
@@ -22,7 +23,8 @@ afterEach(() => { if(originalStore === undefined) delete process.env.BIGBRAIN_TO
 function fixture() {
  const root=gitVault({files:{"vault.yaml":"integrations:\n  email:\n    enabled: false\n    inboxes:\n      - address: me@example.com\n        host: imap.example.com\n      - address: work@example.com\n        host: imap.example.com\n", ".env":"BIGBRAIN_IMAP_PASSWORD__ME_EXAMPLE_COM=synthetic\nBIGBRAIN_IMAP_PASSWORD__WORK_EXAMPLE_COM=synthetic-work\n"}});
  roots.push(root); const store=join(root,"tokens.json"); process.env.BIGBRAIN_TOKENS=store;
- const credential=mintToken(store,root,"Test external agent",["vault:read","inbox:write"],{kind:"agent"});
+ const clients=new ConnectedClients(root,store),id=clients.create({name:"Test external agent",kind:"generic"}).id;
+ const credential={token:clients.token(id),record:{id}};
  const grants=[{caller:"pilot",accounts:["me@example.com"]},{caller:"token:"+credential.record.id,accounts:["me@example.com"]}];
  const op={name:"email",enabled:true,activate:true,readers:grants};
  const save=(value:unknown,probe=async()=>{})=>configSave(root,JSON.stringify({integrations:[value]}),probe);
@@ -111,12 +113,12 @@ test("the actual MCP transport authenticates integrations by token, never client
  const f=fixture();await f.save(f.op);
  const client=new Client({name:"pilot",version:"1"});
  try {
-  await client.connect(new StdioClientTransport({command:process.execPath,args:[resolve("bin/mcp.ts")],env:{...process.env,BIGBRAIN_VAULT:f.root,BIGBRAIN_TOKENS:f.store,BIGBRAIN_MCP_TOKEN:f.credential.token} as Record<string,string>,stderr:"pipe"}));
+  await client.connect(new StdioClientTransport({command:process.execPath,args:[resolve("bin/mcp.ts"),"--client",f.credential.record.id],env:{...process.env,BIGBRAIN_VAULT:f.root,BIGBRAIN_TOKENS:f.store} as Record<string,string>,stderr:"pipe"}));
   expect((await client.listTools()).tools.some(t=>t.name==="inbox_list")).toBe(true);
   const result:any=await client.callTool({name:"integration_capabilities",arguments:{}});expect(JSON.parse(result.content[0].text).email.accounts).toEqual(["me@example.com"]);
   revokeToken(f.store,f.credential.record.id);
   expect((await client.callTool({name:"inbox_list",arguments:{}})).isError).toBe(true);
-  await expect(client.listTools()).rejects.toThrow("Authenticate");
+  await expect(client.listTools()).rejects.toThrow("revoked");
  } finally {await client.close();}
 });
 

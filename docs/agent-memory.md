@@ -25,6 +25,12 @@ a private local file; the command contains only its ID. Disconnect revokes
 subsequent MCP calls, including existing sessions. A local process still has
 its operating-system account's filesystem permissions.
 
+A connection lapses after 30 days unused; any use restarts the clock. A lapsed
+connection's tools all answer "This BigBrain connection expired after 30 days
+unused. Renew it in BigBrain → Settings → Connected clients.", and when a
+client tries one the app shows a notice with **Renew**. Renewing keeps the
+connection's ID, configuration and access, so nothing in the client changes.
+
 The public tools are `load_memory`, `search_vault`, `read_note`, and `drop`.
 Contributions are attributed to the named credential. This does not grant
 internal gardener operations or integration access.

@@ -3,15 +3,17 @@ import type { Snippet } from 'svelte';
 export interface StackNotice {
   id: string;
   title: string;
-  kind: 'capture' | 'agent';
+  kind: 'capture' | 'agent' | 'connection';
   children: Snippet;
   status?: Snippet;
   hasInput?: boolean;
   onopen?: () => void | Promise<void>;
+  /** The fix, when the notice names one (Renew). */
+  action?: { label: string; run: () => void | Promise<void> };
   onclear: () => void | Promise<void>;
 }
 
-// Both producers register the same presentation type. Uploads and agent state
+// Every producer registers the same presentation type. Uploads and agent state
 // remain with their owners; this registry owns only their visible notices.
 export const notificationStack = $state({ items: [] as StackNotice[] });
 export function registerNotice(notice: StackNotice): () => void {

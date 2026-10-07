@@ -12,7 +12,7 @@ test("an explicitly configured MCP connection uses its pinned vault even from an
   const other = nativeVault({ files: { "memory/MEMORY.md": "# Other memory\nTHE_OTHER_ONLY_MARKER\n" } });
   const config = mcpServerEntry(root, other);
   const store=join(root,".tokens"), clients=new ConnectedClients(root,store), setup=clients.create({name:"offline-worker",kind:"generic"});
-  config.env.BIGBRAIN_TOKENS=store;config.env.BIGBRAIN_MCP_TOKEN=clients.token(setup.id);
+  config.env.BIGBRAIN_TOKENS=store;config.args.push("--client",setup.id);
   const client = new Client({ name: "offline-worker", version: "1" });
   const transport = new StdioClientTransport({ ...config, cwd: other, stderr: "ignore", env: { PATH: process.env.PATH ?? "", ...config.env } });
   try {

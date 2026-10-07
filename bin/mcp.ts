@@ -1,6 +1,5 @@
 #!/usr/bin/env bun
-import { ConnectedClients, authenticateClient } from "../lib/connectedClients";
-import { mcpIntegrationToken } from "../lib/env";
+import { ConnectedClients, ConnectionExpired, authenticateClient } from "../lib/connectedClients";
 /** Local public MCP server; config prints setup JSON, memory supports startup hooks. */
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -56,7 +55,7 @@ const root = requireVaultRoot();
 const connection = flagValue(argv, "connection");
 if (connection && !["claude-plugin", "codex-plugin", "local-config"].includes(connection)) throw new Error("Unknown client configuration.");
 const clientId = flagValue(argv, "client") ?? (connection ? new ConnectedClients(root).ensure(connection === "claude-plugin" ? "Claude Code plugin" : connection === "codex-plugin" ? "Codex plugin" : "Local MCP configuration", connection === "claude-plugin" ? "claude-code" : connection === "codex-plugin" ? "codex" : "generic", connection).id : undefined);
-const credential = () => clientId ? new ConnectedClients(root).token(clientId) : mcpIntegrationToken();
+const credential = () => clientId ? new ConnectedClients(root).token(clientId) : undefined;
 const authorized = (scope = "vault:read") => authenticateClient(root, credential(), scope);
 
 const server = new Server(
@@ -66,12 +65,20 @@ const server = new Server(
 
 // The initialized notification confirms a client completed the MCP handshake.
 // Do not wait for tool discovery/use to retire a pending legacy replacement.
+// A lapsed connection stays up, serving nothing: every tool answers with
+// where to renew it, which a closed server could never tell the agent.
 server.oninitialized = () => {
   try { authorized(); }
-  catch (error) { console.error("mcp: connection authentication failed:", error);void server.close(); }
+  catch (error) {
+    if (error instanceof ConnectionExpired) { console.error("mcp:", error.message); return; }
+    console.error("mcp: connection authentication failed:", error);void server.close();
+  }
 };
 
-server.setRequestHandler(ListToolsRequestSchema, () => { authorized(); return { tools: mcpToolList({root,via,integrationToken:credential()}) }; });
+server.setRequestHandler(ListToolsRequestSchema, () => {
+  try { authorized(); } catch (error) { if (!(error instanceof ConnectionExpired)) throw error; }
+  return { tools: mcpToolList({root,via,integrationToken:credential()}) };
+});
 
 server.setRequestHandler(CallToolRequestSchema, async (req) => {
   try {
@@ -86,7 +93,7 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
     const text = typeof result === "string" ? result : JSON.stringify(result);
     return { content: [{ type: "text", text }] };
   } catch (error) {
-    if (error instanceof McpToolError)
+    if (error instanceof McpToolError || error instanceof ConnectionExpired)
       return { content: [{ type: "text", text: error.message }], isError: true };
     // Unexpected: still the tool's failure, not the server's — answer the
     // call (a crash would kill every other tool in the session).

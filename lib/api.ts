@@ -42,7 +42,7 @@ import { parseNoteWindow, NoteWindowError, type NoteWindow } from "./noteWindow"
 import { intakeWireReceipt } from "./intakeWire";
 import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { hasScope, touchLastUsed, verifyToken, type TokenRecord } from "./auth";
+import { expiredMessage, hasScope, noteExpiredUse, touchLastUsed, verifyToken, type TokenRecord } from "./auth";
 import { ensureDir, writeAtomic } from "./fsx";
 import { dropErrorStatus, FirewallUnavailable } from "./door";
 import { IntakeError } from "./intake";
@@ -891,7 +891,7 @@ export function makeApiHandler(deps: ApiDeps): (req: Request) => Promise<Respons
 
     const authHeader = req.headers.get("authorization") ?? "";
     const presented = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
-    const verdict = verifyToken(deps.storePath, presented);
+    const verdict = verifyToken(deps.storePath, presented, now());
     if (!verdict.ok) {
       const idHint = /^bb_([0-9a-f]{8})_/.exec(presented)?.[1];
       log(
@@ -903,6 +903,12 @@ export function makeApiHandler(deps: ApiDeps): (req: Request) => Promise<Respons
           ...(idHint ? { token: idHint } : {}),
         })
       );
+      // Only a lapsed credential's holder gets more than the bare 401: the
+      // secret matched, so saying where to renew tells a guesser nothing.
+      if (verdict.expired) {
+        noteExpiredUse(deps.storePath, verdict.expired.id, now());
+        return respond(json(401, { error: expiredMessage(verdict.expired) }, { "WWW-Authenticate": 'Bearer error="invalid_token"' }));
+      }
       return respond(unauthorized());
     }
     const record = verdict.record;

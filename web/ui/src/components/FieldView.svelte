@@ -6,6 +6,7 @@
   import Feedback from "./Feedback.svelte";
   import TopStrips from "./TopStrips.svelte";
   import NotificationStack from "./NotificationStack.svelte";
+  import ExpiredClientNotices from "./ExpiredClientNotices.svelte";
   import SettingsScreens from "./SettingsScreens.svelte";
   import V2View from "./V2View.svelte";
   import { app, goto } from "../lib/store.svelte";
@@ -45,6 +46,7 @@
   </aside>
 {/if}
 <NotificationStack />
+<ExpiredClientNotices />
 <div class="feedback"><Feedback bind:open={feedbackOpen} visible={awake} panel={open ? "settings" : "field"} expanded={false} {wake} /></div>
 
 <style>

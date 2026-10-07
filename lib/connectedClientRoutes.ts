@@ -15,6 +15,8 @@ export function connectedClientRoutes(clients:ConnectedClients):Route[] {
         if(value.action==="replace")return json(res,200,clients.replace(value.id));
         if(value.action==="setup")return json(res,200,clients.setup(value.id));
         if(value.action==="reconnect")return json(res,200,clients.reconnect(value.id));
+        if(value.action==="renew"){clients.renew(value.id);return json(res,200,{ok:true});}
+        if(value.action==="dismiss"){clients.dismiss(value.id);return json(res,200,{ok:true});}
         if(value.action==="revoke"){clients.revoke(value.id);return json(res,200,{ok:true});}
         throw Error("Unknown client action.");
       }catch(e){json(res,400,{error:e instanceof Error?e.message:"Client setup failed."});}

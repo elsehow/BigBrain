@@ -6,7 +6,8 @@
   let { runner }: { runner?: string } = $props();
   let adding = $state(false), configuring = $state<string | null>(null);
   const label = (kind: string) => kind === "codex" || kind === "claude-code" ? providerLabel(kind) : "MCP client";
-  type Client={id:string;name:string;kind:string;managedBy?:string;legacy?:boolean;replaces?:string;lastUsed:string|null;revoked:string|null};
+  const status = (c: {revoked:string|null;expired?:boolean}) => c.revoked ? 'Access revoked' : c.expired ? 'Expired after 30 days unused' : 'Authorized';
+  type Client={id:string;name:string;kind:string;managedBy?:string;legacy?:boolean;replaces?:string;lastUsed:string|null;revoked:string|null;expired?:boolean};
   let clients=$state<Client[]>([]), name=$state(""),kind=$state("claude-code"),busy=$state(false),error=$state("");
   type Setup={id:string;command:string|null;configuration:unknown;instructions:string};
   let setups=$state<Record<string,Setup>>({}), showingSetup=$state<string|null>(null), copied=$state<string|null>(null);
@@ -46,7 +47,7 @@
       <button disabled={busy}>Create connection</button>
     </form>{/if}
     <h3>Existing connections</h3>
-    <p>Each entry grants separate access to your vault. Status shows permission to access it; last use records activity.</p>
+    <p>Each entry grants separate access to your vault. Status shows permission to access it; last use records activity. A connection unused for 30 days expires; renewing it keeps its setup and access.</p>
     {/if}
     {#if error}<p role="alert">{error}</p>{/if}
 
@@ -56,8 +57,9 @@
     <div class="settings-row compact">
       <div class="settings-status-row">
         <span class="settings-item-name">MCP connection</span>
-        <span class="settings-status"><i class:ready={!client.revoked} aria-hidden="true"></i>{client.revoked ? 'Access revoked' : 'Authorized'}</span>
+        <span class="settings-status"><i class:ready={!client.revoked && !client.expired} aria-hidden="true"></i>{status(client)}</span>
         {#if client.revoked}<button disabled={busy} onclick={()=>action({action:"reconnect",id:client.id})}>Reconnect</button>
+        {:else if client.expired}<button disabled={busy} onclick={()=>action({action:"renew",id:client.id})}>Renew</button>
         {:else}<button aria-expanded={configuring === client.id} aria-controls={'client-'+client.id} onclick={()=>configure(client.id)}>{configuring === client.id ? 'Done' : 'Configure'}</button>{/if}
       </div>
       {#if !client.revoked && configuring === client.id}
@@ -73,11 +75,12 @@
         <div class="settings-card-main">
           <h2 class="settings-card-name">{client.name}</h2>
           <span class="settings-card-about">{client.legacy ? 'Legacy plugin connection, deprecated. Replace it with a named MCP connection.' : `${label(client.kind)}, reaching your vault through BigBrain’s MCP server with this connection’s access.`}</span>
-          <span class="settings-status"><i class:ready={!client.revoked} aria-hidden="true"></i>{client.revoked ? 'Access revoked' : 'Authorized'}</span>
+          <span class="settings-status"><i class:ready={!client.revoked && !client.expired} aria-hidden="true"></i>{status(client)}</span>
           <span class="settings-item-note">Connection {client.id} · {client.legacy ? 'Legacy plugin' : client.replaces ? 'Legacy plugin replacement' : client.managedBy?.startsWith('local:') ? 'Set up on this computer' : 'Manual setup'}</span>
           <span class="settings-item-note">{client.lastUsed ? `Last used ${new Date(client.lastUsed).toLocaleString()}` : 'Not used yet'}</span>
         </div>
         {#if client.revoked && !client.legacy}<button disabled={busy} onclick={()=>action({action:"reconnect",id:client.id})}>Reconnect</button>
+        {:else if client.expired}<div class="actions"><button disabled={busy} onclick={()=>action({action:"renew",id:client.id})}>Renew</button><button aria-expanded={configuring === client.id} aria-controls={'client-'+client.id} onclick={()=>configure(client.id)}>{configuring === client.id ? 'Done' : 'Configure'}</button></div>
         {:else if !client.revoked}<button aria-expanded={configuring === client.id} aria-controls={'client-'+client.id} onclick={()=>configure(client.id)}>{configuring === client.id ? 'Done' : 'Configure'}</button>{/if}
       </div>
       {#if client.legacy}
