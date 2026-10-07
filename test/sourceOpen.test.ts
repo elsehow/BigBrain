@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -6,7 +7,7 @@ import { PassThrough } from "node:stream";
 import { putBlob } from "../lib/blobs";
 import { dispatch, type Route } from "../lib/httpx";
 import { appendSourceInsertionEvent, insertionEventRel } from "../lib/insertionLog";
-import { materializedPath, openSourceOrigin, safeName, sourceOpenRoutes } from "../lib/sourceOpen";
+import { materializedPath, openSourceOrigin, quarantine, runsWhenOpened, safeName, sourceOpenRoutes } from "../lib/sourceOpen";
 import { insertion } from "./support/vault";
 
 // the door that opens a source's origin on this machine (lib/sourceOpen.ts)
@@ -19,6 +20,15 @@ function land(root: string, envelope: Record<string, unknown>, id = `ins_${"1".r
 }
 
 describe("names", () => {
+  test("what the OS would run rather than read, by extension, any case", () => {
+    for (const name of ["Setup.APP", "run.command", "x.terminal", "go.webloc", "f.fileloc", "a.jar", "s.sh", "p.pkg", "m.mobileconfig"])
+      expect(runsWhenOpened(name)).toBe(true);
+    for (const name of ["paper.pdf", "notes.docx", "photo.heic", "archive.tar.gz", "command", "app"])
+      expect(runsWhenOpened(name)).toBe(false);
+  });
+  test("the mark is macOS's alone", () => {
+    expect(quarantine("/nonexistent/file", "linux")).toBe(true);
+  });
   test("a filename the OS will take: separators and NULs out, hidden-file dots off, the hash when nothing is left", () => {
     expect(safeName("Paper (final).pdf", "h")).toBe("Paper (final).pdf");
     expect(safeName("../../evil.pdf", "h")).toBe("_.._evil.pdf");
@@ -67,6 +77,31 @@ describe("openSourceOrigin", () => {
     // again: same copy, no second write — the opener just gets the path
     expect(openSourceOrigin(root, path, (t) => { opened.push(t); return true; }, base).ok).toBe(true);
     expect(opened).toEqual([dest, dest]);
+  });
+  test("a kind the OS would run is shown in Finder, never opened", () => {
+    const root = tmp();
+    const base = join(tmp(), "open");
+    const { sha256 } = putBlob(root, new TextEncoder().encode("echo hi"));
+    const path = land(root, { attachments: [{ name: "invoice.COMMAND", sha256 }] });
+    const shown: string[] = [];
+    const never = (): boolean => { throw new Error("must not open"); };
+    const dest = join(base, sha256, "invoice.COMMAND");
+    expect(openSourceOrigin(root, path, never, base, (t) => { shown.push(t); return true; })).toMatchObject({ ok: true, opened: dest, revealed: true });
+    expect(shown).toEqual([dest]);
+    expect(openSourceOrigin(root, path, never, base, () => false)).toMatchObject({ ok: false, error: "nothing here can show a file" });
+  });
+  test.skipIf(process.platform !== "darwin")("the copy carries the quarantine mark before the OS sees it", () => {
+    const root = tmp();
+    const base = join(tmp(), "open");
+    const { sha256 } = putBlob(root, new TextEncoder().encode("%PDF-1.4 hello"));
+    const path = land(root, { attachments: [{ name: "paper.pdf", sha256 }] });
+    let mark = "";
+    const r = openSourceOrigin(root, path, (t) => {
+      mark = spawnSync("/usr/bin/xattr", ["-p", "com.apple.quarantine", t], { encoding: "utf8" }).stdout.trim();
+      return true;
+    }, base);
+    expect(r).toMatchObject({ ok: true, opened: join(base, sha256, "paper.pdf") });
+    expect(mark).toMatch(/^0081;[0-9a-f]+;BigBrain;$/);
   });
   test("a url origin goes to the opener as it is", () => {
     const root = tmp();
