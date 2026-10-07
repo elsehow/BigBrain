@@ -40,6 +40,12 @@ import {
   validateEntityAliasEvent,
   type EntityAliasEvent,
 } from "./entityAliasLog";
+import {
+  appendEntitySourceEvent,
+  listEntitySourceEventFiles,
+  validateEntitySourceEvent,
+  type EntitySourceEvent,
+} from "./entitySourceLog";
 import type { LabelRow } from "./entityLookalikes";
 import { assertionDb } from "./env";
 import {
@@ -61,7 +67,8 @@ import { withProjectionWrite } from "./projectionWriteLock";
 // 15: atomic generations, shared feed rows, Markdown/link spans and source presence.
 // 16: compact source metadata and transactionally published thread membership.
 // 17: compact graph/feed summaries and link evidence; canonical Markdown titles.
-const SCHEMA_VERSION = "17";
+// 18: entity↔source bindings (lib/entitySourceLog.ts).
+const SCHEMA_VERSION = "18";
 
 export interface AssertionSearchHit {
   id: string;
@@ -229,6 +236,13 @@ function schema(db: Database): void {
   db.run("CREATE INDEX IF NOT EXISTS entity_aliases_entity ON entity_aliases(entity_id)");
   db.run(`CREATE VIRTUAL TABLE IF NOT EXISTS entity_alias_fts USING fts5(
     alias_id UNINDEXED, alias, tokenize='unicode61'
+  )`);
+  // Entity↔source bindings (lib/entitySourceLog.ts): the census alone. The
+  // graph folds it (latest per pair) when it builds; there is no resolved
+  // table to keep in step.
+  db.run(`CREATE TABLE IF NOT EXISTS entity_source_events (
+    id TEXT PRIMARY KEY,
+    event_json TEXT NOT NULL
   )`);
   // Revocations (lib/revocationLog.ts, #629): the census sync diffs against.
   // A revoked assertion keeps its `assertions` row — flagged, so its old id
@@ -508,6 +522,13 @@ function insertEntityAliasRow(db: Database, event: EntityAliasEvent): boolean {
   });
 }
 
+function insertEntitySourceRow(db: Database, event: EntitySourceEvent): boolean {
+  validateEntitySourceEvent(event);
+  return insertOnce(db, "entity_source_events", "id", event.id, event, (eventJson) => {
+    db.query("INSERT INTO entity_source_events(id, event_json) VALUES (?, ?)").run(event.id, eventJson);
+  });
+}
+
 /** Durable append first, disposable projection second. A projection failure
  * leaves the event safe in its log, where sync and rebuild deterministically
  * heal it — the discipline every kind follows, so it is written once. The
@@ -530,6 +551,7 @@ function appendAndProject<T, R>(
 export const appendAndProjectAssertion = appendAndProject(appendAssertionEvent, insertAssertionRow);
 export const appendAndProjectDecline = appendAndProject(appendDeclineEvent, insertDeclineRow);
 export const appendAndProjectEntityAlias = appendAndProject(appendEntityAliasEvent, insertEntityAliasRow);
+export const appendAndProjectEntitySource = appendAndProject(appendEntitySourceEvent, insertEntitySourceRow);
 // Last of its kind on purpose: a revocation needs its assertion — and, when
 // it supersedes, that successor — already projected.
 export const appendAndProjectRevocation = appendAndProject(appendRevocationEvent, insertRevocationRow);
@@ -656,6 +678,12 @@ const KINDS: readonly ProjectionKind[] = [
     listFiles: listEntityAliasEventFiles,
     validate: validateEntityAliasEvent,
     insert: insertEntityAliasRow,
+  }),
+  projectionKind<EntitySourceEvent>({
+    held: "SELECT id FROM entity_source_events",
+    listFiles: listEntitySourceEventFiles,
+    validate: validateEntitySourceEvent,
+    insert: insertEntitySourceRow,
   }),
   projectionKind<RevocationEvent>({
     held: "SELECT id FROM revocations",

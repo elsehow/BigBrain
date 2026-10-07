@@ -39,6 +39,7 @@ describe("assertion intake agent", () => {
     expect(canonicalizeAssertionLinks(root, `[[${ada.id}|Ada]] joined [[Atlas project]].`)).toEqual({
       text: `[[${ada.id}|Ada]] joined [[${assertionEntityId("Atlas project")}|Atlas project]].`,
       entities: [ada, { id: assertionEntityId("Atlas project"), label: "Atlas project" }],
+      minted: [{ id: assertionEntityId("Atlas project"), label: "Atlas project" }],
     });
     expect(() => canonicalizeAssertionLinks(root, "[[ent_00000000000000000000|Ghost]] appeared."))
       .toThrow("unknown projected entity");

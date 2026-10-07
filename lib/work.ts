@@ -26,6 +26,7 @@
 
 import type { Database } from "bun:sqlite";
 import { ASSERTION_AGENT_MAX_BATCH, createAssertionLinkCanonicalizer } from "./assertionAgent";
+import { bindMintedEntities } from "./entitySourceSeed";
 import {
   assertionEventRel,
   commitAssertionEvents,
@@ -610,7 +611,7 @@ export function submitWire(root: string, raw: unknown, opts: SubmitOpts): Submit
   const str = (v: unknown): string => (typeof v === "string" ? v : "");
   const canonicalize = createAssertionLinkCanonicalizer(root);
   const preRejected: SubmitItemResult[] = [];
-  const items: { index: number; item: SubmitItem }[] = [];
+  const items: { index: number; item: SubmitItem; minted?: AssertionEntity[] }[] = [];
   for (const [index, r] of (raw as RawSubmitItem[]).entries()) {
     try {
       if (r.submit === "assertion") {
@@ -626,6 +627,7 @@ export function submitWire(root: string, raw: unknown, opts: SubmitOpts): Submit
             submit: "assertion", text: links.text, entities: links.entities,
             sources, confidence: r.confidence,
           },
+          minted: links.minted,
         });
       } else if (r.submit === "decline") {
         const ids = Array.isArray(r.insertion_ids) ? r.insertion_ids.map(String) : [];
@@ -651,6 +653,18 @@ export function submitWire(root: string, raw: unknown, opts: SubmitOpts): Submit
   const submitted = items.length
     ? submitWork(root, items.map((i) => i.item), opts)
     : { results: [], appended: 0, deduped: 0, rejected: 0, admitted: 0, passed: 0 };
+  // An entity a claim just minted from the document it names is that
+  // document (lib/entitySourceSeed.ts). The claims are durable already; a
+  // binding that fails leaves them be and the bulk pass can bind it later.
+  try {
+    bindMintedEntities(root, submitted.results.flatMap((r) => {
+      const held = items[r.index]!;
+      return r.ok && !r.deduped && held.item.submit === "assertion" && held.minted?.length
+        ? [{ entities: held.minted, insertion_ids: held.item.sources }] : [];
+    }), opts.now);
+  } catch (error) {
+    console.warn(`work: entity-source binding skipped: ${error instanceof Error ? error.message : String(error)}`);
+  }
   // Re-key submitWork's dense indices back to the caller's, merge the
   // canonicalization rejects, and report in the caller's order.
   const results = [

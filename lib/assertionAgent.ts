@@ -135,19 +135,25 @@ export function lookalikeRefusal(label: string, candidates: readonly Lookalike[]
 export function canonicalizeAssertionLinks(
   root: string,
   text: string
-): { text: string; entities: AssertionEntity[] } {
+): CanonicalLinks {
   return createAssertionLinkCanonicalizer(root)(text);
 }
 
+/** An assertion's links, canonical; `minted` names the entities no claim
+ * linked before this one (lib/entitySourceSeed.ts binds those that are a
+ * source they cite). */
+export interface CanonicalLinks { text: string; entities: AssertionEntity[]; minted: AssertionEntity[] }
+
 /** Scoped to the validation phase: submitWire validates all links before it
  * appends any events. A later submission must build a fresh inventory. */
-export function createAssertionLinkCanonicalizer(root: string): (text: string) => { text: string; entities: AssertionEntity[] } {
+export function createAssertionLinkCanonicalizer(root: string): (text: string) => CanonicalLinks {
   let find: ReturnType<typeof createLookalikeFinder> | undefined;
   return text => canonicalizeLinks(root, text, label => (find ??= createLookalikeFinder(projectedLabelRows(root)))(label));
 }
 
-function canonicalizeLinks(root: string, text: string, candidates: (label: string) => Lookalike[]): { text: string; entities: AssertionEntity[] } {
+function canonicalizeLinks(root: string, text: string, candidates: (label: string) => Lookalike[]): CanonicalLinks {
   const entities = new Map<string, AssertionEntity>();
+  const minted = new Map<string, AssertionEntity>();
   const link = (entity: AssertionEntity, display: string): string => {
     entities.set(entity.id, { id: entity.id, label: entity.label });
     return `[[${entity.id}|${display}]]`;
@@ -189,8 +195,9 @@ function canonicalizeLinks(root: string, text: string, candidates: (label: strin
       const alike = candidates(label);
       if (alike.length) throw new Error(lookalikeRefusal(label, alike));
     }
+    minted.set(id, { id, label });
     return link({ id, label }, label);
   });
   if (!entities.size) throw new Error("assertion-agent: every assertion must link at least one entity");
-  return { text: canonical, entities: [...entities.values()] };
+  return { text: canonical, entities: [...entities.values()], minted: [...minted.values()] };
 }

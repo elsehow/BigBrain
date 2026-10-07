@@ -168,7 +168,7 @@ describe("intake never follows the table (#628) and refuses a would-be stub", ()
     expect(() => canonicalizeAssertionLinks(root, "[[Evan]] agreed.")).toThrow(`is an alias of ${EK.id}`);
     expect(() => canonicalizeAssertionLinks(root, `[[${EVAN.id}|Evan Keller]] agreed.`)).toThrow(`is an alias of ${EK.id}`);
     expect(canonicalizeAssertionLinks(root, `[[${EK.id}|Evan Keller]] agreed.`)).toEqual({
-      text: `[[${EK.id}|Evan Keller]] agreed.`, entities: [EK],
+      text: `[[${EK.id}|Evan Keller]] agreed.`, entities: [EK], minted: [],
     });
   });
 
@@ -327,10 +327,10 @@ describe("intake refuses a lookalike of an existing entity, with a way to insist
     const { root } = vault("[[Evan Keller]] runs [[Field Research Institute]].");
     const fli = ent("Future of Life Institute");
     expect(canonicalizeAssertionLinks(root, "[[new:Future of Life Institute]] wrote.")).toEqual({
-      text: `[[${fli.id}|Future of Life Institute]] wrote.`, entities: [fli],
+      text: `[[${fli.id}|Future of Life Institute]] wrote.`, entities: [fli], minted: [fli],
     });
     expect(canonicalizeAssertionLinks(root, "[[New: Evan Keller]] wrote.")).toEqual({
-      text: `[[${EK.id}|Evan Keller]] wrote.`, entities: [EK],
+      text: `[[${EK.id}|Evan Keller]] wrote.`, entities: [EK], minted: [],
     });
     // insisting never bypasses the alias table or the one-word stub guard
     appendAndProjectEntityAlias(root, alias("Evan", EK));
@@ -344,7 +344,7 @@ describe("intake refuses a lookalike of an existing entity, with a way to insist
     const { root } = vault("[[Field Research Institute]] hired.", "[[Good Food Institute]] hired.", "[[Future of Life Institute]] hired.", "[[Foresight Institute]] hired.");
     const ai = ent("Anthropic Institute");
     expect(canonicalizeAssertionLinks(root, "[[Anthropic Institute]] opened.")).toEqual({
-      text: `[[${ai.id}|Anthropic Institute]] opened.`, entities: [ai],
+      text: `[[${ai.id}|Anthropic Institute]] opened.`, entities: [ai], minted: [ai],
     });
     expect(canonicalizeAssertionLinks(root, "[[Auto-MAP]] launched.").entities[0]?.label).toBe("Auto-MAP");
   });

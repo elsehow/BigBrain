@@ -6,7 +6,7 @@ import { vaultRecord, type VaultRecord } from "./vaultReadModel";
 import { createHash } from "node:crypto";
 import { assertionSourceReferences, type AssertionEvent } from "./assertionLog";
 import type { Graph, GraphEdge, GraphNode } from "./graph";
-import { insertionEventRel, type SourceMetadata } from "./insertionLog";
+import { insertionEventRel, sourceMoment, type SourceMetadata } from "./insertionLog";
 import { assertionSuperseded } from "./sourceSupersede";
 import { assertionEntityPath } from "./assertionEntityView";
 import { insertionFiler, pendingInsertionIds } from "./sourceFeed";
@@ -218,6 +218,29 @@ export function buildAssertionGraph(root: string, observe?: ObserveConnection, r
   const drawn = [...nodes.values()].filter((node) => !self.has(node.id) && (node.degree > 0 || node.group === "source" || node.group === "memory"))
     .sort((a, b) => a.id.localeCompare(b.id));
   const visible = new Set(drawn.map(node => node.id));
+  // An entity that IS a source — a document extracted as its own subject
+  // (lib/entitySourceLog.ts) — names it: the viewer draws the pair as one
+  // node and opens the source. Both stay in the projection for every other
+  // reader. A binding to a superseded landing follows its source's live one.
+  const live = new Map<string, string>();
+  for (const source of events) if (!superseded.has(source.id)) live.set(source.source_id, source.id);
+  const opens = new Map<string, Map<string, string>>();
+  for (const binding of record.entitySources) {
+    if (!binding.bound) continue;
+    const entity = nodes.get(resolve(binding.entity).id);
+    const landed = sourceByInsertion.get(binding.insertion_id);
+    const liveId = landed && (superseded.has(landed.id) ? live.get(landed.source_id) : landed.id);
+    const insertion = liveId ? sourceByInsertion.get(liveId) : undefined;
+    const source = insertion && nodes.get(sourceKey(insertion.id));
+    if (!entity?.entity || !source || !visible.has(entity.id) || !visible.has(source.id)) continue;
+    const held = opens.get(entity.id) ?? new Map<string, string>();
+    const at = sourceMoment(insertion);
+    if (!held.has(source.id) || held.get(source.id)! < at) held.set(source.id, at);
+    opens.set(entity.id, held);
+    source.drawnAs ??= entity.id;
+  }
+  for (const [id, held] of opens)
+    nodes.get(id)!.opens = [...held].sort((a, b) => b[1].localeCompare(a[1]) || a[0].localeCompare(b[0])).map(([key]) => key);
   // Direction comes from the document, never the canonicalized graph edge.
   // A memory contributes once per visible target, including cited assertions.
   for (const [id, targets] of [...memoryTargets].sort(([a], [b]) => a.localeCompare(b))) {
@@ -240,7 +263,7 @@ export function buildAssertionGraph(root: string, observe?: ObserveConnection, r
   // A pending point is in the hash too: the round that files it changes
   // its threads, while a decline removes the spinner and leaves the source.
   hash.update("assertions/v7-memory-support\n");
-  for (const node of drawn) hash.update(`${node.id}${node.pending ? " pending" : ""}${node.memberPaths ? ` ${node.memberPaths.join(" ")}` : ""}${node.memorySupport ? ` memory:${node.memorySupport}` : ""}\n`);
+  for (const node of drawn) hash.update(`${node.id}${node.pending ? " pending" : ""}${node.memberPaths ? ` ${node.memberPaths.join(" ")}` : ""}${node.memorySupport ? ` memory:${node.memorySupport}` : ""}${node.opens ? ` opens:${node.opens.join(" ")}` : ""}\n`);
   for (const edge of visibleEdges) hash.update(`${edge.source}>${edge.target}${edge.weight ? `x${edge.weight}` : ""}\n`);
   return { nodes: drawn, edges: visibleEdges, hash: hash.digest("hex").slice(0, 16), projection: "assertions",
     ...(self.size ? { userNote } : {}),
