@@ -35,7 +35,7 @@ import { commitAs } from "../lib/git";
 const root = VAULT_ROOT;
 
 // .state/logs must exist before anything writes there.
-ensureDir(join(root, ".state", "logs"));
+ensureDir(join(root, ".state", "logs"), 0o700);
 
 // references tree + .blobs/ — the storage planes.
 const planesChanged = ensureStoragePlanes(root);
@@ -96,7 +96,7 @@ if (st && !st.isSymbolicLink()) {
 // several vaults and the pointer must not flap with each install. Env
 // and cwd discovery always win.
 if (!existsSync(vaultPointer())) {
-  writeAtomic(vaultPointer(), root + "\n");
+  writeAtomic(vaultPointer(), root + "\n", 0o600);
   console.log(`install: default vault pointer → ${root}`);
 }
 

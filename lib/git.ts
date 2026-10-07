@@ -119,8 +119,8 @@ export function commitPathsOnly(
  * writer ever waits on the network; publish.ts itself no-ops on clients,
  * locks against itself, and eats failures (the sweep retries). */
 export function pokePublish(root: string): void {
-  ensureDir(join(root, ".state", "logs"));
-  const log = openSync(join(root, ".state", "logs", "publish.log"), "a");
+  ensureDir(join(root, ".state", "logs"), 0o700);
+  const log = openSync(join(root, ".state", "logs", "publish.log"), "a", 0o600);
   // process.execPath, not "bun": a bare-ssh or cron invocation has no
   // ~/.bun/bin on PATH, and the ENOENT lands AFTER the commit — the one
   // crash a fire-and-forget poke exists to avoid. The running binary is
