@@ -5,7 +5,7 @@ export function installIntegrationAccessScene(fail=false) {
   const original=api.config;
   const fixture:IntegrationInfo={name:'email',enabled:false,hasCode:true,hasTrigger:true,env:[],activation:{accounts:['me@example.com','work@example.com'],callers:[],grants:[]}};
   api.config=async()=>({...await original(),integrations:[structuredClone(fixture),{...structuredClone(fixture),name:"that-tracks"}]});
-  const accounts=['me@example.com','work@example.com'].map(account=>({name:'email',account,label:account,connected:false,liveAccess:false,grants:[] as {caller:string;access:string}[],capabilities:{read:'Read current messages and flags without remembering.',write:'Mark messages read or unread.'}}));
+  const accounts=['me@example.com','work@example.com'].map(account=>({name:'email',account,label:account,connected:false,checkedAt:null as string|null,grants:[] as {caller:string;access:string}[],capabilities:{read:'Read current messages and flags without remembering.',write:'Mark messages read or unread.'}}));
   const clients:{id:string;name:string;kind:string;revoked:string|null;lastUsed:string|null;legacy:boolean;replaces?:string;managedBy?:string;expired?:boolean;expiredUse?:string|null}[]=[{id:'12345678',name:'Codex on sample laptop',kind:'codex',revoked:null,lastUsed:"2026-09-24T00:00:00Z",legacy:false,replaces:undefined,managedBy:undefined}];
   if(new URLSearchParams(location.search).has('managed-clients'))clients.push({id:'runner-codex',name:'Orchestration: Codex',kind:'codex',managedBy:'runner:codex',revoked:null,lastUsed:null,legacy:false,replaces:undefined},{id:'runner-claude',name:'Orchestration: Claude Code',kind:'claude-code',managedBy:'runner:claude-code',revoked:null,lastUsed:'2026-09-24T00:00:00Z',legacy:false,replaces:undefined});
   if(new URLSearchParams(location.search).has('legacy-clients'))clients.push({id:'11111111',name:'Claude Code plugin',kind:'claude-code',managedBy:'claude-plugin',revoked:null,lastUsed:'2026-09-24T00:00:00Z',legacy:true,replaces:undefined});
@@ -31,7 +31,7 @@ export function installIntegrationAccessScene(fail=false) {
     client.lastUsed=new Date().toISOString();
     if(client.replaces)clients.find(c=>c.id===client.replaces)!.revoked=new Date().toISOString();
   });
-  const state=()=>({accounts,callers:[{id:'pilot',label:'Pilot'},{id:'gardener',label:'Gardener'},...clients.filter(c=>!c.revoked).map(c=>({id:'token:'+c.id,label:c.name}))]});
+  const state=()=>({accounts,callers:[{id:'pilot',label:'Pilot'},...clients.filter(c=>!c.revoked).map(c=>({id:'token:'+c.id,label:c.name}))]});
   const prior=window.fetch.bind(window);
   window.fetch=(async(input: RequestInfo | URL,options?: RequestInit)=>{
     const path=new URL(input instanceof Request?input.url:String(input),location.href).pathname;
@@ -54,9 +54,13 @@ export function installIntegrationAccessScene(fail=false) {
     const account=accounts.find(a=>a.account===body.account)!;
     if(body.action==='connect'){
       if(fail){fail=false;return json({error:'Account access failed. Check the inbox connection.'},400);}account.connected=true;
+      // a first connection starts at the default: Pilot reads, clients off
+      if(!account.checkedAt){account.checkedAt=new Date().toISOString();account.grants=[{caller:'pilot',access:'read'}];}
     }else if(body.action==='disconnect')account.connected=false;
-    else if(body.action==='save'){account.liveAccess=body.liveAccess;account.grants=body.grants??[];}
-    else if(body.action==='grant')account.grants=[...account.grants.filter(g=>g.caller!==body.caller),{caller:body.caller,access:body.access}];
+    else if(body.action==='save'||body.action==='grant'){
+      // only the callers named change, as on the server
+      for(const g of body.action==='grant'?[{caller:body.caller,access:body.access}]:body.grants??[])account.grants=[...account.grants.filter(x=>x.caller!==g.caller),...(g.access==='off'?[]:[g])];
+    }
     return json(state());
   }) as typeof window.fetch;
 }

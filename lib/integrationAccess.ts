@@ -142,7 +142,7 @@ export function accountPolicy(root:string,name:string,account:string):AccountPol
     // Version 2 is read as 3 and written as 3 on the next change: the access reset. Its `liveAccess` overrode
     // every caller's grant; now grants alone decide. Pilot keeps read where it could read, never read-write, and
     // every client starts off. Connection, settings and credentials stay as they were.
-    const grants:AccountGrant[]=p.version===3?p.grants:(p.liveAccess??["read","read-write"].includes(p.grants.find((g:any)=>g.caller==="pilot")?.access))?pilotReads(name):[];
+    const grants:AccountGrant[]=p.version===3?p.grants:(p.liveAccess??accessOf(p,"pilot")!=="off")?pilotReads(name):[];
     // a retired `remembering` switch or rule in an older file is ignored: a connected account is remembered
     const {remembering:_retired,liveAccess:_override,...policy}=p;
     return {...policy,version:3,grants,connected:p.connected&&(managed(name).credential.signedIn?.(root,account)??true)&&p.fingerprint===accountFingerprint(root,name,account)};

@@ -13,7 +13,7 @@
  import {openExternal} from "../lib/native";
  import {onMount} from 'svelte';
  const {source}:{source:string}=$props();
-  type Account={gmail?:boolean;google?:boolean;host?:string;removable?:boolean;email?:{startAt:string;attachments:boolean;backfill?:{since:string}};granola?:{backfill?:{since:string}};sync?:{ok:boolean;error?:string};auth?:{phase:string;url?:string;error?:string};identity?:unknown;label:string;name:string;account:string;connected:boolean;liveAccess?:boolean;capabilities:{read:string|null;write:string|null}};
+  type Account={gmail?:boolean;google?:boolean;host?:string;removable?:boolean;email?:{startAt:string;attachments:boolean;backfill?:{since:string}};granola?:{backfill?:{since:string}};sync?:{ok:boolean;error?:string};auth?:{phase:string;url?:string;error?:string};identity?:unknown;label:string;name:string;account:string;connected:boolean;grants?:{caller:string;access:Access}[];capabilities:{read:string|null;write:string|null}};
  let newLabel=$state(''),newKey=$state(''),adding=$state(false),destination=$state('this vault');
  let history=$state<Record<string,string>>({});
  let includeHistory=$state<Record<string,boolean>>({});
@@ -22,6 +22,13 @@
  let expanded=$state<Record<string,boolean>>({});
  let removing=$state<Record<string,boolean>>({});
  let accounts=$state<Account[]>([]),busy=$state(false);
+ /** Live access, per caller: Pilot, then each connected client. Save sends only what was changed here, so it never undoes another caller's grant. */
+ type Access='off'|'read'|'read-write';
+ let callers=$state<{id:string;label:string}[]>([]);
+ let changed=$state<Record<string,Record<string,Access>>>({});
+ const granted=(account:Account,caller:string):Access=>account.grants?.find(g=>g.caller===caller)?.access??'off';
+ const accessOf=(account:Account,caller:string):Access=>changed[account.account]?.[caller]??granted(account,caller);
+ const grantChanges=(account:Account)=>{const c=Object.entries(changed[account.account]??{});return c.length?{grants:c.map(([caller,access])=>({caller,access}))}:{};};
  type Where='connection'|'save'|'list'|'add';
  /** One message at a time, shown where the action happened. */
  let feedback=$state<{where:Where;account:string|null;error:boolean;text:string}|null>(null);
@@ -33,13 +40,15 @@
    const identity=account.identity as {email?:unknown}|undefined;
    return typeof identity?.email==='string'?identity.email:'Account';
  }
- function accept(v:{accounts:Account[];destination?:string}){destination=v.destination??"this vault";accounts=v.accounts.filter(a=>a.name===source);}
+ function accept(v:{accounts:Account[];destination?:string;callers?:{id:string;label:string}[]}){destination=v.destination??"this vault";accounts=v.accounts.filter(a=>a.name===source);callers=v.callers??[];
+  // a change the server now holds is no longer pending
+  for(const a of accounts)for(const [caller,access] of Object.entries(changed[a.account]??{}))if(granted(a,caller)===access)delete changed[a.account]![caller];}
  onMount(()=>{
    void request().then(accept).catch(e=>say('list',null,e.message,true));
    const timer=setInterval(()=>{if(!busy&&accounts.some(a=>a.auth?.phase==='browser'||a.auth?.phase==='starting'))void request().then(accept).catch(e=>say('list',null,e.message,true));},1500);
    return()=>clearInterval(timer);
  });
- async function act(account:Account,action:string){busy=true;feedback=null;const where=placeOf(action),who=action==='remove'?null:account.account;const importing=(source==='email'||source==='granola')&&includeHistory[account.account]?history[account.account]:'';try{accept(await request({name:source,account:account.account,action,key:keys[account.account],liveAccess:account.liveAccess??false,...(source==='email'?{attachments:account.email?.attachments??false}:{}),...(source==='email'||source==='granola'?{backfillSince:includeHistory[account.account]?history[account.account]:undefined}:{})}));if(action==='credentials')keys[account.account]='';if(action==='save'){includeHistory[account.account]=false;history[account.account]='';}if(source==='granola'&&action==='connect'){const url=accounts.find(a=>a.account===account.account)?.auth?.url;if(url)await openExternal(url);}say(where,who,action==='connect'?(accounts.find(a=>a.account===account.account)?.connected?'Connected.':'Finish sign-in in your browser.'):action==='disconnect'?'Disconnected.':action==='cancel'?'Sign-in cancelled.':action==='remove'?`Removed ${accountLabel(account)}.`:importing?`Saved. Importing ${items} since ${importing}.`:'Saved.');}catch(e){say(where,who,e instanceof Error?e.message:'Could not save.',true);}finally{busy=false;if(action==='credentials'&&source==='email')keys[account.account]='';}}
+ async function act(account:Account,action:string){busy=true;feedback=null;const where=placeOf(action),who=action==='remove'?null:account.account;const importing=(source==='email'||source==='granola')&&includeHistory[account.account]?history[account.account]:'';try{accept(await request({name:source,account:account.account,action,key:keys[account.account],...(action==='save'?grantChanges(account):{}),...(source==='email'?{attachments:account.email?.attachments??false}:{}),...(source==='email'||source==='granola'?{backfillSince:includeHistory[account.account]?history[account.account]:undefined}:{})}));if(action==='credentials')keys[account.account]='';if(action==='save'){includeHistory[account.account]=false;history[account.account]='';}if(source==='granola'&&action==='connect'){const url=accounts.find(a=>a.account===account.account)?.auth?.url;if(url)await openExternal(url);}say(where,who,action==='connect'?(accounts.find(a=>a.account===account.account)?.connected?'Connected.':'Finish sign-in in your browser.'):action==='disconnect'?'Disconnected.':action==='cancel'?'Sign-in cancelled.':action==='remove'?`Removed ${accountLabel(account)}.`:importing?`Saved. Importing ${items} since ${importing}.`:'Saved.');}catch(e){say(where,who,e instanceof Error?e.message:'Could not save.',true);}finally{busy=false;if(action==='credentials'&&source==='email')keys[account.account]='';}}
  /** A calendar date typed as YYYY-MM-DD, today or earlier; '' when it is not one. */
  function pastDate(text:string):string{
   const t=text.trim();if(!/^\d{4}-\d{2}-\d{2}$/.test(t))return '';
@@ -89,9 +98,11 @@
     {#if includeHistory[account.account]}<label>Remember meetings since<input inputmode="numeric" autocomplete="off" placeholder="YYYY-MM-DD" bind:value={history[account.account]}/></label>{#if !pastDate(history[account.account]??'')}<p>A date such as {new Date(Date.now()-90*864e5).toISOString().slice(0,10)}. Meetings from that day on are staged for review.</p>{/if}{/if}
    </details></div>{/if}
   </fieldset>
-  {#if account.capabilities.read}<fieldset disabled={busy||!account.connected}>
-    <label class="toggle"><input type="checkbox" aria-label="Live access" bind:checked={account.liveAccess}/> Live access</label>
+  {#if account.capabilities.read}<fieldset class="live-access" disabled={busy||!account.connected}>
+    <legend>Live access</legend>
     <p>{account.capabilities.read}{account.capabilities.write ? ' '+account.capabilities.write : ''}</p>
+    <ul aria-label={`Live access to ${accountLabel(account)}`}>{#each callers as caller(caller.id)}<li><span>{caller.label}</span><select aria-label={`Live access for ${caller.label}`} value={accessOf(account,caller.id)} onchange={e=>(changed[account.account]??={})[caller.id]=e.currentTarget.value as Access}><option value="off">Off</option><option value="read">Read</option>{#if account.capabilities.write}<option value="read-write">Read and write</option>{/if}</select></li>{/each}</ul>
+    <p>An external agent with access can act on what it reads with its own tools. This controls what BigBrain hands it and records who read what.</p>
   </fieldset>{/if}
   <div class="actions"><button disabled={busy||!account.connected} onclick={()=>save(account)}>Save</button>{@render note('save',account.account)}</div>
  </div></details>{/each}
@@ -126,6 +137,12 @@
  .account-connection > details{flex:1;min-width:0}
  .account-settings > fieldset{border-top:1px solid var(--rule);padding-top:20px}
  .remembering-rule{margin-left:28px}
+ .live-access legend{float:left;width:100%;padding:0;font:var(--type-body);font-weight:500;color:var(--text-strong)}
+ .live-access ul{display:grid;margin:0;padding:0;list-style:none;border-top:1px solid var(--rule)}
+ .live-access li{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 16px;padding:8px 0;border-bottom:1px solid var(--rule);font:var(--type-body);min-width:0}
+ .live-access li > span{flex:1 1 10em;min-width:0;overflow-wrap:break-word}
+ .live-access select{flex:none;padding:6px 8px;font:inherit;background:var(--well);color:var(--text);border:1px solid var(--rule)}
+ .live-access select:focus-visible{outline:2px solid var(--activity);outline-offset:3px}
  @media(max-width:700px){.account-list{padding-left:12px}.account-list .account-settings{padding:16px}.remembering-rule{margin-left:0}}
 
  section,.account-settings,fieldset,label,form{display:grid;gap:12px;min-width:0}fieldset{border:0;padding:12px 0;margin:0}pre{white-space:pre-wrap;overflow-wrap:anywhere;font:var(--type-meta)}.actions{display:flex;gap:12px;align-items:center;flex-wrap:wrap}p{margin:0}p{font:var(--type-meta);color:var(--text-muted)}label{font:var(--type-body)}input[type=email],input[type=password],input:not([type]){box-sizing:border-box;width:100%;padding:10px;background:var(--well);color:var(--text);font:inherit;border:1px solid var(--rule)}.toggle{display:flex;align-items:center}button{justify-self:start;font:var(--type-body);padding:8px 12px;border:1px solid var(--rule);background:transparent;color:var(--text-strong);cursor:pointer}button:disabled{opacity:.5;cursor:default}button:focus-visible,input:focus-visible{outline:2px solid var(--activity);outline-offset:3px}[role=alert]{color:var(--err)}

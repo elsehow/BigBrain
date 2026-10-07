@@ -5,7 +5,7 @@ import { applyConfig } from './config';
 import { basename } from 'node:path';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { accountFingerprint, accountPolicy, writeAccountPolicy, removeAccountPolicy, integrationAccounts, integrationCallerChoices, defaultGrants, MANAGED_INTEGRATIONS, type AccountPolicy, type Backfill, type GrantCaller, type LiveAccess } from './integrationAccess';
+import { accountFingerprint, accountPolicy, writeAccountPolicy, removeAccountPolicy, integrationAccounts, integrationCallerChoices, defaultGrants, MANAGED_INTEGRATIONS, type AccountGrant, type AccountPolicy, type Backfill, type GrantCaller, type LiveAccess } from './integrationAccess';
 import { probeInbox, probeGmail, type InboxProbe } from './imapProbe';
 import { emailConfig, passwordEnvKey, gmailReadOnly, isGmailInbox, parseInboxAdd } from "./emailConfig";
 import { readEmailState } from "./emailState";
@@ -160,12 +160,12 @@ export class IntegrationAccounts {
     if(value.grants!==undefined){
       const callers=new Set(integrationCallerChoices(this.root).map(c=>c.id)),seen=new Set<string>(),live=offered(this.root,name,account);
       if(!Array.isArray(value.grants)||value.grants.length>100)throw Error('Choose live access for existing callers.');
-      const changed=value.grants.map((g:any)=>{
+      const changed:AccountGrant[]=value.grants.map((g:any)=>{
         if(!g||!callers.has(g.caller)||seen.has(g.caller)||!['off','read','read-write'].includes(g.access)||(!live.read&&g.access!=='off')||(!live.write&&g.access==='read-write'))throw Error('Choose a supported access level for an existing caller.');
         seen.add(g.caller);return {caller:g.caller as GrantCaller,access:g.access as LiveAccess};
       });
       // Only the callers named change: saving one caller's access never touches another's. A revoked client's grant goes.
-      prior.grants=[...prior.grants.filter(g=>!seen.has(g.caller)&&callers.has(g.caller)),...changed.filter((g:{access:LiveAccess})=>g.access!=='off')];
+      prior.grants=[...prior.grants.filter(g=>!seen.has(g.caller)&&callers.has(g.caller)),...changed.filter(g=>g.access!=='off')];
     }
     writeAccountPolicy(this.root,name,account,prior);
     return this.list();

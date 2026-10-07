@@ -9,7 +9,7 @@ const assert=require('node:assert/strict');
  let step='vault',fail=false,hasVault=false,identity=null,claude=false,chatgpt=false;
  const local=[{kind:'claude-code',name:'Claude Code',available:true,connected:false},{kind:'codex',name:'Codex',available:true,connected:false}];
  const library=[{id:'browser',name:'Browser extension',description:'Save pages and highlights.',added:false},{id:'granola',name:'Granola',description:'Meeting transcripts.',added:false}];
- const account={name:'granola',account:'granola',label:'granola',connected:false,liveAccess:true,capabilities:{read:'Read meetings.',write:null}};
+ const account={name:'granola',account:'granola',label:'granola',connected:false,grants:[{caller:'pilot',access:'read'}],capabilities:{read:'Read meetings.',write:null}};const posted=[];
  const setup=()=>({vault:hasVault?{path:'/fixture/new-vault',created:'2026-09-24'}:null,identity,claude:{connected:claude,installed:'fixture',account:'Fixture',plugin:null},agent:null,anthropic:{connected:claude,phase:claude?'connected':'idle'},chatgpt:{connected:chatgpt,phase:chatgpt?'connected':'idle'},codex:{installed:'fixture',account:null,connected:false},onboarding:step});
  await page.route('**/api/**',async route=>{
   const path=new URL(route.request().url()).pathname,json=v=>route.fulfill({json:v}),body=route.request().postDataJSON();
@@ -22,8 +22,8 @@ const assert=require('node:assert/strict');
   if(path==='/api/integration-accounts'){
     if(body?.action==='install')library.find(i=>i.id===body.name).added=true;
     if(body?.action==='connect')account.connected=true;
-    if(body?.action==='save'){account.liveAccess=body.liveAccess;}
-    return json({library,accounts:[account]});
+    if(body?.action==='save'){posted.push(body.grants);for(const g of body.grants??[])account.grants=[...account.grants.filter(x=>x.caller!==g.caller),...(g.access==='off'?[]:[g])];}
+    return json({library,accounts:[account],callers:[{id:'pilot',label:'Pilot'},{id:'token:fixture',label:'Fixture client'}]});
   }
   if(path==='/api/connected-clients'){if(body?.action==='local')local.find(c=>c.kind===body.kind).connected=body.enabled;return json({clients:[],local});}
   if(path==='/api/telemetry'){if(typeof body?.enabled==='boolean'){choices.push(body.enabled);metrics={...metrics,enabled:body.enabled,decided:true};}return json(metrics);}
@@ -56,9 +56,13 @@ const assert=require('node:assert/strict');
  await page.reload();await page.getByRole('heading',{name:'Connect clients',exact:true}).waitFor();assert(await page.getByRole('checkbox',{name:/Codex/}).isChecked());
  await page.getByRole('navigation',{name:'Setup steps'}).getByRole('button',{name:/Integrations/}).click();await page.getByRole('heading',{name:'Connect integrations',exact:true}).waitFor();
  await page.locator('article').filter({hasText:'Granola'}).getByRole('button',{name:'+ Add',exact:true}).click();
+ // an account's settings open from its row
+ await page.getByRole('region',{name:'granola accounts'}).locator('summary').first().click();
  await page.getByRole('region',{name:'granola accounts'}).getByRole('button',{name:'Connect',exact:true}).click();
- assert(await page.getByRole('checkbox',{name:'Live access',exact:true}).isChecked());
- await page.getByRole('checkbox',{name:'Live access',exact:true}).uncheck();await page.getByRole('button',{name:'Save',exact:true}).click();assert.equal(account.liveAccess,false);
+ const pilot=page.getByRole('combobox',{name:'Live access for Pilot',exact:true}),client=page.getByRole('combobox',{name:'Live access for Fixture client',exact:true});
+ assert.equal(await pilot.inputValue(),'read');assert.equal(await client.inputValue(),'off');assert.equal(await client.locator('option').count(),2,'no write level where the account offers none');
+ await pilot.selectOption('off');await page.getByRole('button',{name:'Save',exact:true}).click();await page.getByText('Saved.',{exact:true}).waitFor();
+ assert.deepEqual(posted,[[{caller:'pilot',access:'off'}]],'Save sends only the caller that changed');assert.deepEqual(account.grants,[]);assert.equal(await pilot.inputValue(),'off');
  // A member joining a shared vault redeems the invite here and finishes setup inside it.
  const sharedInvite=page.getByRole('region',{name:'Shared vault'}),inviteLink='https://vault.example.test/invite#'+'A'.repeat(43);
  await sharedInvite.getByLabel('Invite link',{exact:true}).fill(inviteLink);await sharedInvite.getByRole('button',{name:'Connect',exact:true}).click();
@@ -69,6 +73,6 @@ const assert=require('node:assert/strict');
  await page.getByRole('button',{name:'No thanks',exact:true}).click();assert(!new URL(page.url()).searchParams.has('vaults'),'joining during setup changes no view');
  await page.waitForFunction(()=>!document.querySelector('[aria-label="Set up BigBrain"]'));assert.equal(step,'complete');assert.deepEqual(choices,[false]);
  // An existing configured vault has no progress marker and goes straight to its app.
- step=undefined;await page.reload();await page.waitForFunction(()=>!!document.querySelector('.v2'));assert.equal(await page.getByRole('dialog',{name:'Set up BigBrain'}).count(),0);assert.equal(account.liveAccess,false);
+ step=undefined;await page.reload();await page.waitForFunction(()=>!!document.querySelector('.v2'));assert.equal(await page.getByRole('dialog',{name:'Set up BigBrain'}).count(),0);assert.deepEqual(account.grants,[]);
  assert.deepEqual(errors,[]);console.log('Production wizard: explicit navigation, providers, client configuration, library defaults/save, reload, failure recovery, and existing-vault bypass passed');
 }finally{await browser.close();}})().catch(e=>{console.error(e);process.exitCode=1;});
