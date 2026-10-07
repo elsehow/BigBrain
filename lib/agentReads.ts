@@ -44,7 +44,7 @@ export function provenanceOf(root: string, path: string): Provenance {
   if (r.kind === "entity") {
     const claims = r.entity.assertions;
     const metas = projectedSourceMetadata(root, claims.flatMap(a => a.sources.map(s => s.insertion_id)));
-    const trusted = claims.every(a => !a.vault && a.sources.length > 0 && a.sources.every(s => {
+    const trusted = claims.length > 0 && claims.every(a => !a.vault && a.sources.length > 0 && a.sources.every(s => {
       const m = metas.get(s.insertion_id);
       return !!m && sourceTrusted(m.envelope);
     }));
@@ -57,19 +57,18 @@ export function provenanceOf(root: string, path: string): Provenance {
   if (p.startsWith("entities/")) return { kind: "entity", trusted: false, path: p, ...at };
   if (p.startsWith("journal/")) return { kind: "note", trusted: false, path: p, ...at };
   const env = envelope as Record<string, unknown>;
-  const kind = originOf(env);
+  const kind = originOf(env), from = sender(env["from"]);
   return { kind: p.startsWith("inbox/unsorted/") ? "drop" : kind === "source" ? "note" : kind, trusted: sourceTrusted(env),
-    ...(sender(env["from"]) ? { from: sender(env["from"]) } : {}),
-    ...(typeof env["received"] === "string" ? { received: env["received"] } : {}), path: p, ...at };
+    ...(from ? { from } : {}), ...(typeof env["received"] === "string" ? { received: env["received"] } : {}), path: p, ...at };
 }
+
+const insertionOf = (path: string): string | undefined => isSourceInsertionPath(path) ? /(ins_[a-f0-9]{24})\.json$/u.exec(path)?.[1] : undefined;
 
 /** Provenance for many paths at once: sources from the projection's headers, the rest one by one. */
 export function provenanceOfPaths(root: string, paths: string[]): Map<string, Provenance> {
-  const ids = paths.filter(isSourceInsertionPath).map(p => /(ins_[a-f0-9]{24})\.json$/u.exec(p)![1]!);
-  const metas = projectedSourceMetadata(root, ids);
+  const metas = projectedSourceMetadata(root, paths.map(insertionOf).filter((id): id is string => !!id));
   return new Map(paths.map(p => {
-    const id = isSourceInsertionPath(p) ? /(ins_[a-f0-9]{24})\.json$/u.exec(p)![1]! : undefined;
-    const m = id ? metas.get(id) : undefined;
+    const m = metas.get(insertionOf(p) ?? "");
     return [p, m ? sourceProvenance(m, p) : provenanceOf(root, p)];
   }));
 }
@@ -81,9 +80,9 @@ export function noteForAgent<T extends { markdown: string; title?: unknown }>(ro
   const provenance = provenanceOf(root, rel);
   if (provenance.kind === "memory") return { ...slice({ ...note, markdown: memoryForAgents(note.markdown) }), provenance };
   if (provenance.trusted) return { ...slice(note), provenance };
-  const screened = screenCredentials(note.markdown, { where: where(provenance.kind), context: typeof note.title === "string" ? note.title : "" });
-  const sliced = slice({ ...note, markdown: screened.text });
-  const title = typeof note.title === "string" ? screenCredentials(note.title, { where: where(provenance.kind) }).text : undefined;
+  const at = { where: where(provenance.kind) }, raw = typeof note.title === "string" ? note.title : undefined;
+  const sliced = slice({ ...note, markdown: screenCredentials(note.markdown, { ...at, context: raw ?? "" }).text });
+  const title = raw === undefined ? undefined : screenCredentials(raw, at).text;
   return { ...sliced, ...(title !== undefined ? { title } : {}), markdown: fenceUntrusted(fenceAbout(provenance, title), sliced.markdown), provenance };
 }
 
@@ -115,17 +114,18 @@ const addresses = (v: unknown): string | undefined => Array.isArray(v)
  * screened and fenced. Its subject is screened either way. */
 function mailForAgent(m: Mail, now: number, ref?: string): Mail {
   const at = typeof m.received === "string" ? m.received : typeof m.date === "string" ? m.date : undefined;
-  const provenance: Provenance = { kind: "email", trusted: false, ...(addresses(m.from) ? { from: addresses(m.from) } : {}),
+  const from = addresses(m.from), mailed = { where: where("email") };
+  const provenance: Provenance = { kind: "email", trusted: false, ...(from ? { from } : {}),
     ...(at ? { received: at } : {}), ...(typeof m.ref === "string" ? { ref: m.ref } : ref ? { ref } : {}) };
-  const subject = typeof m.subject === "string" ? screenCredentials(m.subject, { where: "open in Mail" }).text : m.subject;
+  const subject = typeof m.subject === "string" ? screenCredentials(m.subject, mailed).text : m.subject;
   const time = at ? Date.parse(at) : NaN;
   if (!(time <= now - FRESH_MAIL_MS)) {
-    const until = Number.isFinite(time) ? ` Read it again after ${new Date(time + FRESH_MAIL_MS).toISOString()}, or` : "";
+    const until = Number.isFinite(time) ? ` Read it again after ${new Date(time + FRESH_MAIL_MS).toISOString()}, or ask your person to open it in Mail.` : " Your person can open it in Mail.";
     return { uid: m.uid, ...(m.ref !== undefined ? { ref: m.ref } : {}), from: m.from, subject, date: m.date ?? null, provenance,
-      held: `Received under ${FRESH_MAIL_MS / 60_000} minutes ago, while any sign-in code or link in it is live: shown by sender, subject and date only.${until} your person can open it in Mail.` };
+      held: `Received under ${FRESH_MAIL_MS / 60_000} minutes ago, while any sign-in code or link in it is live: shown by sender, subject and date only.${until}` };
   }
   if (typeof m.body !== "string") return { ...m, subject, provenance };
-  const body = screenCredentials(m.body, { where: "open in Mail", context: typeof m.subject === "string" ? m.subject : "" });
+  const body = screenCredentials(m.body, { ...mailed, context: typeof m.subject === "string" ? m.subject : "" });
   return { ...m, subject, provenance, body: fenceUntrusted(fenceAbout(provenance), body.text) };
 }
 
@@ -154,7 +154,7 @@ export function liveForAgent(name: string, result: unknown, now = Date.now()): u
   if ((name === "inbox_list" || name === "email_search") && Array.isArray(r.messages))
     return { ...r, messages: (r.messages as Mail[]).map(m => mailForAgent(m, now)) };
   if (name === "granola_read") {
-    const at = { where: "open in Granola" };
+    const at = { where: where("granola") };
     return { ...r,
       ...(Array.isArray(r.content) ? { content: (r.content as Array<Record<string, unknown>>).map(c => c?.type === "text" && typeof c.text === "string"
         ? { ...c, text: fenceUntrusted({ kind: "granola" }, screenCredentials(c.text, at).text) } : c) } : {}),

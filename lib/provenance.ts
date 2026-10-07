@@ -93,7 +93,6 @@ export const sender = (v: unknown): string | undefined => word(v)?.replace(/\s+/
 
 /** A source insertion's provenance. */
 export function sourceProvenance(s: SourceMetadata, path = insertionEventRel(s)): Provenance {
-  return { kind: originOf(s.envelope), trusted: sourceTrusted(s.envelope),
-    ...(sender(s.envelope["from"]) ? { from: sender(s.envelope["from"]) } : {}),
-    ...(sourceMoment(s) ? { received: sourceMoment(s) } : {}), path };
+  const from = sender(s.envelope["from"]), received = sourceMoment(s);
+  return { kind: originOf(s.envelope), trusted: sourceTrusted(s.envelope), ...(from ? { from } : {}), ...(received ? { received } : {}), path };
 }

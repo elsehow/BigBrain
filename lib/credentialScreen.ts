@@ -21,9 +21,13 @@ export interface ScreenOptions {
 }
 
 /** Words that make a nearby code a sign-in code. */
-const CODE_CONTEXT = /\b(?:verification|verify|one[- ]?time|otp|passcodes?|security code|log[- ]?in code|sign[- ]?in code|2fa|mfa|two[- ]factor|multi[- ]factor|authenticat\w*|passwords?|passwort|reset|recovery codes?|backup codes?|sign(?:ing)?[- ]?in|log(?:ging)?[- ]?in)\b|v[ée]rification|contraseña|senha|código|確認コード|認証コード|ワンタイム|パスワード/iu;
-/** Weaker words: enough only on the code's own line, and only without an order's words beside it. */
-const CODE_WORD = /\b(?:code|pin)\b|コード/iu;
+const CODE_CONTEXT = /\b(?:verification|verify|one[- ]?time|otp|passcodes?|security code|log[- ]?in code|sign[- ]?in code|2fa|mfa|two[- ]factor|multi[- ]factor|authenticat\w*|passwords?|passwort|recovery codes?|backup codes?|sign(?:ing)?[- ]?in|log(?:ging)?[- ]?in)\b|v[ée]rification|contraseña|senha|código|確認コード|認証コード|ワンタイム|パスワード/iu;
+/** Weaker words: enough only beside the code, and only without an order's words on its line. */
+const CODE_WORD = /\b(?:code|pin|expires?)\b|コード/iu;
+/** How far from its words a code in a line of prose may stand. */
+const NEAR = 60;
+/** A placeholder this screen wrote, which must not count as context for the next match. */
+const PLACEHOLDER = /\[[^\]\n]* withheld — [^\]\n]*\]/gu;
 /** Lines about orders, parcels and the like, whose numbers are not credentials. */
 const NOT_SIGN_IN = /\b(?:orders?|tracking|track|parcel|shipment|shipped|invoice|receipt|ticket|booking|reservation|reference|pickup|promo|discount|coupon|voucher|gift|referral|zip|postal|area code|dress code|source code|qr code|error code|status code|pull request|commit|card ending)\b/iu;
 /** Words that make an opaque link a sign-in link. */
@@ -74,7 +78,12 @@ export function screenCredentials(text: string, options: ScreenOptions = {}): Sc
     if (!line.trim()) return line;
     const near = around(i);
     const ordered = NOT_SIGN_IN.test(line);
-    const codes = CODE_CONTEXT.test(line) || (!ordered && (CODE_WORD.test(line) || CODE_CONTEXT.test(near)));
+    // a line of nothing but codes takes its words from around it; a code in prose needs them beside it
+    const alone = !CODES.reduce((t, shape) => t.replace(shape, ""), line).replace(/[\s\p{P}]/gu, "");
+    const beside = (code: string, at: number, all: string): boolean => {
+      const window = all.slice(Math.max(0, at - NEAR), at + code.length + NEAR).replace(PLACEHOLDER, " ");
+      return CODE_CONTEXT.test(window) || (!ordered && CODE_WORD.test(window));
+    };
     const links = LINK_CONTEXT.test(line) || (!ordered && LINK_CONTEXT.test(near));
     let next = line.replace(URL, raw => {
       const href = raw.replace(/[.,;:!?)]+$/u, "");
@@ -88,8 +97,8 @@ export function screenCredentials(text: string, options: ScreenOptions = {}): Sc
     next = next.replace(LABELLED, (_, label: string) => { withheld++; return label + said("password"); });
     if (/app[- ]password|app-specific password/iu.test(`${line}\n${near}`))
       next = next.replace(APP_PASSWORD, () => { withheld++; return said("password"); });
-    if (codes) for (const shape of CODES) next = next.replace(shape, code => {
-      if (YEAR.test(code)) return code;
+    if (!alone || CODE_CONTEXT.test(near)) for (const shape of CODES) next = next.replace(shape, (code: string, at: number, all: string) => {
+      if (YEAR.test(code) || !(alone || beside(code, at, all))) return code;
       withheld++;
       return said("one-time code");
     });

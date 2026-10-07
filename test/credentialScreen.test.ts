@@ -36,6 +36,7 @@ const WITHHELD: { name: string; text: string; context?: string; gone: string[]; 
   { name: "a temporary password", text: "Username: ines.vale\nTemporary password: Zp4!rw9Kq2", gone: ["Zp4!rw9Kq2"], kept: ["Username: ines.vale"] },
   { name: "backup codes", text: "Your backup codes:\n1180-2295  4417-9930", context: "Two-factor backup codes", gone: ["1180-2295", "4417-9930"], kept: ["Your backup codes:"] },
   { name: "a meeting note that repeats a code", text: "Leo read out the verification code 449021 so Mara could log in.", gone: ["449021"], kept: ["so Mara could log in."] },
+  { name: "a code on its own line, said to expire", text: "Your Pinewood code:\n482910 — it expires in 10 minutes.", gone: ["482910"], kept: ["expires in 10 minutes"] },
 ];
 
 /** Ordinary mail and notes that look a little like credentials. */
@@ -51,6 +52,8 @@ const KEPT: { name: string; text: string; context?: string }[] = [
   { name: "an issue link", text: "Sign in to comment: https://tracker.example/fernworks/issues/4471" },
   { name: "a pickup number", text: "Your pickup code is 47.", context: "Your order is ready" },
   { name: "an invoice", text: "Invoice INV-2026-0931: $49.00 charged to the card ending 4417." },
+  { name: "a counter in meeting notes", text: "Reset the counter to 5000 before the demo." },
+  { name: "a number far from the sign-in words", text: "We agreed the sign-in page needs a clearer error message, and separately the warehouse expects 3400 units in March." },
 ];
 
 describe("withheld", () => {

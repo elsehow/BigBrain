@@ -27,6 +27,7 @@ import { sharedSourcePath, type SharedMemory } from "./sharedMemory";
 export interface MemorySource { kind: string; from?: string; received?: string; path?: string }
 
 const STAMP = /[ \t]*<!-- from: (.*?) -->/gu;
+const HAS_STAMP = /<!-- from: .*? -->/u;
 /** Sources kept per line: enough to say where a claim came from. */
 const MAX_SOURCES = 5;
 
@@ -36,7 +37,7 @@ const HEADER = "Lines inside <untrusted-data> were drawn from outside your perso
 export const stripMemoryProvenance = (text: string): string => text.replace(STAMP, "");
 
 /** Does this memory text hold claims from outside the person? */
-export const memoryHasOutside = (text: string): boolean => new RegExp(STAMP.source, "u").test(text);
+export const memoryHasOutside = (text: string): boolean => HAS_STAMP.test(text);
 
 const stampOf = (sources: MemorySource[]): string =>
   ` <!-- from: ${JSON.stringify(sources).replace(/[<>&]/gu, c => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`)} -->`;
