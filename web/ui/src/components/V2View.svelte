@@ -97,7 +97,9 @@
     desktop?: { views: DesktopView[]; layout: DesktopTile | null; arrangedBy: "agent" | "human" | null };
     /** Coding desktops: each fork's work, and the servers it runs. */
     changes?: Array<{ project: string; branch: string; commits: number; dirty: number; stat: string }>;
-    servers?: Array<{ port: number; command?: string }> };
+    servers?: Array<{ port: number; command?: string }>;
+    /** Coding desktops holding untrusted material: what it was, and the last command its shell refused. */
+    taint?: { sources: Array<{ via: string; title: string }>; refused?: { command: string } } };
   /** Coding desktops (lib/codingDesktops.ts) have `d-` ids and live at /api/desktops;
    * Pilot conversations keep their own routes. One switch, so the rest of the view is shared. */
   const coding = (id: string | null | undefined): boolean => !!id && id.startsWith("d-");
@@ -538,6 +540,16 @@
     if (discarding !== project) { discarding = project; flash(`Click Discard again to delete this desktop's copy of ${project}.`); return; }
     discarding = null;
     try { await desktopReq("/discard", { id: openPilot, project }); await loadDetail(); } catch (e) { flash(errText(e)); }
+  }
+  /** Why a desktop's shell is off, in words: what it started from, then what it read. */
+  function taintText(t: NonNullable<PilotDetail["taint"]>): string {
+    const started = t.sources.filter((s) => s.via === "start").map((s) => s.title);
+    const read = [...new Set(t.sources.filter((s) => s.via !== "start").map((s) => s.title))];
+    return [started.length && `started from ${started.join(", ")}`, read.length && `read ${read.join(", ")}`].filter(Boolean).join(" and ");
+  }
+  /** The person's word that this desktop may use its shell despite what it read; only here, never the agent's. */
+  async function allowShell(): Promise<void> {
+    try { await desktopReq("/allow-shell", { id: openPilot }); await loadDetail(); } catch (e) { flash(errText(e)); }
   }
   /** The bar's ×: archive a desktop, whichever kind. It leaves the bar; its conversation is kept. */
   async function closeDesktop(id: string): Promise<void> {
@@ -1294,6 +1306,13 @@
             {/each}
           </div>
         {/if}
+        {#if detail.taint}
+          <div class="taint">
+            <p>Shell is off — this desktop {taintText(detail.taint)}.</p>
+            {#if detail.taint.refused}<p>The agent asked to run: <code>{detail.taint.refused.command}</code></p>{/if}
+            <button type="button" class="find" onclick={() => void allowShell()} title="Its shell runs as you, with your environment">Allow shell for this desktop</button>
+          </div>
+        {/if}
       </header>
       <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
       <div class="msgs" bind:this={msgsEl} onscroll={onMsgsScroll} onclick={citation}><div class="col">
@@ -1559,6 +1578,10 @@
   .fork b { font-weight: 500; color: var(--fg); }
   .fork .find { font-size: 12px; }
   .fork .find:disabled { opacity: .45; cursor: default; }
+  .taint { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; font: 400 12px/1.6 var(--font-app); color: var(--v2-muted); }
+  .taint p { margin: 0; }
+  .taint code { display: block; max-height: 4.8em; overflow: auto; font: 400 12px/1.6 var(--font-mono); color: var(--fg); overflow-wrap: anywhere; white-space: pre-wrap; }
+  .taint .find { margin: 2px 0 0; height: 24px; font-size: 12px; }
   .vbody :global(> :first-child) { margin-top: 0; } .vbody :global(p) { margin: 0 0 0.85em; }
   .vbody :global(ul), .vbody :global(ol) { margin: 0 0 0.85em; padding-left: 1.5em; } .vbody :global(li + li) { margin-top: 0.3em; }
   .vbody :global(h1), .vbody :global(h2), .vbody :global(h3), .vbody :global(h4) { margin: 1.2em 0 0.45em; font: 600 calc(var(--chat-fs) * 1.08)/1.35 var(--font-app); }

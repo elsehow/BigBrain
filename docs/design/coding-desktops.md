@@ -78,7 +78,38 @@ archived.
 
 Shell commands can still change anything, as in the person's terminal. The
 instructions say to use `start_work` for anything non-trivial. Nothing
-pretends to police the shell.
+classifies commands; the file tools only refuse to write inside a `.git`
+folder, whose hooks and config run code.
+
+## Untrusted material
+
+Sources come from outside the person: email, feeds, meeting notes, drops.
+When a desktop is started about notes, they reach the agent as its
+session's first message (`preface`), each fenced as untrusted data with
+where it came from, and never in its instructions.
+
+A desktop whose agent has taken in untrusted material is **tainted**: a
+source it was started about, a live integration read, `read_note` on
+anything but a curated note (memory and dossiers, for now), or a project
+file another tainted desktop wrote that still says the same (tainted
+desktops' writes are ledgered by content). While tainted:
+- its `bash` refuses without running, and the desktop keeps the refused
+  command;
+- what it already runs is stopped when it turns tainted, since a server or
+  watcher would run what it writes next;
+- `write` and `edit` refuse files that run code on their own (`package.json`,
+  `vite.config.*`, hooks, editor and agent settings, `.envrc`, `Makefile`).
+
+Until then, `search_vault` and `recent` show sources only by path, kind and
+date: their text comes through `read_note`, which taints.
+
+The view says why the shell is off, shows the refused command, and offers
+**Allow shell for this desktop**. Only the person can allow it; no tool the
+agent has reaches it. What they allowed it despite is named by its content,
+so reading it again doesn't taint, but new mail or a changed note does. The
+package asks its host before each command and write, and tells it what each
+file read or write held (`shell`, `write` and `file` in `open()`), so the
+rule is BigBrain's.
 
 ## Worktrees on request (*measured*)
 
@@ -163,13 +194,14 @@ person.
 | **Archive** | you, or after a day idle | Stops its processes, releases its leases. Files stay; reopening resumes |
 | **Land** | you | A worktree's commits come home: a pull request when the project is on GitHub, otherwise its branch, already in your repo, ready to merge |
 | **Discard** | you | Deletes the desktop's worktree and its branch |
+| **Allow shell** | you | Turns a tainted desktop's shell back on, for that desktop |
 
 Nothing is committed automatically, and nothing is deleted on a timer.
 
 ## The interface BigBrain uses
 
 ```ts
-open(desktop, { model, tools: HostTool[], instructions, wrapStream })
+open(desktop, { model, tools: HostTool[], instructions, wrapStream, preface, shell, write, file })
 send(desktop, text, { inputId }) / steer(desktop, text) / stop(desktop)
 changes(desktop)                          // per worktree: branch, commits, uncommitted files, diffstat
 servers(desktop) / snapshot(desktop) / events(desktop, sinceSeq)

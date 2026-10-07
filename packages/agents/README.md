@@ -19,9 +19,9 @@ record. Design: `docs/design/coding-desktops.md`.
 | `workspace.ts` | Folders, the project list, leases on in-place edits |
 | `worktree.ts` | `start_work`: `git worktree add` from the project's repo, plus clones of ignored dependency folders and env files (any depth; venv shebangs rewritten); Land and Discard |
 | `harbor.ts` | The shell: the person's login environment minus the host's `BIGBRAIN_*`, tagged `BIGBRAIN_AGENT_DESKTOP=<id>` in its own process group; finds servers by tag and port; stops by group, TERM then KILL |
-| `tools.ts` | `read`, `ls`, `write`, `edit`, `bash`, `start_work`, relative to the workspace. No redirection, no command classification |
+| `tools.ts` | `read`, `ls`, `write`, `edit`, `bash`, `start_work`, relative to the workspace. No redirection, no command classification; `write` and `edit` never reach a `.git` folder; `bash` and writes ask the host first, and it hears what each file read or write held |
 | `events.ts` | One durable, sequence-numbered event stream per desktop |
-| `agent.ts` | `Agents.open(id, { modelRuntime, model, instructions, tools, wrapStream })`, then `send`, `steer`, `stop`, `changes`, `servers`, `snapshot`, `archive`; `Agents.land` and `Agents.discard` |
+| `agent.ts` | `Agents.open(id, { modelRuntime, model, instructions, tools, wrapStream, preface, shell, write, file })`, then `send`, `steer`, `stop`, `changes`, `servers`, `snapshot`, `archive`; `Agents.land` and `Agents.discard` |
 | `run.ts` | Run a program to completion and collect its output |
 
 The boundary is enforced by lint (`.oxlintrc.json`): nothing here imports
