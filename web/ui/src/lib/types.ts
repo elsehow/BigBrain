@@ -91,6 +91,10 @@ export interface NoteResult {
    * page it was clipped from, the original file a drop carried. Present
    * on every source insertion, null when it has none; absent elsewhere. */
   origin?: SourceOrigin | null;
+  /** An agent wrote this source (lib/sourceFeed.ts agentWritten). Present on
+   * every source insertion; the viewer loads remote images unasked only
+   * where it is false. */
+  byAgent?: boolean;
   /** The note's own date (frontmatter ladder, else the filename's prefix,
    * else the file's mtime) — the timestamp under its title. Absent on a
    * projected entity or a source insertion, which have no file. */

@@ -5,7 +5,7 @@ import { renderTurns, TRANSCRIPT_MARK } from "../lib/transcriptProjection";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { appendSourceInsertionEvent, type SourceInsertion } from "../lib/insertionLog";
+import { appendSourceInsertionEvent, sourceInsertion, type SourceInsertion } from "../lib/insertionLog";
 import { assertionEntityId, createAssertionEvent } from "../lib/assertionLog";
 import { appendAndProjectAssertion, appendAndProjectDecline, appendAndProjectRevocation, openAssertionProjectionReadonly, projectSourceInsertion } from "../lib/assertionProjection";
 import { createDeclineEvent } from "../lib/declineLog";
@@ -18,6 +18,7 @@ import {
   projectedFilerName,
   insertionFiler,
   sourceInsertionMarkdown,
+  agentWritten,
 } from "../lib/sourceFeed";
 import { insertion } from "./support/vault";
 import { putBlob } from "../lib/blobs";
@@ -42,6 +43,29 @@ test("existing Claude transcripts recover model from their raw attachments witho
   expect(insertionFiler(badAttachment, root).agentModel).toBeUndefined();
   const codex = { ...event, envelope: { ...event.envelope, from: "codex" } };
   expect(insertionFiler(codex, root).agentModel).toBeUndefined();
+});
+
+// The viewer loads a source's remote images unasked only when no agent wrote
+// it (V2View cleanHtml): whatever an agent drops can name an address, and
+// loading the image is a request there.
+test("an agent's source is agent-written; a person's drop, mail and a feed are not", () => {
+  const written = (envelope: Record<string, unknown>) => agentWritten(sourceInsertion({ id: "src-x", ...envelope }, "![](https://img.example.com/a.png)"));
+  for (const envelope of [
+    { source: "pilot", from: "pilot", from_kind: "agent", kind: "note" },
+    { source: "mcp", from: "claude-desktop", from_kind: "agent", kind: "note" },
+    { source: "api", from: "desk-agent", from_kind: "agent", submitted_via: "desk-agent" },
+    { source: "api", from: "ada@example.com", from_kind: "person", kind: "agent-chat" },
+    { from: "pilot", from_kind: "agent", kind: "pilot-chat" },
+    { source: "claude-code", kind: "note" },
+    { source: "codex", kind: "note" },
+  ]) expect([envelope, written(envelope)]).toEqual([envelope, true]);
+  for (const envelope of [
+    { source: "web", kind: "note" },
+    { source: "api", from: "ada@example.com", from_kind: "person", kind: "web-clip", submitted_via: "chrome on desk" },
+    { source: "email", from: "Ada <ada@example.com>", from_kind: "person", kind: "email" },
+    { source: "rss", kind: "article" },
+    { source: "granola", from: "granola", from_kind: "service", kind: "meeting" },
+  ]) expect([envelope, written(envelope)]).toEqual([envelope, false]);
 });
 
 const source = (id: string, received: string, title: string): SourceInsertion =>
