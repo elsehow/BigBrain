@@ -633,12 +633,17 @@ fn show_main(app: &AppHandle) {
 #[derive(Default)]
 struct WindowExpansion(Mutex<bool>);
 
+/// Where Homebrew puts the AeroSpace CLI (Apple silicon, Intel). Never PATH:
+/// what a shell's PATH names first is not the app's to run.
+#[cfg(target_os = "macos")]
+const AEROSPACE: [&str; 2] = ["/opt/homebrew/bin/aerospace", "/usr/local/bin/aerospace"];
+
 #[cfg(target_os = "macos")]
 fn aerospace_window(window: &tauri::WebviewWindow) -> Option<(String, String, bool)> {
     if window.label() != "main" { return None; }
     let title = window.title().ok()?;
     let pid = std::process::id().to_string();
-    for executable in ["aerospace", "/opt/homebrew/bin/aerospace", "/usr/local/bin/aerospace"] {
+    for executable in AEROSPACE {
         let Ok(output) = Command::new(executable).args([
             "list-windows", "--all", "--format",
             "%{app-pid}|%{window-id}|%{window-is-fullscreen}|%{window-title}",
@@ -1497,6 +1502,12 @@ mod tests {
         let parsed: CapabilityFile = viewer_capability("http://127.0.0.1:5173").unwrap().parse().unwrap();
         assert!(matches!(parsed, CapabilityFile::Capability(_)));
         assert!(!file["remote"]["urls"].as_array().unwrap().iter().any(|u| u.as_str().unwrap().contains('*')));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn aerospace_is_run_only_from_fixed_absolute_paths() {
+        assert!(AEROSPACE.iter().all(|p| Path::new(p).is_absolute()));
     }
 
     #[test]
