@@ -7,7 +7,7 @@
  * here: `wrapStream` attaches them to each request, so the package never
  * holds them.
  */
-import { Agents, Harbor, scopeOf, workspace, type HostTool, type OpenOptions, type Workspace } from "../packages/agents/src";
+import { Agents, Harbor, scopeOf, workspace, type HarborOptions, type HostTool, type OpenOptions, type Workspace } from "../packages/agents/src";
 import { CREDENTIAL_ENV } from "./env";
 import { readEnvValues } from "./envFile";
 import { notePayload } from "./noteRead";
@@ -46,9 +46,9 @@ export function vaultElsewhere(root: string): (path: string) => string | undefin
 /** The package, with every name in the vault's .env and every credential
  * BigBrain manages kept out of its commands' environment, whatever the
  * person's login shell exports. */
-export function hostAgents(root: string, ws: Workspace = workspace()): Agents {
+export function hostAgents(root: string, ws: Workspace = workspace(), options: HarborOptions = {}): Agents {
   const withheld = () => [...Object.keys(readEnvValues(root)), ...CREDENTIAL_ENV];
-  return new Agents(ws, new Harbor({ scope: scopeOf(ws.root), withheld }));
+  return new Agents(ws, new Harbor({ scope: scopeOf(ws.root), ...options, withheld }));
 }
 
 type StreamFn = Parameters<NonNullable<OpenOptions["wrapStream"]>>[0];

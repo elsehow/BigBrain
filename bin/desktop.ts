@@ -56,8 +56,8 @@ import { allowVaultRequest } from "../lib/vaultBoundary";
  *                                      under `bun --watch`)
  */
 
-import { apiPort as envApiPort, engineProcessEnv, isDesktop, isDev, NO_ENV_FILE, webPort as envWebPort } from "../lib/env";
-import { dropAutoloadedEnv, vaultEnvSettings } from "../lib/envFile";
+import { apiPort as envApiPort, isDesktop, isDev, NO_ENV_FILE, webPort as envWebPort } from "../lib/env";
+import { dropAutoloadedEnv } from "../lib/envFile";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { existsSync, openSync, readFileSync, statSync } from "node:fs";
 import { createServer } from "node:http";
@@ -71,7 +71,7 @@ import { allowLoopbackRequest, armor, dispatch, json, type Route } from "../lib/
 import { ensureDir } from "../lib/fsx";
 import { watchPid } from "../lib/parentWatch";
 import { retireHostPluginDir } from "../lib/legacy";
-import { jobsPath } from "../lib/preflight";
+import { jobEnv } from "../lib/preflight";
 import { serveStatic } from "../lib/staticServe";
 import { clearNextFires, takeWake, writeNextFires } from "../lib/supervisorClock";
 
@@ -90,7 +90,7 @@ const webPort = String(envWebPort());
 const apiPort = String(envApiPort());
 const BEAT_MS = 1000;
 const UI_DIST = join(ENGINE_ROOT, "web", "ui", "dist");
-// Every child inherits this (childEnv) and watches the
+// Every child inherits this (jobEnv) and watches the
 // pid it names (lib/parentWatch.ts); the door's `/api/engine` reports it,
 // so the shell can tell a live supervisor's engine from an orphan's.
 process.env["BIGBRAIN_SUPERVISOR_PID"] = String(process.pid);
@@ -250,17 +250,6 @@ async function run(root: string): Promise<Run> {
 
   const logDir = join(root, ".state", "logs");
   ensureDir(logDir);
-  // Named variables only: a credential reaches a child by reading the
-  // vault's .env, never by inheritance (lib/env.ts NO_ENV_FILE).
-  const childEnv = (extra?: Record<string, string>): NodeJS.ProcessEnv => ({
-    ...vaultEnvSettings(root),
-    ...engineProcessEnv(),
-    BIGBRAIN_VAULT: root,
-    BIGBRAIN_DESKTOP: "1",
-    HOME: homedir(),
-    PATH: jobsPath(),
-    ...extra,
-  });
 
   const running = new Map<string, ChildProcess>();
   const restarts = new Map<string, number>();
@@ -280,7 +269,7 @@ async function run(root: string): Promise<Run> {
     args.unshift(NO_ENV_FILE);
     const child = spawn(process.execPath, args, {
       cwd: root,
-      env: childEnv(job.env),
+      env: jobEnv(root, job.env),
       stdio: ["ignore", fd, fd],
     });
     running.set(job.name, child);

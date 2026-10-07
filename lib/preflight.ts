@@ -13,7 +13,8 @@ import { homedir } from "node:os";
 // door before one exists), so the root is asked for lazily, below.
 import type { Auth } from "./manifest";
 import { ENGINE_ROOT, requireVaultRoot } from "./engine";
-import { readEnvValues } from "./envFile";
+import { engineProcessEnv } from "./env";
+import { readEnvValues, vaultEnvSettings } from "./envFile";
 import { bigbrainCommandPath, engineBehindCommand } from "./bigbrainCommand";
 
 export interface Check {
@@ -35,6 +36,21 @@ export function jobsPath(): string {
       ? ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"]
       : ["/usr/local/bin", "/usr/bin", "/bin"];
   return [join(homedir(), ".local", "bin"), dirname(process.execPath), ...system].join(":");
+}
+
+/** The environment the supervisor's children get (bin/desktop.ts): named
+ * variables only. A credential reaches a job by reading the vault's .env,
+ * never by inheritance (lib/env.ts NO_ENV_FILE). */
+export function jobEnv(root: string, extra?: Record<string, string>): Record<string, string> {
+  return {
+    ...vaultEnvSettings(root),
+    ...engineProcessEnv(),
+    BIGBRAIN_VAULT: root,
+    BIGBRAIN_DESKTOP: "1",
+    HOME: homedir(),
+    PATH: jobsPath(),
+    ...extra,
+  };
 }
 
 function runs(cmd: string, args: string[], env?: Record<string, string | undefined>): boolean {
