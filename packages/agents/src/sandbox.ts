@@ -43,8 +43,11 @@ export interface SandboxPolicy {
   ports?: () => Iterable<number>;
   /** What commands reach beyond this machine: host names (`*.example.com`
    * covers subdomains), through the egress proxy, and `localhost:<port>` for
-   * a local service a project uses, such as a database. Default: DEFAULT_HOSTS. */
-  hosts?: () => Iterable<string>;
+   * a local service a project uses, such as a database. Asked with the
+   * desktop whose command it is, when known. Default: DEFAULT_HOSTS. */
+  hosts?: (desktop?: string) => Iterable<string>;
+  /** How a desktop's agent asks for a host off the list, said when one is refused. */
+  ask?: string;
   /** Shared toolchain caches a trusted desktop's commands may write. Default: CACHES. */
   caches?: readonly string[];
 }
@@ -269,7 +272,11 @@ export function profileInput(c: Confinement, o: { deny: string[]; tmp: string; c
 }
 
 /** The loopback port of the egress proxy commands reach the internet through. */
-export interface Egress { port(): Promise<number> }
+export interface Egress {
+  port(): Promise<number>;
+  /** The desktop's credential, as its commands' proxy URL user and password: it reaches that desktop's own hosts. */
+  credential?(desktop: string): string;
+}
 
 /** Commands confined by Seatbelt (macOS). Refuses when it can't confine. */
 export class Seatbelt implements Launcher {
@@ -297,7 +304,7 @@ export class Seatbelt implements Launcher {
     if (refused) throw new AgentsError(refused);
     const c = job.confine, tmp = this.tmp(c.desktop), proxy = await this.egress.port();
     // what the person lets projects reach directly on this machine, but never the host's own ports
-    const local = new Set([...this.policy.hosts?.() ?? []].map(h => /^(?:localhost|127\.0\.0\.1):(\d{1,5})$/.exec(h.trim())?.[1]).filter(Boolean).map(Number));
+    const local = new Set([...this.policy.hosts?.(c.desktop) ?? []].map(h => /^(?:localhost|127\.0\.0\.1):(\d{1,5})$/.exec(h.trim())?.[1]).filter(Boolean).map(Number));
     const ports = [...new Set([...[...job.busy, ...DEBUGGER_PORTS].filter(p => p !== proxy && !local.has(p)), ...this.policy.ports?.() ?? []])];
     const home = canonical(homedir());
     const caches = c.untrusted ? [] : (this.policy.caches ?? CACHES).map(p => isAbsolute(p) ? p : join(home, p));
@@ -305,7 +312,8 @@ export class Seatbelt implements Launcher {
     // a profile that doesn't load runs nothing: say so, rather than a bare exit code
     const check = await run(this.exec, ["-p", text, "/usr/bin/true"], undefined, {}).catch((e: Error) => ({ code: 1, out: "", err: e.message }));
     if (check.code !== 0) throw new AgentsError(`The sandbox could not start (${(check.err.trim() || `exit ${check.code}`).slice(0, 300)}), so this command did not run.`);
-    const url = `http://127.0.0.1:${proxy}`;
+    const credential = this.egress.credential?.(c.desktop);
+    const url = `http://${credential ? `${c.desktop}:${credential}@` : ""}127.0.0.1:${proxy}`;
     const env: NodeJS.ProcessEnv = { ...job.env, TMPDIR: tmp, TMP: tmp, TEMP: tmp,
       HTTP_PROXY: url, HTTPS_PROXY: url, ALL_PROXY: url, http_proxy: url, https_proxy: url, all_proxy: url,
       NO_PROXY: "localhost,127.0.0.1,::1", no_proxy: "localhost,127.0.0.1,::1",

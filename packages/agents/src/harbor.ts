@@ -120,7 +120,7 @@ export class Harbor {
   constructor(private options: HarborOptions = {}) {
     const policy = options.policy ?? {};
     // where commands reach the internet: started on the first command
-    this.launcher = options.launcher ?? new Seatbelt(policy, new EgressProxy({ hosts: () => policy.hosts?.() ?? DEFAULT_HOSTS }));
+    this.launcher = options.launcher ?? new Seatbelt(policy, new EgressProxy({ hosts: desktop => policy.hosts?.(desktop) ?? DEFAULT_HOSTS, ask: policy.ask }));
   }
 
   private base(): Promise<NodeJS.ProcessEnv> {
