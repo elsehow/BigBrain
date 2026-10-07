@@ -41,7 +41,9 @@ async function dialPublic(host: string, port: number): Promise<Socket> {
   const addresses = isIP(host) ? [host] : (await lookup(host, { all: true, verbatim: true })).map(a => a.address);
   if (!addresses.length) throw new Error(`${host} did not resolve`);
   if (addresses.some(privateAddress)) throw new Refusal(`${host} resolves to this machine or a private network`);
-  return dialed(connect({ host: addresses[0], port }));
+  const s = connect({ host: addresses[0], port });
+  s.setTimeout(HEAD_MS, () => s.destroy(new Error(`${host} did not answer`)));
+  return dialed(s).then(() => { s.setTimeout(0); return s; });
 }
 
 const dialed = (s: Socket) => new Promise<Socket>((done, fail) => { s.once("connect", () => done(s)); s.once("error", fail); });
@@ -53,8 +55,6 @@ export interface EgressOptions {
   hosts: () => Iterable<string>;
   /** How an allowed connection is made; tests stand in a local upstream. */
   dial?: (host: string, port: number) => Promise<Socket>;
-  /** Told of each refusal, for whoever wants to show it. */
-  refused?: (host: string, why: string) => void;
 }
 
 export class EgressProxy {
@@ -65,7 +65,7 @@ export class EgressProxy {
   /** The proxy's port on 127.0.0.1, starting it on first use. It never keeps the process alive. */
   port(): Promise<number> {
     return this.listening ??= new Promise<number>((done, fail) => {
-      const server = createServer({ pauseOnConnect: false }, socket => this.serve(socket));
+      const server = createServer(socket => this.serve(socket));
       server.once("error", e => { this.listening = undefined; fail(e); });
       server.listen(0, "127.0.0.1", () => { server.unref(); done((server.address() as { port: number }).port); });
       this.server = server;
@@ -81,8 +81,9 @@ export class EgressProxy {
     const take = (chunk: Buffer) => {
       head = Buffer.concat([head, chunk]);
       const end = head.indexOf("\r\n\r\n");
-      if (end < 0) { if (head.length > HEAD_MAX) answer(client, 431, "Request headers too large."); return; }
+      if (end < 0 && head.length <= HEAD_MAX) return;
       client.off("data", take);
+      if (end < 0) return answer(client, 431, "Request headers too large.");
       client.pause();
       client.setTimeout(0);
       this.forward(client, head.subarray(0, end).toString("latin1").split("\r\n"), head.subarray(end + 4)).catch(() => client.destroy());
@@ -106,7 +107,7 @@ export class EgressProxy {
       const headers = lines.slice(1).filter(l => !/^(proxy-[\w-]+|connection|keep-alive)\s*:/i.test(l));
       request = Buffer.from([`${method} ${url.pathname}${url.search} ${version}`, ...headers, "Connection: close", "", ""].join("\r\n"), "latin1");
     }
-    const refuse = (why: string) => { this.options.refused?.(host, why); answer(client, 403, `BigBrain's sandbox refused ${host}:${port}: ${why}.`); };
+    const refuse = (why: string) => answer(client, 403, `BigBrain's sandbox refused ${host}:${port}: ${why}.`);
     if (!PORTS.has(port)) return refuse("only ports 80 and 443 are reachable");
     if (!allowedHost(host, this.options.hosts())) return refuse("it is not on the desktop network allowlist (Settings)");
     let upstream: Socket;
@@ -115,7 +116,8 @@ export class EgressProxy {
     if (client.destroyed) { upstream.destroy(); return; }
     upstream.on("error", () => { upstream.destroy(); client.destroy(); });
     client.on("close", () => upstream.destroy());
-    upstream.on("close", () => client.destroy());
+    // ended, not destroyed: what is still buffered for the client reaches it
+    upstream.on("close", () => { if (!client.writableEnded) client.end(); });
     if (request) upstream.write(request); else client.write("HTTP/1.1 200 Connection Established\r\n\r\n");
     if (rest.length) upstream.write(rest);
     client.pipe(upstream);

@@ -116,13 +116,11 @@ export function loginEnv(): Promise<NodeJS.ProcessEnv> {
 export class Harbor {
   private jobs = new Map<number, JobState>();
   private next = 1;
-  /** Where commands reach the internet: started on the first command. */
-  readonly egress: EgressProxy;
   private launcher: Launcher;
   constructor(private options: HarborOptions = {}) {
     const policy = options.policy ?? {};
-    this.egress = new EgressProxy({ hosts: () => policy.hosts?.() ?? DEFAULT_HOSTS });
-    this.launcher = options.launcher ?? new Seatbelt(policy, this.egress);
+    // where commands reach the internet: started on the first command
+    this.launcher = options.launcher ?? new Seatbelt(policy, new EgressProxy({ hosts: () => policy.hosts?.() ?? DEFAULT_HOSTS }));
   }
 
   private base(): Promise<NodeJS.ProcessEnv> {

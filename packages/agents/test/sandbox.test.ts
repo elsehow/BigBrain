@@ -211,18 +211,27 @@ describe("the egress proxy", () => {
     expect(tunnel).toEndWith("pong");
     proxy.close();
   });
+
+  test("a large download arrives whole", async () => {
+    const big = "x".repeat(8_000_000);
+    const upstream = await listen(big);
+    const proxy = new EgressProxy({ hosts: () => ["registry.example.test"], dial: () => dialed(connect({ host: "127.0.0.1", port: upstream })) });
+    const out = await raw(await proxy.port(), "GET http://registry.example.test/big HTTP/1.1\r\nHost: registry.example.test\r\n\r\n", 10_000);
+    expect(out.length - out.indexOf("\r\n\r\n") - 4).toBe(big.length);
+    proxy.close();
+  });
 });
 
 const dialed = (s: Socket) => new Promise<Socket>((done, fail) => { s.once("connect", () => done(s)); s.once("error", fail); });
 
 /** Send raw bytes to the proxy and read until it closes. */
-function raw(port: number, request: string): Promise<string> {
+function raw(port: number, request: string, ms = 3000): Promise<string> {
   return new Promise((done, fail) => {
     const s = connect({ host: "127.0.0.1", port }, () => s.write(request));
     let out = "";
     s.on("data", d => { out += d.toString(); });
     s.on("close", () => done(out));
     s.on("error", fail);
-    setTimeout(() => s.destroy(), 3000);
+    setTimeout(() => s.destroy(), ms);
   });
 }
