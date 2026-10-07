@@ -550,8 +550,7 @@ export class CodingDesktops {
   }
 
   private requestHost(id: string, host: unknown, reason: unknown) {
-    let h: string;
-    try { h = hostEntry(host); } catch (e) { throw new Error(e instanceof Error ? e.message : "Name the host.", { cause: e }); }
+    const h = hostEntry(host);
     if (h.startsWith("*.") || h.startsWith("localhost:")) throw new Error("Ask for one host by its exact name, such as data.example.org. A wildcard or a local port is your person's to add in Settings.");
     if (allowedHost(h, desktopHosts(this.root, id)))
       return { reachable: h, note: `Your commands may already reach ${h}. If one was refused, the cause is something else: only ports 80 and 443 are reachable, and never a name that resolves to this machine or a private network.` };

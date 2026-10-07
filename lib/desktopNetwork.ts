@@ -50,12 +50,12 @@ export function hostEntry(value: unknown): string {
   return v;
 }
 
-/** The hosts the person added. A saved entry that no longer qualifies grants nothing. */
+/** Saved entries that still qualify: one that no longer does grants nothing. */
+const qualifying = (raw: unknown): string[] => Array.isArray(raw) ? raw.flatMap(h => { try { return [hostEntry(h)]; } catch { return []; } }) : [];
+
+/** The hosts the person added. */
 export function savedDesktopHosts(root: string): string[] {
-  try {
-    const raw = JSON.parse(readEnvValues(root)[KEY] ?? "[]");
-    return Array.isArray(raw) ? raw.flatMap(h => { try { return [hostEntry(h)]; } catch { return []; } }) : [];
-  } catch { return []; }
+  try { return qualifying(JSON.parse(readEnvValues(root)[KEY] ?? "[]")); } catch { return []; }
 }
 
 export function saveDesktopHosts(root: string, hosts: unknown): string[] {
@@ -67,18 +67,16 @@ export function saveDesktopHosts(root: string, hosts: unknown): string[] {
 
 /** Hosts the person allowed for one desktop only, by desktop id. */
 const ownFile = (root: string) => join(spoolDir(root), "desktop-hosts.json");
-function ownHosts(root: string): Record<string, string[]> {
+function ownHosts(root: string): Record<string, unknown> {
+  const file = ownFile(root);
   try {
-    const raw = existsSync(ownFile(root)) ? JSON.parse(readFileSync(ownFile(root), "utf8")) : {};
+    const raw = existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : {};
     return raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
   } catch { return {}; }
 }
 
-/** The hosts the person allowed for this desktop only. A saved entry that no longer qualifies grants nothing. */
-export function desktopOwnHosts(root: string, desktop: string): string[] {
-  const own = ownHosts(root)[desktop];
-  return Array.isArray(own) ? own.flatMap(h => { try { return [hostEntry(h)]; } catch { return []; } }) : [];
-}
+/** The hosts the person allowed for this desktop only. */
+export const desktopOwnHosts = (root: string, desktop: string): string[] => qualifying(ownHosts(root)[desktop]);
 
 export function allowDesktopHost(root: string, desktop: string, host: unknown): string[] {
   const all = ownHosts(root), h = hostEntry(host);
