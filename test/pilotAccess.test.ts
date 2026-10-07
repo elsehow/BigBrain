@@ -1,6 +1,7 @@
 import {afterEach,expect,test} from 'bun:test';
-import {existsSync,linkSync,mkdirSync,readFileSync,realpathSync,rmSync,symlinkSync,writeFileSync} from 'node:fs';
-import {join} from 'node:path';
+import {existsSync,linkSync,mkdirSync,mkdtempSync,readFileSync,realpathSync,rmSync,symlinkSync,writeFileSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {dirname,join} from 'node:path';
 import {PilotAccess} from '../lib/pilotAccess';
 import {PilotChats} from '../lib/pilotChat';
 import {newPilotChatSession} from '../lib/pilotChatTypes';
@@ -43,6 +44,23 @@ test('file tools deny symlink escapes, hard links, secrets and other Pilots scra
  const listing=await f.call('list_files',{path:scratch}) as {entries:{name:string}[]};
  expect(listing.entries.map(e=>e.name)).not.toContain('escape');
 });
+test('secret-bearing file names are unreadable in any authorized folder; env samples stay readable',async()=>{
+ const f=fixture(),secrets=['.env','.env.local','.envrc','server.pem','id_rsa','id_rsa.pub','id_ed25519','nested/.env.production','.env.d/token'],samples=['.env.example','.env.sample'];
+ for(const name of [...secrets,...samples]){mkdirSync(dirname(join(f.project,name)),{recursive:true});writeFileSync(join(f.project,name),'invented value');}
+ saveWorkPermissions(f.root,{version:2,folders:[{path:f.project,access:'read'}]});
+ for(const name of secrets)await expect(f.call('read_file',{path:join(f.project,name)})).rejects.toThrow('not readable');
+ for(const name of samples)expect(await f.call('read_file',{path:join(f.project,name)})).toMatchObject({text:'invented value'});
+ expect(await f.call('read_file',{path:join(f.project,'README.md')})).toMatchObject({text:'project readme'});
+ const listing=await f.call('list_files',{path:f.project}) as {entries:{name:string}[]};
+ expect(listing.entries.map(e=>e.name).sort()).toEqual(['.env.example','.env.sample','README.md','nested']);
+});
+test('home credential stores stay unreadable, through links and from a vault kept at HOME',async()=>{
+ const home=mkdtempSync(join(tmpdir(),'bb-permissions-home-'));roots.push(home);
+ const child=Bun.spawn([process.execPath,join(import.meta.dir,'support/permissionsHome.ts'),'credentials'],{env:{...process.env,HOME:home},stdout:'pipe',stderr:'pipe'});
+ const [code,stdout,stderr]=await Promise.all([child.exited,new Response(child.stdout).text(),new Response(child.stderr).text()]);
+ expect({code,stderr}).toEqual({code:0,stderr:''});
+ expect(stdout).toContain('credentials ok');
+},20000);
 test('revoked or replaced directory aliases cannot extend readable access',async()=>{
  const f=fixture(),link=join(f.root,'folder');symlinkSync(f.project,link);
  saveWorkPermissions(f.root,{version:2,folders:[{path:link,access:'read'}]});

@@ -1,9 +1,8 @@
 /** Fixed Pilot filesystem boundary. No shell, per-task grants, or approvals. */
 import { closeSync, constants, fstatSync, ftruncateSync, mkdirSync, openSync, readSync, readdirSync, realpathSync, writeFileSync } from 'node:fs';
-import { dirname, isAbsolute, join, resolve } from 'node:path';
-import { homedir } from 'node:os';
+import { dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import { spoolDir } from './spool';
-import { canonicalWorkPath, containsPath, validatedWorkPermissions, migratePilotReadSettings } from './workPermissions';
+import { canonicalWorkPath, containsPath, credentialPaths, secretName, validatedWorkPermissions, migratePilotReadSettings } from './workPermissions';
 import type { PilotChatSession } from './pilotChatTypes';
 const string = { type:'string' };
 const tool = (name:string, description:string, properties:Record<string,unknown>, required:string[]=[]) => ({ type:'function' as const, name, description, strict:false, parameters:{type:'object',properties,required,additionalProperties:false} });
@@ -33,8 +32,9 @@ export class PilotAccess {
   private roots(s:PilotChatSession):string[] { return [realpathSync(this.root),this.scratch(s),...validatedWorkPermissions(this.root).folders.map(f=>f.path)]; }
   private denied(path:string,scratch:string):boolean {
     if(containsPath(scratch,path)) return false;
-    const paths=[...['.env','.git','.state','.spool'].map(p=>join(this.root,p)),...['.codex','.claude','.ssh','.aws','.pi','.config/bigbrain'].map(p=>join(homedir(),p)),...[process.env.PI_CODING_AGENT_DIR,process.env.CODEX_HOME].filter((p):p is string=>!!p).map(p=>p.replace(/^~(?=\/|$)/,homedir()))];
-    return paths.some(p=>containsPath(canonicalWorkPath(p),path));
+    const paths=[...['.env','.git','.state','.spool'].map(p=>canonicalWorkPath(join(this.root,p))),...credentialPaths()];
+    // Secret-bearing names are refused at any depth, including as a directory.
+    return paths.some(p=>containsPath(p,path)) || path.split(sep).some(secretName);
   }
   private path(s:PilotChatSession,value:unknown,write=false):string {
     if(typeof value!=='string' || !value || value.length>4000 || /[\x00-\x1f]/.test(value)) throw new Error('Provide a file path.');

@@ -37,9 +37,10 @@ test("symlinks cannot expand saved directory access, including paths to new file
   expect(() => validatedWorkPermissions(root)).toThrow("changed location");
 });
 
-test("Settings accepts the same home shorthand advertised by its folder input", async () => {
-  const { homedir } = await import("node:os");
-  const { realpathSync } = await import("node:fs");
-  const settings = normalizeWorkPermissions({ version: 2, folders: [{ path: "~", access: "read" }] });
-  expect(settings.folders).toEqual([{ path: realpathSync(homedir()), access: "read" }]);
-});
+test("the disk, home and credential folders are refused; saved ones stop granting and are reported", async () => {
+  const home = mkdtempSync(join(tmpdir(), "bb-permissions-home-")); roots.push(home);
+  const child = Bun.spawn([process.execPath, join(import.meta.dir, "support/permissionsHome.ts"), "folders"], { env: { ...process.env, HOME: home }, stdout: "pipe", stderr: "pipe" });
+  const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+  expect({ code, stderr }).toEqual({ code: 0, stderr: "" });
+  expect(stdout).toContain("folders ok");
+}, 20000);
