@@ -228,9 +228,9 @@ export class Desktop {
   async changes(): Promise<Array<{ project: string; branch: string; commits: number; dirty: number; stat: string }>> {
     return Promise.all(this.work().map(async f => {
       const [commits, dirty, stat] = await Promise.all([
-        run("git", ["rev-list", "--count", `${f.base}..HEAD`], f.path),
-        run("git", ["status", "--porcelain"], f.path),
-        run("git", ["diff", "--shortstat", f.base], f.path),
+        run("git", ["rev-list", "--count", `${f.base}..HEAD`], f.path, this.ws.env?.()),
+        run("git", ["status", "--porcelain"], f.path, this.ws.env?.()),
+        run("git", ["diff", "--shortstat", f.base], f.path, this.ws.env?.()),
       ]);
       return { project: f.project, branch: f.branch, commits: Number(commits.out.trim()) || 0,
         dirty: dirty.out.split("\n").filter(Boolean).length, stat: stat.out.trim() };

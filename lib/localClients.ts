@@ -2,12 +2,15 @@
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { ConnectedClients, type ClientKind } from './connectedClients';
+import { handoffProcessEnv } from './env';
 import { jobsPath } from './preflight';
 const choices = [{kind:'claude-code',name:'Claude Code',command:'claude'},{kind:'codex',name:'Codex',command:'codex'}] as const;
+/** A client's CLI gets OS basics, never a credential this process holds. */
+export const runClientCli=(command:string,args:string[])=>{execFileSync(command,args,{timeout:15000,stdio:'pipe',env:{...handoffProcessEnv(),PATH:jobsPath()}});};
 export class LocalClients {
   constructor(private clients:ConnectedClients,private deps={
     which:(command:string)=>Bun.which(command,{PATH:jobsPath()}),
-    run:(command:string,args:string[])=>{execFileSync(command,args,{timeout:15000,stdio:'pipe',env:{...process.env,PATH:jobsPath()}});},
+    run:runClientCli,
   }){}
   list(){const clients=this.clients.list();return choices.map(c=>({...c,available:!!this.deps.which(c.command),connected:clients.some(v=>v.managedBy==='local:'+c.kind&&!v.revoked)}));}
   set(kind:unknown,enabled:unknown){

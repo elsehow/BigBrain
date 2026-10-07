@@ -17,6 +17,7 @@
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { SETTINGS_ENV } from "./env";
 import { writeAtomic } from "./fsx";
 
 /** Where integration credentials live: `<vault>/.env` — the vault's own
@@ -59,6 +60,36 @@ export function readEnvValues(root: string): Record<string, string> {
     if (m) out[m[1]!] = unquoteEnv(m[2]!);
   }
   return out;
+}
+
+/** The engine and model settings a vault's .env carries (lib/env.ts
+ * SETTINGS_ENV): what bun's autoload once gave every engine process, without
+ * the credentials it gave them too (NO_ENV_FILE). Callers spread this first,
+ * so a variable already in the environment wins, as it did over the autoload. */
+export function vaultEnvSettings(root: string): Record<string, string> {
+  const values = readEnvValues(root);
+  const out: Record<string, string> = {};
+  for (const k of SETTINGS_ENV) if (values[k]?.trim()) out[k] = values[k]!;
+  return out;
+}
+
+/** A bun process started without NO_ENV_FILE holds `<dir>/.env` in its
+ * environment. Remove what that file names, except engine settings, from
+ * `env`, for whatever reads or spreads it. (A spawn given no env still
+ * inherits what bun started with, which is why spawns name theirs.) Names
+ * are matched as loosely as bun's loader reads them (`export KEY=`, lower
+ * case), not as readEnvValues. */
+export function dropAutoloadedEnv(env: Record<string, string | undefined>, dir: string): void {
+  let raw: string;
+  try {
+    raw = readFileSync(envPath(dir), "utf8");
+  } catch {
+    return;
+  }
+  for (const line of raw.split("\n")) {
+    const k = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_.-]*)\s*=/.exec(line)?.[1];
+    if (k && !SETTINGS_ENV.includes(k)) delete env[k];
+  }
 }
 
 /** Write env updates in place: existing KEY= lines are replaced where they

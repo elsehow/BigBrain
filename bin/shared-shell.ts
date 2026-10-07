@@ -7,6 +7,7 @@ import { userInfo } from 'node:os';
 import { flagValue, hasFlag } from '../lib/cliflags';
 import { writeAtomic } from '../lib/fsx';
 import { acquire, release } from '../lib/pidLock';
+import { engineProcessEnv, handoffProcessEnv, NO_ENV_FILE } from '../lib/env';
 import { initMemberStore, verifyCredential } from '../lib/sharedMembers';
 import { readConnections, saveConnection, sharedRequest } from '../lib/sharedConnections';
 import { vaultIdentity } from '../lib/vaultBoundary';
@@ -16,7 +17,7 @@ const home = resolve(location), port = Number(flagValue(args,'port') ?? 4768), r
 for (const value of [port,remotePort]) if (!Number.isInteger(value) || value<1 || value>65535) throw Error('Invalid port.');
 mkdirSync(home,{recursive:true,mode:0o700});
 const lock = join(home,'shell-ui.lock'), launch = join(home,'shell-launch-url');
-const open = (url:string) => { if (hasFlag(args,'open')) Bun.spawn([process.platform==='darwin'?'open':'xdg-open',url],{stdout:'ignore',stderr:'ignore'}); };
+const open = (url:string) => { if (hasFlag(args,'open')) Bun.spawn([process.platform==='darwin'?'open':'xdg-open',url],{env:handoffProcessEnv(),stdout:'ignore',stderr:'ignore'}); };
 if (!acquire(lock)) { if (existsSync(launch)) { open(readFileSync(launch,'utf8').trim()); process.exit(0); } throw Error('Shared shell is already starting.'); }
 const children: ReturnType<typeof Bun.spawn>[] = [];
 let stopping=false;
@@ -44,7 +45,7 @@ try {
   if(!ready)throw Error('Shared server did not become ready.');
   let connection=readConnections(store).find(c=>c.endpoint===endpoint&&c.token===saved.token);
   if(!connection){const created=await saveConnection(store,probe);connection=readConnections(store).find(c=>c.id===created.id)!;}
-  const viewer=Bun.spawn(['bun','web/server.ts'],{cwd:resolve(import.meta.dir,'..'),env:{...process.env,BIGBRAIN_VAULT:personal,BIGBRAIN_WEB_PORT:String(port),BIGBRAIN_SHARED_CONNECTIONS:store},stdin:'ignore',stdout:'ignore',stderr:'inherit'});children.push(viewer);
+  const viewer=Bun.spawn(['bun',NO_ENV_FILE,'web/server.ts'],{cwd:resolve(import.meta.dir,'..'),env:{...engineProcessEnv(),BIGBRAIN_VAULT:personal,BIGBRAIN_WEB_PORT:String(port),BIGBRAIN_SHARED_CONNECTIONS:store},stdin:'ignore',stdout:'ignore',stderr:'inherit'});children.push(viewer);
   ready=false;
   for(let i=0;i<100;i++){if(viewer.exitCode!==null)throw Error('Viewer could not start.');try{const r=await fetch(`http://127.0.0.1:${port}/api/vault`);if(r.ok&&r.headers.get('x-bigbrain-vault')===vaultIdentity(personal)){ready=true;break}}catch{}await Bun.sleep(100)}
   if(!ready)throw Error('Viewer did not become ready.');

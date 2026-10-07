@@ -517,8 +517,11 @@ fn fatal(handle: &AppHandle, msg: String) -> ! {
 
 /// Start the supervisor: in its own process group (one signal stops all of
 /// it), stdin a pipe it reads for EOF, stdout/stderr pipes into this log.
+/// `--no-env-file`: cwd is the vault, whose .env holds credentials the engine
+/// reads on demand and must not carry in its environment (lib/env.ts).
 fn start_supervisor(sidecar: &Path, supervisor: &Path, cwd: &Path, vault: &Path, web_port: u16, api_port: u16) -> std::io::Result<Child> {
     Command::new(sidecar)
+        .arg("--no-env-file")
         .arg(supervisor)
         .current_dir(cwd)
         .env("BIGBRAIN_VAULT", vault)

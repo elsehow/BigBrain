@@ -1,7 +1,8 @@
 import { nameTask } from "../lib/pilotTaskName";
 import { CodingDesktops } from "../lib/codingDesktops";
 import { agentScript, agentWorkspace, webPort } from "../lib/env";
-import { Agents, workspace } from "../packages/agents/src";
+import { workspace } from "../packages/agents/src";
+import { hostAgents } from "../lib/agentHost";
 import { resolve } from "node:path";
 import { codingDesktopRoutes } from "../lib/codingDesktopRoutes";
 import { primaryGraphAsync } from "../lib/graphCache";
@@ -36,7 +37,7 @@ export function desktopRouteManifest(root: string, options: { includeSupport?: b
   process.once("exit", () => chats.close());
   // Dev only: a scripted agent instead of the vault's model (lib/env.ts, agentScript).
   const script = agentScript();
-  const desktops = new CodingDesktops(root, { nameTask, agents: new Agents(workspace(agentWorkspace())), themeUrl: `http://127.0.0.1:${webPort()}${THEME_SHEET}`,
+  const desktops = new CodingDesktops(root, { nameTask, agents: hostAgents(root, workspace(agentWorkspace())), themeUrl: `http://127.0.0.1:${webPort()}${THEME_SHEET}`,
     ...(script ? { host: async () => (await import(resolve(script))).default() } : {}) });
   process.once("exit", () => desktops.close());
   // the lists serve each context source with the entities it concerns

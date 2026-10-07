@@ -29,6 +29,8 @@ export const TAG = "BIGBRAIN_AGENT_DESKTOP";
 const tool = (name: string, ...dirs: string[]) => dirs.map(d => `${d}/${name}`).find(p => existsSync(p)) ?? name;
 const LSOF = tool("lsof", "/usr/sbin", "/usr/bin");
 const PS = tool("ps", "/bin", "/usr/bin");
+/** What discovery and an identity-only shell start with. */
+const SYSTEM_PATH = "/usr/bin:/bin:/usr/sbin:/sbin";
 
 /** Which engine's agents a process belongs to: a short hash of its workspace,
  * so two engines on one machine (the app, and a developer's scratch engine)
@@ -37,11 +39,13 @@ export const SCOPE = "BIGBRAIN_AGENT_SCOPE";
 export const scopeOf = (workspaceRoot: string): string => createHash("sha256").update(workspaceRoot).digest("hex").slice(0, 12);
 
 /** A command's environment: the base, minus the host's own BIGBRAIN_* settings
- * (the app's mode, the vault, ports), plus the desktop's tag. An agent working
- * on BigBrain itself must not run its code as the host's app, on the host's vault. */
-export function commandEnv(base: NodeJS.ProcessEnv, desktop: string, scope?: string): NodeJS.ProcessEnv {
+ * (the app's mode, the vault, ports) and any name the host withholds (its
+ * credentials), plus the desktop's tag. An agent working on BigBrain itself
+ * must not run its code as the host's app, on the host's vault. */
+export function commandEnv(base: NodeJS.ProcessEnv, desktop: string, scope?: string, withheld: Iterable<string> = []): NodeJS.ProcessEnv {
+  const deny = new Set(withheld);
   const env: NodeJS.ProcessEnv = {};
-  for (const [k, v] of Object.entries(base)) if (!k.startsWith("BIGBRAIN_")) env[k] = v;
+  for (const [k, v] of Object.entries(base)) if (!k.startsWith("BIGBRAIN_") && !deny.has(k)) env[k] = v;
   env[TAG] = desktop;
   if (scope) env[SCOPE] = scope;
   return env;
@@ -70,6 +74,9 @@ export interface HarborOptions {
   graceMs?: number;               // SIGTERM → SIGKILL
   /** The base environment for commands. Default: the person's login shell's (loginEnv). */
   env?: NodeJS.ProcessEnv | (() => Promise<NodeJS.ProcessEnv>);
+  /** Names never passed to a command, whatever the base holds: the host's
+   * credentials. Asked per command, so a key saved since is withheld too. */
+  withheld?: () => Iterable<string>;
 }
 
 let snapshot: Promise<NodeJS.ProcessEnv> | undefined;
@@ -77,11 +84,13 @@ let snapshot: Promise<NodeJS.ProcessEnv> | undefined;
  * managers and exports, so an agent's commands behave like their terminal.
  * An app started from Finder gets a thinner environment than a shell. The
  * shell starts from an identity-only seed so this process's own variables
- * don't leak in; anything that fails falls back to this process's env. */
+ * don't leak in; anything that fails falls back to that seed, never to this
+ * process's env. SSH_AUTH_SOCK still rides in the seed until commands run
+ * in a sandbox that decides what they may reach. */
 export function loginEnv(): Promise<NodeJS.ProcessEnv> {
   return snapshot ??= (async () => {
     const shell = process.env.SHELL || "/bin/zsh";
-    const seed: NodeJS.ProcessEnv = { PATH: "/usr/bin:/bin:/usr/sbin:/sbin", TERM: "dumb" };
+    const seed: NodeJS.ProcessEnv = { PATH: SYSTEM_PATH, TERM: "dumb" };
     for (const k of ["HOME", "USER", "LOGNAME", "SHELL", "LANG", "TMPDIR", "SSH_AUTH_SOCK"]) if (process.env[k]) seed[k] = process.env[k];
     const out = await new Promise<string | null>(done => {
       const child = spawn(shell, ["-ilc", "env -0"], { env: seed, stdio: ["ignore", "pipe", "ignore"] });
@@ -91,10 +100,10 @@ export function loginEnv(): Promise<NodeJS.ProcessEnv> {
       child.on("error", () => { clearTimeout(timer); done(null); });
       child.on("close", code => { clearTimeout(timer); done(code === 0 ? Buffer.concat(chunks).toString() : null); });
     });
-    if (!out) return { ...process.env };
+    if (!out) return { ...seed };
     const env: NodeJS.ProcessEnv = {};
     for (const pair of out.split("\0")) { const i = pair.indexOf("="); if (i > 0) env[pair.slice(0, i)] = pair.slice(i + 1); }
-    return env.PATH ? env : { ...process.env };
+    return env.PATH ? env : { ...seed };
   })();
 }
 
@@ -112,7 +121,7 @@ export class Harbor {
     const settleMs = this.options.settleMs ?? 3000, waitMs = this.options.waitMs ?? 120_000;
     const child = spawn("/bin/bash", ["-c", command], {
       cwd, detached: true, stdio: ["ignore", "pipe", "pipe"],
-      env: commandEnv(await this.base(), desktop, this.options.scope),
+      env: commandEnv(await this.base(), desktop, this.options.scope, this.options.withheld?.()),
     });
     const id = this.next++;
     const buf: string[] = [];
@@ -168,7 +177,7 @@ export class Harbor {
 
   /** Every listening TCP socket, with the desktop whose tag its process carries. */
   async listeners(): Promise<Listener[]> {
-    const lsof = await run(LSOF, ["-nP", "-iTCP", "-sTCP:LISTEN", "-Fpn"]);
+    const lsof = await run(LSOF, ["-nP", "-iTCP", "-sTCP:LISTEN", "-Fpn"], undefined, { PATH: SYSTEM_PATH });
     const out: Listener[] = [];
     let pid = 0;
     for (const line of lsof.out.split("\n")) {
@@ -188,7 +197,7 @@ export class Harbor {
     const map = new Map<number, { desktop: string; pgid: number }>();
     if (pids && !pids.length) return map;
     const args = ["-E", "-ww", "-o", "pid=,pgid=,command=", ...(pids ? ["-p", pids.join(",")] : ["-ax"])];
-    const ps = await run(PS, args);
+    const ps = await run(PS, args, undefined, { PATH: SYSTEM_PATH });
     const pattern = new RegExp(`(?:^|\\s)${TAG}=([a-z0-9-]+)(?:\\s|$)`);
     const scoped = new RegExp(`(?:^|\\s)${SCOPE}=([a-f0-9]+)(?:\\s|$)`);
     for (const line of ps.out.split("\n")) {

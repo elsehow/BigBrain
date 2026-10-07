@@ -56,7 +56,8 @@ import { allowVaultRequest } from "../lib/vaultBoundary";
  *                                      under `bun --watch`)
  */
 
-import { apiPort as envApiPort, isDesktop, isDev, webPort as envWebPort } from "../lib/env";
+import { apiPort as envApiPort, handoffProcessEnv, isDesktop, isDev, NO_ENV_FILE, webPort as envWebPort } from "../lib/env";
+import { dropAutoloadedEnv } from "../lib/envFile";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { existsSync, openSync, readFileSync, statSync } from "node:fs";
 import { createServer } from "node:http";
@@ -71,7 +72,7 @@ import { allowLoopbackRequest, armor, dispatch, json, type Route } from "../lib/
 import { ensureDir, makePrivate } from "../lib/fsx";
 import { watchPid } from "../lib/parentWatch";
 import { retireHostPluginDir } from "../lib/legacy";
-import { jobsPath } from "../lib/preflight";
+import { jobEnv } from "../lib/preflight";
 import { serveStatic } from "../lib/staticServe";
 import { clearNextFires, takeWake, writeNextFires } from "../lib/supervisorClock";
 
@@ -90,10 +91,15 @@ const webPort = String(envWebPort());
 const apiPort = String(envApiPort());
 const BEAT_MS = 1000;
 const UI_DIST = join(ENGINE_ROOT, "web", "ui", "dist");
-// Every child inherits this (childEnv spreads process.env) and watches the
+// Every child inherits this (jobEnv) and watches the
 // pid it names (lib/parentWatch.ts); the door's `/api/engine` reports it,
 // so the shell can tell a live supervisor's engine from an orphan's.
 process.env["BIGBRAIN_SUPERVISOR_PID"] = String(process.pid);
+// A shell that starts this in the vault without NO_ENV_FILE hands it the
+// vault's credentials. This takes them out of process.env for whatever reads
+// or spreads it; a spawn given no env still inherits the environment bun
+// started with, so every spawn here names its own.
+dropAutoloadedEnv(process.env, process.cwd());
 
 const stamp = (): string => new Date().toISOString().slice(11, 19);
 const say = (msg: string): void => console.log(`desktop ${stamp()}: ${msg}`);
@@ -203,6 +209,7 @@ function door(suggested: string, problem?: { path: string; problem: string }): P
  */
 function portHeldBy(port: string, ours: ReadonlySet<number>): string | null {
   const r = spawnSync("lsof", ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN", "-F", "pc"], {
+    env: handoffProcessEnv(),
     encoding: "utf8",
     timeout: 3_000,
   });
@@ -260,14 +267,6 @@ async function run(root: string): Promise<Run> {
   const logDir = join(root, ".state", "logs");
   ensureDir(logDir, 0o700);
   privatize([envPath(root), logDir]);
-  const childEnv = (extra?: Record<string, string>): NodeJS.ProcessEnv => ({
-    ...process.env,
-    BIGBRAIN_VAULT: root,
-    BIGBRAIN_DESKTOP: "1",
-    HOME: homedir(),
-    PATH: jobsPath(),
-    ...extra,
-  });
 
   const running = new Map<string, ChildProcess>();
   const restarts = new Map<string, number>();
@@ -284,9 +283,10 @@ async function run(root: string): Promise<Run> {
     // file it imports changes, so an edit to the api or the viewer's server
     // is live. Scheduled jobs start fresh every fire anyway.
     if (isDev() && job.interval === null) args.unshift("--watch", "--no-clear-screen");
+    args.unshift(NO_ENV_FILE);
     const child = spawn(process.execPath, args, {
       cwd: root,
-      env: childEnv(job.env),
+      env: jobEnv(root, job.env),
       stdio: ["ignore", fd, fd],
     });
     running.set(job.name, child);

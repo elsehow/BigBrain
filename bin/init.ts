@@ -40,6 +40,7 @@ import { parseDocument, Scalar } from "yaml";
 import { loadManifest, type Auth } from "../lib/manifest";
 import { VAULT_ROOT } from "../lib/vaultRoot";
 import { ENGINE_ROOT, pointerPlan, readPointer, vaultPointer } from "../lib/engine";
+import { engineProcessEnv, gitProcessEnv, NO_ENV_FILE } from "../lib/env";
 import {
   ensureStoragePlanes,
   scaffoldVault,
@@ -111,8 +112,8 @@ if (has("check")) {
   }
 
   const gitIdentity =
-    spawnSync("git", ["config", "user.name"], { encoding: "utf8" }).status === 0 ||
-    spawnSync("git", ["config", "--global", "user.name"], { encoding: "utf8" }).status === 0;
+    spawnSync("git", ["config", "user.name"], { encoding: "utf8", env: gitProcessEnv() }).status === 0 ||
+    spawnSync("git", ["config", "--global", "user.name"], { encoding: "utf8", env: gitProcessEnv() }).status === 0;
 
   console.log(
     JSON.stringify({
@@ -282,7 +283,7 @@ try {
 
   // ── git wiring ─────────────────────────────────────────────────────────────
   const git = (args: string[]): { status: number; out: string } => {
-    const r = spawnSync("git", args, { cwd: root, encoding: "utf8" });
+    const r = spawnSync("git", args, { cwd: root, encoding: "utf8", env: gitProcessEnv() });
     return { status: r.status ?? 1, out: ((r.stdout ?? "") + (r.stderr ?? "")).trim() };
   };
   if (!dryRun) {
@@ -320,10 +321,10 @@ try {
   if (dryRun || noInstall) {
     result.next.push("run `bigbrain install` to link the command and refresh the scaffold");
   } else {
-    const r = spawnSync("bun", [join(ENGINE_ROOT, "bin", "install.ts")], {
+    const r = spawnSync("bun", [NO_ENV_FILE, join(ENGINE_ROOT, "bin", "install.ts")], {
       cwd: root,
       encoding: "utf8",
-      env: { ...process.env, BIGBRAIN_VAULT: root },
+      env: { ...engineProcessEnv(), BIGBRAIN_VAULT: root },
     });
     process.stderr.write(r.stdout ?? "");
     process.stderr.write(r.stderr ?? "");

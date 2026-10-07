@@ -10,9 +10,10 @@ import { openSync } from "node:fs";
 import { join } from "node:path";
 import { ensureDir } from "./fsx";
 import { ENGINE_ROOT } from "./engine";
+import { engineProcessEnv, gitProcessEnv, NO_ENV_FILE } from "./env";
 
 function git(root: string, args: string[]): { status: number; out: string } {
-  const r = spawnSync("git", args, { cwd: root, encoding: "utf8" });
+  const r = spawnSync("git", args, { cwd: root, encoding: "utf8", env: gitProcessEnv() });
   return { status: r.status ?? 1, out: (r.stdout ?? "") + (r.stderr ?? "") };
 }
 
@@ -36,7 +37,7 @@ const UNSIGNED = ["-c", "commit.gpgsign=false"];
  * editor modules share. Failures surface as "" (callers treat empty as
  * absent), stderr is dropped. */
 export function gitOut(root: string, args: string[]): string {
-  return spawnSync("git", args, { cwd: root, encoding: "utf8" }).stdout?.trim() ?? "";
+  return spawnSync("git", args, { cwd: root, encoding: "utf8", env: gitProcessEnv() }).stdout?.trim() ?? "";
 }
 
 /** Stdout as lines, WITHOUT trimming — for `status --porcelain`, whose
@@ -49,7 +50,7 @@ export function gitOut(root: string, args: string[]): string {
  * tripwire failed to exclude the first foreign write from its commit.
  * Parse porcelain through here, never gitOut. */
 export function gitLines(root: string, args: string[]): string[] {
-  const out = spawnSync("git", args, { cwd: root, encoding: "utf8" }).stdout ?? "";
+  const out = spawnSync("git", args, { cwd: root, encoding: "utf8", env: gitProcessEnv() }).stdout ?? "";
   return out.split("\n").filter((l) => l.length > 0);
 }
 
@@ -125,8 +126,9 @@ export function pokePublish(root: string): void {
   // ~/.bun/bin on PATH, and the ENOENT lands AFTER the commit — the one
   // crash a fire-and-forget poke exists to avoid. The running binary is
   // by definition findable.
-  spawn(process.execPath, [join(ENGINE_ROOT, "bin", "publish.ts")], {
+  spawn(process.execPath, [NO_ENV_FILE, join(ENGINE_ROOT, "bin", "publish.ts")], {
     cwd: root,
+    env: engineProcessEnv(),
     detached: true,
     stdio: ["ignore", log, log],
   }).unref();
