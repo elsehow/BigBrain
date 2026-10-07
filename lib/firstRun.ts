@@ -209,7 +209,7 @@ export function createVault(path: string, engineRoot: string = ENGINE_ROOT): str
 /** Point the machine at a vault: what `bigbrain init` does last. The app
  * reads it on the next launch (desktop/src-tauri/src/lib.rs vault_root). */
 export function pointAt(root: string): void {
-  writeAtomic(vaultPointer(), root + "\n");
+  writeAtomic(vaultPointer(), root + "\n", 0o600);
 }
 
 /** Whose delegate this machine's Claude Code is. The account Claude Code is

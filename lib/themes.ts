@@ -208,7 +208,7 @@ colors:
  * name is already there — never over a person's edits. */
 export function writeExample(dir: string = themesDir()): { ok: boolean; path: string; existed: boolean } {
   const path = join(dir, EXAMPLE_FILE);
-  mkdirSync(dir, { recursive: true });
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
   if (existsSync(path)) return { ok: true, path, existed: true };
   writeFileSync(path, EXAMPLE_SKIN);
   return { ok: true, path, existed: false };
@@ -232,7 +232,7 @@ export function themesRoutes(fixed?: string, reveal: (dir: string) => boolean = 
         // the folder is made on the way: an empty folder that opens beats a
         // path that does not exist
         const d = dir();
-        mkdirSync(d, { recursive: true });
+        mkdirSync(d, { recursive: true, mode: 0o700 });
         json(res, 200, { ok: reveal(d), path: d });
       },
     },

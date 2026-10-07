@@ -4,14 +4,34 @@
  * stamp (provenance is applied by the RUNNER, never written by a model).
  */
 
-import { existsSync, linkSync, mkdirSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, linkSync, mkdirSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { slug } from "./slug";
 import { stringify } from "yaml";
 
-export function ensureDir(dir: string): void {
-  mkdirSync(dir, { recursive: true });
+/** `mode` applies to every directory this creates, none it finds. */
+export function ensureDir(dir: string, mode?: number): void {
+  mkdirSync(dir, mode !== undefined ? { recursive: true, mode } : { recursive: true });
 }
+
+/** Clear the group/other bits an older writer left on a private file or
+ * directory; the owner's bits stay. Returns whether it changed anything.
+ * A directory is not recursed into: owner-only, it already hides its files. */
+export function makePrivate(path: string): boolean {
+  let mode: number;
+  try {
+    mode = statSync(path).mode;
+  } catch {
+    return false; // absent: whoever creates it sets the mode
+  }
+  if (!(mode & 0o077)) return false;
+  chmodSync(path, mode & 0o700);
+  return true;
+}
+
+/** A private file's missing parent directories are created private too, so
+ * a token store is never the first file in a world-readable folder. */
+const parentMode = (mode?: number): number | undefined => (mode !== undefined && !(mode & 0o077) ? 0o700 : undefined);
 
 /** First non-colliding `<dir>/<filename>`, suffixing -2, -3, … before the
  * .md extension. */
@@ -26,9 +46,10 @@ const tempPath = (path: string): string =>
 
 /** Atomic write: temp file in the same directory, then rename. `mode` is
  * applied to the temp file so the final path never exists with looser
- * permissions (token stores are 0o600). */
+ * permissions (token stores are 0o600), and an owner-only `mode` makes any
+ * parent directory it creates 0o700. */
 export function writeAtomic(path: string, content: string | Buffer, mode?: number): void {
-  ensureDir(dirname(path));
+  ensureDir(dirname(path), parentMode(mode));
   const tmp = tempPath(path);
   writeFileSync(tmp, content, mode !== undefined ? { mode } : {});
   renameSync(tmp, path);
@@ -37,7 +58,7 @@ export function writeAtomic(path: string, content: string | Buffer, mode?: numbe
 /** Publish a complete file only if its destination is absent. Linking the
  * prepared file is atomic and cannot replace another writer's event. */
 export function createAtomic(path: string, content: string | Buffer, mode?: number): boolean {
-  ensureDir(dirname(path));
+  ensureDir(dirname(path), parentMode(mode));
   const tmp = tempPath(path);
   writeFileSync(tmp, content, mode !== undefined ? { mode } : {});
   try {

@@ -64,11 +64,12 @@ import { createServer } from "node:http";
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { cadence, Scheduler, durationLabel, wokeAfter } from "../lib/desktopSchedule";
-import { discoverVaultRoot, ENGINE_ROOT, engineIdentity, vaultPointer } from "../lib/engine";
+import { configDir, discoverVaultRoot, ENGINE_ROOT, engineIdentity, vaultPointer } from "../lib/engine";
+import { envPath } from "../lib/envFile";
 import { setupRoutes, setupState } from "../lib/firstRun";
 import { feedbackRoutes } from "../lib/feedback";
 import { allowLoopbackRequest, armor, dispatch, json, type Route } from "../lib/httpx";
-import { ensureDir } from "../lib/fsx";
+import { ensureDir, makePrivate } from "../lib/fsx";
 import { watchPid } from "../lib/parentWatch";
 import { retireHostPluginDir } from "../lib/legacy";
 import { jobEnv } from "../lib/preflight";
@@ -107,6 +108,18 @@ const say = (msg: string): void => console.log(`desktop ${stamp()}: ${msg}`);
  * discovery result alone is not that — the shell passes its ~/vault default
  * whether or not anything is there. */
 const isVault = (root: string | null): root is string => !!root && existsSync(join(root, "vault.yaml"));
+
+/** Owner-only access for credentials an older engine wrote with default
+ * modes: the config dir, a vault's .env and its logs. Never fatal. */
+function privatize(paths: string[]): void {
+  for (const path of paths) {
+    try {
+      if (makePrivate(path)) say(`${path}: now readable by this user only`);
+    } catch (e) {
+      say(`${path}: could not restrict access (${e instanceof Error ? e.message : String(e)})`);
+    }
+  }
+}
 
 /** The pointer's target — read directly, because after a switch the env
  * still names the vault this process was started on. */
@@ -252,7 +265,8 @@ async function run(root: string): Promise<Run> {
   }
 
   const logDir = join(root, ".state", "logs");
-  ensureDir(logDir);
+  ensureDir(logDir, 0o700);
+  privatize([envPath(root), logDir]);
 
   const running = new Map<string, ChildProcess>();
   const restarts = new Map<string, number>();
@@ -263,7 +277,7 @@ async function run(root: string): Promise<Run> {
   let stopping = false;
 
   function start(job: Job): ChildProcess {
-    const fd = openSync(join(logDir, `${job.name}.log`), "a");
+    const fd = openSync(join(logDir, `${job.name}.log`), "a", 0o600);
     const args = [join(ENGINE_ROOT, job.script)];
     // The dev loop (desktop/dev.sh): a long-lived job restarts itself when a
     // file it imports changes, so an edit to the api or the viewer's server
@@ -424,6 +438,7 @@ async function run(root: string): Promise<Run> {
 
 // ── main ─────────────────────────────────────────────────────────────────────
 
+if (!dryRun) privatize([configDir()]);
 let root = discoverVaultRoot();
 const suggested = root ?? join(homedir(), "vault");
 if (!isVault(root)) {

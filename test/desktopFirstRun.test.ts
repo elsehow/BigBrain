@@ -1,12 +1,14 @@
 import { expect, test } from "bun:test";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ENGINE_ROOT } from "../lib/engine";
 
 test("the real first-run door identifies its own supervisor before a vault exists", async () => {
   const home = mkdtempSync(join(tmpdir(), "bb-first-run-"));
-  const vault = join(home, "new-vault");
+  const vault = join(home, "new-vault"), config = join(home, ".config", "bigbrain");
+  // An older install's group/world-readable config dir.
+  mkdirSync(config, { recursive: true }); chmodSync(config, 0o755);
   const probe = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: () => new Response() });
   const port = probe.port!;
   probe.stop(true);
@@ -30,6 +32,7 @@ test("the real first-run door identifies its own supervisor before a vault exist
     expect(identity).toBeDefined();
     expect(identity!.engine).toBe(ENGINE_ROOT);
     expect(identity!.supervisor).toBe(child.pid);
+    expect(statSync(config).mode & 0o777).toBe(0o700);
     const setup = await fetch(`${base}/api/setup`).then(response => response.json());
     expect(setup.vault).toBeNull();
     expect(existsSync(vault)).toBe(false);

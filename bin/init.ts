@@ -248,7 +248,7 @@ try {
       result.wrote.push(`${rel}/.gitkeep`);
     }
   }
-  if (!dryRun) ensureDir(join(root, ".state", "logs"));
+  if (!dryRun) ensureDir(join(root, ".state", "logs"), 0o700);
 
   // ── references + .blobs: the storage planes, needed from first install ─────────
   if (!dryRun) result.wrote.push(...ensureStoragePlanes(root));
@@ -263,7 +263,7 @@ try {
   const envPath = join(root, ".env");
   if (!dryRun) {
     if (!existsSync(envPath) && existsSync(join(ENGINE_ROOT, ".env.example"))) {
-      writeAtomic(envPath, readFileSync(join(ENGINE_ROOT, ".env.example"), "utf8"));
+      writeAtomic(envPath, readFileSync(join(ENGINE_ROOT, ".env.example"), "utf8"), 0o600);
       result.wrote.push(".env");
       log(".env created from .env.example");
     }
@@ -340,7 +340,7 @@ try {
     const plan = pointerPlan(readPointer(), root, has("make-default") || spec.makeDefault === true);
     result.pointer = { path: vaultPointer(), ...plan };
     if (plan.changed) {
-      writeAtomic(vaultPointer(), root + "\n");
+      writeAtomic(vaultPointer(), root + "\n", 0o600);
       log(
         plan.replaced
           ? `default vault: ${plan.replaced} → ${root} (${vaultPointer()})`
