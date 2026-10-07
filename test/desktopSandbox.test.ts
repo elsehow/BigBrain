@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "nod
 import { createServer, type Server } from "node:http";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { canonical, confinement, DEFAULT_HOSTS, workspace } from "../packages/agents/src";
+import { canonical, confinement, DEFAULT_HOSTS, Harbor, scopeOf, workspace } from "../packages/agents/src";
 import { hostAgents } from "../lib/agentHost";
 import { CodingDesktops } from "../lib/codingDesktops";
 import { desktopHosts, enginePorts, hostEntry, sandboxPolicy, saveDesktopHosts, savedDesktopHosts } from "../lib/desktopNetwork";
@@ -57,6 +57,18 @@ describe("what desktops' commands are kept from", () => {
     expect(partial).not.toContain(canonical(root));
     expect(partial).toContain(join(canonical(root), ".env"));
     expect(sandboxPolicy(root, ws).ports!()).toEqual(enginePorts());
+  });
+
+  test.if(mac)("in the real sandbox: app data, containerized or not, and tools' credential stores are unreadable; the rest of home isn't", async () => {
+    const home = scratch(), root = vault(), ws = workspace(scratch());
+    const secrets = ["Library/Group Containers/group.example.notes/data.db", "Library/Containers/com.example.mail/Data/inbox.db", "Library/Safari/History.db",
+      ".config/op/config", ".vault-token", ".terraform.d/credentials.tfrc.json", ".config/hub", ".config/doctl/config.yaml", ".local/share/keyrings/login.keyring",
+      ".password-store/example.gpg", ".config/rclone/rclone.conf", ".s3cfg", ".boto", ".config/git/credentials", ".cargo/credentials.toml"];
+    for (const f of [...secrets, ".config/orrery/settings.toml"]) { mkdirSync(join(home, f, ".."), { recursive: true }); writeFileSync(join(home, f), "invented\n"); }
+    const h = new Harbor({ env: { PATH: process.env.PATH, HOME: home }, scope: scopeOf(ws.root), policy: sandboxPolicy(root, ws.root, home) });
+    const r = await h.run("desk-home", [...secrets, ".config/orrery/settings.toml"].map(f => `cat "$HOME/${f}" >/dev/null 2>&1 && echo "read ${f}" || echo "refused ${f}"`).join("; "),
+      ws.root, undefined, confinement(ws, "desk-home", false));
+    expect(r.output.trim().split("\n")).toEqual([...secrets.map(f => `refused ${f}`), "read .config/orrery/settings.toml"]);
   });
 
   test.if(mac)("a host's desktop can't read the vault or reach the engine; a local port the person adds it can", async () => {

@@ -15,8 +15,10 @@
  *   repository's hooks or config, or the files that say where a .git is:
  *   host-side git runs in these folders;
  * - network: loopback, except the host's ports and every port something
- *   outside the desktop listens on when the command starts; beyond this
- *   machine only through the egress proxy (proxy.ts), to allowlisted hosts;
+ *   outside the desktop listens on when the command starts (one that starts
+ *   listening later stays reachable from commands already running, debugger
+ *   ports apart); beyond this machine only through the egress proxy
+ *   (proxy.ts), to allowlisted hosts;
  * - IPC: a few system services (user lookup, logging, reading preferences);
  *   no Apple events, Launch Services, keychain, pasteboard or ssh agent.
  *   Signals and process inspection reach only the command's own processes.

@@ -186,7 +186,9 @@ by default:
   browser profiles, the vault: `lib/desktopNetwork.ts`), the package's
   state, and other desktops' folders.
 - **Network:** loopback, so dev servers and tests work, except the engine's
-  ports and anything else listening when the command starts; beyond this
+  ports and anything else listening when the command starts (a port that
+  starts listening later stays reachable from commands already running);
+  beyond this
   machine only through the egress proxy (`proxy.ts`), which reaches package
   registries, GitHub and the hosts the person adds in Settings, and never a
   private address.
