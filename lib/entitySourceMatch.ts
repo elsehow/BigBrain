@@ -73,9 +73,10 @@ const contains = (long: readonly string[], short: readonly string[]): boolean =>
 };
 
 /** How `label` names a source with this title, body head and envelope
- * kind, if it does. */
-export function sourceMatch(label: string, source: { title: string; head?: string; kind?: string | null }): SourceMatch | undefined {
-  const kind = source.kind?.trim().toLowerCase() ?? "";
+ * kind (as the envelope holds it: anything but a string is no kind), if it
+ * does. */
+export function sourceMatch(label: string, source: { title: string; head?: string; kind?: unknown }): SourceMatch | undefined {
+  const kind = typeof source.kind === "string" ? source.kind.trim().toLowerCase() : "";
   if (TALK_KINDS.has(kind) || ENCYCLOPEDIA.test(source.title)) return undefined;
   const words = matchWords(label);
   if (words.length < (WORK_KINDS.has(kind) ? 3 : 5)) return undefined;

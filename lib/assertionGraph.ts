@@ -229,7 +229,8 @@ export function buildAssertionGraph(root: string, observe?: ObserveConnection, r
     if (!binding.bound) continue;
     const entity = nodes.get(resolve(binding.entity).id);
     const landed = sourceByInsertion.get(binding.insertion_id);
-    const insertion = landed && sourceByInsertion.get((superseded.has(landed.id) ? live.get(landed.source_id) : landed.id) ?? "");
+    const liveId = landed && (superseded.has(landed.id) ? live.get(landed.source_id) : landed.id);
+    const insertion = liveId ? sourceByInsertion.get(liveId) : undefined;
     const source = insertion && nodes.get(sourceKey(insertion.id));
     if (!entity?.entity || !source || !visible.has(entity.id) || !visible.has(source.id)) continue;
     const held = opens.get(entity.id) ?? new Map<string, string>();

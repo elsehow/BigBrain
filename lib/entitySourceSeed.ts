@@ -64,7 +64,7 @@ export function planEntitySourceSeed(root: string): SourceBindingPlan {
     const refs = assertionSourceReferences(row).map((ref) => ref.insertion_id);
     if (assertionSuperseded(refs, superseded, (id) => sources.has(id))) continue;
     const cited = new Set(refs.filter((id) => sources.has(id)));
-    for (const linked of new Map(row.entities.map((e) => [resolve(e).id, resolve(e)])).values()) {
+    for (const linked of new Map(row.entities.map(resolve).map((e) => [e.id, e])).values()) {
       const held = claims.get(linked.id) ?? { entity: linked, cites: [] };
       held.cites.push(cited);
       claims.set(linked.id, held);
@@ -81,8 +81,7 @@ export function planEntitySourceSeed(root: string): SourceBindingPlan {
     for (const insertionId of new Set(cites.flatMap((set) => [...set]))) {
       if (decided.has(bindingKey(entity.id, insertionId))) continue;
       const source = sources.get(insertionId)!;
-      const kind = typeof source.envelope["kind"] === "string" ? source.envelope["kind"] : undefined;
-      const match = best(labels.map((label) => sourceMatch(label, { title: source.title, head: source.excerpt, kind })));
+      const match = best(labels.map((label) => sourceMatch(label, { title: source.title, head: source.excerpt, kind: source.envelope["kind"] })));
       if (match) named.push({ insertionId, title: source.title, match });
     }
     const works = new Set(named.filter((n) => n.match !== "near").map((n) => n.insertionId));
@@ -106,8 +105,9 @@ export function planEntitySourceSeed(root: string): SourceBindingPlan {
   return plan;
 }
 
+/** The strongest of a label set's matches. */
 const best = (matches: Array<SourceMatch | undefined>): SourceMatch | undefined =>
-  matches.includes("title") ? "title" : matches.includes("head") ? "head" : matches.includes("near") ? "near" : undefined;
+  (["title", "head", "near"] as const).find((m) => matches.includes(m));
 
 export interface SourceSeedOpts {
   author: EventAuthor;
@@ -142,9 +142,8 @@ export function bindMintedEntities(
       for (const insertionId of new Set(insertion_ids)) {
         const source = query.get(insertionId) as { title: string; excerpt: string; kind: unknown } | null;
         if (!source) continue;
-        const kind = typeof source.kind === "string" ? source.kind : undefined;
         for (const entity of entities) {
-          const match = sourceMatch(entity.label, { title: source.title, head: source.excerpt, kind });
+          const match = sourceMatch(entity.label, { title: source.title, head: source.excerpt, kind: source.kind });
           if (match === "title" || match === "head") bindings.set(bindingKey(entity.id, insertionId), { entity, insertion_id: insertionId });
         }
       }
