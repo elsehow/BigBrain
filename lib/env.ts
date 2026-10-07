@@ -98,6 +98,10 @@ export const tokenStore = (): string | undefined => str("BIGBRAIN_TOKENS");
 /** Override for the client-token store (lib/auth.ts). */
 export const clientTokenStore = (): string | undefined => str("BIGBRAIN_CLIENT_TOKENS");
 
+/** Override for the integration read log's directory (lib/readLog.ts) —
+ * tests point it at a scratch folder, as BIGBRAIN_TOKENS for the store. */
+export const readLogOverride = (): string | undefined => str("BIGBRAIN_READ_LOG");
+
 /** Override for a shared vault's member store (lib/sharedMembers.ts) —
  * members and their credentials live OUTSIDE the vault, like drop tokens. */
 export const sharedMemberStore = (): string | undefined => str("BIGBRAIN_SHARED_MEMBERS");
@@ -141,7 +145,7 @@ export const ENGINE_ENV = [
   "PORT", "BIGBRAIN_WEB_PORT", "BIGBRAIN_API_PORT", "BIGBRAIN_SHARED_PORT",
   "BIGBRAIN_DESKTOP", "BIGBRAIN_SUPERVISOR_PID", "BIGBRAIN_DEV", "BIGBRAIN_WORKSPACE", "BIGBRAIN_AGENT_SCRIPT",
   "BIGBRAIN_ROLE", "BIGBRAIN_WORK_ID", "BIGBRAIN_OWNER_EMAIL",
-  "BIGBRAIN_TOKENS", "BIGBRAIN_CLIENT_TOKENS", "BIGBRAIN_SHARED_MEMBERS", "BIGBRAIN_SHARED_PUBLIC_URL", "BIGBRAIN_SHARED_GOOGLE_CLIENT_ID",
+  "BIGBRAIN_TOKENS", "BIGBRAIN_CLIENT_TOKENS", "BIGBRAIN_READ_LOG", "BIGBRAIN_SHARED_MEMBERS", "BIGBRAIN_SHARED_PUBLIC_URL", "BIGBRAIN_SHARED_GOOGLE_CLIENT_ID",
   "BIGBRAIN_ASSERTION_DB", "BIGBRAIN_NO_RETRIEVAL_LOG", "BIGBRAIN_TEST_JOBS",
   "BIGBRAIN_POSTHOG_TOKEN", "BIGBRAIN_POSTHOG_REGION", "BIGBRAIN_SHARED_CONNECTIONS", "BIGBRAIN_FIREWALL_URL",
   "NODE_ENV", "PI_OFFLINE",

@@ -7,6 +7,7 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprot
 import { requireVaultRoot } from "../lib/engine";
 import { handleMcpTool, MCP_INSTRUCTIONS, McpToolError, mcpToolList, type McpContext } from "../lib/mcp";
 import { registerMcpClients } from "../lib/mcpRegister";
+import { logIntegrationCalls } from "../lib/readLog";
 import { flagValue, flagValues, hasFlag, positionals } from "../lib/cliflags";
 
 const argv = process.argv.slice(2);
@@ -51,6 +52,7 @@ if (sub === "register") {
 const via = "cli" as const;
 
 const root = requireVaultRoot();
+logIntegrationCalls(root, { mcp: true });
 
 const connection = flagValue(argv, "connection");
 if (connection && !["claude-plugin", "codex-plugin", "local-config"].includes(connection)) throw new Error("Unknown client configuration.");

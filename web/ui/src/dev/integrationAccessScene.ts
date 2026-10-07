@@ -36,6 +36,18 @@ export function installIntegrationAccessScene(fail=false) {
   window.fetch=(async(input: RequestInfo | URL,options?: RequestInit)=>{
     const path=new URL(input instanceof Request?input.url:String(input),location.href).pathname;
     const json=(value:unknown,status=200)=>new Response(JSON.stringify(value),{status,headers:{'content-type':'application/json'}});
+    if(path==='/api/integration-reads/callers')return json({callers:{'token:12345678':{ts:'2026-09-24T09:12:00Z',integration:'email',name:'Gmail'}}});
+    if(path==='/api/integration-reads'){
+      const account=new URL(input instanceof Request?input.url:String(input),location.href).searchParams.get('account');
+      const at=(m:number)=>new Date(Date.UTC(2026,8,24,9,m)).toISOString();
+      return json({reads:account==='work@example.com'?[]:[
+        {ts:at(14),caller:'token:12345678',label:'Codex on sample laptop',tool:'email_read',args:{ref:'eyJhY2NvdW50IjoibWVAZXhhbXBsZS5jb20iLCJ1aWQiOjQyfQ'},outcome:'ok'},
+        {ts:at(12),caller:'token:12345678',label:'Codex on sample laptop',tool:'email_search',args:{account:'me@example.com',query:'from:orders@example.com receipt',limit:10},outcome:'ok',first:true},
+        {ts:at(9),caller:'token:12345678',label:'Codex on sample laptop',tool:'inbox_list',args:{account:'me@example.com',folder:'Spam'},outcome:'refused',error:'Invalid arguments for inbox_list: folder is not an argument it takes.'},
+        {ts:at(3),caller:'pilot',label:'Pilot',tool:'inbox_list',args:{account:'me@example.com',limit:25},outcome:'ok'},
+        {ts:at(1),caller:'pilot',label:'Pilot',tool:'inbox_read',args:{ref:'eyJhY2NvdW50IjoibWVAZXhhbXBsZS5jb20iLCJ1aWQiOjd9'},outcome:'error',error:'The mail provider did not answer in time.'},
+      ]});
+    }
     if(!['/api/integration-accounts','/api/connected-clients'].includes(path))return prior(input,options);
     const body=JSON.parse(typeof options?.body==='string'?options.body:'{}');
     if(path==='/api/connected-clients'){

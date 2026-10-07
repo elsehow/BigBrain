@@ -11,10 +11,13 @@
   let clients=$state<Client[]>([]), name=$state(""),kind=$state("claude-code"),busy=$state(false),error=$state("");
   type Setup={id:string;command:string|null;configuration:unknown;instructions:string};
   let setups=$state<Record<string,Setup>>({}), showingSetup=$state<string|null>(null), copied=$state<string|null>(null);
+  /** When each client last read an integration, from the read log. */
+  let lastRead=$state<Record<string,{ts:string;name:string}>>({});
   async function request(body?:unknown){const r=await fetch('/api/connected-clients',body?{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)}:undefined);const v=await r.json();if(!r.ok)throw Error(v.error||'Could not load clients.');return v;}
   async function load(){
     const waiting=clients.filter(c=>!c.lastUsed).map(c=>c.id);
     clients=(await request()).clients;
+    void fetch('/api/integration-reads/callers').then(r=>r.ok?r.json():null).then(v=>{if(v)lastRead=v.callers;}).catch(()=>{});
     if(showingSetup && waiting.includes(showingSetup) && clients.find(c=>c.id===showingSetup)?.lastUsed)showingSetup=null;
   }
   async function action(body:unknown){busy=true;error='';try{const r=await request(body);if((body as {action:string}).action!=='setup')configuring=null;if(r.configuration&&!runner){setups[r.id]=r;showingSetup=r.id;adding=false;}await load();}catch(e){error=e instanceof Error?e.message:'Client setup failed.';}finally{busy=false;}}
@@ -78,6 +81,7 @@
           <span class="settings-status"><i class:ready={!client.revoked && !client.expired} aria-hidden="true"></i>{status(client)}</span>
           <span class="settings-item-note">Connection {client.id} · {client.legacy ? 'Legacy plugin' : client.replaces ? 'Legacy plugin replacement' : client.managedBy?.startsWith('local:') ? 'Set up on this computer' : 'Manual setup'}</span>
           <span class="settings-item-note">{client.lastUsed ? `Last used ${new Date(client.lastUsed).toLocaleString()}` : 'Not used yet'}</span>
+          {#if lastRead['token:'+client.id]}<span class="settings-item-note">Last read {lastRead['token:'+client.id].name} {new Date(lastRead['token:'+client.id].ts).toLocaleString()}</span>{/if}
         </div>
         {#if client.revoked && !client.legacy}<button disabled={busy} onclick={()=>action({action:"reconnect",id:client.id})}>Reconnect</button>
         {:else if client.expired}<div class="actions"><button disabled={busy} onclick={()=>action({action:"renew",id:client.id})}>Renew</button><button aria-expanded={configuring === client.id} aria-controls={'client-'+client.id} onclick={()=>configure(client.id)}>{configuring === client.id ? 'Done' : 'Configure'}</button></div>

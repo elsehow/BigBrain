@@ -9,6 +9,7 @@ import { PilotChats } from "../lib/pilotChat";
 import { pilotChatRoutes } from "../lib/pilotChatRoutes";
 import { pilotRoutes } from "../lib/pilot";
 import { WorkHistory } from "../lib/workHistory";
+import { logIntegrationCalls } from "../lib/readLog";
 import { allowLoopbackRequest, armor, dispatch, json, readBody, send, type Route } from "../lib/httpx";
 import { loadManifest } from "../lib/manifest";
 import { configSave, integrationsInfo } from "../lib/configWrite";
@@ -22,6 +23,7 @@ const root = requireVaultRoot();
 const manifestPath = join(root, "vault.yaml");
 if (!existsSync(manifestPath)) writeFileSync(manifestPath, "integrations: {}\n", { flag: "wx" });
 loadManifest(root); // Fail before launching the UI if an existing manifest is invalid.
+logIntegrationCalls(root);
 const workers = new WorkHistory(root), chats = new PilotChats(root, { work: workers, contextRoot, nameTask });
 const routes: Route[] = [...pilotChatRoutes(chats), ...pilotRoutes(root, { setPermissions: value => chats.setPermissions(value) }),
   { method: "GET", path: "/api/agents/models", handler: ({ res }) => {

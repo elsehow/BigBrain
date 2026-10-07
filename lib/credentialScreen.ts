@@ -28,6 +28,8 @@ const CODE_WORD = /\b(?:code|pin|expires?)\b|コード/iu;
 const NEAR = 60;
 /** A placeholder this screen wrote, which must not count as context for the next match. */
 const PLACEHOLDER = /\[[^\]\n]* withheld — [^\]\n]*\]/gu;
+/** How many placeholders this screen wrote into `text`: what the read log counts, never keeps. */
+export const countWithheld = (text: string): number => text.match(PLACEHOLDER)?.length ?? 0;
 /** Lines about orders, parcels and the like, whose numbers are not credentials. */
 const NOT_SIGN_IN = /\b(?:orders?|tracking|track|parcel|shipment|shipped|invoice|receipt|ticket|booking|reservation|reference|pickup|promo|discount|coupon|voucher|gift|referral|% off|sale|deals?|shipping|zip|postal|area code|dress code|source code|qr code|error code|status code|code review|pull request|commit|card ending)\b/iu;
 /** Words that make an opaque link a sign-in link. */

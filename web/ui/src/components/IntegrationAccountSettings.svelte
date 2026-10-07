@@ -11,6 +11,7 @@
   * 4. Removal asks once, inline, and takes the secret and the choices along.
   * docs/design-principles.md, "Integration settings". */
  import {openExternal} from "../lib/native";
+ import IntegrationReads from "./IntegrationReads.svelte";
  import {onMount} from 'svelte';
  const {source}:{source:string}=$props();
   type Account={gmail?:boolean;google?:boolean;host?:string;removable?:boolean;email?:{startAt:string;attachments:boolean;backfill?:{since:string}};granola?:{backfill?:{since:string}};sync?:{ok:boolean;error?:string};auth?:{phase:string;url?:string;error?:string};identity?:unknown;label:string;name:string;account:string;connected:boolean;grants?:{caller:string;access:Access}[];capabilities:{read:string|null;write:string|null}};
@@ -105,6 +106,7 @@
     <p>Pilot is BigBrain’s own agent and has no shell. An external agent with access can act on what it reads with its own tools. This controls what BigBrain hands it.</p>
   </fieldset>{/if}
   <div class="actions"><button disabled={busy||!account.connected} onclick={()=>save(account)}>Save</button>{@render note('save',account.account)}</div>
+  {#if account.capabilities.read}<IntegrationReads integration={source} account={account.account}/>{/if}
  </div></details>{/each}
  {@render note('list',null)}
  {#if source==='email'}
