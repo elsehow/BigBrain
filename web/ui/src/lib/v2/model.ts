@@ -117,14 +117,11 @@ export function buildField(graph: GraphData): Field {
     return [...(path ? [path] : []), ...(n.memberPaths ?? [])];
   };
   // A source drawn as an entity here (/api/graph's `drawnAs`: a document
-  // taken for its own subject) is that entity's one node, whatever the
-  // switch says: its paths go on the entity, and it has no dot of its own.
-  // Drawn as an entity that isn't here, it stays a source.
-  const linked = new Map<number, GraphNode[]>();
+  // taken for its own subject) has no dot of its own, whatever the switch
+  // says; drawn as an entity that isn't here, it stays a source.
   const sources: FieldSource[] = [];
   for (const n of sourceNodes) {
-    const as = n.drawnAs == null ? undefined : byId.get(n.drawnAs);
-    if (as != null) { linked.set(as, [...(linked.get(as) ?? []), n]); continue; }
+    if (n.drawnAs != null && byId.has(n.drawnAs)) continue;
     const ties = [...(mentions.get(n.id) ?? [])];
     const lift = 3 + (unit(n.id) - 0.5) * 2.6;
     let p: [number, number, number];
@@ -137,10 +134,14 @@ export function buildField(graph: GraphData): Field {
     } else continue;
     sources.push({ id: n.id, label: n.title, paths: pathsOf(n), p, ties });
   }
-  for (const [i, own] of linked) {
-    const order = drawn[i]!.opens ?? [], rank = (n: GraphNode) => (order.includes(n.id) ? order.indexOf(n.id) : order.length);
-    nodes[i]!.opens = own.sort((a, b) => rank(a) - rank(b)).flatMap(pathsOf);
-  }
+  // Every entity that IS a source carries its paths, in its own `opens`
+  // order: duplicates bound to one paper each open it, though the source is
+  // drawn as only one of them
+  const sourceById = new Map(sourceNodes.map((n) => [n.id, n]));
+  drawn.forEach((n, i) => {
+    const paths = (n.opens ?? []).flatMap((id) => { const src = sourceById.get(id); return src ? pathsOf(src) : []; });
+    if (paths.length) nodes[i]!.opens = paths;
+  });
 
   return { nodes, byId, edges, strong: strongEdges(nodes, edges), hubs, sources };
 }

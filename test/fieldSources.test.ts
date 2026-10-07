@@ -59,3 +59,12 @@ test("a source drawn as an entity that isn't in the field stays a source", () =>
   const [x] = buildField(linkedGraph(true)).sources;
   expect(x).toMatchObject({ id: "source:ins_x", paths: ["log/insertions/2026-10/ins_x.json"], ties: [1] });
 });
+
+test("entities bound to one source each open it; it has no dot of its own, drawn as the first", () => {
+  const f = buildField({ hash: "h", nodes: [
+    { ...entity("ent_a", 0, 0), opens: ["source:ins_1"] }, { ...entity("ent_b", 100, 0), opens: ["source:ins_gone", "source:ins_1"] },
+    { ...source("ins_1", 50, 0), drawnAs: "ent_a" },
+  ], edges: [] } as unknown as GraphData);
+  expect(f.sources).toEqual([]);
+  expect(f.nodes.map((n) => n.opens)).toEqual([["log/insertions/2026-10/ins_1.json"], ["log/insertions/2026-10/ins_1.json"]]);
+});

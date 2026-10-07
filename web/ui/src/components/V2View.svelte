@@ -740,15 +740,19 @@
     return () => { clearInterval(timer); clearTimeout(pending); scene?.dispose(); };
   });
 
-  /** A click in the field: open what's under it; empty space backs out. An
-   * entity that is a source opens the source. */
+  /** A click in the field: open what's under it; empty space backs out. */
   function onPick(i: number | null): void {
     if (i == null) { if (openPilot) closePilot(); else if ((ent != null || src) && !searching) overview(); return; }
-    const n = field?.nodes[i];
-    if (n?.opens?.length) return openSourceAt(n.opens, n.opens[0]!, n.label, [n.id]);
     if (searching) { searching = false; scene?.search(null); }
     if (openPilot) { openPilot = null; detail = null; scene?.focusPilot(null); }
-    if (i !== ent) void openEntity(i);
+    if (i !== ent) openNode(i);
+  }
+  /** A node picked (clicked, or chosen in search): an entity that is a
+   * source opens the source; any other, itself. */
+  function openNode(i: number): void {
+    const n = field?.nodes[i];
+    if (n?.opens?.length) openSourceAt(n.opens, n.opens[0]!, n.label, [n.id]);
+    else void openEntity(i);
   }
   /** A click on a source drawn at rest. */
   function onPickSource(k: number): void {
@@ -1098,14 +1102,14 @@
       const i = nodeAt.get(m.id);
       searching = false; recentRow = null;
       scene?.search(null);
-      if (i != null) void openEntity(i); else openSource(rowFor(m));
+      if (i != null) openNode(i); else openSource(rowFor(m));
       return;
     }
     const i = matches[k];
     if (i == null) return;
     searching = false;
     scene?.search(null);
-    void openEntity(i);
+    openNode(i);
   }
   const metaOf = (i: number) => {
     const n = field!.nodes[i]!;
