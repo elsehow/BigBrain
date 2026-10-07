@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Agents, AgentsError, codingTools, commandEnv, discardWork, Harbor, landWork, loginEnv, releaseLeases, scopeOf, startWork, workspace, type ToolContext } from "../src";
@@ -66,6 +66,42 @@ describe("the agent's world", () => {
     const hinted = tool({ ...ctxFor(ws, "desk-paths"), elsewhere: p => p.startsWith("notes/") ? `${p} is the host's: use read_note.` : undefined }, "read");
     await expect(hinted.run({ path: "notes/gears.md" }, signal())).rejects.toThrow("notes/gears.md is the host's: use read_note.");
     await expect(hinted.run({ path: "/etc/hosts" }, signal())).rejects.toThrow(/outside your world/);
+  });
+
+  test("the file tools never write into .git, however the path is spelled or linked", async () => {
+    const { ws, home } = scene();
+    const write = tool(ctxFor(ws, "desk-git"), "write"), edit = tool(ctxFor(ws, "desk-git"), "edit");
+    for (const path of ["projects/orrery/.git/hooks/pre-commit", "projects/orrery/.GIT/config", "projects/orrery/src/../.git/config"])
+      await expect(write.run({ path, content: "#!/bin/sh\n" }, signal())).rejects.toThrow(/inside a \.git folder/);
+    await expect(edit.run({ path: "projects/orrery/.git/config", old: "[core]", new: "[core]\n\thooksPath = hooks" }, signal())).rejects.toThrow(/inside a \.git folder/);
+    mkdirSync(join(home, ".git", "hooks"), { recursive: true });
+    symlinkSync(join(home, ".git", "hooks"), join(home, "hooks"));
+    await expect(write.run({ path: "projects/orrery/hooks/pre-commit", content: "x" }, signal())).rejects.toThrow(/inside a \.git folder/);
+    symlinkSync(join(home, ".git", "hooks", "post-checkout"), join(home, "later"));
+    await expect(write.run({ path: "projects/orrery/later", content: "x" }, signal())).rejects.toThrow(/broken link/);
+    expect(["pre-commit", "post-checkout"].filter(h => existsSync(join(home, ".git", "hooks", h)))).toEqual([]);
+    expect(readFileSync(join(home, ".git", "config"), "utf8")).not.toContain("hooksPath");
+    // a desktop's own worktree: its .git is a file naming the repo
+    const record = await startWork(ws, "desk-git", "orrery");
+    await expect(write.run({ path: `desktops/desk-git/orrery/.git`, content: "gitdir: /elsewhere\n" }, signal())).rejects.toThrow(/inside a \.git folder/);
+    expect(readFileSync(join(record.path, ".git"), "utf8")).not.toContain("elsewhere");
+    // everything else is written as before
+    await write.run({ path: "projects/orrery/src/gear.ts", content: "export const teeth = 12;\n" }, signal());
+    await edit.run({ path: "projects/orrery/.gitignore", old: ".claude/", new: ".claude/\ndist/" }, signal());
+    expect(readFileSync(join(home, ".gitignore"), "utf8")).toContain("dist/");
+  });
+
+  test("the host can turn the shell off: the command isn't run, and the host hears what it was", async () => {
+    const { ws, home } = scene();
+    const asked: string[] = [];
+    const off = tool({ ...ctxFor(ws, "desk-off"), shell: c => { asked.push(c); return "The shell is off for this desktop."; } }, "bash");
+    const r = await off.run({ command: "touch ran", cwd: "projects/orrery" }, signal());
+    expect([r.ok, r.text, r.label]).toEqual([false, "The shell is off for this desktop.", "Didn't run touch ran: the shell is off"]);
+    expect(asked).toEqual(["touch ran"]);
+    expect(existsSync(join(home, "ran"))).toBe(false);
+    const on = tool({ ...ctxFor(ws, "desk-on"), shell: () => undefined }, "bash");
+    expect((await on.run({ command: "touch ran", cwd: "projects/orrery" }, signal())).ok).toBe(true);
+    expect(existsSync(join(home, "ran"))).toBe(true);
   });
 
   test("editing in place takes the project's lease; another desktop is told to start its own worktree", async () => {
