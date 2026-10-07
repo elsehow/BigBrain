@@ -105,7 +105,8 @@ date: their text comes through `read_note`, which taints.
 
 The view says why the shell is off, shows the refused command, and offers
 **Allow shell for this desktop**. Only the person can allow it; no tool the
-agent has reaches it. What they allowed it despite is named by its content,
+agent has reaches it. Allowed, its commands still write only its own
+worktrees, never a project in place, and use their own toolchain caches. What they allowed it despite is named by its content,
 so reading it again doesn't taint, but new mail or a changed note does. The
 package asks its host before each command and write, and tells it what each
 file read or write held (`shell`, `write` and `file` in `open()`), so the
@@ -135,7 +136,7 @@ desktop/<id>` from the project's own repo.
 
 The package runs the agent's shell commands itself. Every command runs with
 `BIGBRAIN_AGENT_DESKTOP=<id>` in its own process group, in the person's login
-environment.
+environment, inside the desktop's sandbox (below).
 
 - **The environment is the person's.** Their login shell's environment
   (`$SHELL -ilc env`) is captured once, so commands see the same PATH,
@@ -168,22 +169,44 @@ environment.
 - **Previews embed `http://127.0.0.1:<port>`.** The engine's CSP allows
   framing loopback pages only.
 
+## The sandbox (*measured*)
+
+Every command, and everything it starts, runs under macOS's `sandbox-exec`
+with a Seatbelt profile written for that command (`sandbox.ts`; its shape
+follows OpenAI Codex's and Anthropic's sandbox-runtime profiles). It denies
+by default:
+- **Writes:** the desktop's own folder (its worktrees) and temp folder
+  (`TMPDIR`), projects no other desktop is editing (none once the desktop
+  has read untrusted material), what a commit on its own branch writes to
+  a worktree's shared `.git`, and toolchain caches. Never a repository's
+  hooks or config, or the files that say where a `.git` is: host-side git
+  (Land, the changes list) runs in these folders. `projects/` itself is
+  never written.
+- **Reads:** everything but what BigBrain denies (credential stores, mail,
+  browser profiles, the vault: `lib/desktopNetwork.ts`), the package's
+  state, and other desktops' folders.
+- **Network:** loopback, so dev servers and tests work, except the engine's
+  ports and anything else listening when the command starts; beyond this
+  machine only through the egress proxy (`proxy.ts`), which reaches package
+  registries, GitHub and the hosts the person adds in Settings, and never a
+  private address.
+- **IPC:** user lookup, logging, preferences (read), TLS trust; no Apple
+  events, Launch Services, keychain, pasteboard or ssh agent. Signals reach
+  only a command's own processes, so `stop_job` stops a job.
+
+No sandbox, no shell: off macOS, or when the profile won't load, `bash`
+refuses. Pushing and pull requests happen host-side, in Land, which shows
+the commits and diff first and pushes only the commit the person reviewed.
+
 ## What this is not
 
-Agents run as the person, like `pi` in their terminal. That means:
-- they have the person's GitHub access (SSH agent, `gh`'s keychain login);
-- they can read anything the person's account can;
-- the instructions and the Land button shape what an agent does, but they
-  don't limit what it can do.
-
-Real limits need a different place to run:
-- a container or VM per project, mounting only that project and given only
-  the credentials listed for it;
-- credentials scoped for agents.
-
-Where commands run is one swappable piece of the package, for when agents
-run unattended, on untrusted code, or with narrower credentials than their
-person.
+The sandbox limits where an agent's commands write, read and connect; it
+doesn't make an agent's work trustworthy. The allowlisted hosts take
+uploads as well as downloads, a trusted desktop writes shared toolchain
+caches, and what it commits reaches the person when they land it. Narrower
+limits need a different place to run (a container or VM per project, given
+only the credentials listed for it), which is why where commands run is
+one swappable piece of the package (`Launcher`).
 
 ## A desktop's life
 
@@ -192,20 +215,21 @@ person.
 | **Work in place** | the agent | Reads and commands in `projects/<name>`; edits take the lease |
 | **start_work** | the agent | A worktree of the project on `desktop/<id>`; shown in the chat |
 | **Archive** | you, or after a day idle | Stops its processes, releases its leases. Files stay; reopening resumes |
-| **Land** | you | A worktree's commits come home: a pull request when the project is on GitHub, otherwise its branch, already in your repo, ready to merge |
+| **Land** | you | After you review its commits and diff, they come home: a pull request when the project is on GitHub, otherwise its branch, already in your repo, ready to merge |
 | **Discard** | you | Deletes the desktop's worktree and its branch |
-| **Allow shell** | you | Turns a tainted desktop's shell back on, for that desktop |
+| **Allow shell** | you | Turns a tainted desktop's shell back on, for that desktop, writing only its own worktrees |
 
 Nothing is committed automatically, and nothing is deleted on a timer.
 
 ## The interface BigBrain uses
 
 ```ts
-open(desktop, { model, tools: HostTool[], instructions, wrapStream, preface, shell, write, file })
+open(desktop, { model, tools: HostTool[], instructions, wrapStream, preface, shell, write, file, untrusted })
 send(desktop, text, { inputId }) / steer(desktop, text) / stop(desktop)
 changes(desktop)                          // per worktree: branch, commits, uncommitted files, diffstat
 servers(desktop) / snapshot(desktop) / events(desktop, sinceSeq)
-archive(desktop) / land(desktop, project, how) / discard(desktop, project)
+diff(desktop, project)                    // what Land would bring home, to review first
+archive(desktop) / land(desktop, project, how, head) / discard(desktop, project)
 ```
 
 One ordered, persisted event stream per desktop:
@@ -230,6 +254,11 @@ One ordered, persisted event stream per desktop:
 - **Leases, path boundaries, Land, Discard, Harbor, the login environment**,
   and a full agent loop: a question answered in place, then a change in its
   own worktree.
+- **The sandbox,** with real commands on macOS: writes outside refused, a
+  denied path unreadable, commits in a worktree working while its hooks and
+  config stay untouchable, children and earlier jobs still confined, the
+  engine's and others' ports refused, its own servers reachable, the proxy
+  allowing only its list, and a sandbox that can't load running nothing.
 
 ## Open questions
 
