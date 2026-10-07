@@ -7,8 +7,8 @@
  * and binds to it.
  *
  * In bulk (`bigbrain entity bind-sources`): the same test over history,
- * where "just minted" becomes "its FIRST claim cites the source, and at
- * least half its claims do". A label that names a cited source but fails
+ * where "just minted" becomes "its FIRST claim cites a source that names
+ * it, and at least half its claims do". A label that names a cited source but fails
  * that test, or only `near`-names one, is reported as unclear and left
  * unbound. A pair the log already declares either way — bound, or unbound
  * by a person — is never re-decided, so a second run binds nothing.
@@ -35,10 +35,10 @@ export interface SourceBinding {
   /** The source's title, for the report. */
   title: string;
   match: SourceMatch;
-  /** The entity's claims citing the source, of `claims`. */
+  /** The entity's claims citing a source that names it, of `claims`. */
   citing: number;
   claims: number;
-  /** Whether the entity's first claim cites it. */
+  /** Whether the entity's first claim cites a source that names it. */
   first: boolean;
 }
 
@@ -71,21 +71,29 @@ export function planEntitySourceSeed(root: string): SourceBindingPlan {
     }
   }
 
+  // An entity is the sources that name it (a paper landed twice, a
+  // preprint and its published version) when its first claim cites one of
+  // them and at least half its claims do.
   const plan: SourceBindingPlan = { bind: [], unclear: [] };
   for (const { entity, cites } of claims.values()) {
     const labels = [entity.label, ...(aliases.labels.get(entity.id) ?? [])];
+    const named: Array<{ insertionId: string; title: string; match: SourceMatch }> = [];
     for (const insertionId of new Set(cites.flatMap((set) => [...set]))) {
       if (decided.has(bindingKey(entity.id, insertionId))) continue;
       const source = sources.get(insertionId)!;
-      const match = best(labels.map((label) => sourceMatch(label, { title: source.title, head: source.excerpt })));
-      if (!match) continue;
-      const citing = cites.filter((set) => set.has(insertionId)).length;
+      const kind = typeof source.envelope["kind"] === "string" ? source.envelope["kind"] : undefined;
+      const match = best(labels.map((label) => sourceMatch(label, { title: source.title, head: source.excerpt, kind })));
+      if (match) named.push({ insertionId, title: source.title, match });
+    }
+    const works = new Set(named.filter((n) => n.match !== "near").map((n) => n.insertionId));
+    const citing = cites.filter((set) => [...set].some((id) => works.has(id))).length;
+    const first = [...cites[0]!].some((id) => works.has(id));
+    for (const n of named) {
       const item: SourceBinding = {
-        entity, insertion_id: insertionId, title: source.title, match,
-        citing, claims: cites.length, first: cites[0]!.has(insertionId),
+        entity, insertion_id: n.insertionId, title: n.title, match: n.match, citing, claims: cites.length, first,
       };
-      const reason = match === "near" ? "names it only in passing"
-        : !item.first ? "its first claim cites another source"
+      const reason = n.match === "near" ? "names it only in passing"
+        : !first ? "its first claim cites another source"
         : citing * 2 < cites.length ? `only ${citing} of its ${cites.length} claims cite it`
         : undefined;
       if (reason) plan.unclear.push({ ...item, reason });
@@ -129,13 +137,14 @@ export function bindMintedEntities(
   const db = openAssertionProjectionReadonly(root);
   const bindings = new Map<string, Pick<SourceBinding, "entity" | "insertion_id">>();
   try {
-    const query = db.query("SELECT title, excerpt FROM sources WHERE insertion_id = ? AND present = 1");
+    const query = db.query("SELECT title, excerpt, envelope_kind AS kind FROM sources WHERE insertion_id = ? AND present = 1");
     for (const { entities, insertion_ids } of wanted)
       for (const insertionId of new Set(insertion_ids)) {
-        const source = query.get(insertionId) as { title: string; excerpt: string } | null;
+        const source = query.get(insertionId) as { title: string; excerpt: string; kind: unknown } | null;
         if (!source) continue;
+        const kind = typeof source.kind === "string" ? source.kind : undefined;
         for (const entity of entities) {
-          const match = sourceMatch(entity.label, { title: source.title, head: source.excerpt });
+          const match = sourceMatch(entity.label, { title: source.title, head: source.excerpt, kind });
           if (match === "title" || match === "head") bindings.set(bindingKey(entity.id, insertionId), { entity, insertion_id: insertionId });
         }
       }

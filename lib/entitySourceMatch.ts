@@ -8,10 +8,16 @@
  * prints its title. Conservative on purpose — a wrong binding sends a click
  * to the wrong place:
  *
- *  - `title`: the label is the title, three words or more; or one is the
- *    other with a subtitle dropped, five words or more and most of the
- *    longer. "Wavepaths" never binds to a page titled "Wavepaths": a short
- *    name is a thing with a site, not a document.
+ *  - Talk is never a work: a meeting, a mail thread, a session, a request
+ *    is about things, never the thing (a call titled "Dana building
+ *    manager" is a call with Dana). Nor is an encyclopedia page: it
+ *    describes a subject.
+ *  - `title`: the label is the title — three words or more for a work (a
+ *    clipped page, a PDF, an article), five for anything else, so a note
+ *    filed as one ("an agent's note on the repo") needs a paper-length
+ *    name; or one is the other with a subtitle dropped, five words or more
+ *    and most of the longer. "Lanternworks" never binds to a page titled
+ *    "Lanternworks": a short name is a thing with a site, not a document.
  *  - `head`: the body opens with the label, five words or more.
  *  - `near`: the label (five words or more) appears inside the title or
  *    the head without being either — "Notes on <a paper>" is about the
@@ -23,6 +29,18 @@ import { norm } from "./ids";
 export type SourceMatch = "title" | "head" | "near";
 
 const EXTENSION = /\.(pdf|docx?|md|markdown|txt|html?|epub|rtf)$/iu;
+
+/** Envelope kinds that are a work in their own right. */
+const WORK_KINDS = new Set([
+  "web-clip", "pdf-import", "pdf", "file-import", "text-import", "paper", "working-paper",
+  "article", "post", "review", "legal-document", "podcast", "dataset",
+]);
+/** Envelope kinds that are talk: about things, never one. */
+const TALK_KINDS = new Set([
+  "meeting", "transcript", "meeting-dossier", "email", "message", "agent-chat", "pilot-chat",
+  "request", "directive", "observation", "identity-declaration",
+]);
+const ENCYCLOPEDIA = /\s[-|—–]\s*wikipedia\s*$/iu;
 
 /** A string's words: lowercased, accents off, split on anything that is
  * not a letter or digit. */
@@ -54,10 +72,13 @@ const contains = (long: readonly string[], short: readonly string[]): boolean =>
   return false;
 };
 
-/** How `label` names a source with this title and body head, if it does. */
-export function sourceMatch(label: string, source: { title: string; head?: string }): SourceMatch | undefined {
+/** How `label` names a source with this title, body head and envelope
+ * kind, if it does. */
+export function sourceMatch(label: string, source: { title: string; head?: string; kind?: string | null }): SourceMatch | undefined {
+  const kind = source.kind?.trim().toLowerCase() ?? "";
+  if (TALK_KINDS.has(kind) || ENCYCLOPEDIA.test(source.title)) return undefined;
   const words = matchWords(label);
-  if (words.length < 3) return undefined;
+  if (words.length < (WORK_KINDS.has(kind) ? 3 : 5)) return undefined;
   const titles = titleForms(source.title);
   for (const title of titles) {
     if (title.length === words.length && startsWith(title, words)) return "title";

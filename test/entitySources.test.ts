@@ -52,6 +52,15 @@ describe("sourceMatch", () => {
     expect(sourceMatch("Tidal Lanterns", { title: PAPER })).toBeUndefined();
   });
 
+  test("a short title binds only on a work; talk and encyclopedia pages never bind", () => {
+    expect(sourceMatch("The Quiet Harbour", { title: "The Quiet Harbour", kind: "web-clip" })).toBe("title");
+    expect(sourceMatch("The Quiet Harbour", { title: "The Quiet Harbour", kind: "note" })).toBeUndefined();
+    expect(sourceMatch(PAPER, { title: PAPER, kind: "note" })).toBe("title");
+    expect(sourceMatch("Dana building manager", { title: "Dana building manager", kind: "meeting" })).toBeUndefined();
+    expect(sourceMatch(PAPER, { title: PAPER, kind: "email" })).toBeUndefined();
+    expect(sourceMatch("Lantern beauty contest", { title: "Lantern beauty contest - Wikipedia", kind: "web-clip" })).toBeUndefined();
+  });
+
   test("a paper whose body opens with the label names it; one that mentions it in passing is only near", () => {
     expect(sourceMatch(PAPER, { title: "scan_0042.pdf", head: `# ${PAPER}\nAbstract` })).toBe("head");
     expect(sourceMatch(PAPER, { title: `Notes on ${PAPER}` })).toBe("near");
@@ -120,6 +129,17 @@ describe("bind-sources backfill", () => {
     expect(seedEntitySources(root, { author: AUTHOR }).appended).toBe(1);
     expect(buildAssertionGraph(root).nodes.find((n) => n.title === PAPER)?.opens).toEqual([`source:${paper.id}`]);
     expect(seedEntitySources(root, { author: AUTHOR }).appended).toBe(0);
+  });
+
+  test("a paper landed twice binds to both landings, the claims on either counting for it", () => {
+    const again = insertion({ id: `ins_${"c".repeat(24)}`, title: `${PAPER}.pdf`, body: "Forty harbours, again.", envelope: { kind: "pdf-import" } });
+    const root = vault([paper, notes, again]);
+    claim(root, [ent(PAPER)], paper, "2026-10-01T00:00:00.000Z");
+    claim(root, [ent(PAPER)], again, "2026-10-01T00:01:00.000Z");
+    claim(root, [ent(PAPER), ent("Harbour Project Atlas")], notes, "2026-10-01T00:02:00.000Z");
+    const plan = planEntitySourceSeed(root);
+    expect(plan.bind.map((b) => [b.insertion_id, b.citing, b.claims])).toEqual([[paper.id, 2, 3], [again.id, 2, 3]]);
+    expect(plan.unclear).toEqual([]);
   });
 
   test("an entity first claimed from elsewhere is unclear, never bound", () => {
