@@ -9,6 +9,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { hostAgents } from "../lib/agentHost";
+import { offMacLauncher } from "./support/launcher";
 import { ENGINE_ROOT } from "../lib/engine";
 import { CREDENTIAL_ENV, ENGINE_ENV, engineProcessEnv, gitProcessEnv, handoffProcessEnv, NO_ENV_FILE } from "../lib/env";
 import { dropAutoloadedEnv, vaultEnvSettings } from "../lib/envFile";
@@ -180,7 +181,7 @@ describe("what children inherit", () => {
   test("a desktop agent's commands carry none of the vault's names, whatever the login shell exports", async () => {
     const root = vault(), dir = scratch();
     const env = { PATH: process.env.PATH, HOME: dir, OPENAI_API_KEY: SECRET, VAULT_ONLY_TOKEN: SECRET, TYPESAFE_API_KEY: SECRET, LATER_TOKEN: "invented-later", PROJECT_SETTING: "kept" };
-    const agents = hostAgents(root, workspace(dir), { env });
+    const agents = hostAgents(root, workspace(dir), { env, launcher: offMacLauncher });
     // its own git, cp and gh get git's environment, never this process's
     const own = await autoloaded(() => agents.ws.env?.());
     expect(own).toMatchObject({ HOME: process.env.HOME! });

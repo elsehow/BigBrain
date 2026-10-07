@@ -8,6 +8,7 @@
  * holds them.
  */
 import { Agents, Harbor, scopeOf, workspace, type HarborOptions, type HostTool, type OpenOptions, type Workspace } from "../packages/agents/src";
+import { sandboxPolicy } from "./desktopNetwork";
 import { CREDENTIAL_ENV, gitProcessEnv } from "./env";
 import { readEnvValues } from "./envFile";
 import { notePayload } from "./noteRead";
@@ -45,10 +46,12 @@ export function vaultElsewhere(root: string): (path: string) => string | undefin
 
 /** The package, with every name in the vault's .env and every credential
  * BigBrain manages kept out of its commands' environment, whatever the
- * person's login shell exports, and git's environment for its own git. */
+ * person's login shell exports, its commands sandboxed away from the vault,
+ * credential stores and the engine's ports (desktopNetwork.ts), and git's
+ * environment for its own git. */
 export function hostAgents(root: string, ws: Workspace = workspace(), options: HarborOptions = {}): Agents {
   const withheld = () => [...Object.keys(readEnvValues(root)), ...CREDENTIAL_ENV];
-  return new Agents({ ...ws, env: gitProcessEnv }, new Harbor({ scope: scopeOf(ws.root), ...options, withheld }));
+  return new Agents({ ...ws, env: gitProcessEnv }, new Harbor({ scope: scopeOf(ws.root), ...options, policy: sandboxPolicy(root, ws.root), withheld }));
 }
 
 type StreamFn = Parameters<NonNullable<OpenOptions["wrapStream"]>>[0];

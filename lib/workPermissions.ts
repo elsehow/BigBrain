@@ -10,17 +10,20 @@ export interface FolderAccess { path: string; access: FileAccess }
 export interface RemovedFolder { path: string; reason: string }
 export interface WorkPermissions { version: 2; folders: FolderAccess[]; legacyCowboy?: true; removed?: RemovedFolder[] }
 const KEY = "BIGBRAIN_PILOT_AGENT_PERMISSIONS";
-/** Home-relative credential stores: Pilot never reads them, and no folder grant may contain them. */
+/** Home-relative credential stores: Pilot never reads them, no folder grant may
+ * contain them, and coding desktops' commands never read them (lib/desktopNetwork.ts). */
 const CREDENTIAL_PATHS = [".codex", ".claude", ".ssh", ".aws", ".pi", ".config/bigbrain", ".config/gh", ".config/gcloud", ".netrc", ".git-credentials", ".npmrc", ".pypirc",
-  ".docker", ".kube", ".gnupg", ".azure", "Library/Keychains", "Library/Cookies", ".zsh_history", ".zsh_sessions", ".bash_history", ".sh_history", ".local/share/fish/fish_history"];
+  ".docker", ".kube", ".gnupg", ".azure", "Library/Keychains", "Library/Cookies", ".zsh_history", ".zsh_sessions", ".bash_history", ".sh_history", ".local/share/fish/fish_history",
+  ".config/op", ".vault-token", ".terraform.d", ".config/hub", ".config/doctl", ".local/share/keyrings", ".password-store", ".config/rclone", ".s3cfg", ".boto",
+  ".config/git/credentials", ".cargo/credentials", ".cargo/credentials.toml"];
 /** Names Pilot never reads wherever they appear: secret-bearing files, and `.git`
  * (remote URLs can embed tokens). Sample env files are documentation. */
 const SECRET_NAME = /^(\.git|\.env(\..+)?|\.envrc|\.npmrc|\.netrc|\.pypirc|\.git-credentials|\.pgpass|\.htpasswd|credentials\.json|service-account.*\.json|.+\.(pem|key|p12|pfx)|id_(rsa|dsa|ecdsa|ed25519).*)$/i;
 export const secretName = (name: string): boolean => SECRET_NAME.test(name) && !/^\.env\.(example|sample)$/i.test(name);
 export const expandHome = (path: string): string => path.replace(/^~(?=\/|$)/, homedir());
-export function credentialPaths(): string[] {
+export function credentialPaths(home = homedir()): string[] {
   const agents = [process.env.PI_CODING_AGENT_DIR, process.env.CODEX_HOME].filter((p): p is string => !!p).map(expandHome);
-  return [...CREDENTIAL_PATHS.map(p => join(homedir(), p)), ...agents].map(canonicalWorkPath);
+  return [...CREDENTIAL_PATHS.map(p => join(home, p)), ...agents].map(canonicalWorkPath);
 }
 const tilde = (path: string, home: string): string => containsPath(home, path) ? "~" + path.slice(home.length) : path;
 /** Why a canonical folder is too broad to grant, or null. */

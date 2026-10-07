@@ -4,7 +4,7 @@
  *   bigbrain agent run [--desktop <id>] [--model <provider>/<model>] "<task>"
  *   bigbrain agent resume <id>
  *   bigbrain agent list
- *   bigbrain agent land <id> <project> [--pr|--branch]
+ *   bigbrain agent land <id> <project> [--pr|--branch] [--yes]
  *   bigbrain agent discard <id> <project>
  *
  * The agent runs in packages/agents: it works in ~/bigbrain/desktops/<id>/,
@@ -14,10 +14,10 @@
  * the credentials, which the package never sees.
  *
  * After each turn you can type another message; while the agent works,
- * a message steers it. /land <project> brings committed work home (a pull
- * request when the project is on GitHub, otherwise a branch in your home
- * copy). Ctrl-D (or /done) stops the desktop's processes and leaves its
- * files where they are.
+ * a message steers it. /land <project> shows the commits Land would bring
+ * home; the same again brings exactly those home (a pull request when the
+ * project is on GitHub, otherwise a branch in your home copy). Ctrl-D (or
+ * /done) stops the desktop's processes and leaves its files where they are.
  */
 import { createInterface } from "node:readline";
 import { Agents, type Desktop, type LandHow, type Stamped } from "../packages/agents/src";
@@ -30,8 +30,15 @@ const say = (s: string) => process.stdout.write(s);
 function landHow(args: string[]): LandHow {
   return args.includes("--pr") ? "pr" : args.includes("--branch") ? "branch" : "auto";
 }
-async function land(agents: Agents, id: string, project: string, how: LandHow): Promise<void> {
-  const landed = await agents.land(id, project, how);
+/** What Land would bring home, shown before anything is pushed. Returns the head shown. */
+async function review(agents: Agents, id: string, project: string): Promise<string> {
+  const d = await agents.diff(id, project);
+  say(`${project}: ${d.commits.length} commit${d.commits.length === 1 ? "" : "s"} on ${d.branch}\n${d.commits.map(c => `  ${c.hash} ${c.subject}\n`).join("")}${d.stat}\n`);
+  return d.head;
+}
+
+async function land(agents: Agents, id: string, project: string, how: LandHow, head: string): Promise<void> {
+  const landed = await agents.land(id, project, how, head);
   say(landed.how === "pr" ? `Opened ${landed.url} from ${landed.branch}.\n`
     : `Fetched ${landed.branch} into ${landed.home}. Merge it there when you're ready: git merge ${landed.branch}\n`);
 }
@@ -81,6 +88,7 @@ async function converse(agents: Agents, id: string, modelFlag: string | undefine
   };
   if (first) start(first);
   else say("> ");
+  const reviewed = new Map<string, string>();
   const rl = createInterface({ input: process.stdin, terminal: false });
   for await (const raw of rl) {
     const text = raw.trim();
@@ -90,7 +98,13 @@ async function converse(agents: Agents, id: string, modelFlag: string | undefine
       const words = text.split(/\s+/).slice(1), project = words.find(w => !w.startsWith("--"));
       if (turn) say("Wait for the turn to finish before landing.\n> ");
       else if (!project) say("Say which project: /land <project> [--pr|--branch]\n> ");
-      else await land(agents, id, project, landHow(words)).catch(e => say(`${e instanceof Error ? e.message : e}\n`)).finally(() => say("> "));
+      else {
+        const head = reviewed.get(project);
+        reviewed.delete(project);
+        await (head ? land(agents, id, project, landHow(words), head)
+          : review(agents, id, project).then(h => { reviewed.set(project, h); say(`/land ${project} again to bring these home.\n`); }))
+          .catch(e => say(`${e instanceof Error ? e.message : e}\n`)).finally(() => say("> "));
+      }
       continue;
     }
     if (turn) await desktop.steer(text); else start(text);
@@ -121,7 +135,9 @@ try {
       console.log(`${id}${last && last.type === "input" ? `  — ${last.text.slice(0, 70)}` : ""}`);
     }
   } else if (sub === "land" && args[0] && args[1]) {
-    await land(agents, args[0], args[1], landHow(args));
+    const head = await review(agents, args[0], args[1]);
+    if (args.includes("--yes")) await land(agents, args[0], args[1], landHow(args), head);
+    else console.log("Run again with --yes to bring these home.");
   } else if (sub === "discard" && args[0] && args[1]) {
     await agents.discard(args[0], args[1]);
     console.log(`Discarded desktop ${args[0]}'s fork of ${args[1]}.`);
@@ -130,7 +146,7 @@ try {
   bigbrain agent run [--desktop <id>] [--model <provider>/<model>] "<task>"
   bigbrain agent resume <id>
   bigbrain agent list
-  bigbrain agent land <id> <project> [--pr|--branch]
+  bigbrain agent land <id> <project> [--pr|--branch] [--yes]
   bigbrain agent discard <id> <project>
 
 Projects live in ${agents.ws.projects}; each desktop works in ${agents.ws.desktops}/<id>/.`);

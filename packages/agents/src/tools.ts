@@ -6,12 +6,14 @@
  * desktops/<id>/<name>. Nothing is redirected and no command is classified:
  * the agent works where it says it works. Editing a project in place takes
  * its lease; start_work gives the desktop its own worktree (worktree.ts).
- * Commands run in Harbor (harbor.ts). Every result carries a plain-language
- * label for the desktop's activity line.
+ * Commands run in Harbor (harbor.ts), each in a sandbox that lets it change
+ * only what the desktop may (sandbox.ts). Every result carries a
+ * plain-language label for the desktop's activity line.
  */
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import type { Harbor } from "./harbor";
+import { confinement } from "./sandbox";
 import { startWork, type WorkRecord } from "./worktree";
 import { AgentsError, listProjects, takeLease, type Workspace } from "./workspace";
 
@@ -33,6 +35,8 @@ export interface ToolContext {
   write?(path: string): string | undefined;
   /** Told what a file held when the file tools read or wrote it (OpenOptions.file). */
   file?(how: "read" | "wrote", path: string, content: string): void | Promise<void>;
+  /** Whether the desktop has read untrusted material: its commands then write only its own folder (OpenOptions.untrusted). */
+  untrusted?(): boolean;
 }
 
 const READ_LINES = 2000, READ_CHARS = 60_000, OUTPUT_CHARS = 30_000;
@@ -151,7 +155,7 @@ export function codingTools(ctx: ToolContext): AgentTool[] {
       },
     },
     {
-      name: "bash", description: "Run a shell command, in cwd (relative to your workspace; default projects/). It runs as your person, with their environment. Long-running commands such as dev servers return on their own once they're listening, and keep running.",
+      name: "bash", description: "Run a shell command, in cwd (relative to your workspace; default projects/). It runs in a sandbox, with your person's environment. Long-running commands such as dev servers return on their own once they're listening, and keep running as a job; stop_job stops one.",
       parameters: { type: "object", properties: { command: { type: "string" }, cwd: { type: "string" } }, required: ["command"], additionalProperties: false },
       label: a => `Running ${short(String(a.command ?? ""))}`,
       async run(a, signal) {
@@ -159,19 +163,32 @@ export function codingTools(ctx: ToolContext): AgentTool[] {
         const refused = ctx.shell?.(command);
         if (refused) return { text: refused, label: `Didn't run ${short(command)}: the shell is off`, ok: false };
         const where = locate(ctx, typeof a.cwd === "string" && a.cwd ? a.cwd : "projects");
-        const result = await ctx.harbor.run(ctx.desktop, command, where.abs, signal);
+        const untrusted = ctx.untrusted?.() ?? false;
+        const result = await ctx.harbor.run(ctx.desktop, command, where.abs, signal, confinement(ctx.ws, ctx.desktop, untrusted));
         const tail = (s: string) => s.length > OUTPUT_CHARS ? "… (earlier output cut)\n" + s.slice(-OUTPUT_CHARS) : s;
         if (result.status === "exited") {
           const ok = result.code === 0;
           // A fixed-port server that collides names who holds the port.
           const busy = /EADDRINUSE[^\n]*?:(\d+)/.exec(result.output);
           const holder = busy ? await ctx.harbor.holder(Number(busy[1])) : undefined;
-          const note = busy ? `\n[Port ${busy[1]} is in use${holder ? holder === ctx.desktop ? " by another of your own commands" : ` by desktop ${holder}` : " by a process outside any desktop"}.]` : "";
+          const note = busy ? `\n[Port ${busy[1]} is in use${holder ? holder === ctx.desktop ? " by another of your own commands" : ` by desktop ${holder}` : " by a process outside any desktop"}.]`
+            : !ok && /Operation not permitted|403 Forbidden/.test(result.output) ? `\n[The sandbox may have refused that. Commands write only ${untrusted ? `your own folder (desktops/${ctx.desktop}/…)` : "your own folder and projects no other desktop is editing"} and your temp folder, reach the internet only through a proxy to allowlisted hosts, and can't reach your person's credentials or other programs.]` : "";
           return { text: `${tail(result.output) || "(no output)"}\n[exit ${result.code ?? result.signal}]${note}`, label: `Ran ${short(command)}${ok ? "" : ` (exit ${result.code ?? result.signal})`}`, ok };
         }
         for (const port of result.ports) ctx.server(port, result.job, command);
         const label = result.ports.length ? `Started ${short(command)} on :${result.ports.join(", :")}` : `Still running ${short(command)}`;
         return { text: `${tail(result.output)}\n[${result.note}]`, label, ok: true };
+      },
+    },
+    {
+      name: "stop_job", description: "Stop a command still running as a job (a dev server, a watcher), by the job number its bash result gave.",
+      parameters: { type: "object", properties: { job: { type: "integer", minimum: 1 } }, required: ["job"], additionalProperties: false },
+      label: a => `Stopping job ${String(a.job ?? "")}`,
+      async run(a) {
+        const job = ctx.harbor.job(Number(a.job));
+        if (!job || job.desktop !== ctx.desktop) throw new AgentsError(`You have no job ${String(a.job)}.`);
+        if (!job.exited) await ctx.harbor.stopJob(job.id);
+        return { text: `Stopped job ${job.id} (${short(job.command)}).`, label: `Stopped ${short(job.command)}`, ok: true };
       },
     },
     {

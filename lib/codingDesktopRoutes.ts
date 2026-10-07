@@ -32,6 +32,8 @@ export function codingDesktopRoutes(desktops: CodingDesktops, options: { graph?:
   return [
     get("", async () => ({ desktops: await withContextSourcesOf(desktops.list(), options.graph) })),
     get("/session", url => desktops.detail(url.searchParams.get("id"))),
+    get("/diff", url => desktops.diff(url.searchParams.get("id"), url.searchParams.get("project"))),
+    get("/network", () => desktops.network()),
     { method: "GET", path: "/api/desktops/events", handler: ({ req, url, res }) => {
       try { desktops.stream(url.searchParams.get("id"), Number(url.searchParams.get("since")) || 0, res, fn => req.on("close", fn)); }
       catch (e) { json(res, status(e), { error: message(e) }); }
@@ -49,7 +51,8 @@ export function codingDesktopRoutes(desktops: CodingDesktops, options: { graph?:
     post("allow-shell", b => desktops.allowShell(b.id)),
     post("rename", b => desktops.rename(b.id, b.title)),
     post("model", b => desktops.setModel(b.id, b.model)),
-    post("land", b => desktops.land(b.id, b.project, b.how)),
+    post("land", b => desktops.land(b.id, b.project, b.how, b.head)),
+    post("network", b => desktops.setNetwork(b.hosts)),
     post("discard", b => desktops.discard(b.id, b.project)),
     post("view", b => desktops.view(b.id, b.action, b)),
     post("theme", b => desktops.writeTheme(b.css)),

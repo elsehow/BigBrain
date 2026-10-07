@@ -7,6 +7,7 @@ import { Agents, Harbor, workspace, type HostTool, type OpenOptions } from "../p
 import { CodingDesktops } from "../lib/codingDesktops";
 import { insertionEventRel } from "../lib/insertionLog";
 import { spoolDir } from "../lib/spool";
+import { offMacLauncher } from "./support/launcher";
 import { insertion, nativeVault } from "./support/vault";
 
 const roots: string[] = [];
@@ -34,7 +35,7 @@ const said = (context: Seen) => {
     user: context.messages.filter(m => m.role === "user").map(m => text(m.content)),
     results: context.messages.filter(m => m.role === "toolResult").map(m => text(m.content)) };
 };
-const quickHarbor = () => new Harbor({ env: process.env, settleMs: 400, waitMs: 4000, graceMs: 500 });
+const quickHarbor = () => new Harbor({ env: process.env, settleMs: 400, waitMs: 4000, graceMs: 500, launcher: offMacLauncher });
 const answered = async (desktops: CodingDesktops, id: string) => {
   for (let i = 0; i < 250 && desktops.summary(desktops.get(id)).phase !== "answered"; i++) await Bun.sleep(20);
 };
@@ -177,7 +178,7 @@ test("a desktop started from a source: the source is fenced data, never instruct
   const { ws, host } = await fakeHost([
     look(fauxAssistantMessage([fauxToolCall("bash", { command: "touch made-it" })], { stopReason: "toolUse" })),
     look(fauxAssistantMessage("The shell is off here; you can allow it.")),
-    fauxAssistantMessage([fauxToolCall("bash", { command: "touch made-it" })], { stopReason: "toolUse" }),
+    fauxAssistantMessage([fauxToolCall("bash", { command: "touch \"../desktops/$BIGBRAIN_AGENT_DESKTOP/made-it\"" })], { stopReason: "toolUse" }),
     fauxAssistantMessage("Done."),
   ]);
   const quote = insertion({ id: `ins_${"a".repeat(24)}`, title: "Gear quote", received_at: "2026-10-01T09:00:00.000Z",
@@ -208,15 +209,16 @@ test("a desktop started from a source: the source is fenced data, never instruct
   expect(detail.taint?.refused?.command).toBe("touch made-it");
   expect(detail.messages.filter(m => m.role === "activity").map(m => [m.text, m.ok])).toEqual([["Didn't run touch made-it: the shell is off", false]]);
 
-  // the person allows it: for this desktop only, and the agent's next command runs
+  // the person allows it: for this desktop only, and the agent's next command
+  // runs, writing its own folder (in place, its sandbox refuses: sandbox.test.ts)
   const allowed = desktops.allowShell(made.id);
   expect(allowed.taint).toBeUndefined();
   expect(allowed.allowed?.keys).toEqual([key]);
   expect(desktops.create({ context: [{ path, title: "Gear quote" }] }).taint).toBeTruthy();
   await desktops.send(made.id, "go ahead", "in-2");
   await answered(desktops, made.id);
-  expect(existsSync(join(ws, "projects", "made-it"))).toBe(true);
-  expect((await desktops.detail(made.id)).messages.filter(m => m.role === "activity").at(-1)).toMatchObject({ text: "Ran touch made-it", ok: true });
+  expect(existsSync(join(ws, "desktops", made.id, "made-it"))).toBe(true);
+  expect((await desktops.detail(made.id)).messages.filter(m => m.role === "activity").at(-1)).toMatchObject({ text: "Ran touch \"../desktops/$BIGBRAIN_AGENT_DESKTOP/made-it\"", ok: true });
 
   // a desktop recorded before taint was kept is tainted when it opens
   const { taint: _, ...legacy } = desktops.create({ context: [{ path, title: "Gear quote" }] });
@@ -340,7 +342,7 @@ test("a desktop that turns tainted stops what it runs, and can't write files tha
   const tools: HostTool[] = [{ name: "email_read", description: "Read an email.", parameters: { type: "object", properties: {} }, execute: async () => ({ body: "Hi" }) }];
   const call = (name: string, args: Record<string, unknown>) => fauxAssistantMessage([fauxToolCall(name, args)], { stopReason: "toolUse" });
   const { ws, host } = await fakeHost([
-    call("bash", { command: "sleep 2 && touch late" }),
+    call("bash", { command: "sleep 2 && touch \"../desktops/$BIGBRAIN_AGENT_DESKTOP/late\"" }),
     call("email_read", {}),
     call("write", { path: "projects/orrery/package.json", content: "{}" }),
     call("write", { path: "projects/orrery/.husky/pre-commit", content: "echo hi" }),
@@ -349,17 +351,17 @@ test("a desktop that turns tainted stops what it runs, and can't write files tha
     fauxAssistantMessage("Done."),
   ], tools);
   const root = nativeVault(); roots.push(root);
-  const desktops = new CodingDesktops(root, { agents: new Agents(workspace(ws), new Harbor({ env: process.env, settleMs: 200, waitMs: 800, graceMs: 300 })), host });
+  const desktops = new CodingDesktops(root, { agents: new Agents(workspace(ws), new Harbor({ env: process.env, settleMs: 200, waitMs: 800, graceMs: 300, launcher: offMacLauncher })), host });
   const made = desktops.create();
   await desktops.send(made.id, "start the watcher, then read my mail", "in-1");
   await answered(desktops, made.id);
   const acts = (await desktops.detail(made.id)).messages.filter(m => m.role === "activity").map(m => [m.text, m.ok]);
-  expect(acts).toEqual([["Still running sleep 2 && touch late", true], ["email_read", true],
+  expect(acts).toEqual([["Still running sleep 2 && touch \"../desktops/$BIGBRAIN_AGENT_DESKTOP/late\"", true], ["email_read", true],
     ["Writing projects/orrery/package.json failed", false], ["Writing projects/orrery/.husky/pre-commit failed", false], ["Writing projects/orrery/vite.config.ts failed", false],
     ["Wrote projects/orrery/src/gear.ts", true]]);
   expect(["package.json", ".husky/pre-commit", "vite.config.ts"].filter(f => existsSync(join(ws, "projects", "orrery", f)))).toEqual([]);
   await Bun.sleep(2_500);
-  expect(existsSync(join(ws, "projects", "late"))).toBe(false);
+  expect(existsSync(join(ws, "desktops", made.id, "late"))).toBe(false);
   desktops.close();
 });
 

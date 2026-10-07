@@ -56,6 +56,13 @@ export const stateFolder = (ws: Workspace, id: string): string => {
 // ── leases on in-place edits ──────────────────────────────────────────────────
 const leaseFile = (ws: Workspace, project: string) => join(ws.state, "leases", `${project}.json`);
 
+/** The desktop editing a project in place, if one is. */
+export function leaseHolder(ws: Workspace, project: string): string | undefined {
+  const file = leaseFile(ws, project);
+  try { return existsSync(file) ? (JSON.parse(readFileSync(file, "utf8")) as { desktop: string }).desktop : undefined; }
+  catch { return undefined; }
+}
+
 /** Take (or keep) the lease on editing a project in place. Returns the
  * desktop that holds it when that's another one. */
 export function takeLease(ws: Workspace, id: string, project: string): string | undefined {
