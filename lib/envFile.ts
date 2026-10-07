@@ -74,9 +74,11 @@ export function vaultEnvSettings(root: string): Record<string, string> {
 }
 
 /** A bun process started without NO_ENV_FILE holds `<dir>/.env` in its
- * environment. Remove what that file names, except engine settings, so
- * nothing this process spawns inherits it. Names are matched as loosely as
- * bun's loader reads them (`export KEY=`, lower case), not as readEnvValues. */
+ * environment. Remove what that file names, except engine settings, from
+ * `env`, for whatever reads or spreads it. (A spawn given no env still
+ * inherits what bun started with, which is why spawns name theirs.) Names
+ * are matched as loosely as bun's loader reads them (`export KEY=`, lower
+ * case), not as readEnvValues. */
 export function dropAutoloadedEnv(env: Record<string, string | undefined>, dir: string): void {
   let raw: string;
   try {
