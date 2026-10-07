@@ -7,12 +7,12 @@
  * pass read the record raw. Each item gains a `provenance`
  * (lib/provenance.ts); untrusted text has sign-in material withheld
  * (lib/credentialScreen.ts) and is fenced as data; memory's outside claims
- * are fenced one by one (lib/memoryProvenance.ts); mail received in the last
- * ten minutes is headers only. Fields are only ever added, so a client that
- * read a result before reads it the same way now. */
+ * are fenced one by one (lib/memoryProvenance.ts); sign-in mail received in
+ * the last ten minutes is headers only. Fields are only ever added, so a
+ * client that read a result before reads it the same way now. */
 import { normalize } from "node:path";
 import { projectedSourceMetadata } from "./assertionProjection";
-import { screenCredentials } from "./credentialScreen";
+import { screenCredentials, signInMail } from "./credentialScreen";
 import { memoryForAgents, memoryHasOutside } from "./memoryProvenance";
 import { jailMemoryNotePath, jailPath } from "./noteRead";
 import { readNoteFile, resolveNote } from "./noteResolution";
@@ -21,8 +21,9 @@ import { isSourceInsertionPath } from "./sourceFeed";
 
 export { memoryForAgents } from "./memoryProvenance";
 
-/** Mail younger than this reaches agents as headers only: it is when a
- * sign-in code or link in it is live. The person's own viewer is unaffected. */
+/** Sign-in mail younger than this reaches agents as headers only: it is when
+ * a code or link in it is live. Other mail, and the person's own viewer, are
+ * unaffected. */
 export const FRESH_MAIL_MS = 10 * 60_000;
 
 const where = (kind: OriginKind): string => kind === "email" ? "open in Mail" : kind === "granola" ? "open in Granola" : "open the original";
@@ -109,23 +110,28 @@ type Mail = Record<string, unknown> & { subject?: unknown; from?: unknown; date?
 const addresses = (v: unknown): string | undefined => Array.isArray(v)
   ? sender((v as Address[]).map(a => a?.name && a?.address ? `${a.name} <${a.address}>` : a?.address ?? a?.name ?? "").filter(Boolean).join(", "))
   : sender(v);
+const mailboxes = (v: unknown): string[] => Array.isArray(v) ? (v as Address[]).flatMap(a => typeof a?.address === "string" ? [a.address] : [])
+  : typeof v === "string" ? [...v.matchAll(/[\w.+-]+@[\w.-]+/gu)].map(x => x[0]) : [];
 
-/** One message as an agent reads it: headers only while fresh, else its body
- * screened and fenced. Its subject is screened either way. */
+/** One message as an agent reads it: headers only while it is fresh sign-in
+ * mail, else its body screened and fenced. Its subject is screened either way. */
 function mailForAgent(m: Mail, now: number, ref?: string): Mail {
   const at = typeof m.received === "string" ? m.received : typeof m.date === "string" ? m.date : undefined;
   const from = addresses(m.from), mailed = { where: where("email") };
   const provenance: Provenance = { kind: "email", trusted: false, ...(from ? { from } : {}),
     ...(at ? { received: at } : {}), ...(typeof m.ref === "string" ? { ref: m.ref } : ref ? { ref } : {}) };
-  const subject = typeof m.subject === "string" ? screenCredentials(m.subject, mailed).text : m.subject;
+  const said = typeof m.subject === "string" ? m.subject : undefined, text = typeof m.body === "string" ? m.body : undefined;
+  const subject = said === undefined ? m.subject : screenCredentials(said, mailed).text;
   const time = at ? Date.parse(at) : NaN;
-  if (!(time <= now - FRESH_MAIL_MS)) {
+  // an unknown receipt time counts as fresh
+  const fresh = !(time <= now - FRESH_MAIL_MS);
+  if (fresh && signInMail({ from: mailboxes(m.from), subject: said, preheader: text })) {
     const until = Number.isFinite(time) ? ` Read it again after ${new Date(time + FRESH_MAIL_MS).toISOString()}, or ask your person to open it in Mail.` : " Your person can open it in Mail.";
     return { uid: m.uid, ...(m.ref !== undefined ? { ref: m.ref } : {}), from: m.from, subject, date: m.date ?? null, provenance,
-      held: `Received under ${FRESH_MAIL_MS / 60_000} minutes ago, while any sign-in code or link in it is live: shown by sender, subject and date only.${until}` };
+      held: `Sign-in mail received under ${FRESH_MAIL_MS / 60_000} minutes ago, while any code or link in it is live: shown by sender, subject and date only.${until}` };
   }
-  if (typeof m.body !== "string") return { ...m, subject, provenance };
-  const body = screenCredentials(m.body, { ...mailed, context: typeof m.subject === "string" ? m.subject : "" });
+  if (text === undefined) return { ...m, subject, provenance };
+  const body = screenCredentials(text, { ...mailed, context: said ?? "" });
   return { ...m, subject, provenance, body: fenceUntrusted(fenceAbout(provenance), body.text) };
 }
 

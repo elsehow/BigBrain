@@ -8,7 +8,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { screenCredentials } from "../lib/credentialScreen";
+import { screenCredentials, signInMail } from "../lib/credentialScreen";
 
 const subjectOf = (text: string) => /^Subject: (.*)$/mu.exec(text)?.[1] ?? "";
 
@@ -77,4 +77,34 @@ test("the placeholder says what was withheld and where the person sees it", () =
     .toBe("Reset your password: [sign-in link withheld — open the original]");
   expect(screenCredentials("482910 is your verification code", { where: "open in Mail" }).text)
     .toBe("[one-time code withheld — open in Mail] is your verification code");
+});
+
+describe("sign-in mail, which a fresh message is held for", () => {
+  const SIGN_IN = [
+    { subject: "482910 is your Larkspur verification code", from: ["alerts@larkspurbank.example"] },
+    { subject: "Reset your Quillpad password", from: ["no-reply@quillpad.example"] },
+    { subject: "Your sign-in link", from: ["hello@tidewater.example"] },
+    { subject: "Confirm your email address", from: ["team@bramblenotes.example"] },
+    { subject: "Security alert: new device", from: ["notifications@fernhub.example"] },
+    { subject: "Your Pinewood login code", from: ["hello@pinewood.example"] },
+    { subject: "Request to disable two-factor authentication", from: ["noreply@fernhub.example"] },
+    { subject: "Votre code de vérification", from: ["accounts@copperline.example"] },
+    // the sender says so, whatever the subject
+    { subject: "Tidewater", from: ["verify@tidewater.example"] },
+    { subject: "Action needed", from: ["account-security-noreply@quillpad.example"] },
+    // the opening of the body says so
+    { subject: "quick favour", from: ["dana@example.org"], preheader: "Can you use this code to log in for me? 731 904" },
+  ];
+  const ORDINARY = [
+    { subject: "Your order #44817 has shipped", from: ["no-reply@copperline.example"] },
+    { subject: "October: bulbs, mulch and the first frost", from: ["noreply@longgarden.example"], preheader: "This month we're planting tulips 15cm deep." },
+    { subject: "Use code SAVE20 for 20% off this weekend", from: ["no-reply@vaultkeep.example"] },
+    { subject: "[fernworks/search] Code review requested (#412)", from: ["notifications@fernhub.example"] },
+    { subject: "Invoice INV-2026-0931 for September", from: ["accounts-billing@ledgerly.example"] },
+    { subject: "Invitation: Quarterly planning @ Thu Oct 9, 10am", from: ["priya@fernworks.example"] },
+    { subject: "Photos from the lake!", from: ["mae@example.net"], preheader: "What a weekend. The kids caught three fish." },
+    { subject: "Offer letter", from: ["morgan@fernworks.example"] },
+  ];
+  for (const m of SIGN_IN) test(`held: ${m.subject} (${m.from[0]})`, () => expect(signInMail(m)).toBe(true));
+  for (const m of ORDINARY) test(`not held: ${m.subject} (${m.from[0]})`, () => expect(signInMail(m)).toBe(false));
 });

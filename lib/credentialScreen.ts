@@ -29,7 +29,7 @@ const NEAR = 60;
 /** A placeholder this screen wrote, which must not count as context for the next match. */
 const PLACEHOLDER = /\[[^\]\n]* withheld — [^\]\n]*\]/gu;
 /** Lines about orders, parcels and the like, whose numbers are not credentials. */
-const NOT_SIGN_IN = /\b(?:orders?|tracking|track|parcel|shipment|shipped|invoice|receipt|ticket|booking|reservation|reference|pickup|promo|discount|coupon|voucher|gift|referral|zip|postal|area code|dress code|source code|qr code|error code|status code|pull request|commit|card ending)\b/iu;
+const NOT_SIGN_IN = /\b(?:orders?|tracking|track|parcel|shipment|shipped|invoice|receipt|ticket|booking|reservation|reference|pickup|promo|discount|coupon|voucher|gift|referral|% off|sale|deals?|zip|postal|area code|dress code|source code|qr code|error code|status code|code review|pull request|commit|card ending)\b/iu;
 /** Words that make an opaque link a sign-in link. */
 const LINK_CONTEXT = /\b(?:passwords?|passwort|reset|magic|verify|verification|activate|unlock|one[- ]?time|single[- ]use|approve|2fa|two[- ]factor|invit\w*|log in as|sign in as|(?:sign[- ]?in|log[- ]?in|login) link|confirm (?:your|this|the) (?:new )?(?:email|address|account|sign[- ]?in))\b|(?:link|code)\b[^.\n]{0,40}\bexpire|v[ée]rification|contraseña|senha|restablecer|zurücksetzen|redefinir|réinitialiser/iu;
 /** Path and parameter words of sign-in links. */
@@ -57,6 +57,26 @@ function opaque(url: URL): boolean {
   if (url.pathname.split("/").some(token)) return true;
   for (const [k, v] of url.searchParams) if (token(v) || (SECRET_PARAM.test(k) && v.length >= 4)) return true;
   return false;
+}
+
+/** A subject or opening line that says the message is about signing in. */
+const SIGN_IN_SUBJECT = /\b(?:verification|verify|passcodes?|passwords?|passwort|sign(?:ing)?[- ]?in|log(?:ging)?[- ]?in|login|2fa|mfa|two[- ]factor|one[- ]?time|otp|security (?:alert|code)|confirm your (?:new )?(?:email|e-mail|address|account)|magic link|new device|unlock|recovery codes?|backup codes?|authenticat\w*|reset (?:request|link|code))\b|v[ée]rification|contraseña|senha|確認コード|認証/iu;
+/** Senders that only send about accounts and signing in. A no-reply sender
+ * says nothing either way: orders and newsletters come from one too. */
+const SIGN_IN_SENDER = new Set(["security", "account", "accounts", "verify", "verification", "auth", "authentication", "login", "signin", "otp", "2fa", "mfa", "identity"]);
+/** Sender words that make an account sender a billing or marketing one. */
+const NOT_SIGN_IN_SENDER = new Set(["billing", "payable", "receivable", "invoice", "invoices", "orders", "sales", "news", "newsletter", "marketing"]);
+
+/** Does this message look like sign-in mail? Its sender's mailbox, its subject,
+ * or the opening of its body (the preheader) says so. "Code" alone counts
+ * only without an order's or a promotion's words beside it. */
+export function signInMail(m: { from?: string[]; subject?: string | undefined; preheader?: string | undefined }): boolean {
+  const says = (text = "") => SIGN_IN_SUBJECT.test(text) || (/\bcodes?\b/iu.test(text) && !NOT_SIGN_IN.test(text));
+  if (says(m.subject) || says(m.preheader?.slice(0, 300))) return true;
+  return (m.from ?? []).some(address => {
+    const words = (address.split("@")[0] ?? "").toLowerCase().split(/[-_.+]/u);
+    return words.some(w => SIGN_IN_SENDER.has(w)) && !words.some(w => NOT_SIGN_IN_SENDER.has(w));
+  });
 }
 
 /** Withhold what would let an agent finish a sign-in from `text`. */

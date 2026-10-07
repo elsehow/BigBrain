@@ -3,8 +3,9 @@
  * Every door that hands an agent vault or live content (MCP, Pilot and the
  * desktops through pilotToolCall, workers through handleVaultTool) puts a
  * provenance on each item, withholds sign-in material from untrusted text
- * and fences that text as data. The gardener reads the record raw. Mail
- * younger than ten minutes reaches an agent as headers only. */
+ * and fences that text as data. The gardener reads the record raw. Sign-in
+ * mail younger than ten minutes reaches an agent as headers only; other new
+ * mail reaches it at once. */
 import { afterAll, describe, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
 import { appendAssertionEvent, assertionEntityId, createAssertionEvent } from "../lib/assertionLog";
@@ -145,7 +146,7 @@ describe("live mail", () => {
     body: "Click to sign in: https://larkspur.example/auth/magic?k=9c1e7b2a4f0d5e83\nThis link expires in 15 minutes.", ...over,
   });
 
-  test("a message received under ten minutes ago is headers only, with when it can be read", () => {
+  test("sign-in mail received under ten minutes ago is headers only, with when it can be read", () => {
     expect(FRESH_MAIL_MS).toBe(10 * 60_000);
     const out = liveForAgent("inbox_read", { scope: "live_inbox", ref: "r1", selected: message(2), thread: [message(2), message(60)] }, now) as Record<string, any>;
     expect(out.selected).toEqual({ uid: 7, from: message(2).from, subject: "Your Larkspur sign-in link", date: message(2).date,
@@ -159,6 +160,23 @@ describe("live mail", () => {
     expect(out.thread[1].labels).toEqual(["\\Inbox"]);
   });
 
+  test("ordinary new mail reaches the agent at once, screened and fenced", () => {
+    const fresh = (over: Record<string, unknown>) => (liveForAgent("email_read", { selected: message(1, over) }, now) as Record<string, any>).selected;
+    const lunch = fresh({ subject: "Lunch on Thursday?", from: [{ name: "Robin Okafor", address: "robin@fernworks.example" }], body: "Shall we try the new noodle place? I booked for 12:30." });
+    expect(lunch.held).toBeUndefined();
+    expect(lunch.body).toBe('<untrusted-data kind="email" from="Robin Okafor &lt;robin@fernworks.example&gt;" received="2026-10-06T11:59:00.000Z">\nShall we try the new noodle place? I booked for 12:30.\n</untrusted-data>');
+    // a no-reply sender is not sign-in mail on its own: orders and newsletters come from one too
+    const order = fresh({ subject: "Your order #44817 has shipped", from: [{ address: "no-reply@copperline.example" }], body: "Track your parcel: https://copperline.example/track/44817" });
+    expect(order.held).toBeUndefined();
+    expect(order.body).toContain("https://copperline.example/track/44817");
+    const letter = fresh({ subject: "October: bulbs, mulch and the first frost", from: [{ address: "noreply@longgarden.example" }], body: "This month we're planting tulips." });
+    expect(letter.held).toBeUndefined();
+    // a colleague's note that opens on a sign-in is held all the same
+    const favour = fresh({ subject: "quick favour", from: [{ address: "dana@example.org" }], body: "Can you use 482910 to log in to the dashboard for me?" });
+    expect(favour.held).toBeTruthy();
+    expect(JSON.stringify(favour)).not.toContain("482910");
+  });
+
   test("the hold goes by when the provider received it, and holds when it cannot tell", () => {
     const backdated = liveForAgent("email_read", { selected: message(2, { date: "2020-01-01T00:00:00.000Z" }) }, now) as Record<string, any>;
     expect(backdated.selected.held).toBeTruthy();
@@ -166,12 +184,18 @@ describe("live mail", () => {
     expect(unknown.selected.held).toBeTruthy();
   });
 
-  test("listings screen subjects and carry provenance; fresh rows say they are held", () => {
-    const out = liveForAgent("inbox_list", { messages: [message(1, { subject: "482910 is your Larkspur code", ref: "r2", body: undefined }), message(30, { body: undefined, ref: "r3" })] }, now) as Record<string, any>;
+  test("listings screen subjects and carry provenance; only fresh sign-in rows say they are held", () => {
+    const out = liveForAgent("inbox_list", { messages: [
+      message(1, { subject: "482910 is your Larkspur code", ref: "r2", body: undefined }),
+      message(1, { subject: "Agenda for Monday", from: [{ address: "sam@fernworks.example" }], body: undefined, ref: "r4" }),
+      message(30, { body: undefined, ref: "r3" }),
+    ] }, now) as Record<string, any>;
     expect(out.messages[0].subject).toBe("[one-time code withheld — open in Mail] is your Larkspur code");
     expect(out.messages[0].held).toBeTruthy();
     expect(out.messages[0].ref).toBe("r2");
-    expect(out.messages[1]).toMatchObject({ ref: "r3", labels: ["\\Inbox"], provenance: { kind: "email", trusted: false, ref: "r3" } });
+    expect(out.messages[1].held).toBeUndefined();
+    expect(out.messages[1]).toMatchObject({ ref: "r4", subject: "Agenda for Monday", labels: ["\\Inbox"] });
+    expect(out.messages[2]).toMatchObject({ ref: "r3", labels: ["\\Inbox"], provenance: { kind: "email", trusted: false, ref: "r3" } });
   });
 
   test("Granola text is screened and fenced", () => {
