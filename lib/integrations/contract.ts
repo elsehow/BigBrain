@@ -39,14 +39,14 @@ export interface IntegrationTool {
   /** The name agents call it by, unique across integrations: client permission prompts are per name. */
   name: string;
   description: string;
+  /** Strict: a key it doesn't declare is refused, never passed along. */
   input: z.ZodObject;
   /** The JSON Schema clients see, derived from `input`. */
   inputSchema: Record<string, unknown>;
   access: "read" | "write";
-  /** What it brings in from outside, as a coding desktop's taint notice names it ("your inbox"). */
+  /** What it brings in from outside, as a coding desktop's taint notice names it ("your inbox"). Its results carry the integration's origin. */
   reads?: string;
-  /** Its results are the integration's own material, so they carry its origin. */
-  material?: boolean;
+  /** Runs with arguments `input` has validated. */
   run(ctx: ToolContext, args: Record<string, unknown>): Promise<unknown>;
   /** The result as an agent receives it: outside text screened and fenced. */
   forAgent?(result: unknown, now?: number): unknown;
@@ -75,6 +75,8 @@ export interface Integration {
   live?: { read: string; write: string | null };
   /** Whether the provider lets BigBrain change this account at all (a Gmail app-password connection is read-only). */
   writable?(root: string, account: string): boolean;
+  /** The account an opaque `ref` from one of its tools names; throws when it isn't one. */
+  refAccount?(ref: string): string;
   tools: IntegrationTool[];
 }
 
@@ -88,7 +90,11 @@ function jsonSchema(input: z.ZodObject): Record<string, unknown> {
   } });
   return schema;
 }
-export const tool = (t: Omit<IntegrationTool, "inputSchema">): IntegrationTool => ({ ...t, inputSchema: jsonSchema(t.input) });
+/** A tool, its input made strict and its schema derived, so what clients see is what is enforced. */
+export function tool<S extends z.ZodRawShape>(t: Omit<IntegrationTool, "input" | "inputSchema" | "run"> & { input: z.ZodObject<S>; run(ctx: ToolContext, args: z.output<z.ZodObject<S>>): Promise<unknown> }): IntegrationTool {
+  const input = t.input.strict();
+  return { ...t, input, inputSchema: jsonSchema(input), run: t.run as IntegrationTool["run"] };
+}
 
 /** Where an account's policy lives. */
 export const policyPath = (root: string, name: string, account: string): string =>

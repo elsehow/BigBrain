@@ -22,7 +22,7 @@ export const integrationTool = (name: string): { integration: Integration; tool:
 /** The origin a live tool's results come from, or undefined for one that returns no content. */
 export const liveOrigin = (name: string): OriginKind | undefined => {
   const found = TOOLS.get(name);
-  return found?.tool.material ? found.integration.origin : undefined;
+  return found?.tool.reads ? found.integration.origin : undefined;
 };
 
 /** A live integration read's result as an agent receives it. */

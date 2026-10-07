@@ -75,7 +75,8 @@ export function deactivateIntegration(root: string, name: string): void {
   for (const {account,policy} of policies) writeAccountPolicy(root,name,account,{...policy,connected:false});
   writeAtomic(file(root, name), JSON.stringify({ version:1, fingerprint:"", checkedAt:new Date().toISOString(), grants:[], ...prior, active: false }) + "\n", 0o600);
 }
-function callerId(root: string, caller: IntegrationCaller): string {
+/** Who is asking, as grants name them: `pilot`, `token:<id>`, `worker`. Throws for a caller that may not read live accounts at all. */
+export function integrationCallerId(root: string, caller: IntegrationCaller): string {
   if (caller.kind === "gardener") throw new Error("Gardener reads landed arrivals only; live accounts are unavailable.");
   if (caller.kind !== "mcp") return caller.kind;
   const result = verifyToken(caller.storePath ?? tokenStorePath(root), caller.token ?? "");
@@ -84,7 +85,7 @@ function callerId(root: string, caller: IntegrationCaller): string {
 }
 export function readableIntegrationAccounts(root: string, name: string, caller: IntegrationCaller): string[] {
   if (caller.kind === "worker") return readableIntegrationAccounts(root, name, {kind: "pilot"}).filter(a => caller.accounts.some(g => g.integration === name && g.account === a));
-  const id = callerId(root, caller);
+  const id = integrationCallerId(root, caller);
   return integrationAccounts(root,name).filter(a => { const p=accountPolicy(root,name,a);return p.connected && (p.liveAccess??["read","read-write"].includes(p.grants.find(g=>g.caller===id)?.access ?? "off")); });
 }
 export function requireIntegrationRead(root: string, name: string, account: string, caller: IntegrationCaller): void {
@@ -146,13 +147,13 @@ export function integrationConnected(root:string,name:string,account?:string):bo
 const providerWritable = (root:string,name:string,account:string):boolean => integrationNamed(name)?.writable?.(root,account) ?? true;
 export function requireIntegrationWrite(root:string,name:string,account:string,caller:IntegrationCaller):void {
   if (caller.kind === "worker") throw new Error("Workers have read-only source access.");
-  const id=callerId(root,caller),p=accountPolicy(root,name,account);
+  const id=integrationCallerId(root,caller),p=accountPolicy(root,name,account);
   if(!providerWritable(root,name,account)||!p.connected||!(p.liveAccess??(p.grants.find(g=>g.caller===id)?.access==="read-write")))throw new Error("This account does not grant this caller live write access.");
 }
 
 export function writableIntegrationAccounts(root:string,name:string,caller:IntegrationCaller):string[] {
   if (caller.kind === "worker") return [];
-  const id=callerId(root,caller);
+  const id=integrationCallerId(root,caller);
   return integrationAccounts(root,name).filter(a=>{const p=accountPolicy(root,name,a);return providerWritable(root,name,a)&&p.connected&&(p.liveAccess??(p.grants.find(g=>g.caller===id)?.access==="read-write"));});
 }
 

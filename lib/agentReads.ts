@@ -200,3 +200,14 @@ export function upstreamForAgent(kind: OriginKind, result: unknown): unknown {
       ? { ...c, text: fenceUntrusted({ kind }, screenCredentials(c.text, at).text) } : c) } : {}),
     ...(r.structuredContent !== undefined ? { structuredContent: screenDeep(r.structuredContent, at) } : {}) };
 }
+
+/** An upstream MCP server's tool list as an agent receives it: the prose in it
+ * (descriptions and titles, at any depth of a schema) screened and fenced as
+ * that integration's material, every other string screened. Names stay exact, to call by. */
+export function upstreamToolsForAgent(kind: OriginKind, tools: unknown): unknown {
+  const at = { where: where(kind) };
+  const walk = (v: unknown, key?: string): unknown => typeof v === "string"
+    ? key === "description" || key === "title" ? fenceUntrusted({ kind }, screenCredentials(v, at).text, true) : screenCredentials(v, at).text
+    : Array.isArray(v) ? v.map(x => walk(x)) : v && typeof v === "object" ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, walk(x, k)])) : v;
+  return walk(tools);
+}
