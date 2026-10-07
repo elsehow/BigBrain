@@ -1165,8 +1165,10 @@
           <iframe class="vpage vhtml" sandbox="" title={v.title} srcdoc={pageDoc(v.html ?? "", pageVars)}></iframe>
         {:else if v.kind === "url"}
           <!-- a page on this machine (the engine's CSP allows nothing else), under
-               the other loopback name so it is sent none of the viewer's cookies -->
-          {#key v.at}<iframe class="vpage" src={otherLoopback(v.path)} title={v.title} sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"></iframe>{/key}
+               the other loopback name so it is sent none of the viewer's cookies. Its own
+               referrer policy: WebKit would otherwise hand it the viewer's no-referrer, and
+               its theme-sheet requests, cross-site with no Referer, are refused (lib/httpx.ts) -->
+          {#key v.at}<iframe class="vpage" src={otherLoopback(v.path)} title={v.title} referrerpolicy="strict-origin-when-cross-origin" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"></iframe>{/key}
         {:else}
           <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
           <div class="vbody" onclick={(e) => loadHeld(e) || citation(e)}>
