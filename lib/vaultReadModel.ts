@@ -7,6 +7,7 @@ import type { MarkdownDocument, MarkdownIdentity, ParsedDocumentLinks } from "./
 import { assertionDbPath, openAssertionProjectionReadonly, projectionRevision, syncAssertionProjection } from "./assertionProjection";
 import { entityAliasResolution, type EntityAliasEvent, type EntityAliasResolution } from "./entityAliasLog";
 import { assertionSourceReferences, type AssertionEvent } from "./assertionLog";
+import { latestEntitySourceDeclarations, type EntitySourceEvent } from "./entitySourceLog";
 import { insertionEventRel, type SourceInsertion, type SourceMetadata } from "./insertionLog";
 import type { RevocationEvent } from "./revocationLog";
 import { withProjectionWrite } from "./projectionWriteLock";
@@ -32,6 +33,9 @@ export interface VaultRecord extends SourceRecord {
   documentLinks: Map<string, ParsedDocumentLinks>;
   rows: AssertionEvent[];
   aliases: EntityAliasResolution;
+  /** The latest entity↔source declaration per pair (lib/entitySourceLog.ts),
+   * oldest first; `bound: false` ones are unbindings. */
+  entitySources: EntitySourceEvent[];
   revoked: Map<string, RevocationEvent>;
 }
 const reconciled = new Map<string, { change: number; at: number }>();
@@ -150,10 +154,11 @@ export function vaultRecord(root: string, reconcile = false): VaultRecord {
     for (const event of decoded<RevocationEvent>(db, "SELECT event_json FROM revocations ORDER BY created_at, id"))
       if (!revoked.has(event.assertion_id)) revoked.set(event.assertion_id, event);
     const aliases = aliasesIn(db);
+    const entitySources = latestEntitySourceDeclarations(decoded<EntitySourceEvent>(db, "SELECT event_json FROM entity_source_events"));
     const documents = (db.query("SELECT header_json AS document_json FROM markdown_documents ORDER BY path").all() as { document_json: string }[]).map(r => JSON.parse(r.document_json) as MarkdownIdentity);
     const documentLinks = new Map((db.query("SELECT path, links_json, citations_json FROM document_links").all() as { path: string; links_json: string; citations_json: string }[])
       .map(r => [r.path, { links: JSON.parse(r.links_json), citations: JSON.parse(r.citations_json) } as ParsedDocumentLinks]));
-    return held.record = { ...sources, documents, documentLinks, rows, aliases, revoked };
+    return held.record = { ...sources, documents, documentLinks, rows, aliases, entitySources, revoked };
   });
 }
 

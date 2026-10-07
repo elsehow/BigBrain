@@ -224,7 +224,7 @@ describe("intake links the canonical thing only (#628)", () => {
     appendAndProjectEntityAlias(root, createEntityAliasEvent({ alias: "Evan", entity: EK, author: { kind: "user", id: "nick" }, created_at: stamp(), produced_by: PRODUCED }));
     expect(() => canonicalizeAssertionLinks(root, "[[Evan]] agreed.")).toThrow(`"Evan" is an alias of ${EK.id} "Evan Keller" — link [[${EK.id}|Evan]]`);
     expect(() => canonicalizeAssertionLinks(root, `[[${EVAN.id}|Evan Keller]] agreed.`)).toThrow(`${EVAN.id} is an alias of ${EK.id}`);
-    expect(canonicalizeAssertionLinks(root, `[[${EK.id}|Evan]] agreed.`)).toEqual({ text: `[[${EK.id}|Evan]] agreed.`, entities: [EK] });
+    expect(canonicalizeAssertionLinks(root, `[[${EK.id}|Evan]] agreed.`)).toEqual({ text: `[[${EK.id}|Evan]] agreed.`, entities: [EK], minted: [] });
     expect(canonicalizeAssertionLinks(root, "[[Evan Keller]] agreed.").entities).toEqual([EK]);
   });
 

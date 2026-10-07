@@ -30,6 +30,7 @@ import { AST_ID, ENT_ID } from "../lib/ids";
 import { flagValue, flagValues, hasFlag, positionals } from "../lib/cliflags";
 import {
   appendAndProjectEntityAlias,
+  appendAndProjectEntitySource,
   openAssertionProjectionReadonly,
   projectedAssertionEntity,
   retiredEntitySuccessor,
@@ -38,6 +39,8 @@ import {
 import { requireVaultRoot } from "../lib/engine";
 import { commitEntityAliasEvents, createEntityAliasEvent } from "../lib/entityAliasLog";
 import { seedEntityAliases } from "../lib/entityAliasSeed";
+import { commitEntitySourceEvents, createEntitySourceEvent } from "../lib/entitySourceLog";
+import { seedEntitySources } from "../lib/entitySourceSeed";
 import { supersedeEntity } from "../lib/entitySupersede";
 import { describeFolds, liveFolds, proposeEntityFolds, readEntityFolds } from "../lib/entityFolds";
 import { loadManifest } from "../lib/manifest";
@@ -46,6 +49,8 @@ const USAGE = `usage:
   bigbrain entity alias "<label>" --into <ent_id|"Label">
   bigbrain entity alias "<label>" --retract
   bigbrain entity seed-aliases [--dry-run]
+  bigbrain entity bind-sources [--dry-run]
+  bigbrain entity bind-source <ent_id|"Label"> <ins_…> [--unbind]
   bigbrain entity resolve "<label or ent_id>"
   bigbrain entity aliases [<label or ent_id>]
   bigbrain entity supersede <stub> --into <canonical> [--assertion ast_… …] [--dry-run]
@@ -117,6 +122,33 @@ switch (cmd) {
       console.log(`${hasFlag(rest, "dry-run") ? "would declare" : "declared"}: "${d.alias}" (${d.alias_assertions}) → ${d.entity.id} "${d.entity.label}"  (${d.dossier})`);
     for (const s of result.skipped) console.log(`skipped: "${s.alias}" (${s.dossier}) — ${s.reason}`);
     console.log(`${result.appended} declared, ${result.declare.length - result.appended} planned, ${result.skipped.length} skipped`);
+    break;
+  }
+  case "bind-sources": {
+    const dry = hasFlag(rest, "dry-run");
+    const result = seedEntitySources(root, { author, dryRun: dry });
+    const cites = (b: { citing: number; claims: number }) => `${b.citing}/${b.claims} claims`;
+    for (const b of result.bind)
+      console.log(`${dry ? "would bind" : "bound"}: ${b.entity.id} "${b.entity.label}" → ${b.insertion_id} "${b.title}"  (${b.match}, ${cites(b)})`);
+    for (const u of result.unclear)
+      console.log(`unclear: ${u.entity.id} "${u.entity.label}" ~ ${u.insertion_id} "${u.title}" — ${u.reason}  (${u.match}, ${cites(u)})`);
+    console.log(`${result.appended} bound, ${result.bind.length - result.appended} planned, ${result.unclear.length} unclear`);
+    break;
+  }
+  case "bind-source": {
+    const [ref, insertionId] = positional.map((p) => p.trim());
+    if (!ref || !insertionId) { console.error(USAGE); process.exit(2); }
+    syncAssertionProjection(root);
+    const entity = projectedAssertionEntity(root, idOf(ref));
+    if (!entity) { console.error(`no entity ${ref}`); process.exit(1); }
+    const unbind = hasFlag(rest, "unbind");
+    const event = createEntitySourceEvent({
+      entity: { id: entity.id, label: entity.label }, insertion_id: insertionId, bound: !unbind, author,
+      created_at: new Date().toISOString(), produced_by: { procedure: "entity-source-cli", version: "1" },
+    });
+    const result = appendAndProjectEntitySource(root, event);
+    commitEntitySourceEvents(root, [result.path], `entity source: ${unbind ? "unbind" : "bind"} "${entity.label}" ${insertionId}`);
+    console.log(`${unbind ? "unbound" : "bound"}: ${show(entity.id)} ${unbind ? "↛" : "→"} ${insertionId}`);
     break;
   }
   case "resolve": {

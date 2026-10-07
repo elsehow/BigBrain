@@ -52,6 +52,14 @@ export interface GraphNode {
    * it gives it its threads, or a decline takes it off the picture. Only
    * source nodes wear it. */
   pending?: true;
+  /** Entity nodes only: the graph ids of the sources this entity IS — a
+   * document extracted as its own subject (lib/entitySourceLog.ts) — newest
+   * arrival first. The viewer draws the pair as one node; a click opens the
+   * first. Absent when it is no source. */
+  opens?: string[];
+  /** Source nodes only: the entity id this source is drawn as (the reverse
+   * of an entity's `opens`). */
+  drawnAs?: string;
 }
 
 export interface GraphEdge {
