@@ -30,7 +30,12 @@ test("HTTP and MCP apply the same note-window limits, errors and boundary values
   for (const args of [{}, { n: 1, slack: 0, q: "needle" }, { n: 1000, slack: 20, order: "desc" }, { toc: true }]) {
     const response = await http(args);
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual(handleMcpTool(context, "read_note", { path, ...args }));
+    const served = await response.json() as { markdown: string };
+    // an agent's read is the same payload with its provenance beside it, and a
+    // note from outside the person fenced as data (lib/agentReads.ts)
+    const { provenance, ...mcp } = handleMcpTool(context, "read_note", { path, ...args }) as { markdown: string; provenance: unknown };
+    expect(provenance).toMatchObject({ kind: "note", trusted: false, path });
+    expect(mcp).toEqual({ ...served, markdown: expect.stringContaining(`>\n${served.markdown}\n</untrusted-data>`) });
   }
 });
 
