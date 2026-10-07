@@ -64,15 +64,17 @@ describe("web/server.ts request backstop", () => {
     const log = new Response(proc.stderr as ReadableStream).text();
     const origin = `http://127.0.0.1:${port}`;
     const deadline = Date.now() + 15_000;
-    // Up when the socket answers anything at all.
+    // Up when the socket answers and its session is on disk: a viewer run by
+    // hand writes the file just after it binds the port.
     for (;;) {
       try {
-        await fetch(`${origin}/`);
-        break;
-      } catch {
-        if (Date.now() > deadline) throw new Error("server never came up");
-        await Bun.sleep(100);
-      }
+        if (viewerSecret(home, port)) {
+          await fetch(`${origin}/`);
+          break;
+        }
+      } catch { /* not listening yet */ }
+      if (Date.now() > deadline) throw new Error("server never came up");
+      await Bun.sleep(100);
     }
 
     // A query can carry a bootstrap secret: nothing the server says repeats it.
