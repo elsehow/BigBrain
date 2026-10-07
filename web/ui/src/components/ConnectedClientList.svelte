@@ -86,7 +86,7 @@
       {#if client.legacy}
         <div class="settings-card-body" id={'client-'+client.id}><div class="settings-group"><span class="settings-group-label">Legacy plugin</span><div class="settings-group-body">
           {#if !client.revoked}
-            <p>Replace this with a named MCP connection. The plugin keeps working until the replacement connects.</p>
+            <p>{client.expired ? 'Renew it, or replace it with a named MCP connection.' : 'Replace this with a named MCP connection. The plugin keeps working until the replacement connects.'}</p>
             <button disabled={busy} onclick={()=>action({action:'replace',id:client.id})}>Replace connection</button>
           {:else}
             <p>Remove the old BigBrain plugin from your client's installed plugins, then restart the client.</p>
