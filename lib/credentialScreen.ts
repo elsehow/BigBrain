@@ -29,7 +29,7 @@ const NEAR = 60;
 /** A placeholder this screen wrote, which must not count as context for the next match. */
 const PLACEHOLDER = /\[[^\]\n]* withheld — [^\]\n]*\]/gu;
 /** Lines about orders, parcels and the like, whose numbers are not credentials. */
-const NOT_SIGN_IN = /\b(?:orders?|tracking|track|parcel|shipment|shipped|invoice|receipt|ticket|booking|reservation|reference|pickup|promo|discount|coupon|voucher|gift|referral|% off|sale|deals?|zip|postal|area code|dress code|source code|qr code|error code|status code|code review|pull request|commit|card ending)\b/iu;
+const NOT_SIGN_IN = /\b(?:orders?|tracking|track|parcel|shipment|shipped|invoice|receipt|ticket|booking|reservation|reference|pickup|promo|discount|coupon|voucher|gift|referral|% off|sale|deals?|shipping|zip|postal|area code|dress code|source code|qr code|error code|status code|code review|pull request|commit|card ending)\b/iu;
 /** Words that make an opaque link a sign-in link. */
 const LINK_CONTEXT = /\b(?:passwords?|passwort|reset|magic|verify|verification|activate|unlock|one[- ]?time|single[- ]use|approve|2fa|two[- ]factor|invit\w*|log in as|sign in as|(?:sign[- ]?in|log[- ]?in|login) link|confirm (?:your|this|the) (?:new )?(?:email|address|account|sign[- ]?in))\b|(?:link|code)\b[^.\n]{0,40}\bexpire|v[ée]rification|contraseña|senha|restablecer|zurücksetzen|redefinir|réinitialiser/iu;
 /** Path and parameter words of sign-in links. */
@@ -38,14 +38,32 @@ const LINK_WORD = /(?:^|[/_\-.?=&])(?:reset|password|passwd|pw|pwd|verify|verifi
 const SECRET_PARAM = /^(?:token|nonce|code|key|k|t|sig|signature|hash|otp|auth|ticket|req|session|magic|uidb\d*)$/iu;
 
 const URL = /https?:\/\/[^\s<>"'`\]]+/giu;
-/** Code shapes, each guarded so a price, date, time or phone number does not match. */
+/** Code shapes, each guarded so a price, date, time or phone number does not
+ * match. A device code (`QRST-WXYZ`) and a letter code (`ABCDEFGH`) need no
+ * digit: `notACode` holds back the words and ticket ids those shapes also fit. */
 const CODES = [
   /(?<![\w$€£#:/.,-])(?:[A-Z]-)?\d{4,8}(?![\w%]|[:/.,-]\d)/gu,
   /(?<![\w$€£#:/.,-]|\d[ -])\d{3,4}[ -]\d{3,4}(?![\w]|[ -]?\d)/gu,
-  /(?<![\w-])(?=[A-Z0-9-]*\d)(?=[A-Z0-9-]*[A-Z])[A-Z0-9]{3,4}-[A-Z0-9]{3,4}(?![\w-])/gu,
-  /(?<![\w-])(?=[A-Z0-9]*\d)(?=[A-Z0-9]*[A-Z])[A-Z0-9]{6,8}(?![\w-])/gu,
+  // pairs: "12 34 56"; with hyphens it is a date
+  /(?<![\w$€£#:/.,-]|\d )\d{2} \d{2} \d{2}(?![\w]| ?\d)/gu,
+  /(?<![\w-])(?=[A-Z0-9-]*[A-Z])(?:[A-Z0-9]{4}-[A-Z0-9]{4}|(?=[A-Z0-9-]*\d)[A-Z0-9]{3,4}-[A-Z0-9]{3,4})(?![\w-])/gu,
+  /(?<![\w-])(?=[A-Z0-9]*[A-Z])[A-Z0-9]{6,8}(?![\w-])/gu,
 ];
 const YEAR = /^(?:19|20)\d\d$/u;
+/** Just before a code that is given as one: "code: ", "code is ", "PIN ". */
+const GIVEN = /\b(?:codes?|passcode|pin|otp)\b[^\w\n]{0,3}(?:is\b[^\w\n]{0,3})?$/iu;
+
+/** A match of a code shape that is no code: a year, a ticket id (`PROJ-1234`)
+ * or a capitalised word, unless it is given as a code (after "code" or on a
+ * line of its own) and, for letters alone, reads unlike a word: no more than
+ * one vowel in three, where English words run nearer one in two. */
+function notACode(code: string, before: string, alone: boolean): boolean {
+  if (YEAR.test(code)) return true;
+  const given = alone || GIVEN.test(before);
+  if (/^[A-Z]{2,}-\d+$/u.test(code)) return !given;
+  if (/^[A-Z]{6,8}$/u.test(code)) return !given || (code.match(/[AEIOUY]/gu)?.length ?? 0) > code.length / 3;
+  return false;
+}
 /** A password given after its label: "Temporary password: Tq7#mVx2!pL9". */
 const LABELLED = /(\b(?:temporary |temp |one-time |initial |new |your )?(?:password|passcode|passwort|contraseña|senha)\s*(?:is\s*)?[:=]\s*)((?=\S*[\d!@#$%^&*])\S{6,})/giu;
 /** An app password: four groups of four letters, said to be one. */
@@ -120,7 +138,7 @@ export function screenCredentials(text: string, options: ScreenOptions = {}): Sc
     if (/app[- ]password|app-specific password/iu.test(`${line}\n${near}`))
       next = next.replace(APP_PASSWORD, () => { withheld++; return said("password"); });
     if (!alone || CODE_CONTEXT.test(near)) for (const shape of CODES) next = next.replace(shape, (code: string, at: number, all: string) => {
-      if (YEAR.test(code) || !(alone || beside(code, at, all))) return code;
+      if (notACode(code, all.slice(0, at), alone) || !(alone || beside(code, at, all))) return code;
       withheld++;
       return said("one-time code");
     });
