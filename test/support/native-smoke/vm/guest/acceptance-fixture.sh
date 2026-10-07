@@ -42,9 +42,11 @@ console.log('Seeded same IDs with distinct A/B content, interrupted turns and un
 JS
  ;;
 inspect)
- curl -s http://127.0.0.1:4747/api/vault > "$OUT/vault-$2.json"
- curl -s 'http://127.0.0.1:4747/api/pilot/chat/session?id=pilot-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' > "$OUT/session-$2.json"
- curl -s 'http://127.0.0.1:4747/api/pilot/chat/actions?id=pilot-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' > "$OUT/actions-$2.json"
+ # the viewer answers only the app's launch session (lib/viewerSession.ts)
+ auth="Authorization: Bearer $(cat "$HOME/.config/bigbrain/viewer-session-4747")"
+ curl -s -H "$auth" http://127.0.0.1:4747/api/vault > "$OUT/vault-$2.json"
+ curl -s -H "$auth" 'http://127.0.0.1:4747/api/pilot/chat/session?id=pilot-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' > "$OUT/session-$2.json"
+ curl -s -H "$auth" 'http://127.0.0.1:4747/api/pilot/chat/actions?id=pilot-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' > "$OUT/actions-$2.json"
  cat "$OUT/vault-$2.json"; cat "$OUT/session-$2.json"; cat "$OUT/actions-$2.json"
  ;;
 esac
