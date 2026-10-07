@@ -49,8 +49,8 @@ describe("what desktops' commands are kept from", () => {
     const root = vault(), ws = scratch();
     const denied = sandboxPolicy(root, ws).deny!();
     for (const p of [canonical(root), join(canonical(root), ".env"), join(canonical(root), ".spool"), join(canonical(root), ".state"),
-      join(homedir(), ".ssh"), join(homedir(), ".config", "gh"), join(homedir(), "Library", "Mail"), join(homedir(), "Library", "Application Support", "Google", "Chrome")])
-      expect([...denied].map(canonical)).toContain(canonical(p));
+      join(homedir(), ".ssh"), join(homedir(), ".config", "gh"), join(homedir(), ".config", "bigbrain", "viewer-session-4747"), join(homedir(), "Library", "Mail"), join(homedir(), "Library", "Application Support", "Google", "Chrome")])
+      expect({ p, covered: [...denied].map(canonical).some(d => canonical(p) === d || canonical(p).startsWith(`${d}/`)) }).toEqual({ p, covered: true });
     const inside = join(root, "agents");
     mkdirSync(inside);
     const partial = [...sandboxPolicy(root, inside).deny!()];
