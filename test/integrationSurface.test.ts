@@ -16,7 +16,7 @@ import { mcpToolList } from "../lib/mcp";
 import { pilotTools } from "../lib/pilot";
 import { pilotChatTools } from "../lib/pilotChat";
 import { integrationCapabilities } from "../lib/integrationTools";
-import { liveOrigin } from "../lib/agentReads";
+import { liveOrigin } from "../lib/integrations";
 import { configuredAccounts } from "../lib/integrationAccounts";
 import { integrationLibrary } from "../lib/integrationLibrary";
 import { accountFingerprint, integrationAccountEnvKey, integrationAccounts, integrationFingerprint, MANAGED_INTEGRATIONS,

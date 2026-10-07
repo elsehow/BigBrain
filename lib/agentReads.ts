@@ -165,35 +165,38 @@ function mailForAgent(m: Mail, now: number, ref?: string): Mail {
 }
 
 /** Screen every string in a structured value. */
-function screenDeep(v: unknown, at: { where: string }): unknown {
+export function screenDeep(v: unknown, at: { where: string }): unknown {
   if (typeof v === "string") return screenCredentials(v, at).text;
   if (Array.isArray(v)) return v.map(x => screenDeep(x, at));
   if (v && typeof v === "object") return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, screenDeep(x, at)]));
   return v;
 }
 
-/** The origin a live read tool's results come from, or undefined for one that returns no content. */
-export const liveOrigin = (name: string): OriginKind | undefined =>
-  ["inbox_list", "inbox_read", "email_search", "email_read"].includes(name) ? "email" : name === "granola_read" ? "granola" : undefined;
-
-/** A live integration read's result as an agent receives it. */
-export function liveForAgent(name: string, result: unknown, now = Date.now()): unknown {
+/** A live mail read, one message and a page of its thread, as an agent receives it. */
+export function mailReadForAgent(result: unknown, now = Date.now()): unknown {
   const r = result as Record<string, unknown> | null;
   if (!r || typeof r !== "object") return result;
-  if (name === "inbox_read" || name === "email_read") {
-    const ref = typeof r.ref === "string" ? r.ref : undefined;
-    return { ...r,
-      ...(r.selected && typeof r.selected === "object" ? { selected: mailForAgent(r.selected as Mail, now, ref) } : {}),
-      ...(Array.isArray(r.thread) ? { thread: (r.thread as Mail[]).map(m => mailForAgent(m, now)) } : {}) };
-  }
-  if ((name === "inbox_list" || name === "email_search") && Array.isArray(r.messages))
-    return { ...r, messages: (r.messages as Mail[]).map(m => mailForAgent(m, now)) };
-  if (name === "granola_read") {
-    const at = { where: where("granola") };
-    return { ...r,
-      ...(Array.isArray(r.content) ? { content: (r.content as Array<Record<string, unknown>>).map(c => c?.type === "text" && typeof c.text === "string"
-        ? { ...c, text: fenceUntrusted({ kind: "granola" }, screenCredentials(c.text, at).text) } : c) } : {}),
-      ...(r.structuredContent !== undefined ? { structuredContent: screenDeep(r.structuredContent, at) } : {}) };
-  }
-  return result;
+  const ref = typeof r.ref === "string" ? r.ref : undefined;
+  return { ...r,
+    ...(r.selected && typeof r.selected === "object" ? { selected: mailForAgent(r.selected as Mail, now, ref) } : {}),
+    ...(Array.isArray(r.thread) ? { thread: (r.thread as Mail[]).map(m => mailForAgent(m, now)) } : {}) };
+}
+
+/** A live page of mail headers as an agent receives it. */
+export function mailListForAgent(result: unknown, now = Date.now()): unknown {
+  const r = result as Record<string, unknown> | null;
+  if (!r || typeof r !== "object" || !Array.isArray(r.messages)) return result;
+  return { ...r, messages: (r.messages as Mail[]).map(m => mailForAgent(m, now)) };
+}
+
+/** An upstream MCP tool's result as an agent receives it: its text fenced as the
+ * integration's material, its structured content screened. */
+export function upstreamForAgent(kind: OriginKind, result: unknown): unknown {
+  const r = result as Record<string, unknown> | null;
+  if (!r || typeof r !== "object") return result;
+  const at = { where: where(kind) };
+  return { ...r,
+    ...(Array.isArray(r.content) ? { content: (r.content as Array<Record<string, unknown>>).map(c => c?.type === "text" && typeof c.text === "string"
+      ? { ...c, text: fenceUntrusted({ kind }, screenCredentials(c.text, at).text) } : c) } : {}),
+    ...(r.structuredContent !== undefined ? { structuredContent: screenDeep(r.structuredContent, at) } : {}) };
 }

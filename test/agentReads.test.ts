@@ -9,7 +9,8 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
 import { appendAssertionEvent, assertionEntityId, createAssertionEvent } from "../lib/assertionLog";
-import { FRESH_MAIL_MS, liveForAgent } from "../lib/agentReads";
+import { FRESH_MAIL_MS } from "../lib/agentReads";
+import { liveForAgent } from "../lib/integrations";
 import { insertionEventRel, type SourceInsertion } from "../lib/insertionLog";
 import { handleMcpTool } from "../lib/mcp";
 import { pilotToolCall } from "../lib/pilot";
