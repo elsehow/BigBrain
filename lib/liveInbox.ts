@@ -41,17 +41,23 @@ const clientFactory: InboxClientFactory = (i, pass) => new ImapFlow({
   logger: false, connectionTimeout: 15_000, greetingTimeout: 15_000, socketTimeout: 25_000,
 });
 
+/** When the provider received it (IMAP INTERNALDATE), not what the sender's Date says. */
+const received = (m: FetchMessageObject): string | null => {
+  const at = m.internalDate ? new Date(m.internalDate) : undefined;
+  return at && Number.isFinite(at.getTime()) ? at.toISOString() : null;
+};
 const envelope = (m: FetchMessageObject) => ({
   uid: m.uid, subject: m.envelope?.subject ?? "(no subject)",
   from: m.envelope?.from ?? [], to: m.envelope?.to ?? [],
   date: m.envelope?.date?.toISOString() ?? null,
+  received: received(m),
   provider_message_id:m.emailId,
   message_id: m.envelope?.messageId, in_reply_to: m.envelope?.inReplyTo,
   seen: m.flags?.has("\\Seen") ?? false, answered_flag: m.flags?.has("\\Answered") ?? false,
   thread_id: m.threadId, labels: [...(m.labels ?? [])],
   ...(m.threadId ? { url: gmailThreadUrl(m.threadId) } : {}),
 });
-const QUERY = { uid: true, envelope: true, flags: true, threadId: true, labels: true, size: true };
+const QUERY = { uid: true, envelope: true, flags: true, threadId: true, labels: true, size: true, internalDate: true };
 const BODY_CAP = 128 * 1024;
 async function message(m: FetchMessageObject) {
   const parsed = m.source ? await simpleParser(m.source, { skipHtmlToText: false, skipTextToHtml: true }) : undefined;

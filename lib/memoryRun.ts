@@ -25,6 +25,7 @@ import { clip } from "./text";
 import { proposeEntityFolds, readEntityFolds } from "./entityFolds";
 import { readMemorySnapshot, renderMemoryContext, type MemorySnapshot } from "./memoryContext";
 import { sharedCite, unknownSharedCitations, type SharedMemory } from "./sharedMemory";
+import { stampMemoryProvenance } from "./memoryProvenance";
 import {
   describeBudget,
   measureTree,
@@ -406,6 +407,7 @@ export async function runMemory(opts: MemoryRunOpts): Promise<MemoryRunResult> {
     let result = "";
     let movesFollowed = 0;
     let canonicalized = 0;
+    let stamped = 0;
     const t0 = Date.now();
     let run: ModelRunResult | undefined;
     try {
@@ -510,6 +512,15 @@ export async function runMemory(opts: MemoryRunOpts): Promise<MemoryRunResult> {
       }
     }
 
+    // Claims drawn from outside the person keep their sources, stamped on
+    // the committed tree from its citations (lib/memoryProvenance.ts).
+    if (!error) {
+      const files = memoryTreeFiles(root);
+      edits.capture(files.map((f) => `memory/${f}`), () => {
+        stamped = stampMemoryProvenance(root, files, { vaults: snapshot.sharedVaults });
+      });
+    }
+
     // The pass's second job (#728): the labels that name one thing, as
     // proposals for the operator (lib/entityFolds.ts). After the gates, so
     // a reverted sweep proposes nothing; on the sweep's model; over the
@@ -600,6 +611,7 @@ export async function runMemory(opts: MemoryRunOpts): Promise<MemoryRunResult> {
       ...(movesFollowed ? { movesFollowed } : {}),
       ...(canonicalized ? { canonicalized } : {}),
       ...(qualified ? { qualified } : {}),
+      ...(stamped ? { stamped } : {}),
       ...(report ? { report } : {}),
       ...(error ? { error } : {}),
     });

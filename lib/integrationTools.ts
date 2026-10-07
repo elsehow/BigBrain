@@ -6,6 +6,7 @@ import { writableIntegrationAccounts, readableIntegrationAccounts, requireIntegr
 import { createEmailReadStateAdapter } from "./emailReadState";
 import { createSourceReadStateService } from "./sourceReadState";
 import { sourceCatalog } from "./vaultReadModel";
+import { liveForAgent, liveOrigin } from "./agentReads";
 
 export const INTEGRATION_TOOLS = [
   {name:"integration_capabilities", description:"List the live source accounts this caller can read. This does not read source content or save evidence.", inputSchema:{type:"object",properties:{},additionalProperties:false}},
@@ -21,6 +22,8 @@ export function integrationCapabilities(root: string, caller: IntegrationCaller)
     granola:{accounts:readableIntegrationAccounts(root,"granola",caller),available:readableIntegrationAccounts(root,"granola",caller).length>0,descriptors:LIVE_ACCESS_DESCRIPTIONS.granola,operations:["granola_tools","granola_read"]},
     remembering: "Live reads do not save evidence. Use drop explicitly; the gardener owns admission and filing." };
 }
+/** What a content read's results are, for the provenance every agent-facing result carries (lib/agentReads.ts). */
+const origin = (name: string) => { const kind = liveOrigin(name); return kind ? { kind, trusted: false } : {}; };
 export interface IntegrationCallOptions { signal?: AbortSignal; client?: InboxClientFactory; granola?: {endpoint?:string} }
 export async function integrationToolCall(root: string, caller: IntegrationCaller, name: string, args: Record<string, unknown>, options: IntegrationCallOptions = {}): Promise<unknown> {
   if (!INTEGRATION_TOOLS.some(t => t.name === name)) throw new Error("This integration operation is not available.");
@@ -41,7 +44,7 @@ export async function integrationToolCall(root: string, caller: IntegrationCalle
         return client.callTool({name:String(args.tool),arguments:args.arguments as Record<string,unknown>},undefined,{signal});
       },{...options.granola,signal});
       check();signal.throwIfAborted();
-      return {provenance:{integration:"granola",account,scope:"live_source",checkedAt:new Date().toISOString(),remembered:false},result};
+      return {provenance:{integration:"granola",account,scope:"live_source",checkedAt:new Date().toISOString(),remembered:false,...origin(name)},result:liveForAgent(name,result)};
     }finally{clearInterval(timer);}
   }
   let account = typeof args.account === "string" ? args.account.toLowerCase() : "";
@@ -66,6 +69,6 @@ export async function integrationToolCall(root: string, caller: IntegrationCalle
       }).refresh(root, true).then(rows => rows.map(row => ({...row, readState: {...row.readState, writable: false}})))
       : await liveInboxTool(root, name, { ...args, account }, { ...options, signal, authorize: check });
     try { check(); signal.throwIfAborted(); } catch(error) { if(name==="inbox_set_unread")throw new Error("Access changed after the provider operation. The flag may have changed; inspect current state before retrying.");throw error; }
-    return { provenance: { integration: "email", account, scope: "live_source", checkedAt: new Date().toISOString(), remembered: false }, result };
+    return { provenance: { integration: "email", account, scope: "live_source", checkedAt: new Date().toISOString(), remembered: false, ...origin(name) }, result: liveForAgent(name, result) };
   } finally { clearInterval(timer); }
 }

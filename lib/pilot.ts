@@ -18,6 +18,7 @@ import { VoiceError } from "./voice";
 import { dueIntakeCount } from "./work";
 import { integrationCapabilities, integrationToolCall, INTEGRATION_TOOLS, type IntegrationCallOptions } from "./integrationTools";
 import { modelDescriptor } from "./modelRegistry";
+import { rowsForAgent } from "./agentReads";
 import { pilotModels } from "./modelCatalog";
 import type { PilotState } from "./pilotTypes";
 import { noteCreditsOk, noteOutOfCredits, outOfCredits } from "./providerCredits";
@@ -142,7 +143,7 @@ const OWN_TOOLS: OwnTool[] = [
         total: page.total,
         scope: "stored_record",
         live_inbox: false,
-        recent: page.recent.map((e) => ({
+        recent: rowsForAgent(root, page.recent.map((e) => ({
           path: e.path,
           ...(e.title ? { title: e.title } : {}),
           ...(e.from ? { from: e.from } : {}),
@@ -153,7 +154,7 @@ const OWN_TOOLS: OwnTool[] = [
           ...(e.source ? { source: e.source } : {}),
           ...(e.type ? { type: e.type } : {}),
           ...(e.tags?.length ? { tags: e.tags } : {}),
-        })),
+        }))),
       };
     },
   },
