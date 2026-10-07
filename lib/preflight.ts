@@ -47,14 +47,13 @@ function runs(cmd: string, args: string[], env?: Record<string, string | undefin
 }
 
 function envHasKey(root: string, key: string): boolean {
-  if (process.env[key]) return true;
   // The one .env parser (lib/envFile.ts) — not a third hand-rolled regex (#635).
   return Boolean(readEnvValues(root)[key]);
 }
 
-/** Under `auth: api`: is the key where the gardener will look — the
- * process environment, or the vault's .env (bun loads it from the job's
- * cwd, which is the vault). */
+/** Under `auth: api`: is the key where the gardener will look — the vault's
+ * .env, read on demand. Engine processes no longer inherit it (lib/env.ts
+ * NO_ENV_FILE), so a key only in some environment is not one it can use. */
 export function apiKeyPresent(root: string): boolean {
   return envHasKey(root, "ANTHROPIC_API_KEY");
 }

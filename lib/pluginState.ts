@@ -25,6 +25,7 @@ import { homedir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import { pluginRefreshCommands } from "./connect";
 import { ENGINE_ROOT } from "./engine";
+import { handoffProcessEnv } from "./env";
 import { jobsPath } from "./preflight";
 
 const PLUGIN_ID = "bigbrain@bigbrain";
@@ -114,7 +115,7 @@ export type PluginRefresh =
 function runQuiet(argv: string[], path: string): Promise<{ status: number | null; output: string; error?: Error }> {
   return new Promise((done) => {
     let output = "";
-    const child = spawn(argv[0]!, argv.slice(1), { env: { ...process.env, PATH: path }, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(argv[0]!, argv.slice(1), { env: { ...handoffProcessEnv(), PATH: path }, stdio: ["ignore", "pipe", "pipe"] });
     child.stdout.on("data", (d: Buffer) => (output += d.toString()));
     child.stderr.on("data", (d: Buffer) => (output += d.toString()));
     child.on("error", (error) => done({ status: null, output, error }));

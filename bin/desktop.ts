@@ -56,7 +56,8 @@ import { allowVaultRequest } from "../lib/vaultBoundary";
  *                                      under `bun --watch`)
  */
 
-import { apiPort as envApiPort, isDesktop, isDev, webPort as envWebPort } from "../lib/env";
+import { apiPort as envApiPort, engineProcessEnv, isDesktop, isDev, NO_ENV_FILE, webPort as envWebPort } from "../lib/env";
+import { dropAutoloadedEnv, vaultEnvSettings } from "../lib/envFile";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { existsSync, openSync, readFileSync, statSync } from "node:fs";
 import { createServer } from "node:http";
@@ -89,10 +90,13 @@ const webPort = String(envWebPort());
 const apiPort = String(envApiPort());
 const BEAT_MS = 1000;
 const UI_DIST = join(ENGINE_ROOT, "web", "ui", "dist");
-// Every child inherits this (childEnv spreads process.env) and watches the
+// Every child inherits this (childEnv) and watches the
 // pid it names (lib/parentWatch.ts); the door's `/api/engine` reports it,
 // so the shell can tell a live supervisor's engine from an orphan's.
 process.env["BIGBRAIN_SUPERVISOR_PID"] = String(process.pid);
+// A shell that starts this without NO_ENV_FILE, in the vault, has handed
+// it the vault's credentials: nothing here needs them in the environment.
+dropAutoloadedEnv(process.env, process.cwd());
 
 const stamp = (): string => new Date().toISOString().slice(11, 19);
 const say = (msg: string): void => console.log(`desktop ${stamp()}: ${msg}`);
@@ -246,8 +250,11 @@ async function run(root: string): Promise<Run> {
 
   const logDir = join(root, ".state", "logs");
   ensureDir(logDir);
+  // Named variables only: a credential reaches a child by reading the
+  // vault's .env, never by inheritance (lib/env.ts NO_ENV_FILE).
   const childEnv = (extra?: Record<string, string>): NodeJS.ProcessEnv => ({
-    ...process.env,
+    ...vaultEnvSettings(root),
+    ...engineProcessEnv(),
     BIGBRAIN_VAULT: root,
     BIGBRAIN_DESKTOP: "1",
     HOME: homedir(),
@@ -270,6 +277,7 @@ async function run(root: string): Promise<Run> {
     // file it imports changes, so an edit to the api or the viewer's server
     // is live. Scheduled jobs start fresh every fire anyway.
     if (isDev() && job.interval === null) args.unshift("--watch", "--no-clear-screen");
+    args.unshift(NO_ENV_FILE);
     const child = spawn(process.execPath, args, {
       cwd: root,
       env: childEnv(job.env),

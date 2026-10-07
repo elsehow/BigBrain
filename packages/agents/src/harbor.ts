@@ -37,11 +37,13 @@ export const SCOPE = "BIGBRAIN_AGENT_SCOPE";
 export const scopeOf = (workspaceRoot: string): string => createHash("sha256").update(workspaceRoot).digest("hex").slice(0, 12);
 
 /** A command's environment: the base, minus the host's own BIGBRAIN_* settings
- * (the app's mode, the vault, ports), plus the desktop's tag. An agent working
- * on BigBrain itself must not run its code as the host's app, on the host's vault. */
-export function commandEnv(base: NodeJS.ProcessEnv, desktop: string, scope?: string): NodeJS.ProcessEnv {
+ * (the app's mode, the vault, ports) and any name the host withholds (its
+ * credentials), plus the desktop's tag. An agent working on BigBrain itself
+ * must not run its code as the host's app, on the host's vault. */
+export function commandEnv(base: NodeJS.ProcessEnv, desktop: string, scope?: string, withheld: Iterable<string> = []): NodeJS.ProcessEnv {
+  const deny = new Set(withheld);
   const env: NodeJS.ProcessEnv = {};
-  for (const [k, v] of Object.entries(base)) if (!k.startsWith("BIGBRAIN_")) env[k] = v;
+  for (const [k, v] of Object.entries(base)) if (!k.startsWith("BIGBRAIN_") && !deny.has(k)) env[k] = v;
   env[TAG] = desktop;
   if (scope) env[SCOPE] = scope;
   return env;
@@ -70,6 +72,9 @@ export interface HarborOptions {
   graceMs?: number;               // SIGTERM → SIGKILL
   /** The base environment for commands. Default: the person's login shell's (loginEnv). */
   env?: NodeJS.ProcessEnv | (() => Promise<NodeJS.ProcessEnv>);
+  /** Names never passed to a command, whatever the base holds: the host's
+   * credentials. Asked per command, so a key saved since is withheld too. */
+  withheld?: () => Iterable<string>;
 }
 
 let snapshot: Promise<NodeJS.ProcessEnv> | undefined;
@@ -77,7 +82,9 @@ let snapshot: Promise<NodeJS.ProcessEnv> | undefined;
  * managers and exports, so an agent's commands behave like their terminal.
  * An app started from Finder gets a thinner environment than a shell. The
  * shell starts from an identity-only seed so this process's own variables
- * don't leak in; anything that fails falls back to this process's env. */
+ * don't leak in; anything that fails falls back to that seed, never to this
+ * process's env. SSH_AUTH_SOCK still rides in the seed until commands run
+ * in a sandbox that decides what they may reach. */
 export function loginEnv(): Promise<NodeJS.ProcessEnv> {
   return snapshot ??= (async () => {
     const shell = process.env.SHELL || "/bin/zsh";
@@ -91,10 +98,10 @@ export function loginEnv(): Promise<NodeJS.ProcessEnv> {
       child.on("error", () => { clearTimeout(timer); done(null); });
       child.on("close", code => { clearTimeout(timer); done(code === 0 ? Buffer.concat(chunks).toString() : null); });
     });
-    if (!out) return { ...process.env };
+    if (!out) return { ...seed };
     const env: NodeJS.ProcessEnv = {};
     for (const pair of out.split("\0")) { const i = pair.indexOf("="); if (i > 0) env[pair.slice(0, i)] = pair.slice(i + 1); }
-    return env.PATH ? env : { ...process.env };
+    return env.PATH ? env : { ...seed };
   })();
 }
 
@@ -112,7 +119,7 @@ export class Harbor {
     const settleMs = this.options.settleMs ?? 3000, waitMs = this.options.waitMs ?? 120_000;
     const child = spawn("/bin/bash", ["-c", command], {
       cwd, detached: true, stdio: ["ignore", "pipe", "pipe"],
-      env: commandEnv(await this.base(), desktop, this.options.scope),
+      env: commandEnv(await this.base(), desktop, this.options.scope, this.options.withheld?.()),
     });
     const id = this.next++;
     const buf: string[] = [];

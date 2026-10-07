@@ -5,7 +5,7 @@
  * it resolves the vault (env → walk-up-from-cwd → pointer), then runs the
  * requested engine script with BIGBRAIN_VAULT set and cwd = the vault — the
  * same shape the supervisor's children get, so a manual `bigbrain tend` and the
- * 3am run are the same run (bun autoloads .env from cwd).
+ * 3am run are the same run (the vault's .env settings, never its credentials).
  *
  * install.ts symlinks this to ~/.local/bin/bigbrain, so skills, docs, and
  * hook messages can say `bigbrain <cmd>` on every machine regardless of
@@ -18,6 +18,8 @@
 
 import { join, resolve } from "node:path";
 import { discoverVaultRoot, ENGINE_ROOT, vaultPointer } from "../lib/engine";
+import { NO_ENV_FILE } from "../lib/env";
+import { dropAutoloadedEnv, vaultEnvSettings } from "../lib/envFile";
 
 /** The product — what a person or agent types day to day. */
 const EVERYDAY: Record<string, [script: string, blurb: string]> = {
@@ -92,7 +94,9 @@ if (!cmd || !resolved) {
   process.exit(cmd ? 2 : 0);
 }
 
-const env: Record<string, string | undefined> = { ...process.env };
+let env: Record<string, string | undefined> = { ...process.env };
+// This process may have loaded the .env of the folder it was typed in.
+dropAutoloadedEnv(env, process.cwd());
 let cwd = process.cwd();
 
 if (cmd === "shared") {
@@ -113,12 +117,12 @@ if (cmd === "shared") {
     console.error(`No vault yet? bigbrain init --vault <path>`);
     process.exit(2);
   }
-  env["BIGBRAIN_VAULT"] = vault;
-  cwd = vault; // .env autoload + content-relative behavior, same as the supervisor
+  env = { ...vaultEnvSettings(vault), ...env, BIGBRAIN_VAULT: vault };
+  cwd = vault; // content-relative behavior, same as the supervisor
 }
 
 const r = Bun.spawnSync(
-  [process.execPath, join(ENGINE_ROOT, resolved.script), ...resolved.prepend, ...rest],
+  [process.execPath, NO_ENV_FILE, join(ENGINE_ROOT, resolved.script), ...resolved.prepend, ...rest],
   {
     cwd,
     env,

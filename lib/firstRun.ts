@@ -42,6 +42,7 @@ import { listTokens, tokenStorePath } from "./auth";
 import { connectTokenName } from "./connect";
 import type { PluginStatus } from "./pluginState";
 import { ENGINE_ROOT, vaultPointer } from "./engine";
+import { engineProcessEnv, NO_ENV_FILE } from "./env";
 import { writeAtomic } from "./fsx";
 import { jobsPath } from "./preflight";
 import { declareUserIdentity, latestUserIdentity, legacyUserLabels } from "./userIdentity";
@@ -184,11 +185,11 @@ export function createVault(path: string, engineRoot: string = ENGINE_ROOT): str
   // and its normal credential preflight are separate; neither should block
   // creation of an empty vault before a provider has been chosen.
   const spec = { auth: "max", install: false };
-  const r = spawnSync(process.execPath, [join(engineRoot, "bin", "init.ts"), "--json"], {
+  const r = spawnSync(process.execPath, [NO_ENV_FILE, join(engineRoot, "bin", "init.ts"), "--json"], {
     input: JSON.stringify(spec),
     encoding: "utf8",
     timeout: 120_000,
-    env: { ...process.env, BIGBRAIN_VAULT: path, PATH: jobsPath() },
+    env: { ...engineProcessEnv(), BIGBRAIN_VAULT: path, PATH: jobsPath() },
   });
   const line = (r.stdout ?? "").trim().split("\n").filter(Boolean).at(-1) ?? "";
   let result: { ok?: boolean; error?: string } = {};

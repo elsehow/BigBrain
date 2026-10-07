@@ -11,6 +11,7 @@ import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { gitProcessEnv } from "../env";
 import { canonicalizeLinks, repairRenames, type Rename } from "../links";
 
 /** Detect working-tree renames through a private index and repair links only
@@ -20,7 +21,7 @@ export function followRenames(root: string, role: string, scope: string[] = []):
   const temporary = mkdtempSync(join(tmpdir(), "bb-memory-index-"));
   const git = (args: string[]) => {
     const result = spawnSync("git", args, { cwd: root, encoding: "utf8",
-      env: { ...process.env, GIT_INDEX_FILE: join(temporary, "index") } });
+      env: { ...gitProcessEnv(), GIT_INDEX_FILE: join(temporary, "index") } });
     if (result.status !== 0) throw new Error("Could not inspect memory renames");
     return result.stdout;
   };

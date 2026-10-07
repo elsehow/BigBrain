@@ -14,6 +14,7 @@ import { existsSync, mkdirSync, rmdirSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { VAULT_ROOT } from "../lib/vaultRoot";
+import { gitProcessEnv } from "../lib/env";
 import { ensureDir, writeAtomic } from "../lib/fsx";
 
 const root = VAULT_ROOT;
@@ -33,7 +34,7 @@ try {
   // with no GitHub remote is complete without one — the offsite copy is
   // opt-in. Say so at info level and stamp it, so the 15-minute catch-up
   // does not fill the log with a fatal every tick.
-  const origin = spawnSync("git", ["remote", "get-url", "origin"], { cwd: root, encoding: "utf8" });
+  const origin = spawnSync("git", ["remote", "get-url", "origin"], { cwd: root, encoding: "utf8", env: gitProcessEnv() });
   const stamp = { lastAttemptAt: new Date().toISOString() } as Record<string, string>;
   if (origin.status !== 0) {
     stamp.skipped = "no-origin";
@@ -42,6 +43,7 @@ try {
     const r = spawnSync("git", ["push", "origin", "main"], {
       cwd: root,
       encoding: "utf8",
+      env: gitProcessEnv(),
       timeout: 120_000,
     });
     if (r.status === 0) {

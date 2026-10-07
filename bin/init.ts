@@ -40,6 +40,7 @@ import { parseDocument, Scalar } from "yaml";
 import { loadManifest, type Auth } from "../lib/manifest";
 import { VAULT_ROOT } from "../lib/vaultRoot";
 import { ENGINE_ROOT, pointerPlan, readPointer, vaultPointer } from "../lib/engine";
+import { engineProcessEnv, NO_ENV_FILE } from "../lib/env";
 import {
   ensureStoragePlanes,
   scaffoldVault,
@@ -320,10 +321,10 @@ try {
   if (dryRun || noInstall) {
     result.next.push("run `bigbrain install` to link the command and refresh the scaffold");
   } else {
-    const r = spawnSync("bun", [join(ENGINE_ROOT, "bin", "install.ts")], {
+    const r = spawnSync("bun", [NO_ENV_FILE, join(ENGINE_ROOT, "bin", "install.ts")], {
       cwd: root,
       encoding: "utf8",
-      env: { ...process.env, BIGBRAIN_VAULT: root },
+      env: { ...engineProcessEnv(), BIGBRAIN_VAULT: root },
     });
     process.stderr.write(r.stdout ?? "");
     process.stderr.write(r.stderr ?? "");
