@@ -9,7 +9,8 @@
 // note every few seconds (entities and sources, one of them older than the
 // sorted feed), so its place can be watched moving; one concerns both sides
 // of the field (some entities twice, which count once); one has nothing
-// placeable yet. `?twins` gives three entities one name (Wren Hollis, kept for
+// placeable yet. It also has an entity that is really a source (a paper
+// taken for its own subject), drawn as one node that opens the paper. `?twins` gives three entities one name (Wren Hollis, kept for
 // its ties; Wren-Hollis; wren hollis) and a three-way fold proposal (Kestrel
 // Books, the pick; Kestrel Bookshop; Kestrel Books Ltd), for Merge?'s Accept and
 // Reject; an accept here takes the merged ones off the field, as the engine's
@@ -65,6 +66,16 @@ const sorted = empty ? [] : [
 
 let outOfCredits = new URLSearchParams(location.search).has("credits");
 const reading = new URLSearchParams(location.search).has("reading");
+// a paper the gardener took for its own subject, every claim "[[it]] found
+// …": /api/graph links the pair (the entity's `opens`, the source's `drawnAs`)
+const PAPER = reading && !empty ? { id: "ent_paper", title: "Tidal Rhythm Exposure and Shorebird Foraging Outcomes Across Twelve Estuary Sites: A Longitudinal Survey",
+  group: "entity", entity: true as const, degree: 3, path: "projection/entities/ent_paper.md", x: -60, y: -20, opens: ["source:ins_p"] } : null;
+if (PAPER) {
+  sorted.push({ source: "ins_p", section: "know", headline: "A twelve-site survey of shorebird foraging and tidal rhythm was filed.", due: null, added: at(5),
+    entities: [PAPER.id, "ent_3", "ent_4"], title: "Shorebird foraging survey (preprint)", path: "log/insertions/2026-10/ins_p.json", via: "drop" });
+  graph = { ...graph, nodes: [...graph.nodes, PAPER],
+    edges: [...graph.edges, { source: PAPER.id, target: "ent_4", weight: 2 }, { source: PAPER.id, target: "ent_3", weight: 1 }] };
+}
 // a walk across the field: Harbor lab's side, then down past Kit to the orrery
 const WALK = ["ent_4", "log/insertions/2026-10/ins_c.json", "ent_6", "log/insertions/2026-08/ins_old.json", "ent_3", "ent_2", "log/insertions/2026-10/ins_a.json", "ent_0", "ent_1", "ent_7"];
 // what the engine knows of each source (lib/contextSources.ts): the sorted
@@ -81,11 +92,12 @@ if (!empty) {
     { id: "ins_g", path: "log/insertions/2026-09/ins_g.json", title: "Tidewater review minutes", entities: ["ent_8", "ent_3", "ent_1"] },
     { id: "ins_h", path: "log/insertions/2026-09/ins_h.json", title: "Lantern grant budget", entities: ["ent_6", "ent_4"] },
   ];
-  const all = [...SOURCES, ...more], pos = new Map(entities.map((e) => [e.id, e]));
+  const all = [...SOURCES, ...more], pos = new Map([...entities, ...(PAPER ? [PAPER] : [])].map((e) => [e.id, e]));
   const nodes = all.map((src, k) => {
     const on = src.entities.map((id) => pos.get(id)!);
     const x = on.reduce((t, e) => t + e.x, 0) / on.length + Math.cos(k * 2.4) * 22, y = on.reduce((t, e) => t + e.y, 0) / on.length + Math.sin(k * 2.4) * 22;
-    return { id: `source:${src.id}`, title: src.title!, group: "source", degree: src.entities.length, path: src.path!, x, y };
+    const drawnAs = PAPER?.opens.includes(`source:${src.id}`) ? { drawnAs: PAPER.id } : {};
+    return { id: `source:${src.id}`, title: src.title!, group: "source", degree: src.entities.length, path: src.path!, x, y, ...drawnAs };
   });
   graph = { ...graph, nodes: [...graph.nodes, ...nodes],
     edges: [...graph.edges, ...all.flatMap((src) => src.entities.map((target) => ({ source: `source:${src.id}`, target, weight: 1 })))] };

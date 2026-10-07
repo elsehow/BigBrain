@@ -745,17 +745,28 @@
     if (i == null) { if (openPilot) closePilot(); else if ((ent != null || src) && !searching) overview(); return; }
     if (searching) { searching = false; scene?.search(null); }
     if (openPilot) { openPilot = null; detail = null; scene?.focusPilot(null); }
-    if (i !== ent) void openEntity(i);
+    if (i !== ent) openNode(i);
   }
-  /** A click on a source drawn at rest: opened as its feed row is (one not in
-   * the feed is opened the same way, as search's are). */
+  /** A node picked (clicked, or chosen in search): an entity that is a
+   * source opens the source; any other, itself. */
+  function openNode(i: number): void {
+    const n = field?.nodes[i];
+    if (n?.opens?.length) openSourceAt(n.opens, n.opens[0]!, n.label, [n.id]);
+    else void openEntity(i);
+  }
+  /** A click on a source drawn at rest. */
   function onPickSource(k: number): void {
     const f = field, s = f?.sources[k];
-    if (!f || !s) return;
+    if (f && s) openSourceAt(s.paths, s.id, s.label, s.ties.map((i) => f.nodes[i]!.id));
+  }
+  /** A source picked in the field, opened as its feed row is: the row for
+   * the first of its paths the feed has; one not in the feed opens the same
+   * way, as search's are. */
+  function openSourceAt(paths: string[], id: string, label: string, entities: string[]): void {
     if (searching) { searching = false; scene?.search(null); }
     if (openPilot) { openPilot = null; detail = null; scene?.focusPilot(null); }
-    openSource(sorted.find((r) => r.path && s.paths.includes(r.path))
-      ?? { source: s.id, section: "know", headline: s.label, due: null, added: "", entities: s.ties.map((i) => f.nodes[i]!.id), title: s.label, path: s.paths[0] });
+    openSource(paths.map((p) => sorted.find((r) => r.path === p)).find((r) => r)
+      ?? { source: id, section: "know", headline: label, due: null, added: "", entities, title: label, path: paths[0] });
   }
   /** Slide the field's centre clear of the panels: right of a left column, left of the sidebar. */
   const shiftFor = () => {
@@ -1091,14 +1102,14 @@
       const i = nodeAt.get(m.id);
       searching = false; recentRow = null;
       scene?.search(null);
-      if (i != null) void openEntity(i); else openSource(rowFor(m));
+      if (i != null) openNode(i); else openSource(rowFor(m));
       return;
     }
     const i = matches[k];
     if (i == null) return;
     searching = false;
     scene?.search(null);
-    void openEntity(i);
+    openNode(i);
   }
   const metaOf = (i: number) => {
     const n = field!.nodes[i]!;

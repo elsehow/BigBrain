@@ -3,7 +3,7 @@
 // (V2View.svelte) reads it, and neither reshapes it.
 
 import type { V2Feed, V2FeedRow } from "../../../../../lib/v2Feed";
-import type { GraphData } from "../types";
+import type { GraphData, GraphNode } from "../types";
 
 export type { V2Feed, V2FeedRow };
 
@@ -20,6 +20,10 @@ export interface FieldNode {
   p: [number, number, number];
   /** Labelled at rest: a hub or a memory topic. */
   named: boolean;
+  /** An entity that IS a source (/api/graph's `opens`): those sources' note
+   * paths, in its `opens` order, so the first is what a click opens. The
+   * pair is this one node; the source draws no dot of its own. */
+  opens?: string[];
 }
 /** A source: the graph's own source node, on the entities' floor plan. Kept
  * apart from `nodes`, so search, ties, folds and Desktops read entities alone. */
@@ -108,8 +112,16 @@ export function buildField(graph: GraphData): Field {
     set.add(i);
   };
   for (const e of graph.edges) { mention(e.source, e.target); mention(e.target, e.source); }
+  const pathsOf = (n: GraphNode): string[] => {
+    const path = n.path === undefined ? n.id : n.path;
+    return [...(path ? [path] : []), ...(n.memberPaths ?? [])];
+  };
+  // A source drawn as an entity here (/api/graph's `drawnAs`: a document
+  // taken for its own subject) has no dot of its own, whatever the switch
+  // says; drawn as an entity that isn't here, it stays a source.
   const sources: FieldSource[] = [];
   for (const n of sourceNodes) {
+    if (n.drawnAs != null && byId.has(n.drawnAs)) continue;
     const ties = [...(mentions.get(n.id) ?? [])];
     const lift = 3 + (unit(n.id) - 0.5) * 2.6;
     let p: [number, number, number];
@@ -120,9 +132,16 @@ export function buildField(graph: GraphData): Field {
       p = [0, lift, 0];
       for (const i of ties) { p[0] += nodes[i]!.p[0] / ties.length; p[2] += nodes[i]!.p[2] / ties.length; }
     } else continue;
-    const path = n.path === undefined ? n.id : n.path;
-    sources.push({ id: n.id, label: n.title, paths: [...(path ? [path] : []), ...(n.memberPaths ?? [])], p, ties });
+    sources.push({ id: n.id, label: n.title, paths: pathsOf(n), p, ties });
   }
+  // Every entity that IS a source carries its paths, in its own `opens`
+  // order: duplicates bound to one paper each open it, though the source is
+  // drawn as only one of them
+  const sourceById = new Map(sourceNodes.map((n) => [n.id, n]));
+  drawn.forEach((n, i) => {
+    const paths = (n.opens ?? []).flatMap((id) => { const src = sourceById.get(id); return src ? pathsOf(src) : []; });
+    if (paths.length) nodes[i]!.opens = paths;
+  });
 
   return { nodes, byId, edges, strong: strongEdges(nodes, edges), hubs, sources };
 }

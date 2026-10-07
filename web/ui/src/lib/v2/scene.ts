@@ -57,7 +57,7 @@ export interface V2Scene {
    * nothing). Sources aren't in the field at rest; this one is there only
    * while it's in hand. `open`: opened as an entity is — framed, the rest
    * steps back, `text` beside it. `path`: with sources drawn at rest, the
-   * one in hand sits on its own dot. */
+   * one in hand sits on its own dot; one drawn as an entity, on the entity's. */
   source(s: { label: string; entities: number[]; open?: boolean; text?: string; path?: string } | null): void;
   /** Beside one of the opened entity's ties: how it relates to that entity,
    * after its name; "" is a spinner, null takes it away. The entity keeps
@@ -155,7 +155,7 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
   // ── sources: hidden at rest; the one in hand is a node like any other ────
   // It sits over the middle of what it mentions, tied to each, and comes and
   // goes as a pointed dot's name does: fading in where it is, out where it was.
-  type Src = { key: string; ties: number[]; home: number | null; at: THREE.Vector3; vis: number; want: boolean; open: boolean; L: HTMLDivElement & { w?: number; h?: number; op?: number } };
+  type Src = { key: string; ties: number[]; home: THREE.Vector3 | null; at: THREE.Vector3; vis: number; want: boolean; open: boolean; L: HTMLDivElement & { w?: number; h?: number; op?: number } };
   const sources: Src[] = Array.from({ length: SOURCES }, () => {
     const L = document.createElement("div") as Src["L"];
     L.className = "v2-lab v2-node v2-source";
@@ -189,7 +189,10 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
   restSources.frustumCulled = false;
   scene.add(restSources);
   const SP = field.sources.map((x) => new THREE.Vector3(...x.p));
-  const sourceAt = new Map(field.sources.flatMap((x, k) => x.paths.map((p) => [p, k] as const)));
+  const sourceAt = new Map(field.sources.flatMap((x, k) => x.paths.map((p) => [p, SP[k]!] as const)));
+  // a source drawn as an entity has no dot of its own: held, it sits on the
+  // entity's, switch on or off
+  const entityAt = new Map(field.nodes.flatMap((n) => (n.opens ?? []).map((p) => [p, P[n.i]!] as const)));
   const sPoint = new Float32Array(S);
   let srcShown = hooks.sources?.() ? 1 : 0, underSrc: number | null = null, srcNamed: number | null = null;
   /** How far the named resting source is shown (its name and ties fade with it). */
@@ -356,7 +359,7 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
   /** Over the middle of what it mentions, lifted clear of it (over one, a
    * little aside, so the tie reads); mentioning nothing here, mid-view. */
   const settle = (s: Src) => {
-    if (s.home != null) s.at.copy(SP[s.home]!);
+    if (s.home) s.at.copy(s.home);
     else if (s.ties.length) s.at.copy(centre(s.ties.map((j) => P[j]!))).add(v3.set(s.ties.length === 1 ? 0.6 : 0, 1.6, 0));
     else s.at.copy(goal.target).y += 1.2;
     s.at.toArray(aPos.array, (N + sources.indexOf(s)) * 3);
@@ -827,7 +830,7 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
       for (const s of sources) { s.want = !!key && s.key === key; if (!s.want) s.open = false; }
       if (!want) return;
       const open = !!want.open;
-      const home = want.path && hooks.sources?.() ? sourceAt.get(want.path) ?? null : null;
+      const home = !want.path ? null : entityAt.get(want.path) ?? (hooks.sources?.() ? sourceAt.get(want.path) : undefined) ?? null;
       const held = sources.find((s) => s.want);
       if (held) {
         const opening = open && !held.open;
