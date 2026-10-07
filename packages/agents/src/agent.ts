@@ -49,6 +49,9 @@ export interface OpenOptions {
   /** Told what a file held, by real path, each time the file tools read or
    * wrote it; the tool returns once it settles. */
   file?: (how: "read" | "wrote", path: string, content: string) => void | Promise<void>;
+  /** Whether the desktop has read untrusted material, asked before each
+   * command: its commands then write only the desktop's own folder (sandbox.ts). */
+  untrusted?: () => boolean;
   /** Material the host hands over as data, not instructions (such as untrusted
    * content the desktop was started about): the session's first message, ahead
    * of the person's, kept in the session and never in the instructions. */
@@ -61,7 +64,7 @@ export const WORKING_INSTRUCTIONS = (id: string) => `
 Paths are relative to your workspace.
 - projects/<name> are your person's projects: their real checkouts, exactly as they see them. Reading, searching and running commands there is how you answer questions about them.
 - Small, clear fixes can be made in place. For anything larger, or a project another desktop is editing, call start_work: it gives you your own git worktree at desktops/${id}/<name> on branch desktop/${id}, sharing the project's repo, with its dependencies in place. Then make your changes there.
-- Commands run as your person, with their environment. Long-running commands such as dev servers return once they're listening, and keep running; say the address you were given.
+- Commands run in a sandbox, with your person's environment: they write your worktrees, the projects you edit in place and your temp folder, and reach the internet only through a proxy to package registries, GitHub and hosts your person allows. Long-running commands such as dev servers return once they're listening, and keep running; say the address you were given. stop_job stops one.
 - Commit finished work on your branch. Don't push, merge, rebase or switch branches in your person's checkouts unless they ask.`;
 
 export class Agents {
@@ -148,7 +151,7 @@ export class Desktop {
 
     const tools: AgentTool[] = [
       ...codingTools({
-        ws: this.ws, desktop: this.id, harbor: this.harbor, elsewhere: options.elsewhere, shell: options.shell, write: options.write, file: options.file,
+        ws: this.ws, desktop: this.id, harbor: this.harbor, elsewhere: options.elsewhere, shell: options.shell, write: options.write, file: options.file, untrusted: options.untrusted,
         started: (r: WorkRecord) => this.emit({ type: "work.started", project: r.project, branch: r.branch, path: r.path, ms: r.ms, cloned: r.cloned }),
         server: (port, job, command) => {
           this.emit({ type: "server.started", port, job, command });

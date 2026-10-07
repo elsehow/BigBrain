@@ -1,10 +1,11 @@
 /**
  * harbor.ts — the shell a desktop's agent runs commands in.
  *
- * Every command runs under `/bin/bash -c`, in its own process group, with
- * `BIGBRAIN_AGENT_DESKTOP=<id>` in its environment. That tag is inherited by
- * everything the command starts and survives daemonizing, so this module can
- * find a desktop's processes without the agent's help:
+ * Every command runs under `/bin/bash -c` inside the desktop's sandbox
+ * (sandbox.ts), in its own process group, with `BIGBRAIN_AGENT_DESKTOP=<id>`
+ * in its environment. The sandbox and that tag are inherited by everything
+ * the command starts and survive daemonizing, so this module can find a
+ * desktop's processes without the agent's help:
  *
  * - a command that is still running after a short settle and owns a
  *   listening loopback port returns early, as a job with that port: the
@@ -19,7 +20,9 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
+import { EgressProxy } from "./proxy";
 import { run } from "./run";
+import { DEFAULT_HOSTS, Seatbelt, type Confinement, type Launcher, type SandboxPolicy } from "./sandbox";
 
 /** Not BIGBRAIN_DESKTOP: the engine reads that as "running inside the app" (lib/env.ts). */
 export const TAG = "BIGBRAIN_AGENT_DESKTOP";
@@ -77,6 +80,10 @@ export interface HarborOptions {
   /** Names never passed to a command, whatever the base holds: the host's
    * credentials. Asked per command, so a key saved since is withheld too. */
   withheld?: () => Iterable<string>;
+  /** What the sandbox keeps from commands: paths, the host's ports, the hosts they may reach. */
+  policy?: SandboxPolicy;
+  /** What confines commands. Default: Seatbelt, which refuses them off macOS. */
+  launcher?: Launcher;
 }
 
 let snapshot: Promise<NodeJS.ProcessEnv> | undefined;
@@ -85,13 +92,12 @@ let snapshot: Promise<NodeJS.ProcessEnv> | undefined;
  * An app started from Finder gets a thinner environment than a shell. The
  * shell starts from an identity-only seed so this process's own variables
  * don't leak in; anything that fails falls back to that seed, never to this
- * process's env. SSH_AUTH_SOCK still rides in the seed until commands run
- * in a sandbox that decides what they may reach. */
+ * process's env. No ssh agent: the sandbox drops one the shell names, too. */
 export function loginEnv(): Promise<NodeJS.ProcessEnv> {
   return snapshot ??= (async () => {
     const shell = process.env.SHELL || "/bin/zsh";
     const seed: NodeJS.ProcessEnv = { PATH: SYSTEM_PATH, TERM: "dumb" };
-    for (const k of ["HOME", "USER", "LOGNAME", "SHELL", "LANG", "TMPDIR", "SSH_AUTH_SOCK"]) if (process.env[k]) seed[k] = process.env[k];
+    for (const k of ["HOME", "USER", "LOGNAME", "SHELL", "LANG", "TMPDIR"]) if (process.env[k]) seed[k] = process.env[k];
     const out = await new Promise<string | null>(done => {
       const child = spawn(shell, ["-ilc", "env -0"], { env: seed, stdio: ["ignore", "pipe", "ignore"] });
       const chunks: Buffer[] = [];
@@ -110,19 +116,30 @@ export function loginEnv(): Promise<NodeJS.ProcessEnv> {
 export class Harbor {
   private jobs = new Map<number, JobState>();
   private next = 1;
-  constructor(private options: HarborOptions = {}) {}
+  /** Where commands reach the internet: started on the first command. */
+  readonly egress: EgressProxy;
+  private launcher: Launcher;
+  constructor(private options: HarborOptions = {}) {
+    const policy = options.policy ?? {};
+    this.egress = new EgressProxy({ hosts: () => policy.hosts?.() ?? DEFAULT_HOSTS });
+    this.launcher = options.launcher ?? new Seatbelt(policy, this.egress);
+  }
 
   private base(): Promise<NodeJS.ProcessEnv> {
     const env = this.options.env;
     return typeof env === "function" ? env() : env ? Promise.resolve(env) : loginEnv();
   }
 
-  async run(desktop: string, command: string, cwd: string, signal?: AbortSignal): Promise<RunResult> {
+  /** Run a command in its desktop's sandbox. `confine` says what it may
+   * change (sandbox.ts, confinement); without it, only its temp folder.
+   * Throws AgentsError, having run nothing, when it can't be confined. */
+  async run(desktop: string, command: string, cwd: string, signal?: AbortSignal, confine?: Confinement): Promise<RunResult> {
     const settleMs = this.options.settleMs ?? 3000, waitMs = this.options.waitMs ?? 120_000;
-    const child = spawn("/bin/bash", ["-c", command], {
-      cwd, detached: true, stdio: ["ignore", "pipe", "pipe"],
-      env: commandEnv(await this.base(), desktop, this.options.scope, this.options.withheld?.()),
-    });
+    // every port something else listens on now: the person's services, other desktops' servers
+    const busy = (await this.listeners().catch(() => [])).filter(l => l.desktop !== desktop).map(l => l.port);
+    const launch = await this.launcher.launch({ command, busy, confine: confine ?? { desktop, write: [], worktrees: [], untrusted: false },
+      env: commandEnv(await this.base(), desktop, this.options.scope, this.options.withheld?.()) });
+    const child = spawn(launch.file, launch.args, { cwd, detached: true, stdio: ["ignore", "pipe", "pipe"], env: launch.env });
     const id = this.next++;
     const buf: string[] = [];
     let size = 0;
