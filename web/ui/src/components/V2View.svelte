@@ -1351,13 +1351,6 @@
               <button type="button" class="find" onclick={() => { review = null; }}>Cancel</button></span>
           </div>
         {/if}
-        {#if detail.taint}
-          <div class="taint">
-            <p>Shell is off — this desktop {taintText(detail.taint)}.</p>
-            {#if detail.taint.refused}<p>The agent asked to run: <code>{detail.taint.refused.command}</code></p>{/if}
-            <button type="button" class="find" onclick={() => void allowShell()} title="Its commands run as you, in a sandbox: they change only its own worktrees, and reach only allowlisted hosts">Allow shell for this desktop</button>
-          </div>
-        {/if}
       </header>
       <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
       <div class="msgs" bind:this={msgsEl} onscroll={onMsgsScroll} onclick={citation}><div class="col">
@@ -1368,6 +1361,14 @@
         {#if live}<div class="msg assistant live"><div class="body">{@html render(live)}</div></div>{/if}
         {#if detail.phase === "working" && !live}<p class="activity">{(coding(detail.id) && runningLabel) || detail.activity || "Working…"}</p>{/if}
         {#if detail.error}<p class="activity err">{detail.error}</p>{/if}
+        {#if detail.taint?.refused}
+          <div class="ask" role="group" aria-label="The shell is off for this desktop">
+            <p class="ask-head">The shell is off for this desktop</p>
+            <p>It {taintText(detail.taint)}, so its commands wait for you. Allowed, they run in a sandbox: they change only its own copies of your projects and reach only allowlisted hosts.</p>
+            <code>{detail.taint.refused.command}</code>
+            <span><button type="button" class="allow" onclick={() => void allowShell()}>Allow shell</button></span>
+          </div>
+        {/if}
         {#if !detail.messages.length && detail.phase === "draft"}<p class="activity">{coding(detail.id) || drafting(detail.id) ? "Ask it anything: it can read your vault and work on your projects." : "Ask it anything — it can read your vault."}</p>{/if}
       </div></div>
       <div class="dock" style:--gutter={`${gutter}px`}><div class="composer col">
@@ -1629,10 +1630,14 @@
   .fork b { font-weight: 500; color: var(--fg); }
   .fork .find { font-size: 12px; }
   .fork .find:disabled { opacity: .45; cursor: default; }
-  .taint { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; font: 400 12px/1.6 var(--font-app); color: var(--v2-muted); }
-  .taint p { margin: 0; }
-  .taint code { display: block; max-height: 4.8em; overflow: auto; font: 400 12px/1.6 var(--font-mono); color: var(--fg); overflow-wrap: anywhere; white-space: pre-wrap; }
-  .taint .find { margin: 2px 0 0; height: 24px; font-size: 12px; }
+  .ask { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 14px 16px; border-radius: 16px;
+    background: color-mix(in srgb, var(--fg) 9%, var(--bg)); font: 400 13px/1.55 var(--font-app); color: var(--v2-muted); }
+  .ask p { margin: 0; }
+  .ask .ask-head { font-weight: 550; color: var(--fg); }
+  .ask code { display: block; align-self: stretch; max-height: 4.8em; overflow: auto; padding: 8px 10px; border-radius: 8px;
+    background: color-mix(in srgb, var(--bg) 60%, transparent); font: 400 12px/1.5 var(--font-mono); color: var(--fg); overflow-wrap: anywhere; white-space: pre-wrap; }
+  .allow { height: 30px; padding: 0 14px; border: 0; border-radius: 999px; background: var(--fg); color: var(--bg); font: 500 13px/1 var(--font-app); cursor: pointer; }
+  .allow:hover { background: color-mix(in srgb, var(--fg) 86%, var(--bg)); }
   .review { display: flex; flex-direction: column; gap: 6px; font: 400 12px/1.6 var(--font-mono); color: var(--v2-muted); }
   .review p, .review ul { margin: 0; padding: 0; list-style: none; }
   .review li { display: flex; gap: 10px; padding: 0; cursor: default; }
