@@ -14,9 +14,11 @@ test('two inboxes independently connect, remember, grant live access, and discon
  const {root,accounts,calls}=fixture(),a='personal@example.com',b='work@example.com';
  const act=(account:string,action:string,extra={})=>accounts.update({name:'email',account,action,...extra});
  await act(a,'connect');await act(b,'connect');expect(calls).toEqual([a,b]);
- expect(integrationActive(root,'email',a)).toBe(true);expect(integrationActive(root,'email',b)).toBe(true);expect(readableIntegrationAccounts(root,'email',{kind:'pilot'})).toEqual([]);
+ expect(integrationActive(root,'email',a)).toBe(true);expect(integrationActive(root,'email',b)).toBe(true);
+ // a first connection starts at the default: Pilot reads
+ expect(readableIntegrationAccounts(root,'email',{kind:'pilot'})).toEqual([a,b]);expect(()=>requireIntegrationWrite(root,'email',a,{kind:'pilot'})).toThrow();
  await act(a,'save',{grants:[{caller:'pilot',access:'read-write'}]});
- await act(b,'save',{grants:[]});
+ await act(b,'save',{grants:[{caller:'pilot',access:'off'}]});
  expect(readableIntegrationAccounts(root,'email',{kind:'pilot'})).toEqual([a]);expect(()=>requireIntegrationWrite(root,'email',a,{kind:'pilot'})).not.toThrow();expect(()=>requireIntegrationWrite(root,'email',b,{kind:'pilot'})).toThrow();
  for(const account of [a,b])stage(root,{id:account===a?'personal':'work',source:'email',account,at:'2026-09-23',line:'Decision',name:'mail.md',content:'---\nsource: email\n---\nA decision.'});
  expect(nextWork(root,{kinds:['staged']})).toEqual([]);
@@ -64,19 +66,19 @@ test('desktop scheduling follows per-account connection even without a legacy so
  await accounts.update({name:'that-tracks',account,action:'disconnect'});expect(await plan()).not.toContain('integrations/that-tracks/run.ts');
 });
 
-test('adding Granola opts in once; existing policies survive re-add and reads',async()=>{
+test('adding Granola starts at the defaults once; existing policies survive re-add and reads',async()=>{
  const {root,accounts}=fixture();
  expect(accounts.list().library.find(i=>i.id==='granola')?.added).toBe(false);
  await accounts.update({name:'granola',action:'install'});
  expect(accounts.list().library.find(i=>i.id==='granola')?.added).toBe(true);
  const added=accountPolicy(root,'granola','granola');
- expect(added.liveAccess).toBe(true);expect(added.connected).toBe(false);
+ expect(added.grants).toEqual([{caller:'pilot',access:'read'}]);expect(added.connected).toBe(false);
  const {writeAccountPolicy}=await import('../lib/integrationAccess');
- writeAccountPolicy(root,'granola','granola',{...added,liveAccess:false});
+ writeAccountPolicy(root,'granola','granola',{...added,grants:[]});
  await accounts.update({name:'granola',action:'install'});
- expect(accountPolicy(root,'granola','granola')).toMatchObject({liveAccess:false});
+ expect(accountPolicy(root,'granola','granola').grants).toEqual([]);
  const result=await accounts.update({name:'granola',action:'add',label:'Work'});
- expect(result.accounts.find(a=>a.label==='Work')).toMatchObject({connected:false,liveAccess:true});
+ expect(result.accounts.find(a=>a.label==='Work')).toMatchObject({connected:false,grants:[{caller:'pilot',access:'read'}]});
 });
 test('an inbox at imap.gmail.com from the earlier add form is listed under Gmail with IMAP access, refuses a duplicate add, reconnects, and can be removed',async()=>{
  const root=gitVault({files:{'vault.yaml':'integrations:\n  email:\n    inboxes:\n      - address: legacy@gmail.com\n        host: imap.gmail.com\n','.env':'BIGBRAIN_IMAP_PASSWORD__LEGACY_GMAIL_COM=old\n','.gitignore':'.env\n.spool/\n'}});roots.push(root);

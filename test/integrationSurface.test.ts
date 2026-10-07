@@ -20,7 +20,7 @@ import { liveOrigin } from "../lib/integrations";
 import { configuredAccounts } from "../lib/integrationAccounts";
 import { integrationLibrary } from "../lib/integrationLibrary";
 import { accountFingerprint, integrationAccountEnvKey, integrationAccounts, integrationFingerprint, MANAGED_INTEGRATIONS,
-  readableIntegrationAccounts, requireIntegrationRead, requireIntegrationWrite, writableIntegrationAccounts, writeAccountPolicy, type IntegrationCaller } from "../lib/integrationAccess";
+  readableIntegrationAccounts, requireIntegrationRead, requireIntegrationWrite, writableIntegrationAccounts, writeAccountPolicy, type AccountGrant, type IntegrationCaller } from "../lib/integrationAccess";
 
 const originalStore = process.env.BIGBRAIN_TOKENS;
 const root = gitVault({ files: {
@@ -41,15 +41,15 @@ for (const account of ["granola", extra]) writeAtomic(join(root, ".spool/source-
 const writer = mintToken(store, root, "Writer agent", ["vault:read", "inbox:write"], { kind: "agent" });
 const reader = mintToken(store, root, "Reader agent", ["vault:read"], { kind: "agent" });
 const stranger = mintToken(store, root, "Ungranted agent", ["vault:read"], { kind: "agent" });
-const W = "token:" + writer.record.id, R = "token:" + reader.record.id;
-const policy = (name: string, account: string, grants: { caller: string; access: "off" | "read" | "read-write" }[], liveAccess?: boolean) =>
-  writeAccountPolicy(root, name, account, { version: 2, connected: true, fingerprint: accountFingerprint(root, name, account), checkedAt: "2026-01-01T00:00:00.000Z", grants, ...(liveAccess === undefined ? {} : { liveAccess }) });
+const W = `token:${writer.record.id}` as const, R = `token:${reader.record.id}` as const;
+const policy = (name: string, account: string, grants: AccountGrant[]) =>
+  writeAccountPolicy(root, name, account, { version: 3, connected: true, fingerprint: accountFingerprint(root, name, account), checkedAt: "2026-01-01T00:00:00.000Z", grants });
 policy("email", "me@example.com", [{ caller: "pilot", access: "read-write" }, { caller: W, access: "read-write" }, { caller: R, access: "read" }]);
 policy("email", "work@example.com", [{ caller: "pilot", access: "read" }, { caller: W, access: "read-write" }, { caller: R, access: "read" }]);
 policy("granola", "granola", [{ caller: "pilot", access: "read" }, { caller: W, access: "read" }, { caller: R, access: "read" }]);
-policy("granola", extra, [], true);
+policy("granola", extra, [{ caller: "pilot", access: "read" }]);
 policy("that-tracks", "that-tracks", [{ caller: "pilot", access: "off" }]);
-policy("rss", "https://feeds.example.com/news.xml", [], false);
+policy("rss", "https://feeds.example.com/news.xml", []);
 
 const mcp = (token?: string): IntegrationCaller => ({ kind: "mcp", token, storePath: store });
 const callers: Record<string, IntegrationCaller> = {
@@ -66,7 +66,7 @@ test("MCP lists live tools by what the client may do", () => {
   const list = (token?: string) => mcpToolList({ root, via: "cli", integrationToken: token, tokenStore: store });
   expect(definitions(list(writer.token))).toMatchSnapshot("email + granola, with write");
   expect(definitions(list(reader.token))).toMatchSnapshot("email + granola, read only");
-  // granted nothing itself, it still reads the account whose liveAccess decides for every caller
+  // granted nothing, it is offered no live tools
   expect(list(stranger.token).map(t => t.name).sort()).toMatchSnapshot("no grants of its own");
   expect(list().map(t => t.name).sort()).toMatchSnapshot("no credential");
 });

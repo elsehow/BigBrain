@@ -67,7 +67,7 @@ export function saveIntegrationActivation(root: string, name: string, grants: In
   if (fingerprint !== integrationFingerprint(root, name)) throw new Error("Account settings changed during the access check. Try again.");
   const record: IntegrationActivation = { version: 1, active: true, fingerprint, checkedAt: new Date().toISOString(), grants };
   writeAtomic(file(root, name), JSON.stringify(record) + "\n", 0o600);
-  for(const account of integrationAccounts(root,name))writeAccountPolicy(root,name,account,{version:2,connected:true,fingerprint:accountFingerprint(root,name,account),checkedAt:record.checkedAt,grants:grants.filter(g=>g.accounts.includes(account)).map(g=>({caller:g.caller,access:"read"}))});
+  for(const account of integrationAccounts(root,name))writeAccountPolicy(root,name,account,{version:3,connected:true,fingerprint:accountFingerprint(root,name,account),checkedAt:record.checkedAt,grants:grants.filter(g=>g.accounts.includes(account)).map(g=>({caller:g.caller as GrantCaller,access:"read"}))});
 }
 export function deactivateIntegration(root: string, name: string): void {
   const policies = integrationAccounts(root,name).map(account => ({account,policy:accountPolicy(root,name,account)}));
@@ -86,7 +86,7 @@ export function integrationCallerId(root: string, caller: IntegrationCaller): st
 export function readableIntegrationAccounts(root: string, name: string, caller: IntegrationCaller): string[] {
   if (caller.kind === "worker") return readableIntegrationAccounts(root, name, {kind: "pilot"}).filter(a => caller.accounts.some(g => g.integration === name && g.account === a));
   const id = integrationCallerId(root, caller);
-  return integrationAccounts(root,name).filter(a => { const p=accountPolicy(root,name,a);return p.connected && (p.liveAccess??["read","read-write"].includes(p.grants.find(g=>g.caller===id)?.access ?? "off")); });
+  return integrationAccounts(root,name).filter(a => { const p=accountPolicy(root,name,a);return p.connected && accessOf(p,id)!=="off"; });
 }
 export function requireIntegrationRead(root: string, name: string, account: string, caller: IntegrationCaller): void {
   if (!readableIntegrationAccounts(root, name, caller).includes(account))
@@ -96,19 +96,30 @@ export function requireIntegrationRead(root: string, name: string, account: stri
 /** "Import earlier …" in Settings: a poller honors each request once. */
 export interface Backfill { since: string; request: string }
 export type LiveAccess = "off" | "read" | "read-write";
+/** Who a grant names: Pilot, or one connected client by its token id. `desktop:<id>` is reserved for coding desktops and issued by nothing yet. */
+export type GrantCaller = "pilot" | `token:${string}` | `desktop:${string}`;
+export interface AccountGrant { caller: GrantCaller; access: LiveAccess }
 export interface AccountPolicy {
-  version:2; connected:boolean; fingerprint:string; checkedAt:string|null; liveAccess?:boolean;
+  version:3; connected:boolean; fingerprint:string; checkedAt:string|null;
   email?: { startAt: string; attachments: boolean; backfill?: Backfill };
   granola?: { backfill?: Backfill };
-  grants:{caller:string;access:LiveAccess}[];
+  /** The only source of live access: a caller without a grant reads nothing. */
+  grants:AccountGrant[];
 }
+const ACCESS:LiveAccess[]=["off","read","read-write"];
+const isGrantCaller=(c:unknown):c is GrantCaller=>typeof c==="string"&&/^(?:pilot|(?:token|desktop):\S+)$/.test(c);
+const accessOf=(p:AccountPolicy,id:string):LiveAccess=>p.grants.find(g=>g.caller===id)?.access??"off";
+/** Pilot reads, where the integration has live tools; nothing else. */
+const pilotReads=(name:string):AccountGrant[]=>integrationNamed(name)?.tools.length?[{caller:"pilot",access:"read"}]:[];
+/** A newly connected account: Pilot reads; every client starts off. */
+export const defaultGrants=(name:string):AccountGrant[]=>pilotReads(name);
 const accountPolicyFile = (root:string,name:string,account:string):string => { managed(name); return policyPath(root,name,account); };
 export function accountFingerprint(root:string,name:string,account:string):string {
   if (!integrationAccounts(root,name).includes(account)) throw new Error("Choose a configured account.");
   return managed(name).fingerprint(root,account);
 }
 export function accountPolicy(root:string,name:string,account:string):AccountPolicy {
-  const empty:AccountPolicy={version:2,connected:false,fingerprint:"",checkedAt:null,grants:[]};
+  const empty:AccountPolicy={version:3,connected:false,fingerprint:"",checkedAt:null,grants:[]};
   if(!integrationAccounts(root,name).includes(account))return empty;
   let raw:string;
   try{raw=readFileSync(accountPolicyFile(root,name,account),"utf8");}
@@ -118,16 +129,23 @@ export function accountPolicy(root:string,name:string,account:string):AccountPol
     if(integrationNamed(name)?.credential.kind==="oauth"||(name!=="email"&&account!==name))return empty;
     const old=activationRecord(root,name);
     const valid=!!old?.active && integrationEnabledIn(loadManifest(root).integrations,name) && old.fingerprint===integrationFingerprint(root,name);
+    // the access reset applies here too: Pilot keeps read if it held it, and no client carries over
     return {...empty,connected:valid,fingerprint:valid?accountFingerprint(root,name,account):"",checkedAt:old?.checkedAt??null,
-      grants:(old?.grants??[]).filter(g=>g.accounts.includes(account)).map(g=>({caller:g.caller,access:"read"}))};
+      grants:(old?.grants??[]).some(g=>g.caller==="pilot"&&g.accounts.includes(account))?pilotReads(name):[]};
   }
   try {
     const p=JSON.parse(raw);
-    if(p.version!==2||typeof p.connected!=="boolean"||typeof p.fingerprint!=="string"||!Array.isArray(p.grants)||p.grants.some((g:any)=>typeof g.caller!=="string"||!["off","read","read-write"].includes(g.access)))return empty;
-    if(p.liveAccess!==undefined&&typeof p.liveAccess!=="boolean")return empty;
+    // An unknown version is a newer engine's: fail closed rather than guess.
+    if((p.version!==2&&p.version!==3)||typeof p.connected!=="boolean"||typeof p.fingerprint!=="string"||!Array.isArray(p.grants)||p.grants.some((g:any)=>typeof g?.caller!=="string"||!ACCESS.includes(g.access)))return empty;
+    if(p.version===2&&p.liveAccess!==undefined&&typeof p.liveAccess!=="boolean")return empty;
+    if(p.version===3&&!p.grants.every((g:any)=>isGrantCaller(g.caller)))return empty;
+    // Version 2 is read as 3 and written as 3 on the next change: the access reset. Its `liveAccess` overrode
+    // every caller's grant; now grants alone decide. Pilot keeps read where it could read, never read-write, and
+    // every client starts off. Connection, settings and credentials stay as they were.
+    const grants:AccountGrant[]=p.version===3?p.grants:(p.liveAccess??["read","read-write"].includes(p.grants.find((g:any)=>g.caller==="pilot")?.access))?pilotReads(name):[];
     // a retired `remembering` switch or rule in an older file is ignored: a connected account is remembered
-    const {remembering:_retired,...policy}=p;
-    return {...policy,connected:p.connected&&(managed(name).credential.signedIn?.(root,account)??true)&&p.fingerprint===accountFingerprint(root,name,account)};
+    const {remembering:_retired,liveAccess:_override,...policy}=p;
+    return {...policy,version:3,grants,connected:p.connected&&(managed(name).credential.signedIn?.(root,account)??true)&&p.fingerprint===accountFingerprint(root,name,account)};
   }catch{return empty;}
 }
 export function writeAccountPolicy(root:string,name:string,account:string,policy:AccountPolicy):void {
@@ -148,13 +166,13 @@ const providerWritable = (root:string,name:string,account:string):boolean => int
 export function requireIntegrationWrite(root:string,name:string,account:string,caller:IntegrationCaller):void {
   if (caller.kind === "worker") throw new Error("Workers have read-only source access.");
   const id=integrationCallerId(root,caller),p=accountPolicy(root,name,account);
-  if(!providerWritable(root,name,account)||!p.connected||!(p.liveAccess??(p.grants.find(g=>g.caller===id)?.access==="read-write")))throw new Error("This account does not grant this caller live write access.");
+  if(!providerWritable(root,name,account)||!p.connected||accessOf(p,id)!=="read-write")throw new Error("This account does not grant this caller live write access.");
 }
 
 export function writableIntegrationAccounts(root:string,name:string,caller:IntegrationCaller):string[] {
   if (caller.kind === "worker") return [];
   const id=integrationCallerId(root,caller);
-  return integrationAccounts(root,name).filter(a=>{const p=accountPolicy(root,name,a);return providerWritable(root,name,a)&&p.connected&&(p.liveAccess??(p.grants.find(g=>g.caller===id)?.access==="read-write"));});
+  return integrationAccounts(root,name).filter(a=>{const p=accountPolicy(root,name,a);return providerWritable(root,name,a)&&p.connected&&accessOf(p,id)==="read-write";});
 }
 
 
