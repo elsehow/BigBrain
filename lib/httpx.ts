@@ -43,8 +43,8 @@ export interface Route {
  * The note renderer sanitizes every `{@html}` body (DOMPurify), so this is
  * the second wall: a future `{@html}` that forgets sanitizeHtml(), or a
  * DOMPurify bypass, becomes a blocked console line instead of a script on
- * the origin that holds the whole vault behind unauthenticated loopback
- * routes. Scripts: this origin's bundle only — no inline, no eval. Styles
+ * the origin that holds the whole vault, and the session cookie that
+ * opens it. Scripts: this origin's bundle only — no inline, no eval. Styles
  * keep 'unsafe-inline' for now: the Svelte templates set a handful of
  * `style=` attributes and sanitized markdown may carry them, and CSS is
  * not code. The Google Fonts pair is the typeface tokens.css imports; a
@@ -93,9 +93,11 @@ export function armor(res: ServerResponse): void {
 /** The theme stylesheet, served to agents' own pages on other loopback ports. */
 export const THEME_SHEET = "/api/desktops/theme.css";
 
-/** The unauthenticated viewer and setup door trust local programs, not arbitrary
- * websites. Loopback binding alone does not prevent DNS rebinding or browser
- * writes. Apply this before ALL routes, including reads and first-run setup.
+/** The browser half of the viewer's and setup door's boundary; the launch's
+ * session (lib/viewerSession.ts) is checked right after it. Loopback binding
+ * alone does not prevent DNS rebinding or browser writes, and a session
+ * cookie rides along with a browser's requests. Apply this before ALL routes,
+ * including reads and first-run setup.
  * No forwarded header grants access. A local dev proxy may preserve its own
  * loopback Host and Origin; the TCP listener's port need not equal that Host. */
 export function allowLoopbackRequest(req: IncomingMessage, res: ServerResponse): boolean {
@@ -110,9 +112,12 @@ export function allowLoopbackRequest(req: IncomingMessage, res: ServerResponse):
 
   const site = req.headers["sec-fetch-site"];
   // The one thing other pages on this machine may load: the theme sheet that
-  // agents' served pages link (lib/codingDesktopRoutes.ts). Same-site only, so
-  // a loopback page on another port, never a website.
-  if (site === "same-site" && ["GET", "HEAD"].includes(req.method ?? "GET") && req.url?.split("?")[0] === THEME_SHEET) return true;
+  // agents' served pages link (lib/codingDesktopRoutes.ts). From a loopback
+  // page only, never a website: one on another port (same-site), or one under
+  // the other loopback name, where the viewer frames them (web/ui
+  // loopbackFrame.ts), which a website cannot claim as its referrer.
+  if ((site === "same-site" || (site === "cross-site" && loopbackReferrer(req.headers.referer))) &&
+    ["GET", "HEAD"].includes(req.method ?? "GET") && req.url?.split("?")[0] === THEME_SHEET) return true;
   if (site !== undefined && site !== "same-origin" && site !== "none")
     return refuse(403, "The app's own origin is required.");
   const origin = req.headers.origin;
@@ -132,6 +137,15 @@ export function allowLoopbackRequest(req: IncomingMessage, res: ServerResponse):
     if (type !== "application/json") return refuse(415, "Use application/json for app requests.");
   }
   return true;
+}
+
+function loopbackReferrer(referer: string | undefined): boolean {
+  try {
+    const from = new URL(referer ?? "");
+    return from.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(from.hostname);
+  } catch {
+    return false;
+  }
 }
 
 /** Reply with a body already serialized. API responses are live vault

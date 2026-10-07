@@ -19,6 +19,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { appendAssertionEvent } from "../lib/assertionLog";
+import { viewerAuth, viewerHome, viewerSecret } from "./support/viewerSession";
 
 const SERVER = join(import.meta.dir, "..", "web", "server.ts");
 
@@ -54,31 +55,39 @@ describe("web/server.ts request backstop", () => {
     const port = probe.port;
     probe.stop(true);
 
+    const home = viewerHome();
     proc = Bun.spawn(["bun", SERVER], {
-      env: { ...process.env, BIGBRAIN_VAULT: halfPortedVault(), PORT: String(port) },
+      env: { ...process.env, HOME: home, BIGBRAIN_VAULT: halfPortedVault(), PORT: String(port) },
       stdout: "ignore",
-      stderr: "ignore",
+      stderr: "pipe",
     });
+    const log = new Response(proc.stderr as ReadableStream).text();
     const origin = `http://127.0.0.1:${port}`;
     const deadline = Date.now() + 15_000;
-    // Up when the socket answers anything at all.
+    // Up when the socket answers and its session is on disk: a viewer run by
+    // hand writes the file just after it binds the port.
     for (;;) {
       try {
-        await fetch(`${origin}/`);
-        break;
-      } catch {
-        if (Date.now() > deadline) throw new Error("server never came up");
-        await Bun.sleep(100);
-      }
+        if (viewerSecret(home, port)) {
+          await fetch(`${origin}/`);
+          break;
+        }
+      } catch { /* not listening yet */ }
+      if (Date.now() > deadline) throw new Error("server never came up");
+      await Bun.sleep(100);
     }
 
-    const recent = await fetch(`${origin}/api/recent`);
+    // A query can carry a bootstrap secret: nothing the server says repeats it.
+    const secret = viewerSecret(home, port)!;
+    const recent = await fetch(`${origin}/api/recent?k=${secret}`, { headers: viewerAuth(home, port) });
     expect(recent.status).toBe(500);
     // The body names the actual damage, same posture as /api/graph's catch.
     expect(((await recent.json()) as { error: string }).error).toContain("unreadable event");
 
     // The server is still alive to answer the next request.
-    const alive = await fetch(`${origin}/`);
+    const alive = await fetch(`${origin}/`, { headers: viewerAuth(home, port) });
     expect(alive.status).toBe(200);
+    proc.kill();
+    expect(await log).not.toContain(secret);
   }, 20_000);
 });

@@ -1,12 +1,15 @@
-# Auth — the viewer has no login, so don't publish it
+# Auth — the viewer has one operator, so don't publish it
 
-The web viewer (`web/server.ts`) binds `127.0.0.1` and has no login of its
-own: whoever reaches the socket is the host operator. That is the whole
-model — reach it locally, over `ssh -L 4747:127.0.0.1:4747 <host>`, or on a
-private network (Tailscale).
+The web viewer (`web/server.ts`) binds `127.0.0.1`, and its only credential
+is a session secret the app creates at each launch on this machine
+(`lib/viewerSession.ts`): whoever holds it — the app's window, a browser
+given `bigbrain open`'s link, a script reading
+`~/.config/bigbrain/viewer-session-<port>` — is the operator. That is the
+whole model — reach it locally, over `ssh -L 4747:127.0.0.1:4747 <host>`
+with `bigbrain open --print`, or on a private network (Tailscale).
 
-**Do not put it behind a public reverse proxy.** There is no gate left to
-turn on. Until 2026-08-30 the server could be told to trust an
+**Do not put it behind a public reverse proxy.** There is no gate for
+other people to turn on. Until 2026-08-30 the server could be told to trust an
 authenticating edge (`BIGBRAIN_TRUSTED_EDGE`, an email allowlist, a
 read-only method gate, and `X-ExeDev-*` identity headers), and it stamped
 drop provenance from the verified email. The whole contract went with the

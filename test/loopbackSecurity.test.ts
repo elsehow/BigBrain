@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { allowLoopbackRequest, armor, json, THEME_SHEET } from "../lib/httpx";
 import { nativeVault, NATIVE_YAML } from "./support/vault";
+import { viewerAuth, viewerHome } from "./support/viewerSession";
 
 const roots: string[] = [];
 afterAll(() => roots.forEach(root => rmSync(root, { recursive: true, force: true })));
@@ -50,7 +51,11 @@ test("loopback guard rejects browser/rebinding requests before any handler runs"
     expect(reached).toBe(0);
     // An agent's page on another loopback port may load the theme sheet, and nothing else
     expect((await http(port, THEME_SHEET, { host, "sec-fetch-site": "same-site" })).status).toBe(200);
+    // ...including one the viewer frames under the other loopback name
+    expect((await http(port, THEME_SHEET, { host, "sec-fetch-site": "cross-site", referer: "http://localhost:5173/" })).status).toBe(200);
     for (const [path, headers, method] of [[THEME_SHEET, { host, "sec-fetch-site": "cross-site" }, "GET"], [THEME_SHEET, { host: "rebind.example", "sec-fetch-site": "same-site" }, "GET"],
+      [THEME_SHEET, { host, "sec-fetch-site": "cross-site", referer: "https://attacker.example/" }, "GET"], [THEME_SHEET, { host, "sec-fetch-site": "cross-site", referer: "http://localhost.example/" }, "GET"],
+      ["/api/private", { host, "sec-fetch-site": "cross-site", referer: "http://localhost:5173/" }, "GET"],
       [THEME_SHEET, { host, "sec-fetch-site": "same-site", "content-type": "application/json" }, "POST"], [`${THEME_SHEET}/..`, { host, "sec-fetch-site": "same-site" }, "GET"]] as const)
       expect((await http(port, path, headers, method, method === "POST" ? "{}" : undefined)).status).toBe(403);
     expect((await http(port, "/", { host, "sec-fetch-site": "none" })).status).toBe(200);
@@ -68,18 +73,20 @@ test("loopback guard rejects browser/rebinding requests before any handler runs"
 describe("production HTTP entrypoints enforce the boundary", () => {
   for (const entry of ["web/server.ts", "bin/desktop.ts"]) test(entry, async () => {
     const root = entry === "web/server.ts" ? nativeVault({ files: { "vault.yaml": NATIVE_YAML } }) : mkdtempSync(join(tmpdir(), "bb-security-door-"));
-    roots.push(root);
+    // The supervisor tightens ~/.config/bigbrain at start, and both write the
+    // viewer session there: never the real one.
+    const home = entry === "web/server.ts" ? viewerHome() : root;
+    roots.push(root, home);
     const probe = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: () => new Response() });
     const port = probe.port!; probe.stop(true);
     const child = Bun.spawn([process.execPath, entry], {
-      // The supervisor tightens ~/.config/bigbrain at start: never the real one.
-      env: { ...process.env, BIGBRAIN_VAULT: root, BIGBRAIN_WEB_PORT: String(port), BIGBRAIN_SUPERVISOR_PID: "", BIGBRAIN_DEV: "1", ...(entry === "bin/desktop.ts" ? { HOME: root } : {}) },
+      env: { ...process.env, HOME: home, BIGBRAIN_VAULT: root, BIGBRAIN_WEB_PORT: String(port), BIGBRAIN_SUPERVISOR_PID: "", BIGBRAIN_DEV: "1" },
       stdin: "pipe", stdout: "ignore", stderr: "ignore",
     });
     try {
       let ready = false;
       for (let i = 0; i < 150; i++) {
-        try { if ((await http(port, "/api/engine")).status === 200) { ready = true; break; } } catch { /* boot */ }
+        try { if ((await http(port, "/api/engine", viewerAuth(home, port))).status === 200) { ready = true; break; } } catch { /* boot */ }
         await Bun.sleep(40);
       }
       expect(ready).toBe(true);
@@ -89,8 +96,11 @@ describe("production HTTP entrypoints enforce the boundary", () => {
       expect((await http(port, path, { origin: "https://attacker.example", "content-type": "text/plain" }, "POST", "{}")).status).toBe(403);
       expect((await http(port, path, { "content-type": "text/plain" }, "POST", "{}")).status).toBe(415);
       if (before !== null) expect(readFileSync(join(root, "vault.yaml"), "utf8")).toBe(before);
-      // The same safe JSON request reaches the actual route (invalid setting / no vault).
-      const valid = await http(port, path, { "content-type": "application/json" }, "POST", '{"unknown_security_test_setting":true}');
+      // The same safe JSON request needs the session, and with it reaches the
+      // actual route (invalid setting / no vault).
+      const safe = '{"unknown_security_test_setting":true}';
+      expect((await http(port, path, { "content-type": "application/json" }, "POST", safe)).status).toBe(401);
+      const valid = await http(port, path, { ...viewerAuth(home, port), "content-type": "application/json" }, "POST", safe);
       expect(valid.status).toBe(entry === "web/server.ts" ? 400 : 409);
     } finally {
       child.kill(); await child.exited;

@@ -11,13 +11,21 @@ import { engineProcessEnv, handoffProcessEnv, NO_ENV_FILE } from '../lib/env';
 import { initMemberStore, verifyCredential } from '../lib/sharedMembers';
 import { readConnections, saveConnection, sharedRequest } from '../lib/sharedConnections';
 import { vaultIdentity } from '../lib/vaultBoundary';
+import { readViewerSession, viewerAuthorization, viewerLink } from '../lib/viewerSession';
 const args = process.argv.slice(2), location = flagValue(args,'home');
 if (!location) throw Error('Usage: bun bin/shared-shell.ts --home <owner-directory> [--port 4768] [--shared-port 4769] [--open]');
 const home = resolve(location), port = Number(flagValue(args,'port') ?? 4768), remotePort = Number(flagValue(args,'shared-port') ?? 4769);
 for (const value of [port,remotePort]) if (!Number.isInteger(value) || value<1 || value>65535) throw Error('Invalid port.');
 mkdirSync(home,{recursive:true,mode:0o700});
 const lock = join(home,'shell-ui.lock'), launch = join(home,'shell-launch-url');
-const open = (url:string) => { if (hasFlag(args,'open')) Bun.spawn([process.platform==='darwin'?'open':'xdg-open',url],{env:handoffProcessEnv(),stdout:'ignore',stderr:'ignore'}); };
+// The viewer answers only its session (lib/viewerSession.ts): a browser gets a
+// fresh short-lived link to the saved view, never the saved URL bare.
+const open = (url:string) => {
+  if (!hasFlag(args,'open')) return;
+  const at = new URL(url), secret = readViewerSession(Number(at.port));
+  const link = secret ? viewerLink(Number(at.port), secret) + at.search.replace(/^\?/, '&') : url;
+  Bun.spawn([process.platform==='darwin'?'open':'xdg-open',link],{env:handoffProcessEnv(),stdout:'ignore',stderr:'ignore'});
+};
 if (!acquire(lock)) { if (existsSync(launch)) { open(readFileSync(launch,'utf8').trim()); process.exit(0); } throw Error('Shared shell is already starting.'); }
 const children: ReturnType<typeof Bun.spawn>[] = [];
 let stopping=false;
@@ -47,7 +55,7 @@ try {
   if(!connection){const created=await saveConnection(store,probe);connection=readConnections(store).find(c=>c.id===created.id)!;}
   const viewer=Bun.spawn(['bun',NO_ENV_FILE,'web/server.ts'],{cwd:resolve(import.meta.dir,'..'),env:{...engineProcessEnv(),BIGBRAIN_VAULT:personal,BIGBRAIN_WEB_PORT:String(port),BIGBRAIN_SHARED_CONNECTIONS:store},stdin:'ignore',stdout:'ignore',stderr:'inherit'});children.push(viewer);
   ready=false;
-  for(let i=0;i<100;i++){if(viewer.exitCode!==null)throw Error('Viewer could not start.');try{const r=await fetch(`http://127.0.0.1:${port}/api/vault`);if(r.ok&&r.headers.get('x-bigbrain-vault')===vaultIdentity(personal)){ready=true;break}}catch{}await Bun.sleep(100)}
+  for(let i=0;i<100;i++){if(viewer.exitCode!==null)throw Error('Viewer could not start.');try{const r=await fetch(`http://127.0.0.1:${port}/api/vault`,{headers:viewerAuthorization(port)});if(r.ok&&r.headers.get('x-bigbrain-vault')===vaultIdentity(personal)){ready=true;break}}catch{}await Bun.sleep(100)}
   if(!ready)throw Error('Viewer did not become ready.');
   const url=`http://127.0.0.1:${port}/?workspace=${connection.id}`;
   writeAtomic(launch,url+'\n',0o600);console.log(`Shared BigBrain: ${url}\nPersonal preview is isolated at ${personal}`);open(url);

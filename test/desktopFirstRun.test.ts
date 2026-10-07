@@ -3,6 +3,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, statSync } from 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ENGINE_ROOT } from "../lib/engine";
+import { viewerFetch } from "./support/viewerSession";
 
 test("the real first-run door identifies its own supervisor before a vault exists", async () => {
   const home = mkdtempSync(join(tmpdir(), "bb-first-run-"));
@@ -18,12 +19,11 @@ test("the real first-run door identifies its own supervisor before a vault exist
     stdin: "pipe", stdout: "ignore", stderr: "pipe",
   });
   const errors = new Response(child.stderr).text();
-  const base = `http://127.0.0.1:${port}`;
   try {
     let identity: { engine: string; supervisor: number | null } | undefined;
     for (let i = 0; i < 150; i++) {
       try {
-        const response = await fetch(`${base}/api/engine`, { signal: AbortSignal.timeout(500) });
+        const response = await viewerFetch(home, port, "/api/engine", { signal: AbortSignal.timeout(500) });
         if (response.ok) { identity = await response.json(); break; }
       } catch { /* the supervisor is still starting */ }
       if (child.exitCode !== null) throw new Error(`Setup door exited: ${await errors}`);
@@ -33,7 +33,7 @@ test("the real first-run door identifies its own supervisor before a vault exist
     expect(identity!.engine).toBe(ENGINE_ROOT);
     expect(identity!.supervisor).toBe(child.pid);
     expect(statSync(config).mode & 0o777).toBe(0o700);
-    const setup = await fetch(`${base}/api/setup`).then(response => response.json());
+    const setup = await viewerFetch(home, port, "/api/setup").then(response => response.json());
     expect(setup.vault).toBeNull();
     expect(existsSync(vault)).toBe(false);
   } finally {

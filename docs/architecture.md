@@ -28,8 +28,10 @@ tick. On first run, the supervisor serves setup until a vault is selected.
 | CLI and scheduled jobs | [`bin/cli.ts`](../bin/cli.ts), [`bin/tend.ts`](../bin/tend.ts), [`integrations/`](../integrations/) | Explicit commands and bounded background work |
 
 HTTP is both the frontend's transport and a separate integration interface.
-The two servers have different authorization contracts: the viewer trusts local
-access and has no login; the integration API checks scopes and token provenance.
+The two servers have different authorization contracts: the viewer requires the
+session the app creates at each launch (a cookie in the window and in `bigbrain
+open`'s browser, a bearer header from local scripts) and has no user accounts;
+the integration API checks scopes and token provenance.
 Local MCP runs with its launching account's filesystem authority. Current
 plugins register that local server; an HTTP token does not grant or revoke MCP
 access. Public MCP does not expose internal gardener or memory-writing tools.

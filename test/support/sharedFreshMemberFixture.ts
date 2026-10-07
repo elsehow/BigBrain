@@ -10,6 +10,7 @@ import { initMemberStore } from '../../lib/sharedMembers';
 import { makeSharedApiHandler } from '../../lib/sharedVaultApi';
 import { SharedVault } from '../../lib/sharedVault';
 import { createMemberInvite } from '../../lib/sharedInvites';
+import { viewerReady } from '../../lib/viewerSession';
 
 const home = mkdtempSync(join(tmpdir(), 'bb-fresh-member-')), personal = join(home, 'personal'), shared = join(home, 'shared');
 const members = join(home, 'members.json'), connections = join(home, 'connections.json'), fakeHome = join(home, 'home');
@@ -37,6 +38,8 @@ const port = (probe.address() as { port: number }).port; await new Promise<void>
 const child = Bun.spawn(['bun', 'web/server.ts'], { env: { ...env, BIGBRAIN_WEB_PORT: String(port), BIGBRAIN_SHARED_CONNECTIONS: connections, PI_OFFLINE: '1', NODE_ENV: 'test' }, stdout: 'ignore', stderr: 'pipe' });
 void new Response(child.stderr).text().then(log => { if (log) process.stderr.write(log); });
 void child.exited.then(code => { if (code) console.error('Fixture web server exited with status ' + code); });
-writeFileSync(join(home, 'browser.json'), JSON.stringify({ invite, base: `http://127.0.0.1:${port}`, home }), { mode: 0o600 });
+const secret = await viewerReady(port, join(fakeHome, '.config', 'bigbrain'));
+if (!secret) throw Error('Fixture web server did not answer with its session');
+writeFileSync(join(home, 'browser.json'), JSON.stringify({ invite, base: `http://127.0.0.1:${port}`, secret, home }), { mode: 0o600 });
 console.log(join(home, 'browser.json'));
 const close = () => { child.kill(); remote.stop(true); process.exit(); }; process.on('SIGTERM', close); process.on('SIGINT', close);

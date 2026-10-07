@@ -34,7 +34,8 @@ benchmark, not an idle-power measurement. DPR defaults to 2 for both sizes;
 To replay the current graph size without pointing development code at the vault:
 
 ```sh
-curl --fail http://127.0.0.1:4747/api/graph -o /tmp/home-walk-graph.json
+curl --fail -H "Authorization: Bearer $(cat ~/.config/bigbrain/viewer-session-4747)" \
+  http://127.0.0.1:4747/api/graph -o /tmp/home-walk-graph.json
 PROFILE_GRAPH_FILE=/tmp/home-walk-graph.json \
   PROFILE_OUT=/tmp/home-walk-vault.json node test/support/profileHomeWalk.cjs
 ```

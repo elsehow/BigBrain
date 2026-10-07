@@ -1,5 +1,7 @@
 /** Serve the diagnostic viewer over a read-only proxy to an already-running app.
- * bun bin/ui-diagnostics.ts [port]; no supervisor, jobs, or PostHog collection. */
+ * bun bin/ui-diagnostics.ts [port]; no supervisor, jobs, or PostHog collection.
+ * The app's viewer answers only its session: the browser's cookie from
+ * `bigbrain open` is passed through, and nothing else grants one. */
 import { resolve, sep } from "node:path";
 
 const dist = resolve(import.meta.dir, "../web/ui/dist");
@@ -18,7 +20,7 @@ const server = Bun.serve({
       try {
         return await fetch(`http://127.0.0.1:4747${url.pathname}${url.search}`, {
           method: request.method, signal: request.signal, redirect: "error",
-          headers: { accept: request.headers.get("accept") ?? "application/json" },
+          headers: { accept: request.headers.get("accept") ?? "application/json", cookie: request.headers.get("cookie") ?? "" },
         });
       } catch { return Response.json({ error: "The running desktop engine is unavailable." }, { status: 502 }); }
     }
@@ -33,4 +35,4 @@ const server = Bun.serve({
     });
   },
 });
-console.log(`Diagnostic viewer: ${server.url} (read-only; keep the installed desktop app running)`);
+console.log(`Diagnostic viewer: ${server.url} (read-only; keep the installed desktop app running, and run \`bigbrain open\` once in the same browser)`);
