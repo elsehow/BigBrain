@@ -49,6 +49,7 @@ export function codingDesktopRoutes(desktops: CodingDesktops, options: { graph?:
     post("stop", b => desktops.stop(b.id)),
     post("archive", b => desktops.archive(b.id)),
     post("allow-shell", b => desktops.allowShell(b.id)),
+    post("answer-host", b => desktops.answerHost(b.id, b.answer)),
     post("rename", b => desktops.rename(b.id, b.title)),
     post("model", b => desktops.setModel(b.id, b.model)),
     post("land", b => desktops.land(b.id, b.project, b.how, b.head)),

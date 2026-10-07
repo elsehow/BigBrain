@@ -126,6 +126,15 @@ describe.if(mac)("a desktop's sandbox", () => {
     expect(r.out.split("\n")).toEqual(["from the registry", "from the registry", "403", "direct-refused"]);
   });
 
+  test("a desktop's commands carry its credential: what was allowed for it alone is reachable from it, not from another", async () => {
+    const upstream = await listen("tides");
+    const egress = new EgressProxy({ hosts: d => d === "desk-sb" ? ["data.tides.example"] : [], dial: () => dialed(connect({ host: "127.0.0.1", port: upstream })) });
+    const { sh, outside } = await scene({ egress });
+    const fetch = "curl -s -m 3 -o /dev/null -w '%{http_code}' http://data.tides.example/";
+    expect((await sh(fetch)).out).toBe("200");
+    expect((await sh(fetch, outside, false, "desk-other")).out).toBe("403");
+  });
+
   test.skipIf(!process.env.BIGBRAIN_TEST_INTERNET)("a real registry, through the proxy", async () => {
     const { sh } = await scene({ hosts: () => ["registry.npmjs.org"] });
     expect((await sh("curl -s -m 10 -o /dev/null -w '%{http_code}' https://registry.npmjs.org/; echo; curl -s -m 5 -o /dev/null -w '%{http_code}' https://example.com/")).out).toBe("200\n000");
@@ -194,7 +203,8 @@ describe("the egress proxy", () => {
   test("refuses hosts off the allowlist, other ports, and allowlisted names that resolve to this machine", async () => {
     const proxy = new EgressProxy({ hosts: () => ["localhost", "registry.example.test"] });
     const port = await proxy.port();
-    expect(await raw(port, "CONNECT elsewhere.example.test:443 HTTP/1.1\r\nHost: elsewhere.example.test:443\r\n\r\n")).toStartWith("HTTP/1.1 403");
+    // no credential: asked for one (407), in case it has one for a desktop that may reach it
+    expect(await raw(port, "CONNECT elsewhere.example.test:443 HTTP/1.1\r\nHost: elsewhere.example.test:443\r\n\r\n")).toStartWith("HTTP/1.1 407");
     expect(await raw(port, "CONNECT registry.example.test:22 HTTP/1.1\r\n\r\n")).toContain("only ports 80 and 443");
     expect(await raw(port, "CONNECT localhost:443 HTTP/1.1\r\n\r\n")).toContain("resolves to this machine or a private network");
     expect(await raw(port, "GET http://localhost/ HTTP/1.1\r\nHost: localhost\r\n\r\n")).toContain("resolves to this machine or a private network");
@@ -209,6 +219,24 @@ describe("the egress proxy", () => {
     const tunnel = await raw(port, "CONNECT registry.example.test:443 HTTP/1.1\r\n\r\nGET /ping HTTP/1.1\r\nHost: registry.example.test\r\nConnection: close\r\n\r\n");
     expect(tunnel).toStartWith("HTTP/1.1 200 Connection Established\r\n\r\nHTTP/1.1 200");
     expect(tunnel).toEndWith("pong");
+    proxy.close();
+  });
+
+  test("a desktop's credential reaches its own hosts; none, a wrong one or another's doesn't, and a client without one is asked for it", async () => {
+    const upstream = await listen("tides");
+    const proxy = new EgressProxy({ hosts: d => d === "desk-a" ? ["data.tides.example"] : [], ask: "ask your person",
+      dial: () => dialed(connect({ host: "127.0.0.1", port: upstream })) });
+    const port = await proxy.port();
+    const as = (user: string, pass: string) => `Proxy-Authorization: Basic ${Buffer.from(`${user}:${pass}`).toString("base64")}\r\n`;
+    const get = (auth = "") => raw(port, `GET http://data.tides.example/ HTTP/1.1\r\nHost: data.tides.example\r\n${auth}\r\n`);
+    expect(await get(as("desk-a", proxy.credential("desk-a")))).toMatch(/^HTTP\/1\.1 200[\s\S]*tides$/);
+    expect(await get(as("desk-a", proxy.credential("desk-b")))).toStartWith("HTTP/1.1 403");
+    expect(await get(as("desk-b", proxy.credential("desk-b")))).toStartWith("HTTP/1.1 403");
+    const bare = await get();
+    expect(bare).toStartWith("HTTP/1.1 407");
+    expect(bare).toContain('Proxy-Authenticate: Basic realm="BigBrain"');
+    expect(bare).toContain("not on the desktop network allowlist; ask your person.");
+    expect(proxy.credential("desk-a")).not.toBe(new EgressProxy({ hosts: () => [] }).credential("desk-a"));
     proxy.close();
   });
 

@@ -102,7 +102,9 @@
     changes?: Array<{ project: string; branch: string; commits: number; dirty: number; stat: string }>;
     servers?: Array<{ port: number; command?: string }>;
     /** Coding desktops holding untrusted material: what it was, and the last command its shell refused. */
-    taint?: { sources: Array<{ via: string; title: string }>; refused?: { command: string } } };
+    taint?: { sources: Array<{ via: string; title: string }>; refused?: { command: string } };
+    /** Coding desktops: a host the agent asked its commands may reach, until the person answers. */
+    hostRequest?: { host: string; reason: string; untrusted: boolean } };
   /** Coding desktops (lib/codingDesktops.ts) have `d-` ids and live at /api/desktops;
    * Pilot conversations keep their own routes. One switch, so the rest of the view is shared. */
   const coding = (id: string | null | undefined): boolean => !!id && id.startsWith("d-");
@@ -587,6 +589,13 @@
   /** The person's word that this desktop may use its shell despite what it read; only here, never the agent's. */
   async function allowShell(): Promise<void> {
     try { await desktopReq("/allow-shell", { id: openPilot }); await loadDetail(); } catch (e) { flash(errText(e)); }
+  }
+  /** The person's answer to a host the agent asked for; the engine passes it on as their message. */
+  let answeringHost = $state(false);
+  async function answerHost(answer: "desktop" | "all" | "no"): Promise<void> {
+    answeringHost = true;
+    try { await desktopReq("/answer-host", { id: openPilot, answer }); await loadDetail(); } catch (e) { flash(errText(e)); }
+    finally { answeringHost = false; }
   }
   /** The bar's ×: archive a desktop, whichever kind. It leaves the bar; its conversation is kept. */
   async function closeDesktop(id: string): Promise<void> {
@@ -1398,6 +1407,19 @@
             <span><button type="button" class="allow" onclick={() => void allowShell()}>Allow shell</button></span>
           </div>
         {/if}
+        {#if detail.hostRequest}
+          <div class="ask" role="group" aria-label="This desktop asks to reach a site">
+            <p class="ask-head">This desktop asks to reach a site</p>
+            <code>{detail.hostRequest.host}</code>
+            {#if detail.hostRequest.reason}<p>In its words: {detail.hostRequest.reason}</p>{/if}
+            <p>{detail.hostRequest.untrusted ? "It has read content from outside you, so allow only a site you know. " : ""}Allowed, its commands can reach this site; nothing else changes.</p>
+            <span class="ask-actions">
+              <button type="button" class="allow" disabled={answeringHost} onclick={() => void answerHost("desktop")}>Allow for this desktop</button>
+              <button type="button" class="find" disabled={answeringHost} onclick={() => void answerHost("all")}>Allow for all desktops</button>
+              <button type="button" class="find" disabled={answeringHost} onclick={() => void answerHost("no")}>Don’t allow</button>
+            </span>
+          </div>
+        {/if}
         {#if !detail.messages.length && detail.phase === "draft"}<p class="activity">{coding(detail.id) || drafting(detail.id) ? "Ask it anything: it can read your vault and work on your projects." : "Ask it anything — it can read your vault."}</p>{/if}
       </div></div>
       <div class="dock" style:--gutter={`${gutter}px`}><div class="composer col">
@@ -1669,6 +1691,10 @@
     background: color-mix(in srgb, var(--bg) 60%, transparent); font: 400 12px/1.5 var(--font-mono); color: var(--fg); overflow-wrap: anywhere; white-space: pre-wrap; }
   .allow { height: 30px; padding: 0 14px; border: 0; border-radius: 999px; background: var(--fg); color: var(--bg); font: 500 13px/1 var(--font-app); cursor: pointer; }
   .allow:hover { background: color-mix(in srgb, var(--fg) 86%, var(--bg)); }
+  .ask-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+  .ask-actions .find { margin-left: 0; background: transparent; }
+  .ask-actions .find:hover { background: color-mix(in srgb, var(--bg) 60%, transparent); }
+  .ask-actions button:disabled { opacity: .45; cursor: default; }
   .review { display: flex; flex-direction: column; gap: 6px; font: 400 12px/1.6 var(--font-mono); color: var(--v2-muted); }
   .review p, .review ul { margin: 0; padding: 0; list-style: none; }
   .review li { display: flex; gap: 10px; padding: 0; cursor: default; }

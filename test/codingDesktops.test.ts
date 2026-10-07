@@ -390,6 +390,73 @@ test("a file a tainted desktop wrote taints the desktop that reads it, while it 
   desktops.close();
 });
 
+test("an agent asks for a host; only the person's answer adds it, for this desktop or every one, and reaches the agent as their message", async () => {
+  const { fauxAssistantMessage, fauxToolCall } = await import("@earendil-works/pi-ai");
+  const { desktopHosts, savedDesktopHosts } = await import("../lib/desktopNetwork");
+  const seen: Array<ReturnType<typeof said>> = [];
+  const look = (reply: unknown) => (context: Seen) => { seen.push(said(context)); return reply; };
+  const call = (name: string, args: Record<string, unknown>) => look(fauxAssistantMessage([fauxToolCall(name, args)], { stopReason: "toolUse" }));
+  const { ws, host } = await fakeHost([
+    call("request_host", { host: "*.tides.example", reason: "Tide tables" }),
+    call("request_host", { host: "registry.npmjs.org", reason: "Packages" }),
+    call("request_host", { host: "Data.Tides.Example", reason: "  The script downloads this month's tide tables.  " }),
+    look(fauxAssistantMessage("I asked for data.tides.example.")),
+    look(fauxAssistantMessage("Fetched them.")),
+    call("request_host", { host: "charts.tides.example", reason: "Charts too" }),
+    fauxAssistantMessage("Asked again."),
+    look(fauxAssistantMessage("Understood, no charts.")),
+  ]);
+  const root = nativeVault(); roots.push(root);
+  const desktops = new CodingDesktops(root, { agents: new Agents(workspace(ws), quickHarbor()), host });
+  const made = desktops.create(), other = desktops.create();
+  await expect(desktops.answerHost(made.id, "desktop")).rejects.toThrow("isn't asking");
+  await desktops.send(made.id, "get the tide tables", "in-1");
+  await answered(desktops, made.id);
+  expect(seen[0]!.system).toContain("request_host");
+  expect(seen[1]!.results.at(-1)).toContain("A wildcard or a local port is your person's to add in Settings");
+  expect(seen[2]!.results.at(-1)).toContain("may already reach registry.npmjs.org");
+  expect(seen[3]!.results.at(-1)).toContain("Your person sees your request in the chat");
+  expect((await desktops.detail(made.id)).hostRequest).toEqual({ host: "data.tides.example", reason: "The script downloads this month's tide tables.", untrusted: false });
+
+  await expect(desktops.answerHost(made.id, "yes")).rejects.toThrow('Answer "desktop", "all" or "no"');
+  await desktops.answerHost(made.id, "desktop");
+  await answered(desktops, made.id);
+  expect(seen[4]!.user.at(-1)).toBe("Allowed data.tides.example for this desktop.");
+  expect((await desktops.detail(made.id)).hostRequest).toBeUndefined();
+  expect(desktopHosts(root, made.id)).toContain("data.tides.example");
+  expect(desktopHosts(root, other.id)).not.toContain("data.tides.example");
+  expect(savedDesktopHosts(root)).toEqual([]);
+
+  await desktops.send(made.id, "charts too", "in-2");
+  await answered(desktops, made.id);
+  await desktops.answerHost(made.id, "no");
+  await answered(desktops, made.id);
+  expect(seen.at(-1)!.user.at(-1)).toBe("Didn't allow charts.tides.example.");
+  expect(desktopHosts(root, made.id)).not.toContain("charts.tides.example");
+  desktops.close();
+});
+
+test("a host allowed for every desktop joins Settings' list", async () => {
+  const { fauxAssistantMessage, fauxToolCall } = await import("@earendil-works/pi-ai");
+  const { desktopHosts, savedDesktopHosts } = await import("../lib/desktopNetwork");
+  const { ws, host } = await fakeHost([
+    fauxAssistantMessage([fauxToolCall("request_host", { host: "api.orrery.example", reason: "Ephemerides" })], { stopReason: "toolUse" }),
+    fauxAssistantMessage("Asked."),
+    fauxAssistantMessage("Thanks."),
+  ]);
+  const root = nativeVault(); roots.push(root);
+  const desktops = new CodingDesktops(root, { agents: new Agents(workspace(ws), quickHarbor()), host });
+  const made = desktops.create(), other = desktops.create();
+  await desktops.send(made.id, "fetch ephemerides", "in-1");
+  await answered(desktops, made.id);
+  await desktops.answerHost(made.id, "all");
+  await answered(desktops, made.id);
+  expect(savedDesktopHosts(root)).toEqual(["api.orrery.example"]);
+  expect(desktopHosts(root, other.id)).toContain("api.orrery.example");
+  expect((await desktops.detail(made.id)).messages.filter(m => m.role === "user").map(m => m.text)).toEqual(["fetch ephemerides", "Allowed api.orrery.example for every desktop."]);
+  desktops.close();
+});
+
 test("a new desktop starts on the Pilot model chosen in Settings, not the engine default", async () => {
   const { writeEnvValues } = await import("../lib/envFile");
   const { ws, host } = await fakeHost([]);

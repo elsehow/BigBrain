@@ -16,6 +16,9 @@
 // Reject; an accept here takes the merged ones off the field, as the engine's
 // alias would. `?churn` changes the graph every few seconds, with a change ping,
 // as tend filing in the background does: the field is redrawn under you.
+// `?hostRequest` has a coding desktop whose agent asks to reach a site, and
+// the chat's card until you answer; `?hostRequest=untrusted`, one that read
+// content from outside you.
 import { mount } from "svelte";
 import "../design/tokens.css";
 import "../app.css";
@@ -54,6 +57,11 @@ if (new URLSearchParams(location.search).has("churn")) {
   setInterval(() => { graph = { ...graph, hash: `${graph.hash.split("~")[0]}~${++n}` }; window.dispatchEvent(new Event("workbench-change")); }, 4000);
 }
 const at = (min: number) => new Date(Date.UTC(2026, 9, 5, 9, min)).toISOString();
+const hostScene = new URLSearchParams(location.search).has("hostRequest");
+const hostUntrusted = new URLSearchParams(location.search).get("hostRequest") === "untrusted";
+let hostAnswer = "";
+const HOST_DESK = { id: "d-0000beef", kind: "coding", title: "Tide calculator", titleSource: "human", model: "claude-opus-5-5", phase: "answered",
+  lifecycle: "active", created: at(20), updated: at(22), lastActivityAt: at(22), contextNodes: [] };
 const feed = empty ? [] : NAMES.slice(0, 4).map((name, i) => ({ id: `ast_${i}`, at: at(i), author: null, by: "you", model: false, text: `${name} was noted.`, entities: [`ent_${i}`] }));
 const sorted = empty ? [] : [
   { source: "ins_a", section: "needs-you", headline: "Kit asks for the orrery repair estimate by Friday.", due: null, added: at(30), entities: ["ent_0", "ent_2"],
@@ -145,7 +153,22 @@ const fake = window.fetch;
   if (url.pathname === "/api/v2") return json({ authors: [], feed });
   if (url.pathname === "/api/v2/sorted") return json({ rows: sorted });
   if (url.pathname === "/api/v2/entity") return json({ rows: feed.filter((r) => r.entities.includes(url.searchParams.get("id") ?? "")) });
-  if (url.pathname === "/api/desktops") return json({ desktops: [] });
+  if (url.pathname === "/api/desktops") return json({ desktops: hostScene ? [HOST_DESK] : [] });
+  // `?hostRequest`: a coding desktop whose agent asks to reach a site, until you answer
+  if (hostScene && url.pathname === "/api/desktops/session") return json({ ...HOST_DESK, seq: 4, changes: [], servers: [],
+    messages: [
+      { id: "in-1", role: "user", text: "Add this month's tide tables to the calculator.", at: at(20) },
+      { id: "a2", role: "activity", text: "Ran python3 fetch_tides.py", at: at(21), ok: true },
+      { id: "a3", role: "activity", text: "Asked to reach data.tides.example", at: at(22), ok: true },
+      { id: "m4", role: "assistant", text: "The sandbox refused data.tides.example, where the tables are published. I've asked you to allow it.", at: at(22) },
+      ...hostAnswer ? [{ id: "in-5", role: "user", text: hostAnswer, at: at(23) }] : [],
+    ],
+    ...hostAnswer ? {} : { hostRequest: { host: "data.tides.example", reason: "The script downloads this month's tide tables from it.", untrusted: hostUntrusted } } });
+  if (hostScene && url.pathname === "/api/desktops/answer-host") {
+    const { answer } = JSON.parse(String(init?.body ?? "{}")) as { answer: string };
+    hostAnswer = answer === "no" ? "Didn't allow data.tides.example." : `Allowed data.tides.example for ${answer === "all" ? "every desktop" : "this desktop"}.`;
+    return json(HOST_DESK);
+  }
   // a new desktop is counted (the browser suite reads it), not started
   if (url.pathname === "/api/desktops/create") {
     const w = window as unknown as { desktopsCreated?: number };
