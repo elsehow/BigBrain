@@ -4,10 +4,11 @@
  * browser on this machine.
  *
  * The viewer answers only this launch's session (lib/viewerSession.ts). This
- * hands the browser a link that starts one and stops working two minutes
- * later, so the browser's history keeps nothing usable. `--print` prints it
- * instead: over `ssh -L 4747:127.0.0.1:4747`, run `bigbrain open --print` on
- * the machine with the app and open the link where the tunnel ends.
+ * hands the browser a link that starts one: it works once, within a minute,
+ * so neither the browser's history nor the opener's argument list keeps
+ * anything usable. `--print` prints it instead: over `ssh -L
+ * 4747:127.0.0.1:4747`, run `bigbrain open --print` on the machine with the
+ * app and open the link where the tunnel ends.
  */
 
 import { flagValue, hasFlag } from "../lib/cliflags";
@@ -32,7 +33,7 @@ if (hasFlag(args, "print")) {
   const opener = process.platform === "darwin" ? "open" : "xdg-open";
   const r = Bun.spawnSync([opener, link], { env: handoffProcessEnv(), stdout: "ignore", stderr: "ignore" });
   if (r.exitCode !== 0) {
-    console.error(`bigbrain: ${opener} failed; \`bigbrain open --print\` prints the link (it works for two minutes)`);
+    console.error(`bigbrain: ${opener} failed; \`bigbrain open --print\` prints a link (it works once, within a minute)`);
     process.exit(1);
   }
 }

@@ -63,7 +63,7 @@ const ask = (r: Route): Ask =>
   r.method === "POST" ? [concrete(r.path), "POST", { "content-type": "application/json" }, "{}"] : [concrete(r.path), "GET", {}, undefined];
 
 describe("the gate", () => {
-  const secret = newViewerSecret();
+  const secret = newViewerSecret(), links = scratchHome();
   let now = Date.now();
   const server = createServer((req, res) => {
     armor(res);
@@ -74,7 +74,7 @@ describe("the gate", () => {
   let port = 0, gate: ReturnType<typeof viewerGate>;
   const ready = new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => {
     port = (server.address() as { port: number }).port;
-    gate = viewerGate(secret, port, () => now);
+    gate = viewerGate(secret, port, () => now, links);
     resolve();
   }));
   afterAll(() => { server.closeAllConnections(); server.close(); });
@@ -129,19 +129,37 @@ describe("the gate", () => {
     expect(bad.headers["set-cookie"]).toBeUndefined();
   });
 
-  test("bigbrain open's link works for two minutes and cannot be stretched", async () => {
+  test("bigbrain open's link works once, within a minute", async () => {
     await ready;
     now = Date.now();
-    const link = new URL(viewerLink(port, secret, now));
-    expect(link.search).not.toContain(secret);
-    expect((await http(port, link.pathname + link.search))!.status).toBe(303);
-    now += 121_000;
-    expect(gated(await http(port, link.pathname + link.search))).toBe(true);
+    const mint = (at = now, key = secret, dir = links): string => { const u = new URL(viewerLink(port, key, at, dir)); return u.pathname + u.search; };
+    const once = mint();
+    expect(once).not.toContain(secret);
+    expect((await http(port, `${once}&workspace=w1`))!.headers.location).toBe("/?workspace=w1");
+    // Redeemed: refused the second time, here and at any other server
+    // keeping the same links (the door, then the viewer, a restarted viewer).
+    expect(gated(await http(port, once))).toBe(true);
+    const other = viewerGate(secret, port, () => now, links);
+    let status = 0;
+    expect(other({ url: once, method: "GET", headers: {} } as never, { setHeader() {}, writeHead(c: number) { status = c; }, end() {} } as never)).toBe(false);
+    expect(status).toBe(401);
+    // Expired, unredeemed: refused.
+    const late = mint();
+    now += 61_000;
+    expect(gated(await http(port, late))).toBe(true);
     now = Date.now();
-    const later = new URL(viewerLink(port, secret, now + 3_600_000));
-    expect(gated(await http(port, later.pathname + later.search))).toBe(true);
-    const forged = new URL(viewerLink(port, newViewerSecret(), now));
-    expect(gated(await http(port, forged.pathname + forged.search))).toBe(true);
+    // Stretched, forged, tampered, or made for another machine's links: refused.
+    expect(gated(await http(port, mint(now + 3_600_000)))).toBe(true);
+    expect(gated(await http(port, mint(now, newViewerSecret())))).toBe(true);
+    const fresh = mint();
+    expect(gated(await http(port, fresh.replace(/n=[^&]+/, `n=${"A".repeat(22)}`)))).toBe(true);
+    expect(gated(await http(port, mint(now, secret, scratchHome())))).toBe(true);
+    expect((await http(port, fresh))!.status).toBe(303); // the untampered one still works, once
+    // Unredeemed links' files (the stretched and forged ones) are cleared
+    // once expired, as a later one is made.
+    expect(readdirSync(join(links, "viewer-links")).length).toBe(2);
+    mint(now + 3_600_000 * 2);
+    expect(readdirSync(join(links, "viewer-links")).length).toBe(1);
   });
 
   test("the theme sheet agents' pages link is the one other public path", async () => {

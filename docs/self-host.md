@@ -164,9 +164,9 @@ a first memory pass. Run journals record provider/model attribution and usage.
   (owner-only). In a browser on the same machine, run `bigbrain open`. From
   another machine, use `ssh -L 4747:127.0.0.1:4747 <host>`, run
   `bigbrain open --print` on the host, and open the printed link locally
-  within two minutes; it sets the session cookie and redirects to the
-  viewer. The cookie ends when that browser quits, and every app launch
-  starts a new session. SSH can connect over a private network such as
+  within a minute; it works once, sets the session cookie and redirects
+  to the viewer. The cookie ends when that browser quits, and every app
+  launch starts a new session. SSH can connect over a private network such as
   Tailscale. The viewer accepts only loopback Host values and its own
   browser origin; a machine-name or Tailscale-address URL is refused. Do
   not publish it through a reverse proxy or share the forwarded port: a

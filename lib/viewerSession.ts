@@ -18,15 +18,17 @@
  *
  * The bootstrap, `GET /api/session` (under /api, so the dev loop's vite
  * proxies it too):
- *   ?k=<secret>           the desktop shell's webview
- *   ?t=<expiry>&s=<mac>   `bigbrain open`: a link that works for two minutes,
- *                         so a browser's history keeps nothing usable
+ *   ?k=<secret>                the desktop shell's webview
+ *   ?t=<expiry>&n=<nonce>&s=<mac>
+ *                              `bigbrain open`: a link that works once, within
+ *                              a minute — so neither a browser's history nor
+ *                              the opener's argument list keeps anything usable
  * Either sets the cookie and redirects to `/` with the remaining query
  * parameters (the fragment rides along by itself), never the secret.
  */
 
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync, rmSync, unlinkSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { join } from "node:path";
 import { configDir } from "./engine";
@@ -34,7 +36,7 @@ import { writeAtomic } from "./fsx";
 import { json, send, THEME_SHEET } from "./httpx";
 
 export const SESSION_PATH = "/api/session";
-const LINK_TTL_MS = 120_000;
+const LINK_TTL_MS = 60_000;
 const SHAPE = /^[A-Za-z0-9_-]{43}$/;
 
 /** Cookies are scoped to a host, not a port: the name carries the port, so
@@ -42,6 +44,11 @@ const SHAPE = /^[A-Za-z0-9_-]{43}$/;
 const cookieName = (port: number): string => `bb_viewer_${port}`;
 
 export const viewerSessionPath = (port: number, dir = configDir()): string => join(dir, `viewer-session-${port}`);
+
+/** One empty file per unspent link, `<port>-<expiry>-<nonce>`: redeeming one
+ * deletes it, which only one request can do — the door, the viewer and a
+ * restarted viewer all see the same answer. */
+const linkPath = (dir: string, port: number, expiry: string, nonce: string): string => join(dir, "viewer-links", `${port}-${expiry}-${nonce}`);
 
 export const newViewerSecret = (): string => randomBytes(32).toString("base64url");
 
@@ -69,12 +76,18 @@ const digest = (value: string): Buffer => createHash("sha256").update(value).dig
 /** Constant time whatever the lengths: both sides are hashed first. No
  * secret matches nothing. */
 const same = (given: string, secret: string): boolean => timingSafeEqual(digest(given), digest(secret)) && secret !== "";
-const linkMac = (secret: string, expiry: string): string => createHmac("sha256", secret).update(`viewer-link ${expiry}`).digest("base64url");
+const linkMac = (secret: string, expiry: string, nonce: string): string =>
+  createHmac("sha256", secret).update(`viewer-link ${expiry} ${nonce}`).digest("base64url");
 
-/** A browser's way in: `bigbrain open`'s link, good for two minutes. */
-export function viewerLink(port: number, secret: string, now = Date.now()): string {
-  const expiry = String(now + LINK_TTL_MS);
-  return `http://127.0.0.1:${port}${SESSION_PATH}?t=${expiry}&s=${linkMac(secret, expiry)}`;
+/** A browser's way in: `bigbrain open`'s link, good once, within a minute.
+ * Links nobody redeemed are cleared as the next one is made. */
+export function viewerLink(port: number, secret: string, now = Date.now(), dir = configDir()): string {
+  const expiry = String(now + LINK_TTL_MS), nonce = randomBytes(16).toString("base64url");
+  try {
+    for (const f of readdirSync(join(dir, "viewer-links"))) if (Number(f.split("-")[1]) < now) rmSync(join(dir, "viewer-links", f), { force: true });
+  } catch { /* none yet */ }
+  writeAtomic(linkPath(dir, port, expiry, nonce), "", 0o600);
+  return `http://127.0.0.1:${port}${SESSION_PATH}?t=${expiry}&n=${nonce}&s=${linkMac(secret, expiry, nonce)}`;
 }
 
 /** The secret of the viewer answering on `port`, once it answers with it —
@@ -98,10 +111,17 @@ export function viewerAuthorization(port: number, dir?: string): Record<string, 
   return secret ? { authorization: `Bearer ${secret}` } : {};
 }
 
-function linkValid(secret: string, expiry: string | null, mac: string | null, now: number): boolean {
-  if (!expiry || !mac || !/^\d{1,16}$/.test(expiry)) return false;
+function redeemLink(secret: string, q: URLSearchParams, port: number, now: number, dir: string): boolean {
+  const expiry = q.get("t"), nonce = q.get("n"), mac = q.get("s");
+  if (!expiry || !nonce || !mac || !/^\d{1,16}$/.test(expiry) || !/^[A-Za-z0-9_-]{22}$/.test(nonce)) return false;
   const at = Number(expiry);
-  return same(mac, linkMac(secret, expiry)) && at > now && at <= now + LINK_TTL_MS;
+  if (!same(mac, linkMac(secret, expiry, nonce)) || at <= now || at > now + LINK_TTL_MS) return false;
+  try {
+    unlinkSync(linkPath(dir, port, expiry, nonce));
+    return true;
+  } catch {
+    return false; // spent, or never made here
+  }
 }
 
 const PAGE = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>BigBrain</title>
@@ -123,7 +143,7 @@ function refuse(req: IncomingMessage, res: ServerResponse): false {
  * bootstrap, and the theme sheet that agents' pages on other loopback ports
  * link (colours and fonts; those pages carry no session).
  */
-export function viewerGate(secret: string, port: number, now: () => number = Date.now): (req: IncomingMessage, res: ServerResponse) => boolean {
+export function viewerGate(secret: string, port: number, now: () => number = Date.now, dir = configDir()): (req: IncomingMessage, res: ServerResponse) => boolean {
   const name = cookieName(port);
   return (req, res) => {
     const url = new URL(req.url ?? "/", "http://127.0.0.1");
@@ -131,9 +151,9 @@ export function viewerGate(secret: string, port: number, now: () => number = Dat
     if (url.pathname === THEME_SHEET && (method === "GET" || method === "HEAD")) return true;
     if (url.pathname === SESSION_PATH && method === "GET") {
       const q = url.searchParams;
-      const ok = q.has("k") ? same(q.get("k")!, secret) : linkValid(secret, q.get("t"), q.get("s"), now());
+      const ok = q.has("k") ? same(q.get("k")!, secret) : redeemLink(secret, q, port, now(), dir);
       if (!ok) return refuse(req, res);
-      for (const key of ["k", "t", "s"]) q.delete(key);
+      for (const key of ["k", "t", "n", "s"]) q.delete(key);
       const rest = q.toString();
       res.writeHead(303, {
         location: rest ? `/?${rest}` : "/",
