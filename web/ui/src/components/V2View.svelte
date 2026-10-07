@@ -22,6 +22,7 @@
   import { plainText as plain, type V2SortedRow } from "../../../../lib/v2Feed";
   import type { DesktopTile, DesktopView } from "../../../../lib/pilotDesktop";
   import { DEFAULT_PILOT_BACKEND } from "../../../../lib/pilotBackendTypes";
+  import DesktopCube from "./DesktopCube.svelte";
   import PilotMentionComposer from "./PilotMentionComposer.svelte";
   import ShortcutsSheet from "./ShortcutsSheet.svelte";
   import { keyText, registerShortcuts, RANK } from "../lib/shortcuts.svelte";
@@ -1231,7 +1232,7 @@
         <span class="tokwrap">
           <button type="button" class="tok" class:on={openPilot === p.id} class:working={p.phase === "working"} aria-pressed={openPilot === p.id}
             title={`${p.title} · ${p.model} · ${PHASE[p.phase]} (${k + 1})`} onclick={() => (openPilot === p.id ? closePilot() : openPilotChat(p.id))}>
-            <svg width="11" height="11" viewBox="-12 -12 24 24" aria-hidden="true"><path d="M 0 9 L 7.794 -4.5 L -7.794 -4.5 Z" /></svg>
+            <DesktopCube id={p.id} working={p.phase === "working"} />
             <span class="k">{k + 1}</span><span class="t">{p.title}</span>
           </button>
           <button type="button" class="tokx" class:on={openPilot === p.id} onclick={() => void closeDesktop(p.id)}
@@ -1511,8 +1512,10 @@
   .tok, .new { display: inline-flex; align-items: center; gap: 7px; height: 30px; max-width: 40ch; padding: 0 12px; border: 0; border-radius: 999px;
     background: color-mix(in srgb, var(--bg) 70%, transparent); color: var(--fg); font: 500 13px/1 var(--font-app); cursor: pointer; }
   .tok .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .tok svg { flex: none; fill: currentColor; }
-  .tok.working svg { fill: none; stroke: var(--activity); stroke-width: 2.4; }
+  /* the cube's glass sits on the token's own ground */
+  .tok { --cube-ground: var(--bg); }
+  .tok:hover { --cube-ground: color-mix(in srgb, var(--fg) 7%, var(--bg)); }
+  .tok.on { --cube-ground: var(--fg); }
   .tok:hover, .new:hover { background: color-mix(in srgb, var(--fg) 7%, var(--bg)); }
   /* the × sits over the token's right end, shown on hover or keyboard focus */
   .tokwrap { position: relative; display: inline-flex; }

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { HOLD_MS, TURN_MS, wirePose } from "../web/ui/src/lib/v2/wireCube";
+import { flatWire, HOLD_MS, TURN_MS, wirePose } from "../web/ui/src/lib/v2/wireMotion";
 
 const span = TURN_MS + HOLD_MS;
 
@@ -29,4 +29,29 @@ test("the turn's angle only grows across a move", () => {
 
 test("six moves, then the walk begins again", () => {
   expect([0, 1, 2, 3, 4, 5, 6, 7].map((n) => wirePose(n * span + TURN_MS / 2).move)).toEqual([0, 1, 2, 3, 4, 5, 0, 1]);
+});
+
+const count = (d: string, c: string) => d.split(c).length - 1;
+const coords = (d: string) => d.split(/[MLZ ]/).filter(Boolean).map(Number);
+
+test("flat, at rest, the cube shows three faces and their nine edges, a corner to the eye", () => {
+  const { blocks, seam } = flatWire(0);
+  expect(blocks).toHaveLength(1);
+  expect(count(blocks[0]!.faces, "Z")).toBe(3);
+  expect(count(blocks[0]!.edges, "M")).toBe(9);
+  expect(blocks[0]!.seams).toBe("");
+  expect(seam).toBe(0);
+  const xs = coords(blocks[0]!.faces).filter((_, i) => i % 2 === 0);
+  expect(Math.max(...xs)).toBeCloseTo(Math.SQRT2, 3);
+  expect(Math.min(...xs)).toBeCloseTo(-Math.SQRT2, 3);
+});
+
+test("flat, mid-turn, two halves show, the seam between them, all inside the mark's box", () => {
+  for (let move = 0; move < 6; move++) {
+    const { blocks, seam } = flatWire(move * span + TURN_MS / 2);
+    expect(blocks).toHaveLength(2);
+    expect(seam).toBeCloseTo(1, 6);
+    expect(blocks.some((b) => b.seams !== "")).toBe(true);
+    for (const b of blocks) for (const v of coords(b.faces + b.edges + b.seams)) expect(Math.abs(v)).toBeLessThanOrEqual(Math.sqrt(3) + 1e-3);
+  }
 });
