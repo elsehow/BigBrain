@@ -139,6 +139,12 @@ fn engine_root(bundle: PathBuf) -> (PathBuf, EngineSource) {
 /// neither may drift.
 const SHIM_MARKER: &str = "# installed by BigBrain.app";
 
+/// One single-quoted sh word: nothing inside expands (`$`, backticks), and
+/// a quote in the path closes, escapes and reopens.
+fn sh_quote(path: &Path) -> String {
+    format!("'{}'", path.display().to_string().replace('\'', r"'\''"))
+}
+
 fn shim_text(bun: &Path, engine: &Path) -> String {
     format!(
         "#!/bin/sh\n{SHIM_MARKER} — the `bigbrain` command, running the engine inside the app.\n\
@@ -147,10 +153,10 @@ fn shim_text(bun: &Path, engine: &Path) -> String {
          # this command and the two run the same code. Your own script here is\n\
          # left alone. The engine, for tools that read it (lib/bigbrainCommand.ts):\n\
          # engine: {}\n\
-         exec \"{}\" \"{}\" \"$@\"\n",
+         exec {} {} \"$@\"\n",
         engine.display(),
-        bun.display(),
-        engine.join("bin/cli.ts").display()
+        sh_quote(bun),
+        sh_quote(&engine.join("bin/cli.ts"))
     )
 }
 
@@ -170,6 +176,10 @@ enum Shim {
 /// Make `bigbrain` run this engine: written over a missing command, our own
 /// earlier shim, or a CLI install's symlink; anything else is left alone.
 fn install_shim(link: &Path, bun: &Path, engine: &Path) -> std::io::Result<Shim> {
+    // A line break would end the `# engine:` comment and start a command.
+    if [bun, engine].iter().any(|p| p.to_string_lossy().contains('\n')) {
+        return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "a path with a line break cannot go in the shim"));
+    }
     let wanted = shim_text(bun, engine);
     match fs::symlink_metadata(link) {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
@@ -1208,7 +1218,30 @@ mod tests {
         let text = shim_text(Path::new("/App.app/bun"), Path::new("/App.app/engine"));
         assert!(text.starts_with("#!/bin/sh\n# installed by BigBrain.app"));
         assert!(text.contains("\n# engine: /App.app/engine\n"));
-        assert!(text.ends_with("exec \"/App.app/bun\" \"/App.app/engine/bin/cli.ts\" \"$@\"\n"));
+        assert!(text.ends_with("exec '/App.app/bun' '/App.app/engine/bin/cli.ts' \"$@\"\n"));
+    }
+
+    #[test]
+    fn the_shim_runs_paths_as_written_whatever_they_hold() {
+        // An app moved under a folder whose name sh would expand.
+        let dir = scratch("quote").join("it's $(touch pwned) `touch pwned2` $HOME");
+        let engine = engine_tree(&dir.join("engine"));
+        let bun = dir.join("bun");
+        fs::write(&bun, "#!/bin/sh\nprintf '%s\\n' \"$@\"\n").unwrap();
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&bun, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let link = dir.join("bigbrain");
+        assert_eq!(install_shim(&link, &bun, &engine).unwrap(), Shim::Installed);
+        let out = Command::new("/bin/sh").arg(&link).arg("a b").current_dir(&dir).output().unwrap();
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        assert_eq!(String::from_utf8_lossy(&out.stdout), format!("{}\na b\n", engine.join("bin/cli.ts").display()));
+        assert!(!dir.join("pwned").exists() && !dir.join("pwned2").exists());
+
+        let broken = dir.join("line\nbreak");
+        assert!(install_shim(&dir.join("other"), &bun, &broken).is_err());
+        assert!(!dir.join("other").exists());
     }
 
     #[test]

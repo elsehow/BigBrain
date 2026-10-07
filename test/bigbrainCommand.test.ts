@@ -26,7 +26,7 @@ describe("the bigbrain command — which engine it runs", () => {
     const link = join(dir, "bigbrain");
     writeFileSync(
       link,
-      `#!/bin/sh\n${APP_SHIM_MARKER} — the \`bigbrain\` command.\n# engine: /Applications/BigBrain.app/Contents/Resources/resources/engine\nexec "/x/bun" "/x/engine/bin/cli.ts" "$@"\n`
+      `#!/bin/sh\n${APP_SHIM_MARKER} — the \`bigbrain\` command.\n# engine: /Applications/BigBrain.app/Contents/Resources/resources/engine\nexec '/x/bun' '/x/engine/bin/cli.ts' "$@"\n`
     );
     expect(isAppShim(link)).toBe(true);
     expect(engineBehindCommand(link)).toBe("/Applications/BigBrain.app/Contents/Resources/resources/engine");
