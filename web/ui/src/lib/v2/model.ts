@@ -21,6 +21,17 @@ export interface FieldNode {
   /** Labelled at rest: a hub or a memory topic. */
   named: boolean;
 }
+/** A source: the graph's own source node, on the entities' floor plan. Kept
+ * apart from `nodes`, so search, ties, folds and Desktops read entities alone. */
+export interface FieldSource {
+  id: string;
+  label: string;
+  /** Its note path (a thread's, then its members'): how a feed row finds it. */
+  paths: string[];
+  p: [number, number, number];
+  /** The entities it mentions, as node indices. */
+  ties: number[];
+}
 export interface Field {
   nodes: FieldNode[];
   byId: Map<string, number>;
@@ -29,6 +40,7 @@ export interface Field {
   /** The few worth drawing: strong, and strong for both ends. */
   strong: Array<[number, number]>;
   hubs: Set<number>;
+  sources: FieldSource[];
 }
 
 const STRONG_EDGES = 140;
@@ -57,8 +69,9 @@ export function buildField(graph: GraphData): Field {
   // opens up and the halo comes in (the field then reads evenly at a glance)
   const radius = drawn.map((n) => Math.hypot(n.x! - cx, n.y! - cy));
   const order = radius.map((r, i) => [r, i] as const).sort((a, b) => a[0] - b[0]);
+  const spacedAt = (rank: number) => 15 * (0.08 + 0.92 * Math.sqrt(rank / Math.max(1, drawn.length - 1)));
   const spaced = new Float32Array(drawn.length);
-  order.forEach(([, i], rank) => { spaced[i] = 15 * (0.08 + 0.92 * Math.sqrt(rank / Math.max(1, drawn.length - 1))); });
+  order.forEach(([, i], rank) => { spaced[i] = spacedAt(rank); });
   const nodes: FieldNode[] = drawn.map((n, i) => {
     const memory = n.group === "memory";
     const r = radius[i]! || 1, s = spaced[i]! / r;
@@ -76,7 +89,42 @@ export function buildField(graph: GraphData): Field {
   const hubs = new Set([...nodes].filter((n) => !n.memory).sort((a, b) => b.degree - a.degree).slice(0, HUBS).map((n) => n.i));
   for (const h of hubs) nodes[h]!.named = true;
 
-  return { nodes, byId, edges, strong: strongEdges(nodes, edges), hubs };
+  // Sources keep their own place in the engine's layout, re-spaced as the
+  // entities were: a source's distance takes the rank it would have among
+  // theirs. One the layout didn't place sits over what it mentions.
+  const sortedR = order.map(([r]) => r);
+  const spaceAt = (r: number): number => {
+    if (!sortedR.length) return 0;
+    let lo = 0, hi = sortedR.length - 1;
+    if (r >= sortedR[hi]!) return 15 * Math.min(1.15, r / (sortedR[hi]! || 1));
+    while (hi - lo > 1) { const m = (lo + hi) >> 1; if (sortedR[m]! <= r) lo = m; else hi = m; }
+    return spacedAt(lo + Math.max(0, (r - sortedR[lo]!) / ((sortedR[hi]! - sortedR[lo]!) || 1)));
+  };
+  const sourceNodes = graph.nodes.filter((n) => n.group === "source");
+  const mentions = new Map(sourceNodes.map((n) => [n.id, new Set<number>()]));
+  const mention = (src: string, other: string) => {
+    const set = mentions.get(src), i = byId.get(other);
+    if (!set || i == null || nodes[i]!.memory) return;
+    set.add(i);
+  };
+  for (const e of graph.edges) { mention(e.source, e.target); mention(e.target, e.source); }
+  const sources: FieldSource[] = [];
+  for (const n of sourceNodes) {
+    const ties = [...(mentions.get(n.id) ?? [])];
+    const lift = 3 + (unit(n.id) - 0.5) * 2.6;
+    let p: [number, number, number];
+    if (n.x != null && n.y != null) {
+      const r = Math.hypot(n.x - cx, n.y - cy) || 1, s = spaceAt(r) / r;
+      p = [(n.x - cx) * s, lift, (n.y - cy) * s * 0.8 - 4];
+    } else if (ties.length) {
+      p = [0, lift, 0];
+      for (const i of ties) { p[0] += nodes[i]!.p[0] / ties.length; p[2] += nodes[i]!.p[2] / ties.length; }
+    } else continue;
+    const path = n.path === undefined ? n.id : n.path;
+    sources.push({ id: n.id, label: n.title, paths: [...(path ? [path] : []), ...(n.memberPaths ?? [])], p, ties });
+  }
+
+  return { nodes, byId, edges, strong: strongEdges(nodes, edges), hubs, sources };
 }
 
 /** Keep each node's strongest ties, then the few that are strong AND specific

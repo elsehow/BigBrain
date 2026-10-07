@@ -1,5 +1,6 @@
 <script lang="ts">
   import ThemeView from "./ThemeView.svelte";
+  import GraphSettingsView from "./GraphSettingsView.svelte";
   import ShortcutsView from "./ShortcutsView.svelte";
   import SettingsPage from "./SettingsPage.svelte";
   import VaultPicker from "./VaultPicker.svelte";
@@ -60,6 +61,8 @@
   </div>
 
   <ThemeView />
+
+  <GraphSettingsView />
 
   <ShortcutsView />
 </SettingsPage>

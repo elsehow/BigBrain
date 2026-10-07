@@ -71,6 +71,25 @@ const WALK = ["ent_4", "log/insertions/2026-10/ins_c.json", "ent_6", "log/insert
 // feed's, and one from before the feed began
 const SOURCES = [...sorted.map((r) => ({ id: r.source, path: r.path, title: r.title, entities: r.entities })),
   { id: "ins_old", path: "log/insertions/2026-08/ins_old.json", title: "Ridgeway trail notes", entities: ["ent_5", "ent_7"] }];
+// /api/graph draws every source as a node of its own, tied to what it
+// mentions; the field shows them at rest when Settings → Graph says so
+if (!empty) {
+  const more = [
+    { id: "ins_d", path: "log/insertions/2026-09/ins_d.json", title: "Quill press invoice", entities: ["ent_7"] },
+    { id: "ins_e", path: "log/insertions/2026-09/ins_e.json", title: "Call with Kit Brennan", entities: ["ent_2", "ent_0", "ent_3"] },
+    { id: "ins_f", path: "log/insertions/2026-09/ins_f.json", title: "Marlow studio newsletter", entities: ["ent_9", "ent_8"] },
+    { id: "ins_g", path: "log/insertions/2026-09/ins_g.json", title: "Tidewater review minutes", entities: ["ent_8", "ent_3", "ent_1"] },
+    { id: "ins_h", path: "log/insertions/2026-09/ins_h.json", title: "Lantern grant budget", entities: ["ent_6", "ent_4"] },
+  ];
+  const all = [...SOURCES, ...more], pos = new Map(entities.map((e) => [e.id, e]));
+  const nodes = all.map((src, k) => {
+    const on = src.entities.map((id) => pos.get(id)!);
+    const x = on.reduce((t, e) => t + e.x, 0) / on.length + Math.cos(k * 2.4) * 22, y = on.reduce((t, e) => t + e.y, 0) / on.length + Math.sin(k * 2.4) * 22;
+    return { id: `source:${src.id}`, title: src.title!, group: "source", degree: src.entities.length, path: src.path!, x, y };
+  });
+  graph = { ...graph, nodes: [...graph.nodes, ...nodes],
+    edges: [...graph.edges, ...all.flatMap((src) => src.entities.map((target) => ({ source: `source:${src.id}`, target, weight: 1 })))] };
+}
 const started = Date.now();
 const READ_MS = 2500;
 const CONTEXT: Record<string, () => string[]> = {

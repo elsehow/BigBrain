@@ -26,6 +26,7 @@
   import ShortcutsSheet from "./ShortcutsSheet.svelte";
   import { keyText, registerShortcuts, RANK } from "../lib/shortcuts.svelte";
   import { keyboardHints } from "../lib/keyboardHints.svelte";
+  import { graphSources } from "../lib/graphSources.svelte";
   import { serializeMentions, type MentionItem } from "../../../../lib/pilotMentions";
   import { mentionRecents, mentionSearch } from "../lib/mentionSources";
 
@@ -685,6 +686,8 @@
       onPick,
       onPickPilot: (id) => (openPilot === id ? closePilot() : openPilotChat(id)),
       onHover: relateTie,
+      onPickSource,
+      sources: () => graphSources.show,
     }, camera);
     scene.setPilots(placePilots(field, bar));
     sceneRev++;
@@ -744,6 +747,16 @@
     if (openPilot) { openPilot = null; detail = null; scene?.focusPilot(null); }
     if (i !== ent) void openEntity(i);
   }
+  /** A click on a source drawn at rest: opened as its feed row is (one not in
+   * the feed is opened the same way, as search's are). */
+  function onPickSource(k: number): void {
+    const f = field, s = f?.sources[k];
+    if (!f || !s) return;
+    if (searching) { searching = false; scene?.search(null); }
+    if (openPilot) { openPilot = null; detail = null; scene?.focusPilot(null); }
+    openSource(sorted.find((r) => r.path && s.paths.includes(r.path))
+      ?? { source: s.id, section: "know", headline: s.label, due: null, added: "", entities: s.ties.map((i) => f.nodes[i]!.id), title: s.label, path: s.paths[0] });
+  }
   /** Slide the field's centre clear of the panels: right of a left column, left of the sidebar. */
   const shiftFor = () => {
     const chatW = (chatWidth ?? Math.min(1000, Math.max(520, innerWidth * 0.44))) + GUTTER; // .v2's --chat-w, plus a gutter
@@ -784,7 +797,7 @@
     const r = sourceInHand;
     // walked to (j/k), it opens as an entity does, its headline beside it;
     // only pointed at, it's named and the camera holds still
-    scene?.source(r && field ? { label: r.title ?? r.headline, entities: feedEntities(r), open: !openPilot && !src && r !== rowOver, text: r.headline } : null);
+    scene?.source(r && field ? { label: r.title ?? r.headline, entities: feedEntities(r), open: !openPilot && !src && r !== rowOver, text: r.headline, path: r.path } : null);
   });
   /** Back from a row pointed at: the row in hand is drawn opened (above), not lit. */
   const unlight = () => scene?.hover(null);
