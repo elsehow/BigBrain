@@ -25,6 +25,10 @@ export interface SceneHooks {
   onPickPilot(id: string): void;
   /** The node under the pointer (a point, a memory topic, a label) changed. */
   onHover?(i: number | null): void;
+  /** A click on a source drawn at rest (an index into field.sources). */
+  onPickSource?(k: number): void;
+  /** Whether every source is drawn at rest (Settings → Graph). */
+  sources?(): boolean;
 }
 type Rig = { az: number; el: number; dist: number; tx: number; ty: number; tz: number };
 type View = { az: number; el: number; dist: number; target: THREE.Vector3 };
@@ -52,8 +56,9 @@ export interface V2Scene {
    * to each (mentioning nothing in the field, it sits mid-view, tied to
    * nothing). Sources aren't in the field at rest; this one is there only
    * while it's in hand. `open`: opened as an entity is — framed, the rest
-   * steps back, `text` beside it. */
-  source(s: { label: string; entities: number[]; open?: boolean; text?: string } | null): void;
+   * steps back, `text` beside it. `path`: with sources drawn at rest, the
+   * one in hand sits on its own dot. */
+  source(s: { label: string; entities: number[]; open?: boolean; text?: string; path?: string } | null): void;
   /** Beside one of the opened entity's ties: how it relates to that entity,
    * after its name; "" is a spinner, null takes it away. The entity keeps
    * its own text: the relation finds room around its tie. */
@@ -77,6 +82,8 @@ const GLASS_OPACITY = 0.95;
 // larger than first drawn, edges finer. Desktops' cubes keep their own hairline.
 const EDGE_PX = 0.5;
 const NODE_SCALE = 1.45;
+/** A source at rest: about an unnamed entity's dot, the field's dust. */
+const SRC_SIZE = NODE_SCALE * 3;
 const LENS = Math.tan(THREE.MathUtils.degToRad(17)) / Math.tan(THREE.MathUtils.degToRad(10));
 const OVERVIEW_AT = { az: 0.05, el: 0.55, dist: 30, target: new THREE.Vector3(0, 3, -4) };
 
@@ -148,14 +155,14 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
   // ── sources: hidden at rest; the one in hand is a node like any other ────
   // It sits over the middle of what it mentions, tied to each, and comes and
   // goes as a pointed dot's name does: fading in where it is, out where it was.
-  type Src = { key: string; ties: number[]; at: THREE.Vector3; vis: number; want: boolean; open: boolean; L: HTMLDivElement & { w?: number; h?: number; op?: number } };
+  type Src = { key: string; ties: number[]; home: number | null; at: THREE.Vector3; vis: number; want: boolean; open: boolean; L: HTMLDivElement & { w?: number; h?: number; op?: number } };
   const sources: Src[] = Array.from({ length: SOURCES }, () => {
     const L = document.createElement("div") as Src["L"];
     L.className = "v2-lab v2-node v2-source";
     const t = document.createElement("span"), q = document.createElement("span");
     t.className = "t"; q.className = "q";
     L.append(t, q);
-    return { key: "", ties: [], at: new THREE.Vector3(), vis: 0, want: false, open: false, L };
+    return { key: "", ties: [], home: null, at: new THREE.Vector3(), vis: 0, want: false, open: false, L };
   });
   const srcName = (s: string) => (s.length > 48 ? s.slice(0, 47).trimEnd() + "…" : s);
   /** Its name, or opened, its text where an opened entity's goes. */
@@ -167,6 +174,31 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
     s.L.w = undefined;
   };
   for (const s of sources) labelLayer.append(s.L);
+
+  // ── every source at rest (Settings → Graph): fainter dots on the same
+  // floor plan; the one pointed at says its name and ties to what it mentions
+  const S = field.sources.length;
+  const sGeo = new THREE.BufferGeometry();
+  sGeo.setAttribute("position", new THREE.Float32BufferAttribute(field.sources.flatMap((x) => x.p), 3));
+  const sSize = new THREE.BufferAttribute(new Float32Array(S), 1);
+  const sColor = new THREE.BufferAttribute(new Float32Array(S * 3), 3);
+  const sAlpha = new THREE.BufferAttribute(new Float32Array(S), 1);
+  sGeo.setAttribute("aSize", sSize); sGeo.setAttribute("aColor", sColor); sGeo.setAttribute("aAlpha", sAlpha);
+  const restSources = new THREE.Points(sGeo, pMat);
+  restSources.renderOrder = 3;
+  restSources.frustumCulled = false;
+  scene.add(restSources);
+  const SP = field.sources.map((x) => new THREE.Vector3(...x.p));
+  const sourceAt = new Map(field.sources.flatMap((x, k) => x.paths.map((p) => [p, k] as const)));
+  const sPoint = new Float32Array(S);
+  let srcShown = hooks.sources?.() ? 1 : 0, underSrc: number | null = null, srcNamed: number | null = null;
+  /** How far the named resting source is shown (its name and ties fade with it). */
+  const namedVis = () => (srcNamed == null ? 0 : sPoint[srcNamed]! * srcShown);
+  // its name: a plain node label (clickable, unlike a held source's)
+  const restName = document.createElement("div") as Src["L"];
+  restName.className = "v2-lab v2-node";
+  restName.append(Object.assign(document.createElement("span"), { className: "t" }));
+  labelLayer.append(restName);
 
   // ── lines ────────────────────────────────────────────────────────────────
   // fat lines (a GL line is always 1px), drawn in device pixels: resize() fits each to the canvas
@@ -207,7 +239,7 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
       },
     };
   };
-  const ties = dynamic(160 + 64);
+  const ties = dynamic(160 + 128);
 
   // ── glass: memory topics ─────────────────────────────────────────────────
   const octa = new THREE.OctahedronGeometry(1, 0);
@@ -324,7 +356,8 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
   /** Over the middle of what it mentions, lifted clear of it (over one, a
    * little aside, so the tie reads); mentioning nothing here, mid-view. */
   const settle = (s: Src) => {
-    if (s.ties.length) s.at.copy(centre(s.ties.map((j) => P[j]!))).add(v3.set(s.ties.length === 1 ? 0.6 : 0, 1.6, 0));
+    if (s.home != null) s.at.copy(SP[s.home]!);
+    else if (s.ties.length) s.at.copy(centre(s.ties.map((j) => P[j]!))).add(v3.set(s.ties.length === 1 ? 0.6 : 0, 1.6, 0));
     else s.at.copy(goal.target).y += 1.2;
     s.at.toArray(aPos.array, (N + sources.indexOf(s)) * 3);
     aPos.needsUpdate = true;
@@ -411,16 +444,18 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
     const glassHit = ray.intersectObjects(memory.filter((g) => g.vis > 0.5).map((g) => g.mesh), false)[0];
     if (glassHit) return memory.find((g) => g.mesh === glassHit.object)?.i ?? null;
     const alphas = aAlpha.array as Float32Array;
-    let best: number | null = null, bestD = 12 * 12;
-    for (let i = 0; i < N; i++) {
-      if (field.nodes[i]!.memory || alphas[i]! < 0.15) continue;
-      toScreen(P[i]!, sp);
-      if (!sp.ok) continue;
+    let best: number | string | null = null, bestD = 12 * 12;
+    const consider = (p: THREE.Vector3, hit: number | string) => {
+      toScreen(p, sp);
       const d = (sp.x - x) ** 2 + (sp.y - y) ** 2;
-      if (d < bestD) { bestD = d; best = i; }
-    }
+      if (sp.ok && d < bestD) { bestD = d; best = hit; }
+    };
+    for (let i = 0; i < N; i++) if (!field.nodes[i]!.memory && alphas[i]! >= 0.15) consider(P[i]!, i);
+    if (srcShown > 0.5) for (let k = 0; k < S; k++) consider(SP[k]!, `src:${k}`);
     return best;
   };
+  /** A resting source's index, from a pick. */
+  const srcHit = (hit: number | string | null): number | null => (typeof hit === "string" && hit.startsWith("src:") ? Number(hit.slice(4)) : null);
   const onDown = (e: PointerEvent) => { drag = { x: e.clientX, y: e.clientY, moved: 0 }; canvas.setPointerCapture(e.pointerId); };
   let under: number | null = null;
   const hoverAt = (i: number | null) => { if (i !== under) { under = i; hooks.onHover?.(i); } };
@@ -429,7 +464,8 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
       const hit = pickAt(e.clientX, e.clientY);
       canvas.style.cursor = hit == null ? "" : "pointer";
       hoverAt(typeof hit === "number" ? hit : null);
-      underPilot = typeof hit === "string" ? hit.slice(6) : null;
+      underPilot = typeof hit === "string" && hit.startsWith("pilot:") ? hit.slice(6) : null;
+      underSrc = srcHit(hit);
       return;
     }
     const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
@@ -439,7 +475,9 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
   const onUp = (e: PointerEvent) => {
     if (drag && drag.moved < 4) {
       const hit = pickAt(e.clientX, e.clientY);
-      if (typeof hit === "string") hooks.onPickPilot(hit.slice(6)); else hooks.onPick(hit);
+      const k = srcHit(hit);
+      if (k != null) hooks.onPickSource?.(k);
+      else if (typeof hit === "string") hooks.onPickPilot(hit.slice(6)); else hooks.onPick(hit);
     }
     drag = null;
   };
@@ -447,16 +485,20 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
   const onLabel = (e: MouseEvent) => {
     const pl = (e.target as HTMLElement).closest<HTMLElement>(".v2-pilot");
     if (pl?.dataset["pilot"]) { hooks.onPickPilot(pl.dataset["pilot"]); return; }
+    const sl = (e.target as HTMLElement).closest<HTMLElement>("[data-src]");
+    if (sl?.dataset["src"]) { hooks.onPickSource?.(Number(sl.dataset["src"])); return; }
     const L = (e.target as HTMLElement).closest<HTMLElement>(".v2-node");
     if (L?.dataset["i"]) hooks.onPick(Number(L.dataset["i"]));
   };
   labelLayer.addEventListener("click", onLabel);
   const onLabelOver = (e: PointerEvent) => {
     underPilot = (e.target as HTMLElement).closest<HTMLElement>(".v2-pilot")?.dataset["pilot"] ?? null;
+    const sl = (e.target as HTMLElement).closest<HTMLElement>("[data-src]")?.dataset["src"];
+    underSrc = sl ? Number(sl) : null;
     const L = (e.target as HTMLElement).closest<HTMLElement>(".v2-node");
     hoverAt(L?.dataset["i"] ? Number(L.dataset["i"]) : null);
   };
-  const onLeave = () => { if (!drag) { hoverAt(null); underPilot = null; } };
+  const onLeave = () => { if (!drag) { hoverAt(null); underPilot = null; underSrc = null; } };
   labelLayer.addEventListener("pointerover", onLabelOver);
   canvas.addEventListener("pointerleave", onLeave);
   const onWheel = (e: WheelEvent) => { e.preventDefault(); goal.dist = THREE.MathUtils.clamp(goal.dist * Math.exp(e.deltaY * 0.0012), 4, 40); };
@@ -551,11 +593,14 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
     dim += ((inPlay ? 1 : 0) - dim) * k;
     searchDim += ((srch && srch.matches.size ? 0.12 : srch ? 0.5 : 1) - searchDim) * ease(10);
     dust.copy(col.fg).lerp(col.bg, 0.42);
+    srcShown += ((hooks.sources?.() ? 1 : 0) - srcShown) * ease(8);
+    const pointedTies = underSrc != null && srcShown > 0.5 ? new Set(field.sources[underSrc]!.ties) : null;
     const sizes = aSize.array as Float32Array, colors = aColor.array as Float32Array, alphas = aAlpha.array as Float32Array;
     for (let i = 0; i < N; i++) {
       const n = field.nodes[i]!;
       rel[i]! += ((inPlay?.has(i) ? 1 : 0) - rel[i]!) * k;
-      heat[i]! += ((hot?.has(i) ? 1 : 0) - heat[i]!) * ease(hot?.has(i) ? 18 : 10);
+      const lit = !!hot?.has(i) || !!pointedTies?.has(i);
+      heat[i]! += ((lit ? 1 : 0) - heat[i]!) * ease(lit ? 18 : 10);
       match[i]! += ((srch?.matches.has(i) ? 1 : 0) - match[i]!) * ease(12);
       point[i]! += ((i === under ? 1 : 0) - point[i]!) * ease(i === under ? 18 : 10);
       if (n.memory) { alphas[i] = 0; continue; }
@@ -576,6 +621,18 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
       col.fg.toArray(colors, i * 3);
     });
     aSize.needsUpdate = true; aColor.needsUpdate = true; aAlpha.needsUpdate = true;
+    // sources at rest: faint, stepping back as the field does when something is in play
+    {
+      const sz = sSize.array as Float32Array, sc = sColor.array as Float32Array, sa = sAlpha.array as Float32Array;
+      const rest = 0.75 * THREE.MathUtils.lerp(1, 0.3, dim) * searchDim * (1 - 0.6 * srcHeld);
+      for (let k = 0; k < S; k++) {
+        sPoint[k]! += ((k === underSrc ? 1 : 0) - sPoint[k]!) * ease(k === underSrc ? 18 : 10);
+        sz[k] = SRC_SIZE * (1 + 0.6 * sPoint[k]!);
+        sa[k] = srcShown * Math.max(sPoint[k]!, rest);
+        c1.copy(dust).lerp(col.fg, sPoint[k]!).toArray(sc, k * 3);
+      }
+      sSize.needsUpdate = true; sColor.needsUpdate = true; sAlpha.needsUpdate = true;
+    }
     // a source in hand: the field's own lines step back so its ties read
     strong.material.opacity = 0.14 * searchDim * (1 - 0.5 * dim) * (1 - 0.6 * srcHeld);
 
@@ -602,8 +659,11 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
 
     // the ties of an opened entity; each pilot's lines to what it's working on
     ties.begin();
-    for (const s of sources) if (s.vis > 0.01) for (const j of s.ties) ties.add(s.at, P[j]!, c1.copy(col.bg).lerp(col.fg, 0.55 * s.vis), c2.copy(col.bg).lerp(col.fg, 0.4 * s.vis));
-    if (ent) for (const j of ent.ties) ties.add(P[ent.i]!, P[j]!, c1.copy(col.bg).lerp(col.fg, 0.55), c2.copy(col.bg).lerp(col.fg, 0.4));
+    const tieAll = (from: THREE.Vector3, to: number[], v = 1) => { for (const j of to) ties.add(from, P[j]!, c1.copy(col.bg).lerp(col.fg, 0.55 * v), c2.copy(col.bg).lerp(col.fg, 0.4 * v)); };
+    for (const s of sources) if (s.vis > 0.01) tieAll(s.at, s.ties, s.vis);
+    if (ent) tieAll(P[ent.i]!, ent.ties);
+    const named = namedVis();
+    if (named > 0.01) tieAll(SP[srcNamed!]!, field.sources[srcNamed!]!.ties, named);
     for (const pl of pilots.values()) {
       const on = focus === pl.d.id, tint = pl.d.phase === "working" ? col.act : col.fg;
       const a = on ? 0.7 : focus ? 0.08 : 0.22;
@@ -644,17 +704,26 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
         placed.push([s1.x - R, s1.y - R, s1.x + R, s1.y + R]);
       }
     }
-    // a source's name, where a pointed dot's goes, ahead of the field's names
-    for (const s of sources) {
-      toScreen(s.at, s1);
-      if (s.vis < 0.04 || !s1.ok) { if (s.L.op !== 0) place(s.L, -999, -999, 0); continue; }
-      if (s.L.w == null) { s.L.w = s.L.offsetWidth; s.L.h = s.L.offsetHeight; }
-      // right of its dot, or left when a long name would run off the window
-      const g = labelGap(s.at, hubSize);
-      const x = s1.x + g + s.L.w > W - 12 ? s1.x - g - s.L.w : s1.x + g;
-      place(s.L, x, s1.y, s.vis);
-      placed.push([x - 4, s1.y - s.L.h! / 2 - 3, x + s.L.w + 4, s1.y + s.L.h! / 2 + 3]);
+    // a source's name, where a pointed dot's goes, ahead of the field's names:
+    // right of its dot, or left when a long name would run off the window
+    const nameBeside = (L: Src["L"], at: THREE.Vector3 | null, size: number, op: number) => {
+      if (at) toScreen(at, s1);
+      if (!at || op < 0.04 || !s1.ok) { if (L.op !== 0) place(L, -999, -999, 0); return; }
+      if (L.w == null) { L.w = L.offsetWidth; L.h = L.offsetHeight; }
+      const g = labelGap(at, size);
+      const x = s1.x + g + L.w > W - 12 ? s1.x - g - L.w : s1.x + g;
+      place(L, x, s1.y, op);
+      placed.push([x - 4, s1.y - L.h! / 2 - 3, x + L.w + 4, s1.y + L.h! / 2 + 3]);
+    };
+    for (const s of sources) nameBeside(s.L, s.at, hubSize, s.vis);
+    // a resting source pointed at, the same way
+    if (underSrc != null && underSrc !== srcNamed) {
+      srcNamed = underSrc;
+      restName.dataset["src"] = String(underSrc);
+      restName.firstElementChild!.textContent = srcName(field.sources[underSrc]!.label);
+      restName.w = undefined;
     }
+    nameBeside(restName, srcNamed == null ? null : SP[srcNamed]!, SRC_SIZE * 1.6, namedVis());
     const cand: Cand[] = [];
     const inHand = srch ? srch.active : ent ? ent.i : null;
     const handText = srch ? srch.text : ent?.text;
@@ -758,9 +827,11 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
       for (const s of sources) { s.want = !!key && s.key === key; if (!s.want) s.open = false; }
       if (!want) return;
       const open = !!want.open;
+      const home = want.path && hooks.sources?.() ? sourceAt.get(want.path) ?? null : null;
       const held = sources.find((s) => s.want);
       if (held) {
         const opening = open && !held.open;
+        held.home = home;
         held.open = open;
         sourceLabel(held, want.label, want.text);
         // walked back to: placed anew (one tied to nothing comes to where you are)
@@ -769,7 +840,7 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
       }
       // a free slot (or the faintest), so the last one fades out where it was
       const s = sources.reduce((a, b) => (b.vis < a.vis ? b : a));
-      Object.assign(s, { key, ties: want.entities, want: true, vis: 0, open });
+      Object.assign(s, { key, ties: want.entities, home, want: true, vis: 0, open });
       settle(s);
       sourceLabel(s, want.label, want.text);
       if (open) follow(s);
