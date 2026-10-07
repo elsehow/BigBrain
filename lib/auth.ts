@@ -56,7 +56,8 @@ export interface TokenRecord {
    *
    * A closed union rather than a free string:
    * `client` is an authenticated MCP configuration;
-   * `connect` is the legacy local Claude Code (the agents card), `pair` is a
+   * `connect` is the legacy local Claude Code (a legacy row in Connected
+   * clients, since the agents card retired), `pair` is a
    * browser extension that redeemed a pairing code (the integrations card,
    * lib/pair.ts). Each card is a CONSENT surface, so the one thing it has to
    * be able to prove is that a human authorized this credential on that
@@ -186,10 +187,15 @@ export function hasScope(record: TokenRecord, scope: string): boolean {
 
 export const IDLE_EXPIRY_DAYS = 30;
 
-/** What the holder of a lapsed credential is told: where to renew it. A
- * connected client renews in the app; anything else is an operator's. */
+/** Listed, and renewed, in Settings → Connected clients: a connected
+ * client, or the legacy local Claude Code. */
+export const listedInConnectedClients = (record: TokenRecord): boolean =>
+  record.via === "client" || record.via === "connect";
+
+/** What the holder of a lapsed credential is told: where to renew it — the
+ * app for what Connected clients lists, the CLI for an operator's token. */
 export const expiredMessage = (record: TokenRecord): string =>
-  record.via === "client"
+  listedInConnectedClients(record)
     ? `This BigBrain connection expired after ${IDLE_EXPIRY_DAYS} days unused. Renew it in BigBrain → Settings → Connected clients.`
     : `This BigBrain credential expired after ${IDLE_EXPIRY_DAYS} days unused. Renew it with \`bigbrain auth renew ${record.id}\`.`;
 
@@ -261,7 +267,11 @@ export function clearExpiredUse(storePath: string, id: string): boolean {
 /** Record a use. Re-reads the store fresh so a revocation that landed
  * between verify and touch is never overwritten with stale state; the
  * worst concurrent-write outcome is a lost timestamp tick. Throttled:
- * a tick younger than 60s is not worth a write per request. */
+ * a tick younger than 60s is not worth a write per request.
+ * renewToken is the same unlocked whole-store read-modify-write, so a
+ * concurrent noteExpiredUse or touchLastUsed can drop a renewal in a
+ * millisecond window; the UI re-fetches after Renew, so the person would
+ * see it still expired and click again. */
 export function touchLastUsed(storePath: string, id: string, now: Date = new Date()): void {
   const store = readStore(storePath);
   const record = store?.tokens.find((t) => t.id === id);

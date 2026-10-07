@@ -37,8 +37,10 @@ internal gardener operations or integration access.
 
 ## Replace a legacy plugin
 
-Existing Claude Code and Codex plugin connections are deprecated. Choose
-**Replace connection** on the legacy row and complete the replacement's MCP
+Existing Claude Code and Codex plugin connections are deprecated, including
+the older HTTP plugin credential `bigbrain connect` once made (`claude code on
+<machine>`), which is listed here too. Choose **Replace connection** on the
+legacy row and complete the replacement's MCP
 setup. The plugin remains authorized until the replacement authenticates;
 then its old credential is revoked. Canceling a pending replacement does not
 revoke the plugin. New plugin connections cannot provision credentials.

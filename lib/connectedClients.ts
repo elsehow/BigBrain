@@ -1,7 +1,7 @@
 /** MCP connections are credentials/configurations, not agent runners or devices. */
 import { readFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { listTokens, mintToken, revokeToken, renewToken, tokenStorePath, verifyToken, touchLastUsed, hasScope, tokenExpired, noteExpiredUse, clearExpiredUse, expiredMessage } from "./auth";
+import { listTokens, mintToken, revokeToken, renewToken, tokenStorePath, verifyToken, touchLastUsed, hasScope, tokenExpired, noteExpiredUse, clearExpiredUse, expiredMessage, listedInConnectedClients } from "./auth";
 import { writeAtomic } from "./fsx";
 import { mcpServerEntry } from "./mcpRegister";
 export const CLIENT_KINDS = ["claude-code", "codex", "generic"] as const;
@@ -20,11 +20,13 @@ export class ConnectedClients {
     catch { throw new Error("Client credential is unavailable. Reconnect in Connected Clients."); }
   }
   list() {
-    return listTokens(this.store).filter(t => t.via === "client").map(t => {
+    return listTokens(this.store).filter(listedInConnectedClients).map(t => {
       let kind: ClientKind = "generic", managedBy: string | undefined, replaces: string | undefined;
-      try { const c = this.credential(t.id); kind = c.kind; managedBy = c.managedBy; replaces = c.replaces; } catch { /* Public history survives a lost local credential. */ }
+      // The legacy local Claude Code (`bigbrain connect` before named connections) kept no credential here; its name says which agent.
+      if (t.via === "connect") kind = t.name.startsWith("codex") ? "codex" : "claude-code";
+      else try { const c = this.credential(t.id); kind = c.kind; managedBy = c.managedBy; replaces = c.replaces; } catch { /* Public history survives a lost local credential. */ }
       const expired=!t.revoked&&tokenExpired(t);
-      return { id:t.id, name:t.name, kind, managedBy, legacy:legacyPlugin(managedBy), replaces, created:t.created, lastUsed:t.last_used, revoked:t.revoked,
+      return { id:t.id, name:t.name, kind, managedBy, legacy:t.via === "connect" || legacyPlugin(managedBy), replaces, created:t.created, lastUsed:t.last_used, revoked:t.revoked,
         expired, expiredUse:expired ? t.expired_use ?? null : null, vault:{read:hasScope(t,"vault:read"),contribute:hasScope(t,"inbox:write")} };
     });
   }

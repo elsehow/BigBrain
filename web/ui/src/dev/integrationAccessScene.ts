@@ -10,9 +10,11 @@ export function installIntegrationAccessScene(fail=false) {
   if(new URLSearchParams(location.search).has('managed-clients'))clients.push({id:'runner-codex',name:'Orchestration: Codex',kind:'codex',managedBy:'runner:codex',revoked:null,lastUsed:null,legacy:false,replaces:undefined},{id:'runner-claude',name:'Orchestration: Claude Code',kind:'claude-code',managedBy:'runner:claude-code',revoked:null,lastUsed:'2026-09-24T00:00:00Z',legacy:false,replaces:undefined});
   if(new URLSearchParams(location.search).has('legacy-clients'))clients.push({id:'11111111',name:'Claude Code plugin',kind:'claude-code',managedBy:'claude-plugin',revoked:null,lastUsed:'2026-09-24T00:00:00Z',legacy:true,replaces:undefined});
   if(new URLSearchParams(location.search).has('revoked-legacy-clients'))clients.push({id:'33333333',name:'Retired Codex plugin',kind:'codex',managedBy:'codex-plugin',revoked:'2026-09-25T00:00:00Z',lastUsed:'2026-09-24T00:00:00Z',legacy:true,replaces:undefined});
-  // `?expired-clients`: one lapsed connection a client just tried (the notice), one nobody tried (quiet)
+  // `?expired-clients`: lapsed connections a client just tried (a notice each, one of them the
+  // legacy `bigbrain connect` credential), and one nobody tried (quiet)
   if(new URLSearchParams(location.search).has('expired-clients'))clients.push(
     {id:'77777777',name:'Claude Code at the studio',kind:'claude-code',managedBy:undefined,revoked:null,lastUsed:'2026-08-01T00:00:00Z',legacy:false,replaces:undefined,expired:true,expiredUse:'2026-10-06T09:30:00Z'},
+    {id:'99999999',name:'claude code on sample laptop',kind:'claude-code',managedBy:undefined,revoked:null,lastUsed:'2026-08-15T00:00:00Z',legacy:true,replaces:undefined,expired:true,expiredUse:'2026-10-06T10:00:00Z'},
     {id:'88888888',name:'Old generic client',kind:'generic',managedBy:undefined,revoked:null,lastUsed:'2026-07-01T00:00:00Z',legacy:false,replaces:undefined,expired:true,expiredUse:null},
   );
   if(new URLSearchParams(location.search).has('same-name-clients'))clients.push(

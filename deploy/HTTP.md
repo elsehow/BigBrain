@@ -37,8 +37,8 @@ bigbrain auth revoke <id>
   request it is accepted for, except `/v1/whoami`, restarts the clock; there
   is no absolute cap. A lapsed token gets a 401 that says where to renew it:
   `bigbrain auth renew <id>`, or Settings → Connected clients for an MCP
-  connection. Renewing keeps the id and secret. Drop-only (`inbox:write`)
-  and `tend` tokens never lapse.
+  connection or a `bigbrain connect` credential. Renewing keeps the id and
+  secret. Drop-only (`inbox:write`) and `tend` tokens never lapse.
 - Fail-closed: no store, empty store, unreadable store ⇒ every request 401s.
 
 ## Host setup (once)

@@ -7,6 +7,7 @@ import { nativeVault } from "./support/vault";
 import { listTokens, mintToken, noteExpiredUse, renewToken, revokeToken, touchLastUsed, verifyToken } from "../lib/auth";
 import { ConnectedClients, ConnectionExpired, authenticateClient } from "../lib/connectedClients";
 import { makeApiHandler } from "../lib/api";
+import { readableIntegrationAccounts } from "../lib/integrationAccess";
 import { readSourceInsertionLog } from "../lib/insertionLog";
 
 const DAY = 86_400_000;
@@ -170,4 +171,37 @@ test("the bearer API refuses a lapsed credential with where to renew it, and not
   renewToken(store, reader.record.id, now);
   now = at(reader.record.created, 32);
   expect((await get(reader.token)).status).toBe(200);
+});
+
+test("the legacy local Claude Code credential lapses too, and is listed, noticed and renewed in Connected clients", async () => {
+  const { root, clients } = fixture();
+  const legacy = mintToken(clients.store, root, "claude code on studio", ["inbox:write", "vault:read"], { kind: "agent", via: "connect" });
+  mintToken(clients.store, root, "codex on studio", ["inbox:write", "vault:read"], { kind: "agent", via: "connect" });
+  expect(clients.list().map(c => [c.name, c.kind, c.legacy, c.expired])).toEqual([["claude code on studio", "claude-code", true, false], ["codex on studio", "codex", true, false]]);
+  age(clients.store, legacy.record.id, 31);
+  // The old plugin reaches the vault over the bearer API.
+  const handler = makeApiHandler({ root, storePath: clients.store, log: () => {} });
+  const status = () => handler(new Request("http://api.test/v1/status", { headers: { Authorization: `Bearer ${legacy.token}` } }));
+  const refused = await status();
+  expect(refused.status).toBe(401);
+  expect((await refused.json()).error).toBe(FIX);
+  const lapsed = clients.list().find(c => c.id === legacy.record.id)!;
+  expect(lapsed.expired).toBe(true);
+  expect(lapsed.expiredUse).toBeTruthy();
+  clients.renew(legacy.record.id);
+  expect(clients.list().find(c => c.id === legacy.record.id)).toMatchObject({ expired: false, expiredUse: null });
+  expect((await status()).status).toBe(200);
+  // Replace still retires it once the named connection authenticates.
+  const next = clients.replace(legacy.record.id);
+  authenticateClient(root, clients.token(next.id), "vault:read", clients.store);
+  expect(clients.list().find(c => c.id === legacy.record.id)!.revoked).toBeTruthy();
+});
+
+test("live integration access refuses a lapsed credential on its own, not only through bin/mcp.ts", () => {
+  const { root, clients } = fixture();
+  const id = clients.create({ name: "Reader", kind: "generic" }).id;
+  const caller = { kind: "mcp" as const, token: clients.token(id), storePath: clients.store };
+  expect(readableIntegrationAccounts(root, "email", caller)).toEqual([]);
+  age(clients.store, id, 31);
+  expect(() => readableIntegrationAccounts(root, "email", caller)).toThrow("Authenticate");
 });
