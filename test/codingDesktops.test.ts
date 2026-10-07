@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { Agents, Harbor, workspace, type HostTool, type OpenOptions } from "../packages/agents/src";
 import { CodingDesktops } from "../lib/codingDesktops";
 import { insertionEventRel } from "../lib/insertionLog";
+import { spoolDir } from "../lib/spool";
 import { insertion, nativeVault } from "./support/vault";
 
 const roots: string[] = [];
@@ -213,6 +214,12 @@ test("a desktop started from a source: the source is fenced data, never instruct
   await answered(desktops, made.id);
   expect(existsSync(join(ws, "projects", "made-it"))).toBe(true);
   expect((await desktops.detail(made.id)).messages.filter(m => m.role === "activity").at(-1)).toMatchObject({ text: "Ran touch made-it", ok: true });
+
+  // a desktop recorded before taint was kept is tainted when it opens
+  const { taint: _, ...legacy } = desktops.create({ context: [{ path, title: "Gear quote" }] });
+  writeFileSync(join(spoolDir(root), "coding-desktops", `${legacy.id}.json`), JSON.stringify(legacy));
+  await desktops["open"](legacy.id);
+  expect(desktops.get(legacy.id).taint?.sources.map(s => s.key)).toEqual([path]);
   desktops.close();
 });
 

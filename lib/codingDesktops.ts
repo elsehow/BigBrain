@@ -66,7 +66,7 @@ const MAX_TAINT = 20, MAX_COMMAND = 2_000;
  * thread, an unsorted drop, a work session, a log) arrived from outside the
  * person; curated notes count as theirs until memory carries provenance. */
 const CURATED = /^(?:memory|entities|projection\/entities)\//;
-export const untrustedNote = (path: string): boolean => !CURATED.test(normalize(path));
+const untrustedNote = (path: string): boolean => !CURATED.test(normalize(path));
 
 /** Host tools that read live integrations: what they return came from outside, so calling one taints the desktop. Named as its notice says it. */
 const LIVE_READERS = new Map([["email_read", "your email"], ["email_search", "your email"], ["inbox_read", "your inbox"], ["inbox_list", "your inbox"],
@@ -90,7 +90,7 @@ function provenance(root: string, path: string): { kind: string; from?: string; 
 }
 
 /** One piece of untrusted material, fenced: where it came from as attributes, and nothing inside can close the fence. */
-export function untrustedData(about: Record<string, string | undefined>, body: string): string {
+function untrustedData(about: Record<string, string | undefined>, body: string): string {
   const attr = (v: string) => v.replace(/\s+/g, " ").replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
   const attrs = Object.entries(about).filter((e): e is [string, string] => !!e[1]).map(([k, v]) => ` ${k}="${attr(v)}"`).join("");
   return `<untrusted-data${attrs}>\n${body.replace(/<(\/?untrusted-data)/gi, "&lt;$1")}\n</untrusted-data>`;
@@ -184,8 +184,7 @@ export class CodingDesktops {
         .slice(0, 20).map(c => ({ path: c.path, title: typeof c.title === "string" ? c.title : c.path }))
       : undefined;
     const context = items(input.context);
-    const seeded = (context ?? []).filter(c => untrustedNote(c.path))
-      .map(c => ({ key: noteKey(this.root, c.path), via: "start", title: c.title, at: now })).slice(0, MAX_TAINT);
+    const seeded = this.seeds(context ?? [], now);
     let desktop: PilotDesktop | undefined;
     for (const v of items(input.views)?.slice(0, MAX_VIEWS) ?? []) {
       if (isAbsolute(v.path) || normalize(v.path).startsWith("..") || !existsSync(join(this.root, v.path)))
@@ -195,6 +194,11 @@ export class CodingDesktops {
     return this.save({ id, title, created: now, updated: now,
       model: typeof input.model === "string" && input.model.includes("/") ? input.model : this.defaultModel(),
       ...(context?.length ? { context } : {}), ...(desktop ? { desktop } : {}), ...(seeded.length ? { taint: { sources: seeded } } : {}) });
+  }
+
+  /** The untrusted notes a desktop was started about, as its taint. */
+  private seeds(context: Array<{ path: string; title: string }>, at: string): TaintSource[] {
+    return context.filter(c => untrustedNote(c.path)).map(c => ({ key: noteKey(this.root, c.path), via: "start", title: c.title, at })).slice(0, MAX_TAINT);
   }
 
   list(): ReturnType<CodingDesktops["summary"]>[] {
@@ -244,6 +248,8 @@ export class CodingDesktops {
     const work = (async () => {
       const host = await (this.options.host ?? agentHost)(this.root, r.model);
       const context = r.context ?? [];
+      // a desktop recorded before taint was kept still holds what it was started about
+      for (const s of this.seeds(context, "")) this.taint(id, s);
       const theme = this.options.themeUrl;
       const showing = `\n## Showing things\nTo show your person a result (a report, a comparison, a table, a chart), use show_html with plain semantic HTML: no CSS, style attributes or scripts. It is dressed in their BigBrain theme.` +
         (theme ? ` For a page you serve yourself, use the same style: put <link rel="stylesheet" href="${theme}"> in its head instead of writing CSS (a served page can't load files from disk).` : "") +
