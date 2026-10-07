@@ -1010,11 +1010,31 @@ fn send_home(app: &AppHandle, home: &tauri::Url) -> impl Fn(tauri::WebviewWindow
     }
 }
 
+/// capabilities/default.json grants the viewer's commands to the engine's
+/// two default viewer origins (:4747, and :4757 for the dev loop), not to
+/// every loopback port: an agent's dev server in a `url` view gets none. A
+/// window on any other origin (BIGBRAIN_WEB_PORT moved it, or the dev loop's
+/// vite via BIGBRAIN_WEB_URL) gets the same grant for that origin alone, at
+/// launch. None when the file already names it.
+fn viewer_capability(origin: &str) -> Option<String> {
+    let mut cap: serde_json::Value = serde_json::from_str(include_str!("../capabilities/default.json")).ok()?;
+    let urls = cap.pointer_mut("/remote/urls")?.as_array_mut()?;
+    if urls.iter().any(|u| u == origin) {
+        return None;
+    }
+    *urls = vec![origin.into()];
+    cap["identifier"] = "viewer-origin".into();
+    Some(cap.to_string())
+}
+
 /// The main viewer window.
 fn build_windows(app: &AppHandle, base: &str) -> Result<(), Box<dyn std::error::Error>> {
     // The viewer window. Closing it hides it — the engine keeps
     // gardening; the cube, the Dock icon and Cmd-Tab bring it back.
     let url: tauri::Url = base.parse()?;
+    if let Some(cap) = viewer_capability(&url.origin().ascii_serialization()) {
+        app.add_capability(cap)?;
+    }
     // The window is NAMED BigBrain — Mission Control, Cmd-Tab and the
     // Window menu all read that — but the title bar does not SAY so
     // (Nick, 2026-08-28: "remove 'BigBrain' from this menubar"). A
@@ -1427,6 +1447,23 @@ mod tests {
         for s in ["file:///Applications/Calculator.app", "x-some-app://run?cmd=1", "ftp://example.com/f", "smb://host/share", "tel:+15555550100", "data:text/html,hi", "blob:http://127.0.0.1:4747/abc"] {
             assert!(!stays(&home, &u(s)) && !browser_url(&u(s)), "{s}");
         }
+    }
+
+    #[test]
+    fn the_viewer_capability_follows_the_window_origin_and_no_other() {
+        use tauri::utils::acl::capability::CapabilityFile;
+        assert_eq!(viewer_capability("http://127.0.0.1:4747"), None);
+        assert_eq!(viewer_capability("http://127.0.0.1:4757"), None);
+        let file: serde_json::Value = serde_json::from_str(include_str!("../capabilities/default.json")).unwrap();
+        let cap: serde_json::Value = serde_json::from_str(&viewer_capability("http://127.0.0.1:5173").unwrap()).unwrap();
+        assert_eq!(cap["remote"]["urls"], serde_json::json!(["http://127.0.0.1:5173"]));
+        assert_eq!(cap["permissions"], file["permissions"]);
+        assert_eq!(cap["windows"], file["windows"]);
+        assert_ne!(cap["identifier"], file["identifier"]);
+        // add_capability panics on a capability that does not parse.
+        let parsed: CapabilityFile = viewer_capability("http://127.0.0.1:5173").unwrap().parse().unwrap();
+        assert!(matches!(parsed, CapabilityFile::Capability(_)));
+        assert!(!file["remote"]["urls"].as_array().unwrap().iter().any(|u| u.as_str().unwrap().contains('*')));
     }
 
     #[test]
