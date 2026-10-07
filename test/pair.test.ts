@@ -12,6 +12,7 @@ import {
   browserTokenName,
   mintPairCode,
   normalizeClient,
+  PAIR_MAX_MISSES,
   PAIR_TTL_MS,
   pairFile,
   pendingPair,
@@ -46,11 +47,27 @@ describe("the code", () => {
     expect(redeemPairCode(root, "AAAA-AAAA", "chrome", opts)).toBeNull();
     const { code } = mintPairCode(root);
     expect(redeemPairCode(root, "AAAA-AAAA", "chrome", opts)).toBeNull();
-    expect(pendingPair(root)).not.toBeNull(); // a miss does not spend it
+    expect(pendingPair(root)).not.toBeNull(); // one miss does not spend it
     const r = redeemPairCode(root, ` ${code.toLowerCase().replace("-", "")} `, "chrome", opts);
     expect(r).not.toBeNull();
     expect(pendingPair(root)).toBeNull(); // a hit does
     expect(redeemPairCode(root, code, "chrome", opts)).toBeNull(); // once
+  });
+
+  test("misses count against the code: the tenth spends it, a fresh code starts over", () => {
+    const { root, storePath } = vault();
+    const opts = { owner: "a@example.com", storePath, machine: "mac" };
+    const first = mintPairCode(root);
+    for (let i = 1; i < PAIR_MAX_MISSES; i++) expect(redeemPairCode(root, "AAAA-AAAA", "chrome", opts)).toBeNull();
+    expect(pendingPair(root)).toEqual(first); // nine misses: still good, and the count stays on disk
+    expect(redeemPairCode(root, "AAAA-AAAA", "chrome", opts)).toBeNull();
+    expect(pendingPair(root)).toBeNull();
+    expect(existsSync(pairFile(root))).toBe(false);
+    expect(redeemPairCode(root, first.code, "chrome", opts)).toBeNull(); // the right code, too late
+    const fresh = mintPairCode(root);
+    for (let i = 1; i < PAIR_MAX_MISSES; i++) redeemPairCode(root, "AAAA-AAAA", "chrome", opts);
+    expect(redeemPairCode(root, fresh.code, "chrome", opts)).not.toBeNull();
+    expect(listTokens(storePath)).toHaveLength(1);
   });
 });
 

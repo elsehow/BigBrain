@@ -1,6 +1,7 @@
 import { anthropicQuota, type AnthropicQuota } from "./anthropicQuota";
-/** Pi supplies the agent loop and provider auth. BigBrain supplies every tool,
- * including sandboxed execution; Pi's unrestricted built-ins never run here. */
+/** Pi supplies the agent loop and provider auth. BigBrain supplies every tool
+ * a session here gets; Pi's built-ins (its shell and file tools) are never
+ * enabled. */
 import { createCatalogRuntime, exactCatalogModel } from "./modelCatalogRefresh";
 import { configureVaultModelAuth } from "./piModelRuntime";
 import { connectionProblem, resolveModel, type ModelExecution } from "../modelResolution";
