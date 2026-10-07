@@ -17,23 +17,7 @@ import * as THREE from "three";
 import { LineSegments2 } from "three/examples/jsm/lines/LineSegments2.js";
 import { LineSegmentsGeometry } from "three/examples/jsm/lines/LineSegmentsGeometry.js";
 import type { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
-
-export const TURN_MS = 780, HOLD_MS = 340;
-type Axis = 0 | 1 | 2;
-const MOVES: ReadonlyArray<{ k: Axis; side: 1 | -1 }> = [
-  { k: 0, side: -1 }, { k: 1, side: -1 }, { k: 2, side: 1 }, { k: 1, side: 1 }, { k: 0, side: 1 }, { k: 1, side: -1 },
-];
-const easeInOut = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
-
-/** Where the motion is `t` ms in: which move, how far it has turned (0..π),
- * and how much of the seam shows. Settled is one block. */
-export function wirePose(t: number): { move: number; settled: boolean; angle: number; seam: number } {
-  const span = TURN_MS + HOLD_MS, move = Math.floor(Math.max(0, t) / span) % MOVES.length;
-  const p = (Math.max(0, t) % span) / TURN_MS;
-  if (p <= 0 || p >= 1) return { move, settled: true, angle: 0, seam: 0 };
-  const angle = Math.PI * easeInOut(p);
-  return { move, settled: false, angle, seam: THREE.MathUtils.smoothstep(Math.abs(Math.sin(angle)), 0, 0.45) };
-}
+import { MOVES, wirePose, type Axis } from "./wireMotion";
 
 type V3 = [number, number, number];
 /** A box's twelve edges, split into those on the cut plane at the centre

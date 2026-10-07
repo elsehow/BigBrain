@@ -15,6 +15,7 @@ import { LineSegments2 } from "three/examples/jsm/lines/LineSegments2.js";
 import { LineSegmentsGeometry } from "three/examples/jsm/lines/LineSegmentsGeometry.js";
 import type { Field, FieldPilot } from "./model";
 import { createWireCube, type WireCube } from "./wireCube";
+import { wireClock } from "./wireMotion";
 
 export interface SceneHooks {
   /** Screen rects labels must stay out of (the view's panels). */
@@ -272,7 +273,7 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
   // hairlines are drawn in device pixels, so each knows the canvas's size
   const fit = (m: LineMaterial) => m.resolution.set(W * renderer.getPixelRatio(), H * renderer.getPixelRatio());
   const hairline = () => { const m = new LineMaterial({ linewidth: 1, transparent: true }); fit(m); lineMats.add(m); return m; };
-  interface Pilot { d: FieldPilot; cube: WireCube; line: LineMaterial; seam: LineMaterial; label: HTMLDivElement & { w?: number; h?: number; op?: number }; scale: number; vis: number; clock: number; at: THREE.Vector3 }
+  interface Pilot { d: FieldPilot; cube: WireCube; line: LineMaterial; seam: LineMaterial; label: HTMLDivElement & { w?: number; h?: number; op?: number }; scale: number; vis: number; at: THREE.Vector3 }
   const pilots = new Map<string, Pilot>();
   let focus: string | null = null, underPilot: string | null = null;
   const makePilot = (d: FieldPilot): Pilot => {
@@ -282,10 +283,8 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
     label.className = "v2-lab v2-pilot";
     label.dataset["pilot"] = d.id;
     labelLayer.append(label);
-    // each on its own clock, so Desktops working at once never turn in step
-    const clock = [...d.id].reduce((acc, c) => (acc * 31 + c.charCodeAt(0)) >>> 0, 7) % 6720;
     line.color.copy(col.fg);
-    return { d, cube, line, seam, label, scale: 0, vis: 1, clock, at: new THREE.Vector3(...d.p) };
+    return { d, cube, line, seam, label, scale: 0, vis: 1, at: new THREE.Vector3(...d.p) };
   };
   const nameOf = (d: FieldPilot) => (d.title.length > 34 ? d.title.slice(0, 33).trimEnd() + "…" : d.title);
 
@@ -566,7 +565,7 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
   const c1 = new THREE.Color(), c2 = new THREE.Color(), dust = new THREE.Color();
   const tA = new THREE.Vector3(), tB = new THREE.Vector3();
   const s1 = { x: 0, y: 0, ok: false }, s2 = { x: 0, y: 0, ok: false };
-  let raf = 0, clockT = 0;
+  let raf = 0;
   const frame = () => {
     raf = requestAnimationFrame(frame);
     const dt = Math.min(clock.getDelta(), 0.05);
@@ -649,13 +648,12 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
     // Desktops: glide to their place, slowly (one taking in many notes at
     // once must not wander); a working one turns as the logo does; the
     // focused or pointed-at one stands a quarter larger
-    clockT += dt;
     for (const pl of pilots.values()) {
       const on = focus === pl.d.id, near = on || underPilot === pl.d.id;
       pl.cube.root.position.lerp(pl.at, ease(1.6));
       pl.scale += ((near ? 1.25 : focus ? 0.8 : 1) - pl.scale) * ease(10);
       pl.cube.root.scale.setScalar(DESK_PX / 2 * perPx(pl.cube.root.position) * pl.scale);
-      pl.cube.tick(pl.d.phase === "working" && !reduced ? clockT * 1000 + pl.clock : 0);
+      pl.cube.tick(pl.d.phase === "working" && !reduced ? wireClock(pl.d.id) : 0);
       pl.vis += ((srch ? THREE.MathUtils.lerp(0.35, 1, searchDim) : focus && !on ? 0.6 : 1) - pl.vis) * k;
       pl.line.opacity = pl.vis;
     }
