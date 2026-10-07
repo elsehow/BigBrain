@@ -3,12 +3,23 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { SITE_URL, appVersion, buildSite, cubeParts, extensionId, releaseNotes, tarName, zipName } from "../site/build";
+import { SITE_URL, appVersion, buildSite, checkFeedSignature, cubeParts, extensionId, feedName, minisignKeyId, releaseNotes, tarName, zipName } from "../site/build";
 
 const EXT = join(import.meta.dir, "..", "clients", "browser-extension");
 
+const CONF = join(import.meta.dir, "..", "desktop", "src-tauri", "tauri.conf.json");
+const PINNED = JSON.parse(readFileSync(CONF, "utf8")).plugins.updater.pubkey as string;
+
+/** A .sig in Tauri's shape (base64 of minisign's text form) from the key with
+ * this id — the bytes after the id are not a real signature; only the build's
+ * key check reads them. */
+function fakeSig(keyId: string): string {
+  const raw = Buffer.concat([Buffer.from("ED"), Buffer.from(keyId, "hex"), Buffer.alloc(64)]);
+  return Buffer.from(`untrusted comment: signature from tauri secret key\n${raw.toString("base64")}\ntrusted comment: fake\n${Buffer.alloc(64).toString("base64")}\n`).toString("base64");
+}
+
 /** A stand-in bundle: enough shape for ditto, install.sh and `defaults read`. */
-function fakeApp(dir: string): string {
+function fakeApp(dir: string, keyId: string = minisignKeyId(PINNED)): string {
   const app = join(dir, "BigBrain.app");
   mkdirSync(join(app, "Contents", "MacOS"), { recursive: true });
   writeFileSync(
@@ -19,7 +30,7 @@ function fakeApp(dir: string): string {
   // what `tauri build` leaves beside the .app when createUpdaterArtifacts
   // is on: the updater's tarball and its minisign signature
   writeFileSync(`${app}.tar.gz`, "fake updater tarball");
-  writeFileSync(`${app}.tar.gz.sig`, "dW50cnVzdGVk fake signature\n");
+  writeFileSync(`${app}.tar.gz.sig`, `${fakeSig(keyId)}\n`);
   return app;
 }
 
@@ -124,24 +135,67 @@ describe("site build", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  test.skipIf(!mac)("--app writes latest.json: the version, the tarball beside it, the signature verbatim", () => {
+  test.skipIf(!mac)("--app writes the app's update feed: the version, the tarball beside it, the signature verbatim", () => {
     const dir = mkdtempSync(join(tmpdir(), "bigbrain-site-upd-"));
     const app = fakeApp(dir);
     const r2 = buildSite({ out: join(dir, "dist"), built: "2026-08-27", desktopApp: app });
     expect(r2.tar).toBe(tarName(r2.appVersion));
-    const feed = JSON.parse(readFileSync(join(dir, "dist", "latest.json"), "utf8"));
+    expect(r2.feed).toBe(feedName());
+    // the 0.8.x feed is never rewritten by an ordinary release
+    expect(existsSync(join(dir, "dist", "latest.json"))).toBe(false);
+    const feed = JSON.parse(readFileSync(join(dir, "dist", r2.feed!), "utf8"));
     expect(feed.version).toBe(r2.appVersion);
     expect(feed.pub_date).toBe("2026-08-27T00:00:00Z");
     expect(feed.notes).toBe(releaseNotes(r2.appVersion));
     expect(feed.platforms["darwin-aarch64"].url).toBe(`${SITE_URL}/download/${r2.tar}`);
     // the signature is the .sig's content, trimmed — the updater hands it
     // straight to minisign, so any reformatting here would break every update
-    expect(feed.platforms["darwin-aarch64"].signature).toBe("dW50cnVzdGVk fake signature");
+    expect(feed.platforms["darwin-aarch64"].signature).toBe(fakeSig(minisignKeyId(PINNED)));
     expect(readFileSync(join(dir, "dist", "download", r2.tar!), "utf8")).toBe("fake updater tarball");
     // a build cut without the updater artifacts must refuse, not quietly
     // ship an app that never sees another update
     rmSync(`${app}.tar.gz.sig`);
     expect(() => buildSite({ out: join(dir, "dist2"), desktopApp: app })).toThrow(/updater key/);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("the app polls update.json; latest.json stays pinned to the first key", () => {
+    expect(feedName()).toBe("update.json");
+    const dir = mkdtempSync(join(tmpdir(), "bigbrain-site-conf-"));
+    const conf = (endpoints: unknown): string => {
+      const path = join(dir, `${Math.random()}.json`);
+      writeFileSync(path, JSON.stringify({ version: "1.0.0", plugins: { updater: { endpoints } } }));
+      return path;
+    };
+    expect(feedName(conf([`${SITE_URL}/update.json`]))).toBe("update.json");
+    // a feed off the site, a nested path, or two feeds would ship an app whose
+    // updates this build cannot publish
+    expect(() => feedName(conf(["https://example.com/update.json"]))).toThrow(/endpoint/);
+    expect(() => feedName(conf([`${SITE_URL}/download/update.json`]))).toThrow(/endpoint/);
+    expect(() => feedName(conf([`${SITE_URL}/a.json`, `${SITE_URL}/b.json`]))).toThrow(/endpoint/);
+    expect(() => feedName(conf(undefined))).toThrow(/endpoint/);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("a release signed by a key its feed's apps do not pin is refused", () => {
+    expect(minisignKeyId(PINNED)).toMatch(/^[0-9a-f]{16}$/);
+    expect(() => checkFeedSignature(feedName(), fakeSig(minisignKeyId(PINNED)))).not.toThrow();
+    expect(() => checkFeedSignature(feedName(), fakeSig("0011223344556677"))).toThrow(/not signed by the key/);
+    // latest.json stays pinned to the first key whatever tauri.conf.json says now
+    expect(() => checkFeedSignature("latest.json", fakeSig("ae31aca97f34b692"))).not.toThrow();
+    expect(() => checkFeedSignature("latest.json", fakeSig("0011223344556677"))).toThrow(/not signed by the key/);
+    expect(() => checkFeedSignature("elsewhere.json", fakeSig(minisignKeyId(PINNED)))).toThrow(/no public key/);
+    expect(() => minisignKeyId("bm90IGEga2V5")).toThrow(/not a minisign/);
+  });
+
+  test.skipIf(!mac)("--feed publishes a rotation's bridge release on the previous feed only", () => {
+    const dir = mkdtempSync(join(tmpdir(), "bigbrain-site-bridge-"));
+    const app = fakeApp(dir, "ae31aca97f34b692"); // the bridge is signed by the first key
+    const r2 = buildSite({ out: join(dir, "dist"), built: "2026-10-06", desktopApp: app, feed: "latest.json" });
+    expect(r2.feed).toBe("latest.json");
+    expect(existsSync(join(dir, "dist", feedName()))).toBe(false);
+    expect(JSON.parse(readFileSync(join(dir, "dist", "latest.json"), "utf8")).version).toBe(r2.appVersion);
+    expect(() => buildSite({ out: join(dir, "dist2"), desktopApp: app, feed: "../latest.json" })).toThrow(/not a feed name/);
     rmSync(dir, { recursive: true, force: true });
   });
 

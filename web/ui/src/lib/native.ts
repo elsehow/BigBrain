@@ -139,7 +139,7 @@ export function syncWindowBackground(): void {
 }
 
 /** An update the site is offering: the version waiting, and the notes its
- * latest.json carries. */
+ * update feed carries. */
 export interface UpdateInfo {
   version: string;
   notes: string | null;
@@ -148,7 +148,7 @@ export interface UpdateInfo {
 /** Ask the shell whether the site holds a newer build than the one running.
  * Null in a plain tab (no shell) and when this version is current; throws
  * with the shell's words when the check itself failed (offline, a
- * latest.json that does not parse). */
+ * update feed that does not parse). */
 export async function updateCheck(): Promise<UpdateInfo | null> {
   const c = core();
   if (!c) return null;

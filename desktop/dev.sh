@@ -63,7 +63,7 @@ echo "dev: engine $engine; vault $vault; web :$web api :$api; vite :$vite (marke
 cd "$here"
 # The updater's dangerousInsecureTransportProtocol rides HERE, not in
 # tauri.conf.json: dev-only, so BIGBRAIN_UPDATE_URL may point at a plain-http
-# latest.json. A release build never carries the flag.
+# update feed. A release build never carries the flag.
 BIGBRAIN_VAULT=$vault BIGBRAIN_ENGINE=$engine BIGBRAIN_DEV=1 BIGBRAIN_WEB_PORT=$web BIGBRAIN_API_PORT=$api \
   BIGBRAIN_WEB_URL="http://127.0.0.1:$vite/" \
   bunx tauri dev --config "{\"build\":{\"devUrl\":\"http://127.0.0.1:$vite\"},\"plugins\":{\"updater\":{\"dangerousInsecureTransportProtocol\":true}}}"

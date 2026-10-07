@@ -2,7 +2,7 @@
  * update.svelte.ts — "a newer BigBrain exists", one banner's worth of state.
  *
  * The shell does the real work (desktop lib.rs: update_check asks the
- * site's latest.json, update_install downloads, verifies and relaunches) —
+ * site's update feed, update_install downloads, verifies and relaunches) —
  * this module is only the cadence and what UpdateNudge renders. No shell,
  * no checks: a plain tab or the workbench never shows the banner unless a
  * workbench scene sets this state by hand.
