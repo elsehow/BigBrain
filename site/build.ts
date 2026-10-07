@@ -64,6 +64,30 @@ export function feedName(conf: string = DESKTOP_CONF): string {
   return url.pathname.slice(1);
 }
 
+/** The public key each retired feed's apps pin. A feed not listed here is
+ * the current one, pinned by tauri.conf.json's own pubkey. */
+const FEED_KEYS: Record<string, string> = {
+  "latest.json": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDkyQjYzNDdGQTlBQzMxQUUKUldTdU1heXBmelMya2xndHF1TEhJalZpanVlVFdudFBqU3BaaXl0Zm95RHpvcUhNL1hURWQ1MGYK",
+};
+
+/** The key id inside a Tauri pubkey or .sig: both are base64 of minisign's
+ * text form, whose second line is base64 of a 2-byte algorithm, the 8-byte
+ * key id, then the key or signature. */
+export function minisignKeyId(b64: string): string {
+  const line = Buffer.from(b64.trim(), "base64").toString("utf8").split("\n")[1]?.trim();
+  const raw = line ? Buffer.from(line, "base64") : null;
+  if (!raw || raw.length < 42) throw new Error("not a minisign key or signature");
+  return raw.subarray(2, 10).toString("hex");
+}
+
+/** A release signed by a key other than the one its feed's apps pin would
+ * publish fine and then fail every install's check, silently. Refuse it here. */
+export function checkFeedSignature(feed: string, signature: string, conf: string = DESKTOP_CONF): void {
+  const pinned = FEED_KEYS[feed] ?? (feed === feedName(conf) ? (JSON.parse(readFileSync(conf, "utf8")) as { plugins: { updater: { pubkey: string } } }).plugins.updater.pubkey : undefined);
+  if (!pinned) throw new Error(`no public key is known for the feed ${feed}`);
+  if (minisignKeyId(signature) !== minisignKeyId(pinned)) throw new Error(`the update is not signed by the key ${feed}'s apps pin — check TAURI_SIGNING_PRIVATE_KEY (desktop/README.md, key rotation)`);
+}
+
 export const dmgName = (version: string): string => `BigBrain_${version}_aarch64.dmg`;
 export const zipName = (version: string): string => `BigBrain_${version}_aarch64.zip`;
 export const tarName = (version: string): string => `BigBrain_${version}_aarch64.app.tar.gz`;
@@ -91,7 +115,7 @@ export function cutDownloads(
   const madeTar = `${app}.tar.gz`;
   for (const f of [madeTar, `${madeTar}.sig`]) {
     if (!existsSync(f)) {
-      throw new Error(`no ${f} — build the app with the updater key: TAURI_SIGNING_PRIVATE_KEY=~/.config/bigbrain/updater.key bun run build (desktop/README.md)`);
+      throw new Error(`no ${f} — build the app with the updater key: TAURI_SIGNING_PRIVATE_KEY=<the signing key> bun run build (desktop/README.md)`);
     }
   }
   mkdirSync(dir, { recursive: true });
@@ -224,6 +248,7 @@ export function buildSite(opts: BuildOpts): BuildResult {
     // says a newer version exists.
     feed = opts.feed ?? feedName(opts.desktopConf);
     if (!/^[a-z0-9-]+\.json$/.test(feed)) throw new Error(`not a feed name: ${feed}`);
+    checkFeedSignature(feed, cut.signature, opts.desktopConf);
     writeFileSync(
       join(out, feed),
       `${JSON.stringify(

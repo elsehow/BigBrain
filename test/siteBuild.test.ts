@@ -3,12 +3,23 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { SITE_URL, appVersion, buildSite, cubeParts, extensionId, feedName, releaseNotes, tarName, zipName } from "../site/build";
+import { SITE_URL, appVersion, buildSite, checkFeedSignature, cubeParts, extensionId, feedName, minisignKeyId, releaseNotes, tarName, zipName } from "../site/build";
 
 const EXT = join(import.meta.dir, "..", "clients", "browser-extension");
 
+const CONF = join(import.meta.dir, "..", "desktop", "src-tauri", "tauri.conf.json");
+const PINNED = JSON.parse(readFileSync(CONF, "utf8")).plugins.updater.pubkey as string;
+
+/** A .sig in Tauri's shape (base64 of minisign's text form) from the key with
+ * this id — the bytes after the id are not a real signature; only the build's
+ * key check reads them. */
+function fakeSig(keyId: string): string {
+  const raw = Buffer.concat([Buffer.from("ED"), Buffer.from(keyId, "hex"), Buffer.alloc(64)]);
+  return Buffer.from(`untrusted comment: signature from tauri secret key\n${raw.toString("base64")}\ntrusted comment: fake\n${Buffer.alloc(64).toString("base64")}\n`).toString("base64");
+}
+
 /** A stand-in bundle: enough shape for ditto, install.sh and `defaults read`. */
-function fakeApp(dir: string): string {
+function fakeApp(dir: string, keyId: string = minisignKeyId(PINNED)): string {
   const app = join(dir, "BigBrain.app");
   mkdirSync(join(app, "Contents", "MacOS"), { recursive: true });
   writeFileSync(
@@ -19,7 +30,7 @@ function fakeApp(dir: string): string {
   // what `tauri build` leaves beside the .app when createUpdaterArtifacts
   // is on: the updater's tarball and its minisign signature
   writeFileSync(`${app}.tar.gz`, "fake updater tarball");
-  writeFileSync(`${app}.tar.gz.sig`, "dW50cnVzdGVk fake signature\n");
+  writeFileSync(`${app}.tar.gz.sig`, `${fakeSig(keyId)}\n`);
   return app;
 }
 
@@ -139,7 +150,7 @@ describe("site build", () => {
     expect(feed.platforms["darwin-aarch64"].url).toBe(`${SITE_URL}/download/${r2.tar}`);
     // the signature is the .sig's content, trimmed — the updater hands it
     // straight to minisign, so any reformatting here would break every update
-    expect(feed.platforms["darwin-aarch64"].signature).toBe("dW50cnVzdGVk fake signature");
+    expect(feed.platforms["darwin-aarch64"].signature).toBe(fakeSig(minisignKeyId(PINNED)));
     expect(readFileSync(join(dir, "dist", "download", r2.tar!), "utf8")).toBe("fake updater tarball");
     // a build cut without the updater artifacts must refuse, not quietly
     // ship an app that never sees another update
@@ -166,9 +177,20 @@ describe("site build", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
+  test("a release signed by a key its feed's apps do not pin is refused", () => {
+    expect(minisignKeyId(PINNED)).toMatch(/^[0-9a-f]{16}$/);
+    expect(() => checkFeedSignature(feedName(), fakeSig(minisignKeyId(PINNED)))).not.toThrow();
+    expect(() => checkFeedSignature(feedName(), fakeSig("0011223344556677"))).toThrow(/not signed by the key/);
+    // latest.json stays pinned to the first key whatever tauri.conf.json says now
+    expect(() => checkFeedSignature("latest.json", fakeSig("ae31aca97f34b692"))).not.toThrow();
+    expect(() => checkFeedSignature("latest.json", fakeSig("0011223344556677"))).toThrow(/not signed by the key/);
+    expect(() => checkFeedSignature("elsewhere.json", fakeSig(minisignKeyId(PINNED)))).toThrow(/no public key/);
+    expect(() => minisignKeyId("bm90IGEga2V5")).toThrow(/not a minisign/);
+  });
+
   test.skipIf(!mac)("--feed publishes a rotation's bridge release on the previous feed only", () => {
     const dir = mkdtempSync(join(tmpdir(), "bigbrain-site-bridge-"));
-    const app = fakeApp(dir);
+    const app = fakeApp(dir, "ae31aca97f34b692"); // the bridge is signed by the first key
     const r2 = buildSite({ out: join(dir, "dist"), built: "2026-10-06", desktopApp: app, feed: "latest.json" });
     expect(r2.feed).toBe("latest.json");
     expect(existsSync(join(dir, "dist", feedName()))).toBe(false);
