@@ -17,6 +17,7 @@ import {
   type AssertionAppendResult,
 } from "../lib/assertionLog";
 import { insertion } from "./support/vault";
+import { viewerAuth } from "./support/viewerSession";
 
 let root: string;
 let home: string;
@@ -304,7 +305,7 @@ describe("retrieval parity with the UI door (#456)", () => {
   // The viewer is its own PROCESS on its own port — web/server.ts binds its
   // vault root at import, so parity is measured against the real second door,
   // not scanSurface called twice in one process.
-  let web: { url: string; proc: ReturnType<typeof Bun.spawn> };
+  let web: { url: string; proc: ReturnType<typeof Bun.spawn>; auth: () => Record<string, string> };
 
   beforeAll(async () => {
     const probe = Bun.serve({ port: 0, fetch: () => new Response("") });
@@ -323,10 +324,10 @@ describe("retrieval parity with the UI door (#456)", () => {
         stderr: "pipe",
       }
     );
-    web = { url: `http://127.0.0.1:${port}`, proc };
+    web = { url: `http://127.0.0.1:${port}`, proc, auth: () => viewerAuth(home, port) };
     for (let i = 0; ; i++) {
       try {
-        if ((await fetch(`${web.url}/api/search?q=&limit=1`)).ok) return;
+        if ((await fetch(`${web.url}/api/search?q=&limit=1`, { headers: web.auth() })).ok) return;
       } catch {
         /* not listening yet */
       }
@@ -340,7 +341,7 @@ describe("retrieval parity with the UI door (#456)", () => {
   test("the representative corpus has the same hits on both doors, with UI navigation ranking", async () => {
     for (const q of ["briar", "calder", "migration", "second engineer", "september"]) {
       const plugin = await searchPaths([q, "20"]);
-      const res = await fetch(`${web.url}/api/search?q=${encodeURIComponent(q)}&limit=20`);
+      const res = await fetch(`${web.url}/api/search?q=${encodeURIComponent(q)}&limit=20`, { headers: web.auth() });
       expect(res.status).toBe(200);
       const body = (await res.json()) as { hits: { note: { path: string } }[] };
       // The UI deliberately promotes navigation targets after the shared search.

@@ -96,6 +96,7 @@ const PAGE = `<!doctype html><meta charset="utf-8"><meta name="viewport" content
 <p>In a browser on this machine, run <code>bigbrain open</code> for a link.</p>`;
 
 function refuse(req: IncomingMessage, res: ServerResponse): false {
+  res.setHeader("www-authenticate", 'Bearer realm="BigBrain viewer"');
   const page = req.method === "GET" && (req.headers["sec-fetch-dest"] === "document" || /text\/html/.test(req.headers.accept ?? ""));
   if (page) send(res, 401, PAGE, "text/html; charset=utf-8");
   else json(res, 401, { error: "This needs BigBrain's session: open it from the app, or run `bigbrain open`." });
