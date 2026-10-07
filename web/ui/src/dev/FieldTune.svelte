@@ -21,7 +21,9 @@
   ];
   const ENTITIES: Knob[] = [
     { key: "entSize", label: "Size", min: 0.2, max: 3, step: 0.05 },
+    { key: "entByTies", label: "Size by mentions", min: 0, max: 1, step: 0.05 },
     { key: "entAlpha", label: "Opacity", min: 0, max: 1.6, step: 0.01 },
+    { key: "entTone", label: "Ink (dust → full)", min: 0, max: 1, step: 0.01 },
   ];
   const KEY = "bigbrain.field-tune";
 

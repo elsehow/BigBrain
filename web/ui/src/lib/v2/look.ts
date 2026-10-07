@@ -29,11 +29,15 @@ export interface FieldLook {
   entSize: number;
   /** An entity's opacity, times its shipped opacity. */
   entAlpha: number;
+  /** An unnamed entity's colour: 0 the field's dust, 1 full ink (a named one is always ink). */
+  entTone: number;
+  /** 0 the shipped size; 1 also sized by how many sources mention it. */
+  entByTies: number;
 }
 
 export const LOOK_DEFAULTS: Readonly<FieldLook> = Object.freeze({
   srcSize: 1, srcByTies: 0, srcAlpha: 0.75, srcTone: 0, srcAccent: 0, srcHole: 0, srcSquare: 0, srcTurn: 0,
-  srcLift: 0, srcFlat: 0, srcTies: 0, entSize: 1, entAlpha: 1,
+  srcLift: 0, srcFlat: 0, srcTies: 0, entSize: 1, entAlpha: 1, entTone: 0, entByTies: 0,
 });
 
 export const look: FieldLook = { ...LOOK_DEFAULTS };

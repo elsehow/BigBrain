@@ -217,13 +217,17 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
   const SP = field.sources.map((x) => new THREE.Vector3(...x.p));
   // where the layout put each (field look: lift and flatten move them from here)
   const SP0 = SP.map((p) => p.clone());
-  // sized by mentions (field look): the median source keeps its size
-  const tieScale = (() => {
+  // sized by mentions (field look): a source by the entities it mentions, an
+  // entity by the sources that mention it; the median of each keeps its size
+  const byCount = (counts: number[]) => {
     const f = (n: number) => 0.5 + Math.log1p(n);
-    const sorted = field.sources.map((x) => x.ties.length).sort((a, b) => a - b);
-    const mid = f(sorted[sorted.length >> 1] ?? 1);
-    return field.sources.map((x) => f(x.ties.length) / mid);
-  })();
+    const mid = f([...counts].sort((a, b) => a - b)[counts.length >> 1] ?? 1);
+    return counts.map((n) => f(n) / mid);
+  };
+  const tieScale = byCount(field.sources.map((x) => x.ties.length));
+  const mentionedBy = new Array<number>(N).fill(0);
+  for (const x of field.sources) for (const j of x.ties) mentionedBy[j]!++;
+  const entScale = byCount(mentionedBy);
   const sourceAt = new Map(field.sources.flatMap((x, k) => x.paths.map((p) => [p, SP[k]!] as const)));
   // a source drawn as an entity has no dot of its own: held, it sits on the
   // entity's, switch on or off
@@ -616,7 +620,7 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
 
   // ── frame ────────────────────────────────────────────────────────────────
   const clock = new THREE.Clock();
-  const c1 = new THREE.Color(), c2 = new THREE.Color(), dust = new THREE.Color(), srcInk = new THREE.Color();
+  const c1 = new THREE.Color(), c2 = new THREE.Color(), dust = new THREE.Color(), srcInk = new THREE.Color(), entInk = new THREE.Color();
   const tA = new THREE.Vector3(), tB = new THREE.Vector3();
   const s1 = { x: 0, y: 0, ok: false }, s2 = { x: 0, y: 0, ok: false };
   let raf = 0;
@@ -649,6 +653,7 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
     dim += ((inPlay ? 1 : 0) - dim) * k;
     searchDim += ((srch && srch.matches.size ? 0.12 : srch ? 0.5 : 1) - searchDim) * ease(10);
     dust.copy(col.fg).lerp(col.bg, 0.42);
+    entInk.copy(dust).lerp(col.fg, look.entTone);
     srcShown += ((hooks.sources?.() ? 1 : 0) - srcShown) * ease(8);
     const pointedTies = underSrc != null && srcShown > 0.5 ? new Set(field.sources[underSrc]!.ties) : null;
     const sizes = aSize.array as Float32Array, colors = aColor.array as Float32Array, alphas = aAlpha.array as Float32Array;
@@ -662,10 +667,10 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
       if (n.memory) { alphas[i] = 0; continue; }
       const h = Math.max(heat[i]!, match[i]!);
       const r = rel[i]!;
-      sizes[i] = baseSize[i]! * look.entSize * (1 + 0.7 * h) * (1 + 0.45 * r * dim);
+      sizes[i] = baseSize[i]! * look.entSize * THREE.MathUtils.lerp(1, entScale[i]!, look.entByTies) * (1 + 0.7 * h) * (1 + 0.45 * r * dim);
       const rest = Math.min(1, (n.named ? 0.95 : 0.6) * look.entAlpha);
       alphas[i] = Math.max(h, THREE.MathUtils.lerp(rest, THREE.MathUtils.lerp(n.named ? 0.22 : 0.12, 1, r), dim)) * THREE.MathUtils.lerp(searchDim, 1, match[i]!);
-      c1.copy(n.named || r > 0.5 ? col.fg : dust).lerp(col.act, h * 0.9).toArray(colors, i * 3);
+      c1.copy(n.named || r > 0.5 ? col.fg : entInk).lerp(col.act, h * 0.9).toArray(colors, i * 3);
     }
     let srcHeld = 0;
     sources.forEach((s, k) => {
