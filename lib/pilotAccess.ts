@@ -12,6 +12,7 @@ export const PILOT_LOCAL_TOOLS = [
   tool('read_file','Read a bounded UTF-8 text file from your scratch or an approved folder. Use vault search/read tools for vault notes. Relative paths refer to scratch.',{path:string,offset:{type:'integer',minimum:0},limit:{type:'integer',minimum:1,maximum:64000}},['path']),
   tool('write_scratch','Write a UTF-8 text file inside your private scratch, creating parent folders as needed. Never writes vault notes or project files. Use drop/directive for vault contributions and your own external agent application for implementation.',{path:string,text:string},['path','text']),
 ];
+type Readable = {roots:string[]; denied:string[]};
 export class PilotAccess {
   constructor(private root:string) {}
   /** Keep old Settings folder selections readable; retire their write modes. */
@@ -30,16 +31,20 @@ export class PilotAccess {
     return path;
   }
   private roots(s:PilotChatSession):string[] { return [realpathSync(this.root),this.scratch(s),...validatedWorkPermissions(this.root).folders.map(f=>f.path)]; }
-  private denied(path:string,scratch:string):boolean {
-    if(containsPath(scratch,path)) return false;
-    const paths=[...['.env','.git','.state','.spool'].map(p=>canonicalWorkPath(join(this.root,p))),...credentialPaths()];
-    // Secret-bearing names are refused at any depth, including as a directory.
-    return paths.some(p=>containsPath(p,path)) || path.split(sep).some(secretName);
+  /** Resolved once per call; a directory listing checks every entry against it. */
+  private readable(s:PilotChatSession):Readable {
+    return {roots:this.roots(s),denied:[...['.env','.git','.state','.spool'].map(p=>canonicalWorkPath(join(this.root,p))),...credentialPaths()]};
   }
-  private path(s:PilotChatSession,value:unknown,write=false):string {
+  private unreadable(path:string,scratch:string,{roots,denied}:Readable):boolean {
+    if(!roots.some(root=>containsPath(root,path))) return true;
+    if(containsPath(scratch,path)) return false;
+    // Secret-bearing names are refused at any depth, including as a directory.
+    return denied.some(p=>containsPath(p,path)) || path.split(sep).some(secretName);
+  }
+  private path(s:PilotChatSession,value:unknown,write=false,readable?:Readable):string {
     if(typeof value!=='string' || !value || value.length>4000 || /[\x00-\x1f]/.test(value)) throw new Error('Provide a file path.');
     const scratch=this.scratch(s), path=canonicalWorkPath(isAbsolute(value)?value:resolve(scratch,value));
-    if(write ? !containsPath(scratch,path) : !this.roots(s).some(root=>containsPath(root,path)) || this.denied(path,scratch))
+    if(write ? !containsPath(scratch,path) : this.unreadable(path,scratch,readable??this.readable(s)))
       throw new Error(write?'Pilot writes only to private scratch. Delegate project changes to a agent session.':'This path is not readable. Add its folder in Vault → Pilot settings, or delegate to a agent session.');
     return path;
   }
@@ -51,7 +56,7 @@ export class PilotAccess {
     if(name==='list_directories') return {vault:realpathSync(this.root),scratch:this.scratch(s),folders:validatedWorkPermissions(this.root).folders.map(f=>({path:f.path,access:'read'}))};
     const path=this.path(s,args.path,name==='write_scratch');
     if(name==='list_files') {
-      const entries=readdirSync(path,{withFileTypes:true}).filter(entry=>{try {this.path(s,join(path,entry.name)); return true;}catch{return false;}});
+      const readable=this.readable(s), entries=readdirSync(path,{withFileTypes:true}).filter(entry=>{try {this.path(s,join(path,entry.name),false,readable); return true;}catch{return false;}});
       return {path,entries:entries.slice(0,200).map(e=>({name:e.name,type:e.isDirectory()?'directory':e.isSymbolicLink()?'symlink':'file'})),truncated:entries.length>200};
     }
     if(name==='read_file') {

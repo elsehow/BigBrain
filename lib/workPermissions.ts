@@ -22,25 +22,25 @@ export function credentialPaths(): string[] {
 }
 const tilde = (path: string, home: string): string => containsPath(home, path) ? "~" + path.slice(home.length) : path;
 /** Why a canonical folder is too broad to grant, or null. */
-export function folderRefusal(path: string): string | null {
+export function folderRefusal(path: string, credentials = credentialPaths()): string | null {
   const home = canonicalWorkPath(homedir());
   if (dirname(path) === path) return "Pilot cannot read the whole disk. Choose a specific folder, such as a project folder.";
   if (path === home) return "Pilot cannot read your whole home folder. Choose a specific folder inside it, such as a project folder.";
   if (containsPath(path, home)) return "This folder contains your home folder. Choose a specific folder inside your home folder, such as a project folder.";
-  const credentials = credentialPaths().find(p => containsPath(path, p) || containsPath(p, path));
-  if (!credentials) return null;
-  return containsPath(path, credentials)
-    ? `This folder contains ${tilde(credentials, home)}, which holds credentials. Choose a more specific folder.`
-    : `This folder is part of ${tilde(credentials, home)}, which holds credentials. Pilot cannot read it.`;
+  const store = credentials.find(p => containsPath(path, p) || containsPath(p, path));
+  if (!store) return null;
+  return containsPath(path, store)
+    ? `This folder contains ${tilde(store, home)}, which holds credentials. Choose a more specific folder.`
+    : `This folder is part of ${tilde(store, home)}, which holds credentials. Pilot cannot read it.`;
 }
-export function directoryPath(value: unknown): string {
+export function directoryPath(value: unknown, credentials = credentialPaths()): string {
   if (typeof value !== "string" || /[\x00-\x1f]/.test(value)) throw new Error("Choose an absolute folder path.");
   const expanded = expandHome(value.trim());
   if (!isAbsolute(expanded)) throw new Error("Choose an absolute folder path.");
   let path: string;
   try { path = realpathSync(expanded); } catch { throw new Error(`Choose an existing folder: ${value.trim()} was not found.`); }
   if (!statSync(path).isDirectory()) throw new Error("Choose an existing folder.");
-  const refused = folderRefusal(path);
+  const refused = folderRefusal(path, credentials);
   if (refused) throw new Error(refused);
   return path;
 }
@@ -56,10 +56,10 @@ function decode(value: any, stored = false): WorkPermissions {
 export function readWorkPermissions(root: string): WorkPermissions {
   const raw = readEnvValues(root)[KEY];
   if (!raw) return { version: 2, folders: [] };
-  const value = JSON.parse(raw), stored = decode(value, true);
+  const value = JSON.parse(raw), stored = decode(value, true), credentials = credentialPaths();
   const removed: RemovedFolder[] = Array.isArray(value.removed) ? value.removed.filter((r: any) => typeof r?.path === "string" && typeof r?.reason === "string") : [];
   const folders = stored.folders.filter(f => {
-    const reason = folderRefusal(canonicalWorkPath(f.path));
+    const reason = folderRefusal(canonicalWorkPath(f.path), credentials);
     if (reason) removed.push({ path: f.path, reason });
     return !reason;
   });
@@ -69,9 +69,9 @@ export function normalizeWorkPermissions(value: unknown): WorkPermissions {
   if ((value as any)?.cowboy) throw new Error("Pilot only supports read access to configured folders.");
   const v = decode(value);
   if (v.folders.length > 32) throw new Error("Choose at most 32 authorized folders.");
-  const folders = new Map<string, FolderAccess>();
+  const folders = new Map<string, FolderAccess>(), credentials = credentialPaths();
   for (const f of v.folders) {
-    const path = directoryPath(f.path);
+    const path = directoryPath(f.path, credentials);
     const prior = folders.get(path);
     folders.set(path, { path, access: prior?.access === "write" ? "write" : f.access });
   }
