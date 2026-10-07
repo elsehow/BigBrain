@@ -31,7 +31,7 @@ import { telemetry, type Operation } from "../lib/telemetry";
  */
 
 import { intakeWireReceipt } from "../lib/intakeWire";
-import { apiPort, isDesktop, isDev, webPort } from "../lib/env";
+import { apiPort, isDesktop, isDev, supervisorPidEnv, webPort } from "../lib/env";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
@@ -83,6 +83,7 @@ import { providerMonitoring } from "../lib/providerMonitor";
 import { desktopRouteManifest } from "./desktopRouteManifest";
 import { remoteContentRoutes } from "../lib/remoteContent";
 import { clearCredits, creditsState } from "../lib/providerCredits";
+import { newViewerSecret, readViewerSession, viewerGate, viewerSessionPath, writeViewerSession } from "../lib/viewerSession";
 
 const ROOT = VAULT_ROOT;
 const UI_DIST = join(ENGINE_ROOT, "web", "ui", "dist");
@@ -852,6 +853,13 @@ function handleRequest(req: IncomingMessage, res: ServerResponse): void {
 /** Bind and serve. Everything above is declaration; this is the one place a
  * socket opens, so `import web/server.ts` in a test costs nothing (#260). */
 export function start(): void {
+  // The session every route needs (lib/viewerSession.ts): the supervisor's,
+  // written before it started this process; run by hand, this launch's own,
+  // published once the port is ours so a second copy cannot overwrite it.
+  const supervised = supervisorPidEnv() !== undefined;
+  const secret = supervised ? readViewerSession(PORT) : newViewerSecret();
+  if (!secret) throw new Error(`no viewer session at ${viewerSessionPath(PORT)}; the supervisor writes it at start`);
+  const allowSession = viewerGate(secret, PORT);
   live.start();
   // Cold projection recovery happens HERE, off the request path (#456): a
   // fresh process against a native vault syncs once at boot, so the first
@@ -885,6 +893,7 @@ export function start(): void {
   const server = createServer(async (req, res) => {
     armor(res);
     if (!allowLoopbackRequest(req, res)) return;
+    if (!allowSession(req, res)) return;
     if (await inclusionReviewApi(req,res,ROOT)) return;
     if (await inclusionBackfillApi(req,res,ROOT)) return;
     if (await jevSettingsApi(req,res,ROOT)) return;
@@ -898,7 +907,8 @@ export function start(): void {
     try {
       handleRequest(req, res);
     } catch (error) {
-      console.error(`route ${req.url}: ${errText(error)}`);
+      // the path alone: a query may carry a bootstrap link
+      console.error(`route ${path}: ${errText(error)}`);
       if (res.headersSent) return res.destroy();
       send(res, 500, JSON.stringify({ error: errText(error) }));
     }
@@ -911,6 +921,7 @@ export function start(): void {
   // localhost only: this server carries a write route now (POST /api/config),
   // so it must not be reachable from the network.
   server.listen(PORT, "127.0.0.1", () => {
+    if (!supervised) writeViewerSession(PORT, secret);
     console.error(`BigBrain web on http://localhost:${PORT} (vault: ${ROOT})`);
   });
 }

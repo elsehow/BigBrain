@@ -75,6 +75,7 @@ import { retireHostPluginDir } from "../lib/legacy";
 import { jobEnv } from "../lib/preflight";
 import { serveStatic } from "../lib/staticServe";
 import { clearNextFires, takeWake, writeNextFires } from "../lib/supervisorClock";
+import { createViewerSession, viewerGate } from "../lib/viewerSession";
 
 interface Job {
   name: string;
@@ -186,6 +187,7 @@ function door(suggested: string, problem?: { path: string; problem: string }): P
     const server = createServer((req, res) => {
       armor(res);
       if (!allowLoopbackRequest(req, res)) return;
+      if (!allowSession(req, res)) return;
       if (!allowVaultRequest(req, res, "setup")) return;
       if (dispatch(routes, req, res)) return;
       json(res, 404, { error: "no vault yet" });
@@ -439,6 +441,10 @@ async function run(root: string): Promise<Run> {
 // ── main ─────────────────────────────────────────────────────────────────────
 
 if (!dryRun) privatize([configDir()]);
+// This launch's viewer session (lib/viewerSession.ts): on disk before the door
+// or the viewer binds, so the shell can read it the moment either answers.
+// The viewer reads it from there; it never rides argv or the environment.
+const allowSession = viewerGate(dryRun ? "" : createViewerSession(Number(webPort)), Number(webPort));
 let root = discoverVaultRoot();
 const suggested = root ?? join(homedir(), "vault");
 if (!isVault(root)) {

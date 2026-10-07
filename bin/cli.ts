@@ -33,6 +33,7 @@ const EVERYDAY: Record<string, [script: string, blurb: string]> = {
   agent: ["bin/agent.ts", "run an agent on your projects in its own desktop folder (run, resume, list, land, discard)"],
   links: ["bin/links.ts", "wikilink lint and conversion"],
   blob: ["bin/blob.ts", "follow a blob: link to bytes"],
+  open: ["bin/open.ts", "open the viewer in a browser on this machine (--print: just the link)"],
 };
 
 /** Setup and ops — humans, rarely. */
@@ -110,15 +111,17 @@ if (cmd === "shared") {
   else env["BIGBRAIN_VAULT"] ??= process.cwd();
 } else {
   const vault = discoverVaultRoot();
-  if (!vault) {
+  if (vault) {
+    env = { ...vaultEnvSettings(vault), ...env, BIGBRAIN_VAULT: vault };
+    cwd = vault; // content-relative behavior, same as the supervisor
+  } else if (cmd !== "open") {
+    // (`open` needs none: the app may still be on its first-run door)
     console.error(
       `bigbrain: no vault found — set BIGBRAIN_VAULT, run from inside a vault, or create ${vaultPointer()}.`
     );
     console.error(`No vault yet? bigbrain init --vault <path>`);
     process.exit(2);
   }
-  env = { ...vaultEnvSettings(vault), ...env, BIGBRAIN_VAULT: vault };
-  cwd = vault; // content-relative behavior, same as the supervisor
 }
 
 const r = Bun.spawnSync(

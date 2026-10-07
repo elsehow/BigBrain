@@ -242,16 +242,34 @@ fn port_open(port: u16) -> bool {
     TcpStream::connect_timeout(&([127, 0, 0, 1], port).into(), Duration::from_millis(300)).is_ok()
 }
 
+/// The viewer's bootstrap route (lib/viewerSession.ts).
+const SESSION_PATH: &str = "/api/session";
+
+/// This launch's viewer session: the secret the supervisor writes to
+/// `~/.config/bigbrain/viewer-session-<port>` before the door or the viewer
+/// binds (lib/viewerSession.ts). Every viewer route needs it — the probe
+/// below as a bearer header, the window as the cookie its first navigation
+/// sets (`bootstrap_url`). None before the file exists, or for a file that
+/// does not hold one.
+fn viewer_session(home: &Path, port: u16) -> Option<String> {
+    let text = fs::read_to_string(home.join(".config/bigbrain").join(format!("viewer-session-{port}"))).ok()?;
+    let secret = text.trim();
+    (secret.len() == 43 && secret.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')).then(|| secret.to_string())
+}
+
 /// Which engine is answering on the viewer port: `GET /api/engine` (the
 /// engine's web/server.ts, and the setup door) names its root and the pid
 /// of the supervisor behind it (None from an engine older than #597). None
-/// when nothing answers, or an engine too old to say — either way, not ours.
-fn engine_on_port(port: u16) -> Option<(PathBuf, Option<u32>)> {
+/// when nothing answers, or an engine too old to say, or one whose session
+/// is not `session` — either way, not ours. The file is read fresh by each
+/// caller: a new launch's supervisor replaces the last one's secret.
+fn engine_on_port(port: u16, session: Option<&str>) -> Option<(PathBuf, Option<u32>)> {
     use std::io::{Read, Write};
     let mut s = TcpStream::connect_timeout(&([127, 0, 0, 1], port).into(), Duration::from_millis(500)).ok()?;
     s.set_read_timeout(Some(Duration::from_secs(3))).ok()?;
     s.set_write_timeout(Some(Duration::from_secs(3))).ok()?;
-    write!(s, "GET /api/engine HTTP/1.0\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n").ok()?;
+    let auth = session.map(|secret| format!("Authorization: Bearer {secret}\r\n")).unwrap_or_default();
+    write!(s, "GET /api/engine HTTP/1.0\r\nHost: 127.0.0.1:{port}\r\n{auth}Connection: close\r\n\r\n").ok()?;
     let mut raw = Vec::new();
     s.read_to_end(&mut raw).ok()?;
     let text = String::from_utf8_lossy(&raw);
@@ -605,8 +623,8 @@ fn ports_free_within(web: u16, api: u16, wait: Duration) -> bool {
     wait_for(wait, || !port_open(web) && !port_open(api))
 }
 
-fn viewer_answers_within(port: u16, engine: &Path, supervisor: u32, wait: Duration) -> bool {
-    wait_for(wait, || viewer_matches(engine_on_port(port).as_ref(), engine, supervisor))
+fn viewer_answers_within(port: u16, home: &Path, engine: &Path, supervisor: u32, wait: Duration) -> bool {
+    wait_for(wait, || viewer_matches(engine_on_port(port, viewer_session(home, port).as_deref()).as_ref(), engine, supervisor))
 }
 
 /// Bring the viewer window forward — it is hidden, never destroyed, when
@@ -879,7 +897,7 @@ fn start_engine(app: &AppHandle, boot: &Boot) -> Result<Started, String> {
     // viewer in our window and call it this version: say so and stop.
     let web_held = port_open(web_port);
     let api_held = port_open(api_port);
-    let on_ports = if web_held { engine_on_port(web_port) } else { None };
+    let on_ports = if web_held { engine_on_port(web_port, viewer_session(&boot.home, web_port).as_deref()) } else { None };
     let ours = on_ports.as_ref().is_some_and(|(p, _)| same_tree(p, &boot.engine));
     let live = on_ports.as_ref().and_then(|(_, s)| *s).filter(|&pid| supervisor_alive(pid));
     let action = port_action(web_held, api_held, ours, live);
@@ -924,7 +942,7 @@ fn start_engine(app: &AppHandle, boot: &Boot) -> Result<Started, String> {
     forward(child.stderr.take(), "engine!", None);
     *app.state::<Engine>().0.lock().unwrap() = Some(child);
 
-    if viewer_answers_within(web_port, &boot.engine, supervisor, ENGINE_START_WAIT) {
+    if viewer_answers_within(web_port, &boot.home, &boot.engine, supervisor, ENGINE_START_WAIT) {
         return Ok(Started::Ready);
     }
     Err(format!(
@@ -953,12 +971,13 @@ fn viewer_base(web_port: u16) -> String {
 /// the webview stays where it was. The viewer diverts such clicks itself
 /// first (web/ui/src/lib/links.ts); this is the floor under it, for the
 /// path no click handler saw. `about:` (the empty page a webview may start
-/// on) is the webview's own.
+/// on) is the webview's own, and so is the session bootstrap the window
+/// opens on, which redirects to the viewer.
 fn stay_on(app: &AppHandle, home: &tauri::Url) -> impl Fn(&tauri::Url) -> bool + Send + 'static {
     let app = app.clone();
     let home = home.clone();
     move |url| {
-        if url.scheme() == "about" || (url.origin() == home.origin() && url.path() == home.path()) {
+        if on_viewer(&home, url) {
             return true;
         }
         if let Err(e) = app.opener().open_url(url.as_str(), None::<&str>) {
@@ -968,8 +987,25 @@ fn stay_on(app: &AppHandle, home: &tauri::Url) -> impl Fn(&tauri::Url) -> bool +
     }
 }
 
+fn on_viewer(home: &tauri::Url, url: &tauri::Url) -> bool {
+    url.scheme() == "about" || (url.origin() == home.origin() && (url.path() == home.path() || url.path() == SESSION_PATH))
+}
+
+/// The window's first navigation: the viewer's bootstrap, which sets the
+/// session cookie and redirects to the viewer without the secret. Never
+/// logged. An engine with no session file (one from before sessions) opens
+/// as it always did.
+fn bootstrap_url(home: &tauri::Url, session: Option<&str>) -> tauri::Url {
+    let Some(secret) = session else { return home.clone() };
+    let mut url = home.clone();
+    url.set_path(SESSION_PATH);
+    url.set_query(None);
+    url.query_pairs_mut().append_pair("k", secret);
+    url
+}
+
 /// The main viewer window.
-fn build_windows(app: &AppHandle, base: &str) -> Result<(), Box<dyn std::error::Error>> {
+fn build_windows(app: &AppHandle, base: &str, session: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
     // The viewer window. Closing it hides it — the engine keeps
     // gardening; the cube, the Dock icon and Cmd-Tab bring it back.
     let url: tauri::Url = base.parse()?;
@@ -982,7 +1018,7 @@ fn build_windows(app: &AppHandle, base: &str) -> Result<(), Box<dyn std::error::
     // it runs. macOS-only: hidden_title exists on no other platform,
     // where the title is all the bar has.
     #[allow(unused_mut)]
-    let mut builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url.clone()))
+    let mut builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(bootstrap_url(&url, session)))
         .on_navigation(stay_on(app, &url))
         .title("BigBrain")
         .inner_size(1280.0, 860.0)
@@ -1102,7 +1138,8 @@ pub fn run() {
                 Ok(Started::Ready) => {}
             }
             let base = viewer_base(boot.web_port);
-            build_windows(&handle, &base)
+            // Read after the engine answered: its supervisor wrote it first.
+            build_windows(&handle, &base, viewer_session(&boot.home, boot.web_port).as_deref())
                 .unwrap_or_else(|e| fatal(&handle, format!("the BigBrain window would not open: {e}")));
             build_tray(&handle)
                 .unwrap_or_else(|e| fatal(&handle, format!("the menu bar cube would not build: {e}")));
@@ -1349,7 +1386,7 @@ mod tests {
 
         // And the round trip over a real socket, once.
         assert_eq!(
-            engine_on_port(canned(r#"{"engine":"/App/engine","supervisor":4242}"#)),
+            engine_on_port(canned(r#"{"engine":"/App/engine","supervisor":4242}"#), None),
             Some((PathBuf::from("/App/engine"), Some(4242)))
         );
 
@@ -1362,6 +1399,29 @@ mod tests {
         let _ = fake.kill();
         let _ = fake.wait();
         assert!(!supervisor_alive(fake.id()));
+    }
+
+    #[test]
+    fn the_window_opens_through_the_session_bootstrap_and_stays_on_the_viewer() {
+        let dir = scratch("session");
+        let file = dir.join(".config/bigbrain/viewer-session-4747");
+        fs::create_dir_all(file.parent().unwrap()).unwrap();
+        assert_eq!(viewer_session(&dir, 4747), None);
+        let secret = "A".repeat(42) + "_";
+        fs::write(&file, format!("{secret}\n")).unwrap();
+        assert_eq!(viewer_session(&dir, 4747).as_deref(), Some(secret.as_str()));
+        assert_eq!(viewer_session(&dir, 4748), None);
+        fs::write(&file, "not a secret").unwrap();
+        assert_eq!(viewer_session(&dir, 4747), None);
+
+        let home: tauri::Url = "http://127.0.0.1:4747/".parse().unwrap();
+        let first = bootstrap_url(&home, Some(&secret));
+        assert_eq!(first.as_str(), format!("http://127.0.0.1:4747/api/session?k={secret}"));
+        assert_eq!(bootstrap_url(&home, None), home);
+        assert!(on_viewer(&home, &first));
+        assert!(on_viewer(&home, &home));
+        assert!(!on_viewer(&home, &"http://127.0.0.1:4747/api/file?path=x".parse().unwrap()));
+        assert!(!on_viewer(&home, &"http://127.0.0.1:5173/api/session".parse().unwrap()));
     }
 
     #[test]
