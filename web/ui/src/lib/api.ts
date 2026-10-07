@@ -5,6 +5,7 @@ import type {
   ConfigInfo,
   ConfigPatch,
   ConfigResult,
+  DesktopNetwork,
   FoldsView,
   GraphData,
   NoteMeta,
@@ -225,6 +226,9 @@ export const api = {
   pilot: () => get<PilotState>("/api/pilot"),
   pilotPermissions: (permissions: import("../../../../lib/workPermissions").WorkPermissions) => post<PilotState>("/api/pilot/permissions", permissions),
   pilotEnabled: (enabled: boolean) => post<PilotState>("/api/pilot/enabled", { enabled }),
+  /** Where coding desktops' commands may reach beyond this machine (lib/desktopNetwork.ts): the defaults, and the person's additions. */
+  desktopNetwork: () => get<DesktopNetwork>("/api/desktops/network"),
+  saveDesktopNetwork: (hosts: string[]) => post<DesktopNetwork>("/api/desktops/network", { hosts }),
   pilotKey: (key: string) => post<PilotState>("/api/pilot/key", { key }),
   pilotSecret: () => post<PilotSecret>("/api/pilot/secret", {}),
   pilotTurn: (conversation: string, turn: { id?: string; speaker: "user" | "pilot"; text: string; at: string; tools?: string[] }) =>

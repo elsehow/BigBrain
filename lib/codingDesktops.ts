@@ -11,13 +11,15 @@
  *
  * Untrusted material (a source the desktop was started about, or one its
  * tools read) reaches the agent as data, never instructions, and turns its
- * shell off until the person allows it (allowShell).
+ * shell off until the person allows it (allowShell). Allowed, its commands
+ * still write only its own worktrees (packages/agents/src/sandbox.ts).
  */
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import type { ServerResponse } from "node:http";
 import { basename, isAbsolute, join, normalize, relative } from "node:path";
-import { Agents, type Desktop, type HostTool, type LandHow, type OpenOptions, type Stamped } from "../packages/agents/src";
+import { Agents, DEFAULT_HOSTS, type Desktop, type HostTool, type LandHow, type OpenOptions, type Stamped } from "../packages/agents/src";
 import { agentHost, hostAgents } from "./agentHost";
+import { saveDesktopHosts, savedDesktopHosts } from "./desktopNetwork";
 import { writeAtomic } from "./fsx";
 import { sha256hex } from "./hash";
 import { sourceMoment } from "./insertionLog";
@@ -286,7 +288,7 @@ export class CodingDesktops {
         (theme ? ` For a page you serve yourself, use the same style: put <link rel="stylesheet" href="${theme}"> in its head instead of writing CSS (a served page can't load files from disk).` : "") +
         ` Serve pages with a server that reloads them when files change, so you never restart it or show the page again after an edit: the project's own dev server if it has one, otherwise \`npx --yes vite <folder> --host 127.0.0.1 --port <port> --strictPort\`.`;
       const desktop = await this.agents.open(id, { ...host, instructions: host.instructions + aboutSection(context.length) + UNTRUSTED + showing,
-        preface: await aboutData(this.root, context), shell: command => this.shellOff(id, command),
+        preface: await aboutData(this.root, context), shell: command => this.shellOff(id, command), untrusted: () => this.untrusted(id),
         write: path => this.writeOff(id, path), file: (how, path, content) => this.filed(id, how, path, content),
         tools: [...(host.tools ?? []), ...this.viewTools(id)].map(t => this.watched(id, t)) });
       desktop.events.subscribe(e => this.broadcast(id, e));
@@ -332,10 +334,28 @@ export class CodingDesktops {
     return this.save(r);
   }
 
-  land(id: unknown, project: unknown, how: unknown) {
+  /** What landing a project would bring home: its commits and their diff, which the person reviews before Land. */
+  diff(id: unknown, project: unknown) {
+    const r = this.get(id);
+    if (typeof project !== "string" || !project) throw new CodingDesktopError("Say which project to review.");
+    return this.agents.diff(r.id, project);
+  }
+
+  /** Land what the person reviewed: `head` is the commit `diff` showed them, and nothing else is pushed. */
+  land(id: unknown, project: unknown, how: unknown, head: unknown) {
     const r = this.get(id);
     if (typeof project !== "string" || !project) throw new CodingDesktopError("Say which project to land.");
-    return this.agents.land(r.id, project, how === "pr" || how === "branch" ? how : "auto" as LandHow);
+    if (typeof head !== "string" || !/^[0-9a-f]{40,64}$/.test(head)) throw new CodingDesktopError("Review the changes before landing them.");
+    return this.agents.land(r.id, project, how === "pr" || how === "branch" ? how : "auto" as LandHow, head);
+  }
+
+  /** The hosts desktops' commands may reach beyond this machine: the defaults, and the person's additions (desktopNetwork.ts). */
+  network() { return { defaults: DEFAULT_HOSTS, hosts: savedDesktopHosts(this.root) }; }
+
+  setNetwork(hosts: unknown) {
+    try { saveDesktopHosts(this.root, hosts); }
+    catch (e) { throw new CodingDesktopError(e instanceof Error ? e.message : "Could not save those hosts."); }
+    return this.network();
   }
 
   async discard(id: unknown, project: unknown): Promise<void> {
@@ -486,6 +506,12 @@ export class CodingDesktops {
     if (!by) return;
     const rel = relative(realpathSync(this.agents.ws.root), path);
     await this.taint(id, { key: `file#${hash}`, via: "file", title: `${rel.startsWith("..") ? path : rel}, written by a desktop that read untrusted content` });
+  }
+
+  /** Whether the desktop has read untrusted material, allowed or not: its commands then write only its own worktrees. */
+  private untrusted(id: string): boolean {
+    const r = this.get(id);
+    return !!(r.taint || r.allowed?.keys.length);
   }
 
   /** The shell, asked before each command: off while the desktop holds untrusted material. The refused command is kept for the person to see. */

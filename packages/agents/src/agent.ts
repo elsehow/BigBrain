@@ -14,7 +14,7 @@ import type { AgentSession, CreateAgentSessionOptions, ModelRuntime } from "@ear
 import { mkdirSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { EventLog, type AgentEvent, type Stamped } from "./events";
-import { discardWork, landWork, listWork, type LandHow, type Landed, type WorkRecord } from "./worktree";
+import { discardWork, landWork, listWork, workDiff, type LandHow, type Landed, type WorkDiff, type WorkRecord } from "./worktree";
 import { run } from "./run";
 import { Harbor, scopeOf } from "./harbor";
 import { codingTools, type AgentTool } from "./tools";
@@ -105,9 +105,13 @@ export class Agents {
     this.log(id).append({ type: "work.discarded", project });
   }
 
-  /** Bring a worktree's committed work home (worktree.ts, landWork). A person's verb: no tool exposes it to the agent. */
-  async land(id: string, project: string, how: LandHow = "auto"): Promise<Landed> {
-    const landed = await landWork(this.ws, checkDesktopId(id), project, how);
+  /** What Land would bring home, for the person to review first (worktree.ts, workDiff). */
+  diff(id: string, project: string): Promise<WorkDiff> { return workDiff(this.ws, checkDesktopId(id), project); }
+
+  /** Bring a worktree's committed work home (worktree.ts, landWork): `reviewed`
+   * is the head the person saw in `diff`. A person's verb: no tool exposes it to the agent. */
+  async land(id: string, project: string, how: LandHow = "auto", reviewed?: string): Promise<Landed> {
+    const landed = await landWork(this.ws, checkDesktopId(id), project, how, reviewed);
     this.log(id).append({ type: "project.landed", project,
       how: landed.how, branch: landed.branch, ...(landed.how === "pr" ? { url: landed.url } : {}) });
     return landed;

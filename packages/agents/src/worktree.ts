@@ -116,21 +116,42 @@ export function rewriteVenv(venv: string, original: string): number {
   return rewritten;
 }
 
+const DIFF_CHARS = 200_000;
+export interface WorkDiff { project: string; branch: string; base: string; head: string; commits: Array<{ hash: string; subject: string }>; stat: string; patch: string; cut: boolean }
+
+/** What landing a worktree would bring home: its commits since it started,
+ * and their diff, read here (never in its sandbox) for the person to review
+ * before Land. External diff and textconv drivers stay off. */
+export async function workDiff(ws: Workspace, id: string, name: string): Promise<WorkDiff> {
+  const rec = readWork(ws, id, name);
+  if (!rec || !existsSync(rec.path)) throw new AgentsError(`Desktop ${id} has no work of its own in ${name}.`);
+  const head = await git(ws, rec.path, "rev-parse", "HEAD");
+  const commits = (await git(ws, rec.path, "log", "--format=%h%x09%s", `${rec.base}..${head}`)).split("\n").filter(Boolean)
+    .map(l => { const [hash = "", ...subject] = l.split("\t"); return { hash, subject: subject.join("\t") }; });
+  const stat = await git(ws, rec.path, "diff", "--no-ext-diff", "--no-textconv", "--stat", rec.base, head);
+  const patch = (await run("git", ["diff", "--no-color", "--no-ext-diff", "--no-textconv", rec.base, head], rec.path, ws.env?.())).out;
+  return { project: name, branch: rec.branch, base: rec.base, head, commits, stat, patch: patch.slice(0, DIFF_CHARS), cut: patch.length > DIFF_CHARS };
+}
+
 /** Bring a worktree's committed work home. Its branch already lives in the
  * project's repo, so "as a branch" just confirms it; on GitHub (or with
- * `how: "pr"`) the branch is pushed and a pull request opened. Uncommitted
- * work and an empty branch are refused with the reason. */
-export async function landWork(ws: Workspace, id: string, name: string, how: LandHow = "auto"): Promise<Landed> {
+ * `how: "pr"`) the branch is pushed and a pull request opened. `head` is the
+ * commit the person reviewed (workDiff): if the worktree has moved on since,
+ * nothing lands, and only that commit is pushed. Uncommitted work and an
+ * empty branch are refused with the reason. */
+export async function landWork(ws: Workspace, id: string, name: string, how: LandHow = "auto", reviewed?: string): Promise<Landed> {
   const rec = readWork(ws, id, name);
   if (!rec || !existsSync(rec.path)) throw new AgentsError(`Desktop ${id} has no work of its own in ${name}; anything it changed in place is already in your copy.`);
   const dirty = (await git(ws, rec.path, "status", "--porcelain")).split("\n").filter(Boolean).length;
   if (dirty) throw new AgentsError(`${name} has ${dirty} uncommitted file${dirty === 1 ? "" : "s"} in desktop ${id}'s worktree. Commit them first; landing only moves commits.`);
-  const commits = Number(await git(ws, rec.path, "rev-list", "--count", `${rec.base}..HEAD`));
+  const head = await git(ws, rec.path, "rev-parse", "HEAD");
+  if (reviewed !== undefined && reviewed !== head) throw new AgentsError(`${name} has changed in desktop ${id}'s worktree since you reviewed it. Review it again before landing.`);
+  const commits = Number(await git(ws, rec.path, "rev-list", "--count", `${rec.base}..${head}`));
   if (!commits) throw new AgentsError(`${name} has no commits on ${rec.branch} yet; there's nothing to land.`);
   const remote = (await run("git", ["remote", "get-url", "origin"], rec.path, ws.env?.())).out.trim();
   if (!(how === "pr" || (how === "auto" && /github\.com[:/]/.test(remote)))) return { how: "branch", branch: rec.branch, home: homeOf(ws, name) };
   if (!remote) throw new AgentsError(`${name} has no origin remote to open a pull request on. Its branch ${rec.branch} is already in your repo.`);
-  await git(ws, rec.path, "push", "--quiet", "-u", "origin", rec.branch);
+  await git(ws, rec.path, "push", "--quiet", "origin", `${head}:refs/heads/${rec.branch}`);
   const created = await run("gh", ["pr", "create", "--head", rec.branch, "--fill"], rec.path, ws.env?.());
   if (created.code === 0) return { how: "pr", branch: rec.branch, url: created.out.trim().split("\n").at(-1)! };
   const existing = await run("gh", ["pr", "view", rec.branch, "--json", "url", "--jq", ".url"], rec.path, ws.env?.());

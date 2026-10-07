@@ -552,11 +552,20 @@
     if (!openPilot) return;
     try { await chatReq(openPilot, "/stop", { id: openPilot }); await loadDetail(); } catch (e) { flash(errText(e)); }
   }
-  /** Bring a fork's committed work home: a PR when the project is on GitHub, else a branch in your copy. */
-  async function landProject(project: string): Promise<void> {
+  /** What Land would bring home, shown before anything is pushed: the commits and their diff. */
+  type Review = { project: string; branch: string; head: string; commits: Array<{ hash: string; subject: string }>; stat: string; patch: string; cut: boolean };
+  let review: Review | null = $state(null);
+  $effect(() => { void openPilot; review = null; });
+  async function reviewProject(project: string): Promise<void> {
+    try { review = await desktopReq<Review>(`/diff?id=${encodeURIComponent(openPilot ?? "")}&project=${encodeURIComponent(project)}`); }
+    catch (e) { flash(errText(e)); }
+  }
+  /** Bring the reviewed commits home, and only those: a PR when the project is on GitHub, else a branch in your copy. */
+  async function landProject(r: Review): Promise<void> {
     try {
-      const r = await desktopReq<{ how: "pr" | "branch"; branch: string; url?: string }>("/land", { id: openPilot, project });
-      flash(r.how === "pr" ? `Opened a pull request: ${r.url}` : `Brought ${r.branch} home to ${project}. Merge it there when you're ready.`);
+      const landed = await desktopReq<{ how: "pr" | "branch"; branch: string; url?: string }>("/land", { id: openPilot, project: r.project, head: r.head });
+      flash(landed.how === "pr" ? `Opened a pull request: ${landed.url}` : `Brought ${landed.branch} home to ${r.project}. Merge it there when you're ready.`);
+      review = null;
       await loadDetail();
     } catch (e) { flash(errText(e)); }
   }
@@ -1325,17 +1334,26 @@
           <div class="forks">
             {#each detail.changes as c (c.project)}
               <span class="fork"><b>{c.project}</b> {c.commits} commit{c.commits === 1 ? "" : "s"}{c.dirty ? ` · ${c.dirty} uncommitted` : ""}
-                <button type="button" class="find" onclick={() => void landProject(c.project)} disabled={!c.commits || c.dirty > 0}
-                  title={c.dirty ? "Commit the changes first; landing moves commits" : c.commits ? "A pull request when the project is on GitHub, otherwise a branch in your copy" : "Nothing committed yet"}>Land</button>
+                <button type="button" class="find" onclick={() => void reviewProject(c.project)} disabled={!c.commits || c.dirty > 0}
+                  title={c.dirty ? "Commit the changes first; landing moves commits" : c.commits ? "Review its commits, then land them: a pull request when the project is on GitHub, otherwise a branch in your copy" : "Nothing committed yet"}>Land…</button>
                 <button type="button" class="find" class:lit={discarding === c.project} onclick={() => void discardProject(c.project)} title="Delete this desktop's copy">Discard</button></span>
             {/each}
+          </div>
+        {/if}
+        {#if review && detail.changes?.some((c) => c.project === review?.project)}
+          <div class="review" aria-label={`Changes to land in ${review.project}`}>
+            <p><b>{review.project}</b> · {review.commits.length} commit{review.commits.length === 1 ? "" : "s"} on {review.branch}</p>
+            <ul>{#each review.commits as c (c.hash)}<li><code>{c.hash}</code> {c.subject}</li>{/each}</ul>
+            <pre>{review.patch}{review.cut ? "\n… (the rest is cut here; read it in the worktree)" : ""}</pre>
+            <span><button type="button" class="find" onclick={() => review && void landProject(review)}>Land these commits</button>
+              <button type="button" class="find" onclick={() => { review = null; }}>Cancel</button></span>
           </div>
         {/if}
         {#if detail.taint}
           <div class="taint">
             <p>Shell is off — this desktop {taintText(detail.taint)}.</p>
             {#if detail.taint.refused}<p>The agent asked to run: <code>{detail.taint.refused.command}</code></p>{/if}
-            <button type="button" class="find" onclick={() => void allowShell()} title="Its shell runs as you, with your environment">Allow shell for this desktop</button>
+            <button type="button" class="find" onclick={() => void allowShell()} title="Its commands run as you, in a sandbox: they change only its own worktrees, and reach only allowlisted hosts">Allow shell for this desktop</button>
           </div>
         {/if}
       </header>
@@ -1613,6 +1631,12 @@
   .taint p { margin: 0; }
   .taint code { display: block; max-height: 4.8em; overflow: auto; font: 400 12px/1.6 var(--font-mono); color: var(--fg); overflow-wrap: anywhere; white-space: pre-wrap; }
   .taint .find { margin: 2px 0 0; height: 24px; font-size: 12px; }
+  .review { display: flex; flex-direction: column; gap: 6px; font: 400 12px/1.6 var(--font-mono); color: var(--v2-muted); }
+  .review p, .review ul { margin: 0; padding: 0; list-style: none; }
+  .review b { font-weight: 500; color: var(--fg); }
+  .review pre { margin: 0; max-height: 40vh; overflow: auto; padding: 10px 12px; border-radius: 8px; background: color-mix(in srgb, var(--fg) 5%, var(--bg)); font: 400 11.5px/1.5 var(--font-mono); color: var(--fg); white-space: pre; }
+  .review span { display: inline-flex; gap: 16px; }
+  .review .find { height: 24px; font-size: 12px; }
   .vbody :global(> :first-child) { margin-top: 0; } .vbody :global(p) { margin: 0 0 0.85em; }
   .vbody :global(ul), .vbody :global(ol) { margin: 0 0 0.85em; padding-left: 1.5em; } .vbody :global(li + li) { margin-top: 0.3em; }
   .vbody :global(h1), .vbody :global(h2), .vbody :global(h3), .vbody :global(h4) { margin: 1.2em 0 0.45em; font: 600 calc(var(--chat-fs) * 1.08)/1.35 var(--font-app); }

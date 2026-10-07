@@ -16,6 +16,9 @@ export type {
 } from "../../../../lib/viewTypes";
 export { messageKind };
 
+/** Where coding desktops' commands may reach beyond this machine (lib/desktopNetwork.ts). */
+export interface DesktopNetwork { defaults: string[]; hosts: string[] }
+
 /** One grounding source of an assertion. `band`/`from`/`via`/`source` are
  * the filed-by facet (lib/assertionEntityView.ts's ProjectedEntitySource) —
  * the same fields a feed row and a graph node carry, so feed.ts's
