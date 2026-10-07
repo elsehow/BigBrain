@@ -26,6 +26,11 @@ export interface SceneHooks {
   /** The node under the pointer (a point, a memory topic, a label) changed. */
   onHover?(i: number | null): void;
 }
+type Rig = { az: number; el: number; dist: number; tx: number; ty: number; tz: number };
+type View = { az: number; el: number; dist: number; target: THREE.Vector3 };
+/** Where the camera is, how it's moving and where it's headed: carried into a
+ * redrawn field, so a vault change never moves the view out from under you. */
+export interface V2Camera { rig: Rig; vel: Rig; goal: View; shift: number }
 export interface V2Scene {
   /** Back to the whole field. */
   overview(): void;
@@ -59,6 +64,10 @@ export interface V2Scene {
   returnToView(): boolean;
   /** Pixels to slide the scene's centre right, clear of a left panel. */
   shift(px: number): void;
+  /** The camera as it stands, for the next field to start from. */
+  camera(): V2Camera;
+  /** A hand on the field: a drag under way. */
+  dragging(): boolean;
   dispose(): void;
 }
 
@@ -71,7 +80,7 @@ const NODE_SCALE = 1.45;
 const LENS = Math.tan(THREE.MathUtils.degToRad(17)) / Math.tan(THREE.MathUtils.degToRad(10));
 const OVERVIEW_AT = { az: 0.05, el: 0.55, dist: 30, target: new THREE.Vector3(0, 3, -4) };
 
-export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks): V2Scene {
+export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks, from?: V2Camera): V2Scene {
   const OVERVIEW = { ...OVERVIEW_AT, target: OVERVIEW_AT.target.clone() };
   const reducedMQ = matchMedia("(prefers-reduced-motion: reduce)");
   const canvas = document.createElement("canvas");
@@ -282,11 +291,12 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
   let dim = 0, searchDim = 1;
 
   // camera: springs toward a goal, a long lens from further back
-  const rig = { az: OVERVIEW.az, el: OVERVIEW.el, dist: OVERVIEW.dist, tx: OVERVIEW.target.x, ty: OVERVIEW.target.y, tz: OVERVIEW.target.z };
-  const vel = { az: 0, el: 0, dist: 0, tx: 0, ty: 0, tz: 0 };
+  const rig: Rig = { az: OVERVIEW.az, el: OVERVIEW.el, dist: OVERVIEW.dist, tx: OVERVIEW.target.x, ty: OVERVIEW.target.y, tz: OVERVIEW.target.z };
+  const vel: Rig = { az: 0, el: 0, dist: 0, tx: 0, ty: 0, tz: 0 };
   const goal = { az: OVERVIEW.az, el: OVERVIEW.el, dist: OVERVIEW.dist, target: OVERVIEW.target.clone() };
   /** The view a walk through the feed started from. */
-  let kept: { az: number; el: number; dist: number; target: THREE.Vector3 } | null = null;
+  let kept: View | null = null;
+  const viewOf = (): View => ({ az: goal.az, el: goal.el, dist: goal.dist, target: goal.target.clone() });
   const setGoal = (g: { az?: number; el: number; dist: number; target: THREE.Vector3 }) => {
     goal.az = g.az ?? rig.az; goal.el = g.el; goal.dist = g.dist; goal.target.copy(g.target);
   };
@@ -473,6 +483,8 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
   const ro = new ResizeObserver(resize);
   ro.observe(host);
   resize();
+  // a field redrawn: the camera carries on from where the last one left it
+  if (from) { Object.assign(rig, from.rig); Object.assign(vel, from.vel); setGoal(from.goal); shiftNow = shiftGoal = from.shift; }
 
   const theme = () => {
     const cs = getComputedStyle(host);
@@ -769,13 +781,15 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
       const lab = labels.get(j);
       if (lab) { lab.full = undefined; lab.w = undefined; }
     },
-    keepView() { kept = { az: goal.az, el: goal.el, dist: goal.dist, target: goal.target.clone() }; },
+    keepView() { kept = viewOf(); },
     returnToView() {
       if (!kept) return false;
       setGoal(kept); kept = null;
       return true;
     },
     shift(px) { shiftGoal = px; },
+    camera: () => ({ rig: { ...rig }, vel: { ...vel }, goal: viewOf(), shift: shiftGoal }),
+    dragging: () => drag != null,
     dispose() {
       cancelAnimationFrame(raf);
       ro.disconnect(); mo.disconnect(); schemeMQ.removeEventListener("change", theme);

@@ -13,7 +13,8 @@
 // its ties; Wren-Hollis; wren hollis) and a three-way fold proposal (Kestrel
 // Books, the pick; Kestrel Bookshop; Kestrel Books Ltd), for Merge?'s Accept and
 // Reject; an accept here takes the merged ones off the field, as the engine's
-// alias would.
+// alias would. `?churn` changes the graph every few seconds, with a change ping,
+// as tend filing in the background does: the field is redrawn under you.
 import { mount } from "svelte";
 import "../design/tokens.css";
 import "../app.css";
@@ -47,6 +48,10 @@ const memory = empty ? [] : [{ id: "memory/atlas.md", title: "Atlas", group: "me
 let graph = { hash: empty ? "empty" : "field", nodes: [...entities, ...TWINS, ...memory],
   edges: empty ? [] : [...NAMES.slice(1).map((_, i) => ({ source: `ent_${i}`, target: `ent_${i + 1}`, weight: 2 })),
     ...TWINS.map((t, i) => ({ source: t.id, target: `ent_${i + 1}`, weight: 1 }))] };
+if (new URLSearchParams(location.search).has("churn")) {
+  let n = 0;
+  setInterval(() => { graph = { ...graph, hash: `${graph.hash.split("~")[0]}~${++n}` }; window.dispatchEvent(new Event("workbench-change")); }, 4000);
+}
 const at = (min: number) => new Date(Date.UTC(2026, 9, 5, 9, min)).toISOString();
 const feed = empty ? [] : NAMES.slice(0, 4).map((name, i) => ({ id: `ast_${i}`, at: at(i), author: null, by: "you", model: false, text: `${name} was noted.`, entities: [`ent_${i}`] }));
 const sorted = empty ? [] : [
