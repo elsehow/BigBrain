@@ -160,6 +160,21 @@ describe("a command's environment", () => {
   });
 });
 
+describe("the package's own programs", () => {
+  test("git, cp and gh run with the workspace's environment, never this process's", async () => {
+    const { ws } = scene();
+    const bin = mkdtempSync(join(tmpdir(), "fake-git-"));
+    roots.push(bin);
+    const dump = join(bin, "env.txt");
+    writeFileSync(join(bin, "git"), `#!/bin/sh\n/usr/bin/env > '${dump}'\nexit 1\n`);
+    chmodSync(join(bin, "git"), 0o755);
+    await expect(startWork({ ...ws, env: () => ({ PATH: bin, MARK: "host" }) }, "desk-own", "orrery")).rejects.toThrow("not a git repository");
+    const env = readFileSync(dump, "utf8");
+    expect(env).toContain("MARK=host");
+    expect(env).not.toMatch(/^(HOME|USER|BIGBRAIN_VAULT)=/m);
+  });
+});
+
 describe.if(mac)("harbor", () => {
   const h = harbor();
   const server = (port = 0, stubborn = false) =>

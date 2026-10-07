@@ -147,6 +147,23 @@ export const ENGINE_ENV = [
   "NODE_ENV", "PI_OFFLINE",
 ] as const;
 
+/** Model providers' settings that Pi and the SDKs under it read from the
+ * environment: where a model runs, which project or region bills it. None is a
+ * credential. Keys reach Pi's runtime directly (lib/run/piModelRuntime.ts);
+ * secrets kept in the vault's .env beside these (AWS_SECRET_ACCESS_KEY,
+ * AWS_SESSION_TOKEN, AWS_BEARER_TOKEN_BEDROCK, *_CUSTOM_HEADERS) stay there. */
+export const MODEL_ENV = [
+  "OPENAI_BASE_URL", "OPENAI_ORG_ID", "OPENAI_PROJECT_ID", "ANTHROPIC_BASE_URL",
+  "AZURE_OPENAI_BASE_URL", "AZURE_OPENAI_RESOURCE_NAME", "AZURE_OPENAI_API_VERSION", "AZURE_OPENAI_DEPLOYMENT_NAME_MAP",
+  "GOOGLE_CLOUD_PROJECT", "GCLOUD_PROJECT", "GOOGLE_CLOUD_LOCATION", "GOOGLE_APPLICATION_CREDENTIALS",
+  "AWS_PROFILE", "AWS_REGION", "AWS_DEFAULT_REGION", "AWS_CONFIG_FILE", "AWS_SHARED_CREDENTIALS_FILE",
+  "AWS_BEDROCK_BASE_URL", "AWS_BEDROCK_SKIP_AUTH", "AWS_BEDROCK_FORCE_HTTP1", "AWS_BEDROCK_FORCE_CACHE",
+  "CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_GATEWAY_ID", "PI_CACHE_RETENTION",
+] as const;
+
+/** The settings a vault's .env may carry for the engine's processes. */
+export const SETTINGS_ENV: readonly string[] = [...ENGINE_ENV, ...MODEL_ENV];
+
 /** Credentials BigBrain manages, wherever they turn up. Per-account copies
  * carry a `__<ACCOUNT>` suffix (lib/integrationAccess.ts, lib/emailConfig.ts). */
 export const CREDENTIAL_ENV = [
@@ -181,9 +198,10 @@ export const handoffProcessEnv = (): Record<string, string> => pick(BASICS);
 export const gitProcessEnv = (): Record<string, string> => pick([...BASICS, "SSH_AUTH_SOCK"], ["GIT_"]);
 
 /** What an engine child (a job, publish, init) inherits: everything git
- * gets, the engine's settings, and Pi's (the model runtime runs in-process). */
+ * gets, the engine's settings, and Pi's and the model providers' (the model
+ * runtime runs in-process). */
 export const engineProcessEnv = (): Record<string, string> =>
-  pick([...BASICS, "SSH_AUTH_SOCK", ...ENGINE_ENV], ["GIT_", "PI_"]);
+  pick([...BASICS, "SSH_AUTH_SOCK", ...SETTINGS_ENV], ["GIT_", "PI_"]);
 
 /** Public ingestion settings; consent remains a separate installation preference. */
 export const posthogToken = (): string | undefined => str("BIGBRAIN_POSTHOG_TOKEN");

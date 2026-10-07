@@ -26,8 +26,8 @@ export type Landed = { how: "branch"; branch: string; home: string } | { how: "p
 /** What a worktree needs from the project to run: ignored dependency folders and env files. */
 const ENV_NAMES = new Set(["node_modules", ".venv", "venv", ".env", ".env.local", ".envrc"]);
 
-const git = async (cwd: string, ...args: string[]) => {
-  const r = await run("git", args, cwd);
+const git = async (ws: Workspace, cwd: string, ...args: string[]) => {
+  const r = await run("git", args, cwd, ws.env?.());
   if (r.code !== 0) throw new AgentsError(`git ${args.join(" ")}: ${(r.err || r.out).trim()}`);
   return r.out.trim();
 };
@@ -68,23 +68,23 @@ async function doStart(ws: Workspace, id: string, name: string): Promise<WorkRec
   const path = worktreePath(ws, id, name);
   if (existsSync(path)) throw new AgentsError(`${path} already exists and isn't this desktop's worktree; move it aside first.`);
   const started = performance.now();
-  await git(home, "rev-parse", "--git-dir").catch(() => { throw new AgentsError(`${name} is not a git repository.`); });
-  const base = await git(home, "rev-parse", "HEAD");
+  await git(ws, home, "rev-parse", "--git-dir").catch(() => { throw new AgentsError(`${name} is not a git repository.`); });
+  const base = await git(ws, home, "rev-parse", "HEAD");
   const branch = `desktop/${id}`;
-  const exists = (await run("git", ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`], home)).code === 0;
+  const exists = (await run("git", ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`], home, ws.env?.())).code === 0;
   mkdirSync(dirname(path), { recursive: true });
-  await git(home, "worktree", "add", "--quiet", ...(exists ? [path, branch] : ["-b", branch, path]));
+  await git(ws, home, "worktree", "add", "--quiet", ...(exists ? [path, branch] : ["-b", branch, path]));
 
   // Bring what git ignores but the project needs to run.
-  const ignored = (await run("git", ["ls-files", "--others", "--ignored", "--exclude-standard", "--directory"], home)).out
+  const ignored = (await run("git", ["ls-files", "--others", "--ignored", "--exclude-standard", "--directory"], home, ws.env?.())).out
     .split("\n").map(l => l.replace(/\/$/, "")).filter(l => l && ENV_NAMES.has(basename(l)) && !l.includes(".claude/worktrees"));
   const cloned: string[] = [];
   for (const rel of ignored) {
     const from = join(home, rel), to = join(path, rel);
     if (!existsSync(from) || existsSync(to)) continue;
     mkdirSync(dirname(to), { recursive: true });
-    const cp = await run("cp", ["-c", "-R", from, to]);
-    if (cp.code !== 0) await run("cp", ["-R", from, to]); // not APFS: a plain copy
+    const cp = await run("cp", ["-c", "-R", from, to], undefined, ws.env?.());
+    if (cp.code !== 0) await run("cp", ["-R", from, to], undefined, ws.env?.()); // not APFS: a plain copy
     cloned.push(rel);
   }
   for (const rel of cloned) if (/(^|\/)(\.venv|venv)$/.test(rel)) rewriteVenv(join(path, rel), join(home, rel));
@@ -123,17 +123,17 @@ export function rewriteVenv(venv: string, original: string): number {
 export async function landWork(ws: Workspace, id: string, name: string, how: LandHow = "auto"): Promise<Landed> {
   const rec = readWork(ws, id, name);
   if (!rec || !existsSync(rec.path)) throw new AgentsError(`Desktop ${id} has no work of its own in ${name}; anything it changed in place is already in your copy.`);
-  const dirty = (await git(rec.path, "status", "--porcelain")).split("\n").filter(Boolean).length;
+  const dirty = (await git(ws, rec.path, "status", "--porcelain")).split("\n").filter(Boolean).length;
   if (dirty) throw new AgentsError(`${name} has ${dirty} uncommitted file${dirty === 1 ? "" : "s"} in desktop ${id}'s worktree. Commit them first; landing only moves commits.`);
-  const commits = Number(await git(rec.path, "rev-list", "--count", `${rec.base}..HEAD`));
+  const commits = Number(await git(ws, rec.path, "rev-list", "--count", `${rec.base}..HEAD`));
   if (!commits) throw new AgentsError(`${name} has no commits on ${rec.branch} yet; there's nothing to land.`);
-  const remote = (await run("git", ["remote", "get-url", "origin"], rec.path)).out.trim();
+  const remote = (await run("git", ["remote", "get-url", "origin"], rec.path, ws.env?.())).out.trim();
   if (!(how === "pr" || (how === "auto" && /github\.com[:/]/.test(remote)))) return { how: "branch", branch: rec.branch, home: homeOf(ws, name) };
   if (!remote) throw new AgentsError(`${name} has no origin remote to open a pull request on. Its branch ${rec.branch} is already in your repo.`);
-  await git(rec.path, "push", "--quiet", "-u", "origin", rec.branch);
-  const created = await run("gh", ["pr", "create", "--head", rec.branch, "--fill"], rec.path);
+  await git(ws, rec.path, "push", "--quiet", "-u", "origin", rec.branch);
+  const created = await run("gh", ["pr", "create", "--head", rec.branch, "--fill"], rec.path, ws.env?.());
   if (created.code === 0) return { how: "pr", branch: rec.branch, url: created.out.trim().split("\n").at(-1)! };
-  const existing = await run("gh", ["pr", "view", rec.branch, "--json", "url", "--jq", ".url"], rec.path);
+  const existing = await run("gh", ["pr", "view", rec.branch, "--json", "url", "--jq", ".url"], rec.path, ws.env?.());
   if (existing.code === 0 && existing.out.trim()) return { how: "pr", branch: rec.branch, url: existing.out.trim() };
   throw new AgentsError(`Pushed ${rec.branch}, but couldn't open a pull request: ${(created.err || created.out).trim()}`);
 }
@@ -143,7 +143,7 @@ export async function discardWork(ws: Workspace, id: string, name: string): Prom
   const rec = readWork(ws, id, name);
   if (!rec) return;
   const home = homeOf(ws, name);
-  if (existsSync(rec.path)) await git(home, "worktree", "remove", "--force", rec.path);
-  await run("git", ["branch", "-D", rec.branch], home);
+  if (existsSync(rec.path)) await git(ws, home, "worktree", "remove", "--force", rec.path);
+  await run("git", ["branch", "-D", rec.branch], home, ws.env?.());
   rmSync(recordFile(ws, id, name), { force: true });
 }

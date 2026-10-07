@@ -17,7 +17,7 @@
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { ENGINE_ENV } from "./env";
+import { SETTINGS_ENV } from "./env";
 import { writeAtomic } from "./fsx";
 
 /** Where integration credentials live: `<vault>/.env` — the vault's own
@@ -62,14 +62,14 @@ export function readEnvValues(root: string): Record<string, string> {
   return out;
 }
 
-/** The engine settings a vault's .env carries (lib/env.ts ENGINE_ENV): what
- * bun's autoload once gave every engine process, without the credentials it
- * gave them too (NO_ENV_FILE). Callers spread this first, so a variable
- * already in the environment wins, as it did over the autoload. */
+/** The engine and model settings a vault's .env carries (lib/env.ts
+ * SETTINGS_ENV): what bun's autoload once gave every engine process, without
+ * the credentials it gave them too (NO_ENV_FILE). Callers spread this first,
+ * so a variable already in the environment wins, as it did over the autoload. */
 export function vaultEnvSettings(root: string): Record<string, string> {
   const values = readEnvValues(root);
   const out: Record<string, string> = {};
-  for (const k of ENGINE_ENV) if (values[k]?.trim()) out[k] = values[k]!;
+  for (const k of SETTINGS_ENV) if (values[k]?.trim()) out[k] = values[k]!;
   return out;
 }
 
@@ -88,7 +88,7 @@ export function dropAutoloadedEnv(env: Record<string, string | undefined>, dir: 
   }
   for (const line of raw.split("\n")) {
     const k = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_.-]*)\s*=/.exec(line)?.[1];
-    if (k && !(ENGINE_ENV as readonly string[]).includes(k)) delete env[k];
+    if (k && !SETTINGS_ENV.includes(k)) delete env[k];
   }
 }
 

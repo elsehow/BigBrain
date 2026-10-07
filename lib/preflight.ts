@@ -13,7 +13,7 @@ import { homedir } from "node:os";
 // door before one exists), so the root is asked for lazily, below.
 import type { Auth } from "./manifest";
 import { ENGINE_ROOT, requireVaultRoot } from "./engine";
-import { engineProcessEnv } from "./env";
+import { engineProcessEnv, handoffProcessEnv } from "./env";
 import { readEnvValues, vaultEnvSettings } from "./envFile";
 import { bigbrainCommandPath, engineBehindCommand } from "./bigbrainCommand";
 
@@ -57,7 +57,7 @@ function runs(cmd: string, args: string[], env?: Record<string, string | undefin
   const r = spawnSync(cmd, args, {
     timeout: 10_000,
     stdio: "ignore",
-    env: env ? { ...process.env, ...env } : undefined,
+    env: { ...handoffProcessEnv(), ...env },
   });
   return r.status === 0;
 }

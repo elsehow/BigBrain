@@ -40,7 +40,7 @@ import { parseDocument, Scalar } from "yaml";
 import { loadManifest, type Auth } from "../lib/manifest";
 import { VAULT_ROOT } from "../lib/vaultRoot";
 import { ENGINE_ROOT, pointerPlan, readPointer, vaultPointer } from "../lib/engine";
-import { engineProcessEnv, NO_ENV_FILE } from "../lib/env";
+import { engineProcessEnv, gitProcessEnv, NO_ENV_FILE } from "../lib/env";
 import {
   ensureStoragePlanes,
   scaffoldVault,
@@ -112,8 +112,8 @@ if (has("check")) {
   }
 
   const gitIdentity =
-    spawnSync("git", ["config", "user.name"], { encoding: "utf8" }).status === 0 ||
-    spawnSync("git", ["config", "--global", "user.name"], { encoding: "utf8" }).status === 0;
+    spawnSync("git", ["config", "user.name"], { encoding: "utf8", env: gitProcessEnv() }).status === 0 ||
+    spawnSync("git", ["config", "--global", "user.name"], { encoding: "utf8", env: gitProcessEnv() }).status === 0;
 
   console.log(
     JSON.stringify({
@@ -283,7 +283,7 @@ try {
 
   // ── git wiring ─────────────────────────────────────────────────────────────
   const git = (args: string[]): { status: number; out: string } => {
-    const r = spawnSync("git", args, { cwd: root, encoding: "utf8" });
+    const r = spawnSync("git", args, { cwd: root, encoding: "utf8", env: gitProcessEnv() });
     return { status: r.status ?? 1, out: ((r.stdout ?? "") + (r.stderr ?? "")).trim() };
   };
   if (!dryRun) {

@@ -78,6 +78,25 @@ describe("the supervisor's jobs", () => {
     expect(env).toMatchObject({ BIGBRAIN_VAULT: root, BIGBRAIN_DESKTOP: "1", BIGBRAIN_WEB_PORT: "4999", PORT: "4748" });
   });
 
+  test("model providers' settings in the vault's .env reach a job, and Pi sees them; their secrets do not", () => {
+    const adc = join(scratch(), "adc.json");
+    writeFileSync(adc, "{}\n");
+    const root = vault([
+      "GOOGLE_CLOUD_PROJECT=invented-project", "GOOGLE_CLOUD_LOCATION=us-central1", `GOOGLE_APPLICATION_CREDENTIALS=${adc}`,
+      "AWS_PROFILE=invented", "AWS_REGION=us-east-1", "OPENAI_BASE_URL=https://models.example.invalid/v1",
+      `AWS_SECRET_ACCESS_KEY=${SECRET}`, `AWS_SESSION_TOKEN=${SECRET}`, `AWS_BEARER_TOKEN_BEDROCK=${SECRET}`, `OPENAI_CUSTOM_HEADERS=${SECRET}`,
+    ].join("\n") + "\n");
+    // pi-ai checks for credential files once its fs import lands, a tick after load.
+    const code = `const { getEnvApiKey } = await import(${JSON.stringify(Bun.resolveSync("@earendil-works/pi-ai/compat", import.meta.dir))});
+      await new Promise((r) => setTimeout(r, 50));
+      console.log(JSON.stringify({ vertex: getEnvApiKey("google-vertex"), bedrock: getEnvApiKey("amazon-bedrock"), env: process.env }));`;
+    const r = Bun.spawnSync([process.execPath, NO_ENV_FILE, "-e", code], { cwd: root, env: jobEnv(root) });
+    const { vertex, bedrock, env } = JSON.parse(r.stdout.toString()) as { vertex?: string; bedrock?: string; env: Record<string, string> };
+    expect({ vertex, bedrock }).toEqual({ vertex: "<authenticated>", bedrock: "<authenticated>" });
+    expect(env).toMatchObject({ GOOGLE_CLOUD_PROJECT: "invented-project", AWS_REGION: "us-east-1", OPENAI_BASE_URL: "https://models.example.invalid/v1" });
+    expect(JSON.stringify(env)).not.toContain(SECRET);
+  });
+
   test("a variable already in the environment beats the vault's setting, as it did over the autoload", () => {
     const root = vault();
     expect(vaultEnvSettings(root)).toEqual({ BIGBRAIN_WEB_PORT: "4999" });
@@ -162,6 +181,10 @@ describe("what children inherit", () => {
     const root = vault(), dir = scratch();
     const env = { PATH: process.env.PATH, HOME: dir, OPENAI_API_KEY: SECRET, VAULT_ONLY_TOKEN: SECRET, TYPESAFE_API_KEY: SECRET, LATER_TOKEN: "invented-later", PROJECT_SETTING: "kept" };
     const agents = hostAgents(root, workspace(dir), { env });
+    // its own git, cp and gh get git's environment, never this process's
+    const own = await autoloaded(() => agents.ws.env?.());
+    expect(own).toMatchObject({ HOME: process.env.HOME! });
+    expect(JSON.stringify(own)).not.toContain(SECRET);
     const first = await agents.harbor.run("desk-env", "env", dir);
     expect(first.status).toBe("exited");
     expect(first.output).toContain("PROJECT_SETTING=kept");

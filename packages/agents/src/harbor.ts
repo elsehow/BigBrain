@@ -29,6 +29,8 @@ export const TAG = "BIGBRAIN_AGENT_DESKTOP";
 const tool = (name: string, ...dirs: string[]) => dirs.map(d => `${d}/${name}`).find(p => existsSync(p)) ?? name;
 const LSOF = tool("lsof", "/usr/sbin", "/usr/bin");
 const PS = tool("ps", "/bin", "/usr/bin");
+/** What discovery and an identity-only shell start with. */
+const SYSTEM_PATH = "/usr/bin:/bin:/usr/sbin:/sbin";
 
 /** Which engine's agents a process belongs to: a short hash of its workspace,
  * so two engines on one machine (the app, and a developer's scratch engine)
@@ -88,7 +90,7 @@ let snapshot: Promise<NodeJS.ProcessEnv> | undefined;
 export function loginEnv(): Promise<NodeJS.ProcessEnv> {
   return snapshot ??= (async () => {
     const shell = process.env.SHELL || "/bin/zsh";
-    const seed: NodeJS.ProcessEnv = { PATH: "/usr/bin:/bin:/usr/sbin:/sbin", TERM: "dumb" };
+    const seed: NodeJS.ProcessEnv = { PATH: SYSTEM_PATH, TERM: "dumb" };
     for (const k of ["HOME", "USER", "LOGNAME", "SHELL", "LANG", "TMPDIR", "SSH_AUTH_SOCK"]) if (process.env[k]) seed[k] = process.env[k];
     const out = await new Promise<string | null>(done => {
       const child = spawn(shell, ["-ilc", "env -0"], { env: seed, stdio: ["ignore", "pipe", "ignore"] });
@@ -175,7 +177,7 @@ export class Harbor {
 
   /** Every listening TCP socket, with the desktop whose tag its process carries. */
   async listeners(): Promise<Listener[]> {
-    const lsof = await run(LSOF, ["-nP", "-iTCP", "-sTCP:LISTEN", "-Fpn"]);
+    const lsof = await run(LSOF, ["-nP", "-iTCP", "-sTCP:LISTEN", "-Fpn"], undefined, { PATH: SYSTEM_PATH });
     const out: Listener[] = [];
     let pid = 0;
     for (const line of lsof.out.split("\n")) {
@@ -195,7 +197,7 @@ export class Harbor {
     const map = new Map<number, { desktop: string; pgid: number }>();
     if (pids && !pids.length) return map;
     const args = ["-E", "-ww", "-o", "pid=,pgid=,command=", ...(pids ? ["-p", pids.join(",")] : ["-ax"])];
-    const ps = await run(PS, args);
+    const ps = await run(PS, args, undefined, { PATH: SYSTEM_PATH });
     const pattern = new RegExp(`(?:^|\\s)${TAG}=([a-z0-9-]+)(?:\\s|$)`);
     const scoped = new RegExp(`(?:^|\\s)${SCOPE}=([a-f0-9]+)(?:\\s|$)`);
     for (const line of ps.out.split("\n")) {

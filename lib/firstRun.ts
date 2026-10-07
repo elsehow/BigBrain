@@ -42,7 +42,7 @@ import { listTokens, tokenStorePath } from "./auth";
 import { connectTokenName } from "./connect";
 import type { PluginStatus } from "./pluginState";
 import { ENGINE_ROOT, vaultPointer } from "./engine";
-import { engineProcessEnv, NO_ENV_FILE } from "./env";
+import { engineProcessEnv, gitProcessEnv, NO_ENV_FILE } from "./env";
 import { writeAtomic } from "./fsx";
 import { jobsPath } from "./preflight";
 import { declareUserIdentity, latestUserIdentity, legacyUserLabels } from "./userIdentity";
@@ -218,7 +218,7 @@ export function pointAt(root: string): void {
  * an owner. */
 export function ownerFor(root: string, claudeEmail: string | null): string {
   if (claudeEmail) return claudeEmail;
-  const r = spawnSync("git", ["config", "user.email"], { cwd: root, encoding: "utf8", timeout: 10_000 });
+  const r = spawnSync("git", ["config", "user.email"], { cwd: root, encoding: "utf8", timeout: 10_000, env: gitProcessEnv() });
   const git = (r.stdout ?? "").trim();
   if (r.status === 0 && git) return git;
   return `${userInfo().username}@${hostname()}`;
@@ -281,7 +281,7 @@ export function identityOf(root: string): SetupState["identity"] {
  * signed in as. Both are the person's own machine talking about itself —
  * asserted, not verified, which is the grade a local declaration carries. */
 export function suggestedOwnerEmail(root: string, home: string = homedir()): string | null {
-  const git = spawnSync("git", ["config", "user.email"], { cwd: root, encoding: "utf8" });
+  const git = spawnSync("git", ["config", "user.email"], { cwd: root, encoding: "utf8", env: gitProcessEnv() });
   const fromGit = git.status === 0 ? (git.stdout ?? "").trim() : "";
   return fromGit || claudeAccount(home);
 }

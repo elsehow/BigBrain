@@ -16,7 +16,12 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-export interface Workspace { root: string; projects: string; desktops: string; state: string }
+export interface Workspace {
+  root: string; projects: string; desktops: string; state: string;
+  /** What the programs this package runs for itself (git, cp, gh) get as their
+   * environment: the host's choice. Absent: this process's. */
+  env?: () => NodeJS.ProcessEnv;
+}
 export interface Project { name: string; path: string }
 
 export class AgentsError extends Error {}
