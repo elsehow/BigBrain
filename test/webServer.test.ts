@@ -255,8 +255,14 @@ describe("a source note carries the assertions grounded in it", () => {
       id: "ins_5a1e0000000000000000002b", source_id: "src-web-rail-b", title: "Nothing yet",
       body: "Unread.", received_at: "2026-08-22T10:05:00.000Z", content_sha256: "sha-web-rail-b",
     });
+    const dropped = insertion({
+      id: "ins_5a1e0000000000000000002c", source_id: "src-web-rail-c", title: "From an agent",
+      envelope: { id: "src-web-rail-c", source: "mcp", from: "desk-agent", from_kind: "agent", kind: "note" },
+      body: "![](https://img.example.com/a.png)", received_at: "2026-08-22T10:10:00.000Z", content_sha256: "sha-web-rail-c",
+    });
     appendSourceInsertionEvent(root, cited);
     appendSourceInsertionEvent(root, bare);
+    appendSourceInsertionEvent(root, dropped);
     const ada = { id: assertionEntityId("Ada Lovelace"), label: "Ada Lovelace" };
     appendAssertionEvent(root, createAssertionEvent(
       {
@@ -283,6 +289,9 @@ describe("a source note carries the assertions grounded in it", () => {
         sourceAssertions: unknown[];
       };
       expect(empty.sourceAssertions).toEqual([]);
+      // whether the viewer may load its remote images unasked
+      expect((empty as { byAgent?: boolean }).byAgent).toBe(false);
+      expect((call("GET", `/api/note?path=${encodeURIComponent(insertionEventRel(dropped))}`) as { byAgent?: boolean }).byAgent).toBe(true);
     } finally {
       // the preloaded scratch vault is every file's; leave it as found
       rmSync(join(root, "log"), { recursive: true, force: true });

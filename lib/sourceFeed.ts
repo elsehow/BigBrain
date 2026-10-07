@@ -163,6 +163,19 @@ export function insertionFiler(
   };
 }
 
+/** An agent wrote it: its stamp names an agent (Pilot, an MCP client, an
+ * agent token, a drop that says so), or it is an agent's conversation. The
+ * viewer loads such a source's remote images only on a click — an image's
+ * address is a request to wherever its writer chose. */
+export function agentWritten(source: SourceMetadata): boolean {
+  const envelope = source.envelope as Envelope;
+  const provenance = fmProvenance(envelope);
+  const kind = scalar(envelope.kind) ?? scalar(envelope.type), channel = scalar(envelope.source);
+  return (provenance.band === "engine" ? authorBand(source.author) : provenance.band) === "agent"
+    || ["agent-chat", "pilot-chat", "handoff-answer"].includes(kind ?? "")
+    || ["agent-chat", "pilot", "codex", "claude-code"].includes(channel ?? "");
+}
+
 /** What the feed's TRIAGED/INGESTED column may claim about an insertion —
  * the same facts the work queue reads (lib/work.ts DUE_INTAKE_SQL), so the
  * check and the gardener's to-do list cannot disagree:

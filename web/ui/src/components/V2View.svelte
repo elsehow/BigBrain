@@ -138,18 +138,21 @@
     for (const v of desktopViews) if (v.kind === "note" && !notes[v.path]) {
       notes[v.path] = {};
       Promise.all([api.note(v.path), remoteCheck]).then(([r]) => {
-        notes[v.path] = asSource(r.content, v.title);
+        // only a source the engine says a person or a feed sent in reaches out unasked
+        const held = r.byAgent !== false;
+        notes[v.path] = asSource(r.content, v.title, held);
         if (notes[v.path]!.source && !data) {
           void briefing(v.path, (text) => { const n = notes[v.path]; if (n?.source) n.source = { ...n.source, summary: text }; });
           const origin = (r as { origin?: { url?: string } }).origin?.url;
-          if (remoteOk && origin && notes[v.path]!.source!.via !== "email") void readPage(v.path, origin, notes[v.path]!.content ?? "");
+          if (remoteOk && !held && origin && notes[v.path]!.source!.via !== "email") void readPage(v.path, origin, notes[v.path]!.content ?? "");
         }
       }).catch((e) => { notes[v.path] = { error: errText(e) }; });
     }
   });
   const HEADER = /^(From|To|Cc|Date|Inbox|Subject|Attendees):\s*(.*)$/;
-  /** A source note reads as the source: its title and mail headers lifted out of the body. */
-  function asSource(raw: string, title: string): { content: string; source?: SourceMeta } {
+  /** A source note reads as the source: its title and mail headers lifted out of the body.
+   * `held`: its remote pictures wait for a click (cleanHtml). */
+  function asSource(raw: string, title: string, held: boolean): { content: string; source?: SourceMeta } {
     const fm = /^---\n([\s\S]*?)\n---\n/.exec(raw);
     const body = fm ? raw.slice(fm[0].length) : raw;
     const field = (k: string) => fm?.[1].match(new RegExp(`^${k}:\\s*"?(.*?)"?\\s*$`, "m"))?.[1];
@@ -161,7 +164,7 @@
     for (let m; lines.length && (m = HEADER.exec(lines[0]!)); lines.shift()) if (m[1] !== "Date" && m[1] !== "Inbox") header.push([m[1]!, m[2]!]);
     const via = (field("source_id") ?? "").split("-")[0] || "source";
     const content = lines.join("\n");
-    return { content, source: { via, date: field("date"), header, html: readable(content, field("title") ?? title) } };
+    return { content, source: { via, date: field("date"), header, html: readable(content, field("title") ?? title, held) } };
   }
   /** The source's page, read: kept when it holds clearly more of the piece than was saved (an RSS
    * item saves a line or two; a clip saves the page around the article too). */
@@ -181,7 +184,7 @@
       const savedText = new DOMParser().parseFromString(md(saved), "text/html").body.textContent?.trim().length ?? 0;
       if (!article?.content || text < 400 || text < savedText * 0.6) return;
       const n = notes[path];
-      if (n?.source) n.source = { ...n.source, html: cleanHtml(article.content), page: new URL(at).hostname.replace(/^www\./, "") };
+      if (n?.source) n.source = { ...n.source, html: cleanHtml(article.content, false), page: new URL(at).hostname.replace(/^www\./, "") };
     } catch { /* the saved text stands */ }
   }
   const IMAGE_URL = /\.(png|jpe?g|gif|webp|avif)(\?|$)|\/image\/fetch\//i;
@@ -189,15 +192,18 @@
    * and drops the page around it (sign-in prompts, avatars, "discover more");
    * its pictures come through the engine (/api/remote-image), and the bare
    * "full size" link a page puts under each picture goes. */
-  function readable(markdown: string, title: string): string {
+  function readable(markdown: string, title: string, held: boolean): string {
     const doc = new DOMParser().parseFromString(`<!doctype html><title></title><body><article>${md(markdown)}</article>`, "text/html");
     doc.title = title;
     const whole = doc.body.textContent?.trim().length ?? 0;
     const article = whole > 600 ? new Readability(doc.cloneNode(true) as Document, { keepClasses: false }).parse() : null;
     // a short note (most mail) is all content already; a reading that lost most of the text isn't trusted
-    return cleanHtml(article?.content && (article.textContent?.trim().length ?? 0) > whole * 0.5 ? article.content : doc.body.innerHTML);
+    return cleanHtml(article?.content && (article.textContent?.trim().length ?? 0) > whole * 0.5 ? article.content : doc.body.innerHTML, held);
   }
-  function cleanHtml(html: string): string {
+  /** `held`: a remote picture is drawn as its host and a Load image button
+   * (loadHeld) instead of being fetched — an agent's source names addresses
+   * of its writer's choosing, and loading one is a request there. */
+  function cleanHtml(html: string, held: boolean): string {
     const out = new DOMParser().parseFromString(html, "text/html");
     // a <picture>'s sources name the remote files directly; its <img> alone comes through the engine
     for (const el of out.querySelectorAll("picture source")) el.remove();
@@ -205,6 +211,7 @@
       const src = img.getAttribute("src") ?? "";
       // remote content off: a picture is left out, not drawn broken
       if (/^https?:\/\//i.test(src) && !remoteOk) { img.remove(); continue; }
+      if (/^https?:\/\//i.test(src) && held) { img.replaceWith(heldImage(out, src)); continue; }
       if (/^https?:\/\//i.test(src)) img.setAttribute("src", `/api/remote-image?url=${encodeURIComponent(src)}`);
       img.removeAttribute("srcset"); img.setAttribute("loading", "lazy");
     }
@@ -215,6 +222,24 @@
       if (bare && IMAGE_URL.test(href) && !a.querySelector("img") && block.previousElementSibling?.querySelector("img, picture")) block.remove();
     }
     return sanitizeHtml(out.body.innerHTML);
+  }
+  function heldImage(doc: Document, src: string): HTMLElement {
+    const box = doc.createElement("span"), host = doc.createElement("span"), load = doc.createElement("button");
+    box.className = "held";
+    try { host.textContent = new URL(src).hostname.replace(/^www\./, ""); } catch { /* the button alone */ }
+    load.type = "button"; load.textContent = "Load image"; load.dataset.remoteImage = src;
+    box.append(host, load);
+    return box;
+  }
+  /** Load image: the held picture, fetched through the engine like any other. */
+  function loadHeld(e: MouseEvent): boolean {
+    const load = (e.target as Element).closest("button[data-remote-image]");
+    if (!load) return false;
+    const img = document.createElement("img");
+    img.src = `/api/remote-image?url=${encodeURIComponent(load.getAttribute("data-remote-image")!)}`;
+    img.alt = "";
+    load.parentElement!.replaceWith(img);
+    return true;
   }
   /** The source in front, whose original ⌘O opens: a draft desktop's, or the panel's. */
   const original = (): string | undefined => data ? undefined : draft?.path ?? src?.row.path;
@@ -1133,7 +1158,7 @@
           {#key v.at}<iframe class="vpage" src={v.path} title={v.title} sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"></iframe>{/key}
         {:else}
           <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-          <div class="vbody" onclick={citation}>
+          <div class="vbody" onclick={(e) => loadHeld(e) || citation(e)}>
             {#if srcMeta}
               <div class="vsum">{#if srcMeta.summary}{srcMeta.summary}{:else}<span class="spin" aria-label="Writing a summary"></span>{/if}</div>
               {#if srcMeta.header.length}<dl class="vhead">{#each srcMeta.header as [k, val] (k)}<dt>{k}</dt><dd>{val}</dd>{/each}</dl>{/if}
@@ -1562,6 +1587,12 @@
   .vhead dt { color: var(--v2-faint); } .vhead dd { margin: 0; }
   /* the source itself, as a reader view: pictures fit the column, figures and quotes set apart */
   .vsrc :global(img) { display: block; max-width: 100%; height: auto; margin: 1.2em 0; border-radius: 6px; }
+  /* a picture held for a click: where it's from, and the button */
+  .vsrc :global(.held) { display: flex; align-items: baseline; gap: 12px; margin: 1.2em 0; padding: 10px 12px; border-radius: 6px;
+    background: color-mix(in srgb, var(--fg) 5%, var(--bg)); font: 400 12px/1.5 var(--font-mono); color: var(--v2-faint); }
+  .vsrc :global(.held span) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .vsrc :global(.held button) { flex: none; border: 0; padding: 0; background: none; color: var(--v2-muted); font: 500 12px/1.5 var(--font-app); cursor: pointer; }
+  .vsrc :global(.held button:hover) { color: var(--fg); }
   .vsrc :global(figure) { margin: 1.4em 0; } .vsrc :global(figcaption) { margin-top: -0.6em; font-size: 0.85em; color: var(--v2-muted); }
   .vsrc :global(blockquote) { margin: 1.1em 0; padding-left: 1em; border-left: 2px solid var(--rule); color: color-mix(in srgb, var(--fg) 80%, var(--bg)); }
   .vsrc :global(pre) { overflow-x: auto; padding: 12px 14px; border-radius: 8px; background: color-mix(in srgb, var(--fg) 5%, var(--bg)); font: 400 13px/1.5 var(--font-mono); }

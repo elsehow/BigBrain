@@ -68,7 +68,7 @@ import type { NoteMeta } from "../lib/viewTypes";
 import { errText } from "../lib/errText";
 import { hasAssertionEvents } from "../lib/assertionLog";
 import { projectedSourceHeads, syncAssertionProjection } from "../lib/assertionProjection";
-import { insertionFiler, sourceInsertionMarkdown } from "../lib/sourceFeed";
+import { agentWritten, insertionFiler, sourceInsertionMarkdown } from "../lib/sourceFeed";
 import { assertionsFromSource, projectedEntityMarkdown, truncatedEntityView, sourceThreadForInsertion, sourceInsertionCached } from "../lib/assertionEntityView";
 import { insertionEventRel, sourceMoment } from "../lib/insertionLog";
 import { foldsRoutes } from "../lib/entityFolds";
@@ -362,11 +362,13 @@ async function noteRead({ req, res, url }: Ctx): Promise<void> {
     // their contract; only the viewer reads the structured rows.
     // `origin` is the OPEN target: an external original, or a Markdown
     // copy of the stored body for text-only drops (lib/sourceOrigin.ts).
+    // `byAgent`: the viewer holds an agent's remote images for a click.
     return json(res, 200, {
       path: rel,
       content: sourceInsertionMarkdown(source),
       sourceAssertions: assertionsFromSource(ROOT, source.id),
       origin: sourceOrigin(source.envelope, source),
+      byAgent: agentWritten(source),
     });
   }
   if (resolved?.kind !== "markdown") return send(res, 404, "no such note", "text/plain");
