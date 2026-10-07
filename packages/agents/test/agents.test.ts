@@ -138,6 +138,28 @@ describe("worktrees on request", () => {
   });
 });
 
+describe("a command's environment", () => {
+  test("names the host withholds never reach it, whatever the base holds", () => {
+    const base = { PATH: "/bin", HOME: "/home/x", PROVIDER_KEY: "invented", ACCOUNT_KEY__WORK: "invented", KEEP: "1" };
+    expect(commandEnv(base, "desk-env", undefined, ["PROVIDER_KEY", "ACCOUNT_KEY__WORK", "ABSENT"]))
+      .toEqual({ PATH: "/bin", HOME: "/home/x", KEEP: "1", BIGBRAIN_AGENT_DESKTOP: "desk-env" });
+  });
+
+  // loginEnv is taken once per process, so each case runs in its own.
+  test("a login shell that fails leaves the identity seed, never this process's environment", () => {
+    const dir = mkdtempSync(join(tmpdir(), "shell-"));
+    roots.push(dir);
+    const pathless = join(dir, "pathless");
+    writeFileSync(pathless, "#!/bin/sh\nprintf 'ORRERY_HOME=/opt/orrery\\0'\n");
+    chmodSync(pathless, 0o755);
+    const code = `const { loginEnv } = await import(${JSON.stringify(join(import.meta.dir, "..", "src", "harbor.ts"))}); console.log(JSON.stringify(await loginEnv()));`;
+    for (const shell of [join(dir, "missing"), pathless]) {
+      const r = Bun.spawnSync([process.execPath, "--no-env-file", "-e", code], { env: { PATH: process.env.PATH, HOME: "/home/x", SHELL: shell, PROVIDER_KEY: "invented" } });
+      expect(JSON.parse(r.stdout.toString())).toEqual({ PATH: "/usr/bin:/bin:/usr/sbin:/sbin", TERM: "dumb", HOME: "/home/x", SHELL: shell });
+    }
+  });
+});
+
 describe.if(mac)("harbor", () => {
   const h = harbor();
   const server = (port = 0, stubborn = false) =>
@@ -148,6 +170,14 @@ describe.if(mac)("harbor", () => {
     expect(env).toEqual({ PATH: "/bin", HOME: "/home/x", BIGBRAIN_AGENT_DESKTOP: "desk-env" });
     const r = await new Harbor({ env: { PATH: process.env.PATH, BIGBRAIN_DESKTOP: "1" } }).run("desk-env", "echo app=$BIGBRAIN_DESKTOP tag=$BIGBRAIN_AGENT_DESKTOP", tmpdir());
     expect(r.output.trim()).toBe("app= tag=desk-env");
+  });
+
+  test("withheld names are asked for per command", async () => {
+    const withheld: string[] = [];
+    const h = new Harbor({ env: { PATH: process.env.PATH, PROVIDER_KEY: "invented" }, withheld: () => withheld });
+    expect((await h.run("desk-env", "echo key=$PROVIDER_KEY", tmpdir())).output.trim()).toBe("key=invented");
+    withheld.push("PROVIDER_KEY");
+    expect((await h.run("desk-env", "echo key=$PROVIDER_KEY", tmpdir())).output.trim()).toBe("key=");
   });
 
   test("a short command returns its output and exit code", async () => {

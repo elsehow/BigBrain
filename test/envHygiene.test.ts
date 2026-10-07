@@ -12,7 +12,6 @@ import { hostAgents } from "../lib/agentHost";
 import { ENGINE_ROOT } from "../lib/engine";
 import { CREDENTIAL_ENV, ENGINE_ENV, engineProcessEnv, gitProcessEnv, handoffProcessEnv, NO_ENV_FILE } from "../lib/env";
 import { dropAutoloadedEnv, vaultEnvSettings } from "../lib/envFile";
-import { gitOut } from "../lib/git";
 import { optionalJevKey } from "../lib/jevSettings";
 import { runClientCli } from "../lib/localClients";
 import { refreshPlugin } from "../lib/pluginState";
@@ -124,12 +123,21 @@ describe("what children inherit", () => {
     expect(ENGINE_ENV.filter((name) => (CREDENTIAL_ENV as readonly string[]).includes(name))).toEqual([]);
   });
 
-  test("git runs without them", async () => {
-    const root = gitVault();
+  // A spawn given no env inherits the environment bun STARTED with, whatever
+  // process.env says since, so this one needs a process bun really loaded
+  // the vault's .env into.
+  test("git runs without them, even from a process bun loaded the vault's .env into", () => {
+    const root = gitVault({ files: { ".env": DOTENV } });
     roots.push(root);
-    const out = await autoloaded(() => gitOut(root, ["-c", "alias.environment=!env", "environment"]));
-    expect(out).toContain("HOME=");
-    expect(out).not.toContain(SECRET);
+    const code = `const { spawnSync } = await import("node:child_process");
+      const { gitOut } = await import(${JSON.stringify(join(ENGINE_ROOT, "lib", "git.ts"))});
+      const args = ["-c", "alias.environment=!env", "environment"];
+      console.log(JSON.stringify({ inherited: spawnSync("git", args, { encoding: "utf8" }).stdout, ours: gitOut(process.cwd(), args) }));`;
+    const r = Bun.spawnSync([process.execPath, "-e", code], { cwd: root, env: { PATH: process.env.PATH, HOME: root } });
+    const { inherited, ours } = JSON.parse(r.stdout.toString()) as { inherited: string; ours: string };
+    expect(inherited).toContain(SECRET); // the control: what git got before
+    expect(ours).toContain("HOME=");
+    expect(ours).not.toContain(SECRET);
   });
 
   test("a client's CLI (claude, codex) runs without them", async () => {

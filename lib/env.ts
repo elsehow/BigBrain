@@ -21,8 +21,8 @@ const str = (name: string): string | undefined => {
 };
 
 /** A bare `PORT=` in the vault's .env reaches EVERY server the vault starts
- * (bun autoloads .env with cwd = vault), which is why each has its own knob
- * and this fallback is last. */
+ * (the supervisor passes the file's settings on, vaultEnvSettings), which is
+ * why each has its own knob and this fallback is last. */
 const port = (name: string, fallback: number): number =>
   Number(str(name) ?? str("PORT") ?? fallback);
 

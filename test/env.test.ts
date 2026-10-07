@@ -82,7 +82,7 @@ describe("the port knobs", () => {
   });
 
   // A bare PORT= in the vault's .env reaches every server the vault starts,
-  // because bun autoloads .env with cwd = vault. It is the LAST fallback, and
+  // because every job gets the file's settings. It is the LAST fallback, and
   // the per-server knob beats it — otherwise both servers pile onto one port,
   // which is the hazard .env.example warns about.
   test("PORT is the last fallback, and a specific knob beats it", () => {

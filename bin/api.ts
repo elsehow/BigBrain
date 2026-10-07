@@ -19,7 +19,7 @@ import { dieWithSupervisor } from "../lib/parentWatch";
 dieWithSupervisor("api");
 
 // BIGBRAIN_API_PORT first: a bare PORT in the vault's .env reaches the web
-// server too (bun autoloads .env; cwd = vault) and would collide the two.
+// server too (every job gets the file's settings) and would collide the two.
 const port = apiPort();
 const storePath = tokenStorePath(VAULT_ROOT);
 

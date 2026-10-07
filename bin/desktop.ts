@@ -56,7 +56,7 @@ import { allowVaultRequest } from "../lib/vaultBoundary";
  *                                      under `bun --watch`)
  */
 
-import { apiPort as envApiPort, isDesktop, isDev, NO_ENV_FILE, webPort as envWebPort } from "../lib/env";
+import { apiPort as envApiPort, handoffProcessEnv, isDesktop, isDev, NO_ENV_FILE, webPort as envWebPort } from "../lib/env";
 import { dropAutoloadedEnv } from "../lib/envFile";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { existsSync, openSync, readFileSync, statSync } from "node:fs";
@@ -94,8 +94,10 @@ const UI_DIST = join(ENGINE_ROOT, "web", "ui", "dist");
 // pid it names (lib/parentWatch.ts); the door's `/api/engine` reports it,
 // so the shell can tell a live supervisor's engine from an orphan's.
 process.env["BIGBRAIN_SUPERVISOR_PID"] = String(process.pid);
-// A shell that starts this without NO_ENV_FILE, in the vault, has handed
-// it the vault's credentials: nothing here needs them in the environment.
+// A shell that starts this in the vault without NO_ENV_FILE hands it the
+// vault's credentials. This takes them out of process.env for whatever reads
+// or spreads it; a spawn given no env still inherits the environment bun
+// started with, so every spawn here names its own.
 dropAutoloadedEnv(process.env, process.cwd());
 
 const stamp = (): string => new Date().toISOString().slice(11, 19);
@@ -194,6 +196,7 @@ function door(suggested: string, problem?: { path: string; problem: string }): P
  */
 function portHeldBy(port: string, ours: ReadonlySet<number>): string | null {
   const r = spawnSync("lsof", ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN", "-F", "pc"], {
+    env: handoffProcessEnv(),
     encoding: "utf8",
     timeout: 3_000,
   });
