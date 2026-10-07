@@ -177,11 +177,16 @@ describe("live mail", () => {
     expect(JSON.stringify(favour)).not.toContain("482910");
   });
 
-  test("the hold goes by when the provider received it, and holds when it cannot tell", () => {
+  test("the hold goes by when the provider received it, and holds sign-in mail when it cannot tell", () => {
     const backdated = liveForAgent("email_read", { selected: message(2, { date: "2020-01-01T00:00:00.000Z" }) }, now) as Record<string, any>;
     expect(backdated.selected.held).toBeTruthy();
     const unknown = liveForAgent("email_read", { selected: message(60, { date: null, received: null }) }, now) as Record<string, any>;
     expect(unknown.selected.held).toBeTruthy();
+    // with no known time, ordinary mail still goes through
+    const mom = liveForAgent("email_read", { selected: message(60, { date: null, received: null, subject: "Re: photos from Sunday",
+      from: [{ name: "Mom", address: "mom@example.net" }], body: "Here are the rest of them, love you." }) }, now) as Record<string, any>;
+    expect(mom.selected.held).toBeUndefined();
+    expect(mom.selected.body).toContain("Here are the rest of them, love you.");
   });
 
   test("listings screen subjects and carry provenance; only fresh sign-in rows say they are held", () => {

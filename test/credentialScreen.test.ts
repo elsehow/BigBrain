@@ -89,6 +89,9 @@ describe("sign-in mail, which a fresh message is held for", () => {
     { subject: "Your Pinewood login code", from: ["hello@pinewood.example"] },
     { subject: "Request to disable two-factor authentication", from: ["noreply@fernhub.example"] },
     { subject: "Votre code de vérification", from: ["accounts@copperline.example"] },
+    { subject: "Reset requested for your Tidewater account", from: ["hello@tidewater.example"] },
+    { subject: "Your OTP for Kestrel", from: ["alerts@kestrel.example"] },
+    { subject: "Approve this sign-in?", from: ["login@quillpad.example"] },
     // the sender says so, whatever the subject
     { subject: "Tidewater", from: ["verify@tidewater.example"] },
     { subject: "Action needed", from: ["account-security-noreply@quillpad.example"] },
@@ -104,6 +107,8 @@ describe("sign-in mail, which a fresh message is held for", () => {
     { subject: "Invitation: Quarterly planning @ Thu Oct 9, 10am", from: ["priya@fernworks.example"] },
     { subject: "Photos from the lake!", from: ["mae@example.net"], preheader: "What a weekend. The kids caught three fish." },
     { subject: "Offer letter", from: ["morgan@fernworks.example"] },
+    { subject: "Re: photos from Sunday", from: ["mom@example.net"], preheader: "Here are the rest of them, love you." },
+    { subject: "Reset sale: 30% off everything", from: ["no-reply@vaultkeep.example"] },
   ];
   for (const m of SIGN_IN) test(`held: ${m.subject} (${m.from[0]})`, () => expect(signInMail(m)).toBe(true));
   for (const m of ORDINARY) test(`not held: ${m.subject} (${m.from[0]})`, () => expect(signInMail(m)).toBe(false));

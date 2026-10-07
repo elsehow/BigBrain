@@ -60,7 +60,9 @@ function opaque(url: URL): boolean {
 }
 
 /** A subject or opening line that says the message is about signing in. */
-const SIGN_IN_SUBJECT = /\b(?:verification|verify|passcodes?|passwords?|passwort|sign(?:ing)?[- ]?in|log(?:ging)?[- ]?in|login|2fa|mfa|two[- ]factor|one[- ]?time|otp|security (?:alert|code)|confirm your (?:new )?(?:email|e-mail|address|account)|magic link|new device|unlock|recovery codes?|backup codes?|authenticat\w*|reset (?:request|link|code))\b|v[ée]rification|contraseña|senha|確認コード|認証/iu;
+const SIGN_IN_SUBJECT = /\b(?:verification|verify|passcodes?|passwords?|passwort|sign(?:ing)?[- ]?in|log(?:ging)?[- ]?in|login|2fa|mfa|two[- ]factor|one[- ]?time|otp|security (?:alert|code)|confirm your (?:new )?(?:email|e-mail|address|account)|magic link|new device|unlock|recovery codes?|backup codes?|authenticat\w*)\b|v[ée]rification|contraseña|senha|確認コード|認証/iu;
+/** Words that say so only without an order's or a promotion's words beside them. */
+const SIGN_IN_WEAK = /\b(?:codes?|reset)\b/iu;
 /** Senders that only send about accounts and signing in. A no-reply sender
  * says nothing either way: orders and newsletters come from one too. */
 const SIGN_IN_SENDER = new Set(["security", "account", "accounts", "verify", "verification", "auth", "authentication", "login", "signin", "otp", "2fa", "mfa", "identity"]);
@@ -68,10 +70,10 @@ const SIGN_IN_SENDER = new Set(["security", "account", "accounts", "verify", "ve
 const NOT_SIGN_IN_SENDER = new Set(["billing", "payable", "receivable", "invoice", "invoices", "orders", "sales", "news", "newsletter", "marketing"]);
 
 /** Does this message look like sign-in mail? Its sender's mailbox, its subject,
- * or the opening of its body (the preheader) says so. "Code" alone counts
- * only without an order's or a promotion's words beside it. */
+ * or the opening of its body (the preheader) says so. "Code" and "reset"
+ * count only without an order's or a promotion's words beside them. */
 export function signInMail(m: { from?: string[]; subject?: string | undefined; preheader?: string | undefined }): boolean {
-  const says = (text = "") => SIGN_IN_SUBJECT.test(text) || (/\bcodes?\b/iu.test(text) && !NOT_SIGN_IN.test(text));
+  const says = (text = "") => SIGN_IN_SUBJECT.test(text) || (SIGN_IN_WEAK.test(text) && !NOT_SIGN_IN.test(text));
   if (says(m.subject) || says(m.preheader?.slice(0, 300))) return true;
   return (m.from ?? []).some(address => {
     const words = (address.split("@")[0] ?? "").toLowerCase().split(/[-_.+]/u);
