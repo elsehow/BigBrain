@@ -1635,6 +1635,8 @@
   .taint .find { margin: 2px 0 0; height: 24px; font-size: 12px; }
   .review { display: flex; flex-direction: column; gap: 6px; font: 400 12px/1.6 var(--font-mono); color: var(--v2-muted); }
   .review p, .review ul { margin: 0; padding: 0; list-style: none; }
+  .review li { display: flex; gap: 10px; padding: 0; cursor: default; }
+  .review li code { flex: none; color: var(--fg); }
   .review b { font-weight: 500; color: var(--fg); }
   .review pre { margin: 0; max-height: 40vh; overflow: auto; padding: 10px 12px; border-radius: 8px; background: color-mix(in srgb, var(--fg) 5%, var(--bg)); font: 400 11.5px/1.5 var(--font-mono); color: var(--fg); white-space: pre; }
   .review span { display: inline-flex; gap: 16px; }
