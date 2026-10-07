@@ -20,6 +20,7 @@ import { z } from "zod";
 import { sha256hex } from "../hash";
 import type { InboxClientFactory } from "../liveInbox";
 import type { OriginKind } from "../provenance";
+import type { Tally } from "../agentReads";
 
 /** Test seams for providers, and the caller's own cancellation. */
 export interface IntegrationCallOptions { signal?: AbortSignal; client?: InboxClientFactory; granola?: { endpoint?: string } }
@@ -48,8 +49,8 @@ export interface IntegrationTool {
   reads?: string;
   /** Runs with arguments `input` has validated. */
   run(ctx: ToolContext, args: Record<string, unknown>): Promise<unknown>;
-  /** The result as an agent receives it: outside text screened and fenced. */
-  forAgent?(result: unknown, now?: number): unknown;
+  /** The result as an agent receives it: outside text screened and fenced, what was withheld counted in `tally`. */
+  forAgent?(result: unknown, tally: Tally, now?: number): unknown;
 }
 
 export interface Integration {

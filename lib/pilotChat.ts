@@ -22,6 +22,8 @@ import { primaryGraphCached } from "./graphCache";
 import { findNode, type GraphIdentity } from "./graphIdentity";
 import { pilotToolCall, pilotTools, PilotError } from "./pilot";
 import { INTEGRATION_TOOLS } from "./integrationTools";
+import { email } from "./integrations/email";
+import { errText } from "./errText";
 import { PILOT_RUNTIME } from "./pilotRuntimeConfig";
 import { readConversation, saveConversation, conversationPath, saveTiming, refreshPilotContract, type PilotConversation, type PilotTiming } from "./pilotConversation";
 import { mentionText, parseMentions } from "./pilotMentions";
@@ -757,8 +759,8 @@ export class PilotChats {
       if (this.closed || this.changingPermissions || s.deactivatedAt) throw new PilotError("This Pilot cannot start an action.");
       if (name === "inbox_set_unread") {
         let account: string;
-        try { account = JSON.parse(Buffer.from(String(a.ref), "base64url").toString()).account; }
-        catch { throw new PilotError("Invalid inbox reference."); }
+        try { account = email.refAccount!(String(a.ref)); }
+        catch (e) { throw new PilotError(errText(e)); }
         requireIntegrationWrite(this.root, "email", account, { kind: "pilot" });
       }
     };

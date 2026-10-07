@@ -27,4 +27,4 @@ export const liveOrigin = (name: string): OriginKind | undefined => {
 
 /** A live integration read's result as an agent receives it. */
 export const liveForAgent = (name: string, result: unknown, now = Date.now()): unknown =>
-  TOOLS.get(name)?.tool.forAgent?.(result, now) ?? result;
+  TOOLS.get(name)?.tool.forAgent?.(result, { screened: 0, held: 0 }, now) ?? result;

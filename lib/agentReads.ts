@@ -12,7 +12,7 @@
  * client that read a result before reads it the same way now. */
 import { normalize } from "node:path";
 import { projectedSourceMetadata } from "./assertionProjection";
-import { screenCredentials, signInMail } from "./credentialScreen";
+import { screenCredentials, signInMail, type Screened } from "./credentialScreen";
 import { memoryForAgents, memoryHasOutside } from "./memoryProvenance";
 import { jailMemoryNotePath, jailPath } from "./noteRead";
 import { readNoteFile, resolveNote } from "./noteResolution";
@@ -92,12 +92,16 @@ export function heldSignIn(p: Provenance, subject: string | undefined, body: str
   return `Sign-in mail received under ${FRESH_MAIL_MS / 60_000} minutes ago, while any code or link in it is live: shown by sender, subject and date only.${until}`;
 }
 
+/** What screening took out of one live result: credentials withheld, fresh sign-in mail held. Counted for the read log; nothing withheld is kept. */
+export interface Tally { screened: number; held: number }
+const counted = (s: Screened, tally?: Tally): string => { if (tally) tally.screened += s.withheld; return s.text; };
+
 /** A title or line from outside, with sign-in material withheld. */
-export const screenedForAgent = (p: Provenance, text: string, context = ""): string => screenCredentials(text, { where: where(p.kind), context }).text;
+export const screenedForAgent = (p: Provenance, text: string, context = "", tally?: Tally): string => counted(screenCredentials(text, { where: where(p.kind), context }), tally);
 
 /** An untrusted body as an agent reads it: sign-in material withheld, fenced with its provenance. */
-export const fencedForAgent = (p: Provenance, body: string, about: { title?: string | undefined; context?: string; inline?: boolean } = {}): string =>
-  fenceUntrusted(about.inline ? {} : fenceAbout(p, about.title), screenedForAgent(p, body, about.context ?? about.title), about.inline);
+export const fencedForAgent = (p: Provenance, body: string, about: { title?: string | undefined; context?: string; inline?: boolean } = {}, tally?: Tally): string =>
+  fenceUntrusted(about.inline ? {} : fenceAbout(p, about.title), screenedForAgent(p, body, about.context ?? about.title, tally), about.inline);
 
 /** A shared vault's evidence: another member's material, so never trusted,
  * from the author its submitter names, received when its origin dates it or
@@ -151,63 +155,65 @@ type Mail = Record<string, unknown> & { subject?: unknown; from?: unknown; date?
 
 /** One message as an agent reads it: headers only while it is fresh sign-in
  * mail, else its body screened and fenced. Its subject is screened either way. */
-function mailForAgent(m: Mail, now: number, ref?: string): Mail {
+function mailForAgent(m: Mail, now: number, tally?: Tally, ref?: string): Mail {
   const at = typeof m.received === "string" ? m.received : typeof m.date === "string" ? m.date : undefined;
   const from = addresses(m.from);
   const provenance: Provenance = { kind: "email", trusted: false, ...(from ? { from } : {}),
     ...(at ? { received: at } : {}), ...(typeof m.ref === "string" ? { ref: m.ref } : ref ? { ref } : {}) };
   const said = typeof m.subject === "string" ? m.subject : undefined, text = typeof m.body === "string" ? m.body : undefined;
-  const subject = said === undefined ? m.subject : screenedForAgent(provenance, said);
+  const subject = said === undefined ? m.subject : screenedForAgent(provenance, said, "", tally);
   const held = heldSignIn(provenance, said, text, now);
+  if (held && tally) tally.held++;
   if (held) return { uid: m.uid, ...(m.ref !== undefined ? { ref: m.ref } : {}), from: m.from, subject, date: m.date ?? null, provenance, held };
   if (text === undefined) return { ...m, subject, provenance };
-  return { ...m, subject, provenance, body: fencedForAgent(provenance, text, { context: said ?? "" }) };
+  return { ...m, subject, provenance, body: fencedForAgent(provenance, text, { context: said ?? "" }, tally) };
 }
 
 /** Screen every string in a structured value. */
-export function screenDeep(v: unknown, at: { where: string }): unknown {
-  if (typeof v === "string") return screenCredentials(v, at).text;
-  if (Array.isArray(v)) return v.map(x => screenDeep(x, at));
-  if (v && typeof v === "object") return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, screenDeep(x, at)]));
+export function screenDeep(v: unknown, at: { where: string }, tally?: Tally): unknown {
+  if (typeof v === "string") return counted(screenCredentials(v, at), tally);
+  if (Array.isArray(v)) return v.map(x => screenDeep(x, at, tally));
+  if (v && typeof v === "object") return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, screenDeep(x, at, tally)]));
   return v;
 }
 
 /** A live mail read, one message and a page of its thread, as an agent receives it. */
-export function mailReadForAgent(result: unknown, now = Date.now()): unknown {
+export function mailReadForAgent(result: unknown, now = Date.now(), tally?: Tally): unknown {
   const r = result as Record<string, unknown> | null;
   if (!r || typeof r !== "object") return result;
   const ref = typeof r.ref === "string" ? r.ref : undefined;
   return { ...r,
-    ...(r.selected && typeof r.selected === "object" ? { selected: mailForAgent(r.selected as Mail, now, ref) } : {}),
-    ...(Array.isArray(r.thread) ? { thread: (r.thread as Mail[]).map(m => mailForAgent(m, now)) } : {}) };
+    ...(r.selected && typeof r.selected === "object" ? { selected: mailForAgent(r.selected as Mail, now, tally, ref) } : {}),
+    ...(Array.isArray(r.thread) ? { thread: (r.thread as Mail[]).map(m => mailForAgent(m, now, tally)) } : {}) };
 }
 
 /** A live page of mail headers as an agent receives it. */
-export function mailListForAgent(result: unknown, now = Date.now()): unknown {
+export function mailListForAgent(result: unknown, now = Date.now(), tally?: Tally): unknown {
   const r = result as Record<string, unknown> | null;
   if (!r || typeof r !== "object" || !Array.isArray(r.messages)) return result;
-  return { ...r, messages: (r.messages as Mail[]).map(m => mailForAgent(m, now)) };
+  return { ...r, messages: (r.messages as Mail[]).map(m => mailForAgent(m, now, tally)) };
 }
 
 /** An upstream MCP tool's result as an agent receives it: its text fenced as the
  * integration's material, its structured content screened. */
-export function upstreamForAgent(kind: OriginKind, result: unknown): unknown {
+export function upstreamForAgent(kind: OriginKind, result: unknown, tally?: Tally): unknown {
   const r = result as Record<string, unknown> | null;
   if (!r || typeof r !== "object") return result;
   const at = { where: where(kind) };
   return { ...r,
     ...(Array.isArray(r.content) ? { content: (r.content as Array<Record<string, unknown>>).map(c => c?.type === "text" && typeof c.text === "string"
-      ? { ...c, text: fenceUntrusted({ kind }, screenCredentials(c.text, at).text) } : c) } : {}),
-    ...(r.structuredContent !== undefined ? { structuredContent: screenDeep(r.structuredContent, at) } : {}) };
+      ? { ...c, text: fenceUntrusted({ kind }, counted(screenCredentials(c.text, at), tally)) } : c) } : {}),
+    ...(r.structuredContent !== undefined ? { structuredContent: screenDeep(r.structuredContent, at, tally) } : {}) };
 }
 
 /** An upstream MCP server's tool list as an agent receives it: the prose in it
  * (descriptions and titles, at any depth of a schema) screened and fenced as
  * that integration's material, every other string screened. Names stay exact, to call by. */
-export function upstreamToolsForAgent(kind: OriginKind, tools: unknown): unknown {
+export function upstreamToolsForAgent(kind: OriginKind, tools: unknown, tally?: Tally): unknown {
   const at = { where: where(kind) };
+  const screened = (v: string) => counted(screenCredentials(v, at), tally);
   const walk = (v: unknown, key?: string): unknown => typeof v === "string"
-    ? key === "description" || key === "title" ? fenceUntrusted({ kind }, screenCredentials(v, at).text, true) : screenCredentials(v, at).text
+    ? key === "description" || key === "title" ? fenceUntrusted({ kind }, screened(v), true) : screened(v)
     : Array.isArray(v) ? v.map(x => walk(x)) : v && typeof v === "object" ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, walk(x, k)])) : v;
   return walk(tools);
 }

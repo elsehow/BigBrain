@@ -25,7 +25,8 @@ export function integrationCapabilities(root: string, caller: IntegrationCaller)
   return { ...Object.fromEntries(INTEGRATIONS.filter(i => i.tools.length).map(i => [i.id, capabilities(root, i, caller)])),
     remembering: "Live reads do not save evidence. Use drop explicitly; the gardener owns admission and filing." };
 }
-/** One live tool call as it ended. */
+/** One live tool call as it ended: who asked for what, and how much came back.
+ * Never the arguments or the result themselves, so no observer can keep content by accident. */
 export interface IntegrationCall {
   /** When it began. */
   at: string;
@@ -35,20 +36,44 @@ export interface IntegrationCall {
   /** Empty when it was refused before an account was resolved. */
   account: string;
   tool: string;
-  /** As validated, or as given when they were refused. */
-  args: Record<string, unknown>;
+  /** The arguments, each string clipped to 200 characters, an object as "{n keys}", a list as "[n items]". */
+  argsSummary: Record<string, string | number | boolean | null>;
   /** refused: BigBrain said no (not the integration's tool, arguments it doesn't declare, no access, access withdrawn mid-call); error: the call itself failed. */
   outcome: "ok" | "refused" | "error";
+  /** Clipped to 200 characters. */
   error?: string;
   ms: number;
-  /** What the agent received, to measure; never to keep. */
-  result?: unknown;
+  /** What the agent received, as JSON bytes; 0 unless ok. */
+  resultBytes: number;
+  /** Messages, thread messages, content blocks or results it received; 0 if none. */
+  items: number;
+  /** Credentials screened out of the result. */
+  screened: number;
+  /** Fresh sign-in mail held to headers. */
+  held: number;
 }
 const observers = new Set<(call: IntegrationCall) => void>();
-/** Hear every live tool call once it ends; returns the way to stop. An observer that throws never fails the call. */
+/** Hear every live tool call once it ends; returns the way to stop. Observers run synchronously, and one that throws never fails the call. */
 export function observeIntegrationCalls(observer: (call: IntegrationCall) => void): () => void {
   observers.add(observer);
   return () => { observers.delete(observer); };
+}
+const CLIP = 200;
+const clip = (s: string) => s.length > CLIP ? s.slice(0, CLIP - 1) + "…" : s;
+const summarized = (v: unknown): string | number | boolean | null => typeof v === "string" ? clip(v)
+  : typeof v === "number" || typeof v === "boolean" || v === null ? v
+  : Array.isArray(v) ? `[${v.length} items]` : v && typeof v === "object" ? `{${Object.keys(v).length} keys}` : String(v);
+/** At most 20 arguments, as the read log may show them. */
+const argsSummary = (args: Record<string, unknown>) =>
+  Object.fromEntries(Object.entries(args).filter(([, v]) => v !== undefined).slice(0, 20).map(([k, v]) => [clip(k), summarized(v)]));
+const items = (r: unknown): number => {
+  if (Array.isArray(r)) return r.length;
+  const o = (r && typeof r === "object" ? r : {}) as Record<string, unknown>;
+  return ["messages", "thread", "content", "results"].reduce((n, k) => n + (Array.isArray(o[k]) ? (o[k] as unknown[]).length : 0), 0);
+};
+function report(call: IntegrationCall): void {
+  Object.freeze(call.argsSummary); Object.freeze(call);
+  for (const observe of observers) try { const r: unknown = observe(call); if (r instanceof Promise) r.catch(() => {}); } catch { /* the call already ended */ }
 }
 
 /** What a content read's results are, for the provenance every agent-facing result carries (lib/agentReads.ts). */
@@ -86,14 +111,16 @@ export async function integrationToolCall(root: string, caller: IntegrationCalle
  * for a write) checked before, every 100ms during, and after the provider's
  * work, which is aborted the moment access is withdrawn. */
 export async function dispatchIntegrationTool(root: string, caller: IntegrationCaller, integrationId: string, name: string, args: Record<string, unknown>, options: IntegrationCallOptions = {}): Promise<unknown> {
-  const call: IntegrationCall = { at: new Date().toISOString(), caller: caller.kind, integration: integrationId, account: "", tool: name, args, outcome: "refused", ms: 0 };
+  const call: IntegrationCall = { at: new Date().toISOString(), caller: caller.kind, integration: integrationId, account: "", tool: name, argsSummary: argsSummary(args),
+    outcome: "refused", ms: 0, resultBytes: 0, items: 0, screened: 0, held: 0 };
   const started = performance.now();
   let refused = true;
   try {
     call.caller = integrationCallerId(root, caller); // a caller that can't read live accounts at all hears that first
     const integration = integrationNamed(integrationId), tool = integration?.tools.find(t => t.name === name);
     if (!integration || !tool) throw new Error(`${name} is not ${integration ? "a " + integration.name : "an integration"} tool.`);
-    const given = call.args = validated(tool, args);
+    const given = validated(tool, args);
+    call.argsSummary = argsSummary(given);
     const account = call.account = accountFor(root, caller, integration, given);
     const required = tool.access === "write" ? requireIntegrationWrite : requireIntegrationRead;
     const check = () => { try { required(root, integration.id, account, caller); } catch (error) { refused = true; throw error; } };
@@ -106,16 +133,16 @@ export async function dispatchIntegrationTool(root: string, caller: IntegrationC
       refused = false;
       const result = await tool.run({ root, account, signal, authorize: check, options }, given);
       try { check(); signal.throwIfAborted(); } catch (error) { if (tool.access === "write") throw new Error("Access changed after the provider operation, which may have applied; inspect current state before retrying."); throw error; }
-      const out = { provenance: { integration: integration.id, account, scope: "live_source", checkedAt: new Date().toISOString(), remembered: false, ...origin(name) }, result: tool.forAgent ? tool.forAgent(result) : result };
-      call.outcome = "ok"; call.result = out;
-      return out;
+      const tally = { screened: 0, held: 0 }, received = tool.forAgent ? tool.forAgent(result, tally) : result;
+      Object.assign(call, { outcome: "ok", resultBytes: Buffer.byteLength(JSON.stringify(received) ?? ""), items: items(received), ...tally });
+      return { provenance: { integration: integration.id, account, scope: "live_source", checkedAt: new Date().toISOString(), remembered: false, ...origin(name) }, result: received };
     } finally { clearInterval(timer); }
   } catch (error) {
     call.outcome = refused ? "refused" : "error";
-    call.error = error instanceof Error ? error.message : String(error);
+    call.error = clip(error instanceof Error ? error.message : String(error));
     throw error;
   } finally {
     call.ms = Math.round(performance.now() - started);
-    for (const observe of observers) try { observe(call); } catch { /* the call already ended */ }
+    report(call);
   }
 }
