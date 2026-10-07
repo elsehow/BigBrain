@@ -77,11 +77,12 @@ export const DEFAULT_HOSTS = [
   "github.com", "codeload.github.com", "objects.githubusercontent.com",
 ];
 
-/** Toolchain caches, home-relative, that installs and builds write. */
+/** Toolchain caches, home-relative, that installs and builds write (cargo's
+ * by name: the rest of ~/.cargo holds its config and the binaries on PATH). */
 export const CACHES = [
   ".bun/install/cache", ".npm", ".cache/node/corepack", "Library/Caches/node-gyp", "Library/Caches/Yarn",
-  "Library/pnpm", "Library/Caches/pnpm", "Library/Caches/pip", ".cache/uv",
-  "go/pkg/mod", "Library/Caches/go-build", ".cargo/registry", ".cargo/git",
+  "Library/pnpm", "Library/Caches/pnpm", "Library/Caches/pip", ".cache/uv", "go/pkg/mod", "Library/Caches/go-build",
+  ".cargo/registry", ".cargo/git", ...["package-cache", "package-cache-mutate", "global-cache", "global-cache-journal", "global-cache-wal", "global-cache-shm"].map(f => `.cargo/.${f}`),
 ];
 
 /** An untrusted desktop's caches: its own, by the variables each tool reads,
@@ -95,12 +96,14 @@ const OWN_CACHES: Record<string, string> = {
 const DEBUGGER_PORTS = [9222, 9229];
 
 /** System services commands may look up (from Codex's and sandbox-runtime's lists;
- * none that opens apps, sends Apple events, or reads the keychain or pasteboard). */
+ * none that opens apps, sends Apple events, or reads the keychain or pasteboard).
+ * trustd verifies TLS for pip, Go and Swift, and may fetch a certificate's
+ * issuer itself; configd answers the proxy lookups uv and others make. */
 const SERVICES = [
   "com.apple.system.opendirectoryd.libinfo", "com.apple.system.opendirectoryd.membership", "com.apple.system.DirectoryService.libinfo_v1",
   "com.apple.system.logger", "com.apple.logd", "com.apple.diagnosticd", "com.apple.system.notification_center",
   "com.apple.bsd.dirhelper", "com.apple.PowerManagement.control", "com.apple.cfprefsd.daemon", "com.apple.cfprefsd.agent",
-  "com.apple.FontObjectsServer", "com.apple.fonts",
+  "com.apple.FontObjectsServer", "com.apple.fonts", "com.apple.trustd.agent", "com.apple.SystemConfiguration.configd",
 ];
 
 /** sysctls commands may read (sandbox-runtime's list). */
@@ -111,7 +114,7 @@ const SYSCTLS = [
   "hw.ncpu", "hw.nperflevels", "hw.packages", "hw.pagesize", "hw.pagesize_compat", "hw.physicalcpu", "hw.physicalcpu_max",
   "hw.tbfrequency_compat", "hw.vectorunit", "kern.argmax", "kern.bootargs", "kern.hostname", "kern.maxfiles",
   "kern.maxfilesperproc", "kern.maxproc", "kern.ngroups", "kern.osproductversion", "kern.osrelease", "kern.ostype",
-  "kern.osvariant_status", "kern.osversion", "kern.secure_kernel", "kern.sysv.semmns", "kern.tcsm_available", "kern.tcsm_enable",
+  "kern.osvariant_status", "kern.osversion", "kern.iossupportversion", "kern.secure_kernel", "kern.sysv.semmns", "kern.tcsm_available", "kern.tcsm_enable",
   "kern.usrstack64", "kern.version", "kern.willshutdown", "machdep.cpu.brand_string", "machdep.ptrauth_enabled",
   "security.mac.lockdown_mode_state", "sysctl.proc_cputype", "vm.loadavg",
 ];
@@ -304,7 +307,7 @@ export class Seatbelt implements Launcher {
     const env: NodeJS.ProcessEnv = { ...job.env, TMPDIR: tmp, TMP: tmp, TEMP: tmp,
       HTTP_PROXY: url, HTTPS_PROXY: url, ALL_PROXY: url, http_proxy: url, https_proxy: url, all_proxy: url,
       NO_PROXY: "localhost,127.0.0.1,::1", no_proxy: "localhost,127.0.0.1,::1",
-      npm_config_proxy: url, npm_config_https_proxy: url, YARN_HTTP_PROXY: url, YARN_HTTPS_PROXY: url };
+      npm_config_proxy: url, npm_config_https_proxy: url, YARN_HTTP_PROXY: url, YARN_HTTPS_PROXY: url, NODE_USE_ENV_PROXY: "1" };
     // landing and pushing happen outside, with the person's credentials
     delete env.SSH_AUTH_SOCK; delete env.SSH_AGENT_PID;
     if (c.untrusted) for (const [name, dir] of Object.entries(OWN_CACHES)) env[name] = join(tmp, "cache", dir);
