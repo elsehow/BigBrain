@@ -78,7 +78,25 @@ archived.
 
 Shell commands can still change anything, as in the person's terminal. The
 instructions say to use `start_work` for anything non-trivial. Nothing
-pretends to police the shell.
+classifies commands; the file tools only refuse to write inside a `.git`
+folder, whose hooks and config run code.
+
+## Untrusted material
+
+Sources come from outside the person: email, feeds, meeting notes, drops.
+When a desktop is started about notes, they reach the agent as its
+session's first message (`preface`), each fenced as untrusted data with
+where it came from, and never in its instructions.
+
+A desktop whose agent has taken in untrusted material is **tainted**: a
+source it was started about, a live integration read, or `read_note` on
+anything but a curated note (memory and dossiers, for now). While tainted,
+its `bash` refuses without running, and the desktop keeps the refused
+command. The view says why the shell is off, shows that command, and offers
+**Allow shell for this desktop**. Only the person can allow it; no tool the
+agent has reaches it. Material they allowed doesn't taint again; new
+material does. The package asks its host before each command (`shell` in
+`open()`), so the rule is BigBrain's.
 
 ## Worktrees on request (*measured*)
 
@@ -163,13 +181,14 @@ person.
 | **Archive** | you, or after a day idle | Stops its processes, releases its leases. Files stay; reopening resumes |
 | **Land** | you | A worktree's commits come home: a pull request when the project is on GitHub, otherwise its branch, already in your repo, ready to merge |
 | **Discard** | you | Deletes the desktop's worktree and its branch |
+| **Allow shell** | you | Turns a tainted desktop's shell back on, for that desktop |
 
 Nothing is committed automatically, and nothing is deleted on a timer.
 
 ## The interface BigBrain uses
 
 ```ts
-open(desktop, { model, tools: HostTool[], instructions, wrapStream })
+open(desktop, { model, tools: HostTool[], instructions, wrapStream, preface, shell })
 send(desktop, text, { inputId }) / steer(desktop, text) / stop(desktop)
 changes(desktop)                          // per worktree: branch, commits, uncommitted files, diffstat
 servers(desktop) / snapshot(desktop) / events(desktop, sinceSeq)
