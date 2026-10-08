@@ -1,25 +1,27 @@
 /** Account access owned by BigBrain, independent of native agent permissions. */
-import { granolaConnection } from "./granolaMcp";
 import { readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { loadManifest, integrationEnabledIn } from "./manifest";
-import { configuredFeeds } from "./rssConfig";
-import { emailConfig, passwordEnvKey, gmailReadOnly } from "./emailConfig";
 import { readEnvValues } from "./envFile";
 import { writeAtomic } from "./fsx";
 import { listTokens, tokenStorePath, verifyToken, hasScope } from "./auth";
+import { integrationNamed, type Integration } from "./integrations";
+import { extraAccounts, policyPath } from "./integrations/contract";
 
-export const MANAGED_INTEGRATIONS = new Set(["email", "granola", "that-tracks", "rss"]);
+export { MANAGED_INTEGRATIONS } from "./integrations";
+export { extraAccounts } from "./integrations/contract";
 export interface IntegrationGrant { caller: string; accounts: string[] }
 export interface IntegrationActivation {
   version: 1; active: boolean; fingerprint: string; checkedAt: string; grants: IntegrationGrant[];
 }
 export type IntegrationCaller = { kind: "worker"; accounts: { integration: string; account: string }[] } | { kind: "pilot" | "gardener" } | { kind: "mcp"; token?: string; storePath?: string };
-const file = (root: string, name: string) => {
-  if (!MANAGED_INTEGRATIONS.has(name)) throw new Error("This integration has no activation adapter.");
-  return join(root, ".spool", "integration-access", name + ".json");
+const managed = (name: string): Integration => {
+  const integration = integrationNamed(name);
+  if (!integration) throw new Error("This integration has no activation adapter.");
+  return integration;
 };
+const file = (root: string, name: string) => { managed(name); return join(root, ".spool", "integration-access", name + ".json"); };
 export function activationRecord(root: string, name: string): IntegrationActivation | undefined {
   try {
     const v = JSON.parse(readFileSync(file(root, name), "utf8"));
@@ -29,19 +31,19 @@ export function activationRecord(root: string, name: string): IntegrationActivat
   } catch { return; }
 }
 export function integrationAccounts(root: string, name: string): string[] {
-  if (name === "rss") return configuredFeeds(root).map(f => f.url); // a feed is an account
-  return name === "email" ? emailConfig(loadManifest(root).integrations.email).inboxes.map(i => i.address) : [name,...extraAccounts(root,name).map(a=>a.id)];
+  return integrationNamed(name)?.accounts(root) ?? [name,...extraAccounts(root,name).map(a=>a.id)];
 }
 /** Credentials never leave the host. Changing account settings invalidates the check. */
 export function integrationFingerprint(root: string, name: string): string {
   const cfg = loadManifest(root).integrations[name] ?? {};
   const { enabled: _e, remember: _r, skip: _s, ...connection } = cfg;
-  const env = readEnvValues(root);
-  const keys = name === "email" ? integrationAccounts(root, name).map(passwordEnvKey) : name === "rss" ? [] : [name === "granola" ? "GRANOLA_API_KEY" : "THAT_TRACKS_API_KEY"];
+  const env = readEnvValues(root), { credential } = managed(name), accounts = integrationAccounts(root, name);
+  // a legacy activation covered an integration's built-in account, or every account of one without
+  const keys = credential.envKey ? (accounts.includes(name) ? [name] : accounts).map(credential.envKey) : [];
   return createHash("sha256").update(JSON.stringify([connection, keys.map(k => env[k] ?? "")])).digest("hex");
 }
 export function integrationActive(root: string, name: string, account?: string): boolean {
-  if (!MANAGED_INTEGRATIONS.has(name)) return integrationEnabledIn(loadManifest(root).integrations,name);
+  if (!integrationNamed(name)) return integrationEnabledIn(loadManifest(root).integrations,name);
   return (account ? [account] : integrationAccounts(root,name)).some(a => {
     return accountPolicy(root,name,a).connected; // a connected account is always remembered
   });
@@ -73,7 +75,8 @@ export function deactivateIntegration(root: string, name: string): void {
   for (const {account,policy} of policies) writeAccountPolicy(root,name,account,{...policy,connected:false});
   writeAtomic(file(root, name), JSON.stringify({ version:1, fingerprint:"", checkedAt:new Date().toISOString(), grants:[], ...prior, active: false }) + "\n", 0o600);
 }
-function callerId(root: string, caller: IntegrationCaller): string {
+/** Who is asking, as grants name them: `pilot`, `token:<id>`, `worker`. Throws for a caller that may not read live accounts at all. */
+export function integrationCallerId(root: string, caller: IntegrationCaller): string {
   if (caller.kind === "gardener") throw new Error("Gardener reads landed arrivals only; live accounts are unavailable.");
   if (caller.kind !== "mcp") return caller.kind;
   const result = verifyToken(caller.storePath ?? tokenStorePath(root), caller.token ?? "");
@@ -82,7 +85,7 @@ function callerId(root: string, caller: IntegrationCaller): string {
 }
 export function readableIntegrationAccounts(root: string, name: string, caller: IntegrationCaller): string[] {
   if (caller.kind === "worker") return readableIntegrationAccounts(root, name, {kind: "pilot"}).filter(a => caller.accounts.some(g => g.integration === name && g.account === a));
-  const id = callerId(root, caller);
+  const id = integrationCallerId(root, caller);
   return integrationAccounts(root,name).filter(a => { const p=accountPolicy(root,name,a);return p.connected && (p.liveAccess??["read","read-write"].includes(p.grants.find(g=>g.caller===id)?.access ?? "off")); });
 }
 export function requireIntegrationRead(root: string, name: string, account: string, caller: IntegrationCaller): void {
@@ -99,17 +102,10 @@ export interface AccountPolicy {
   granola?: { backfill?: Backfill };
   grants:{caller:string;access:LiveAccess}[];
 }
-function accountPolicyFile(root:string,name:string,account:string):string {
-  file(root,name); // Validate the adapter namespace.
-  return join(root,".spool","integration-accounts",name,createHash("sha256").update(account).digest("hex")+".json");
-}
+const accountPolicyFile = (root:string,name:string,account:string):string => { managed(name); return policyPath(root,name,account); };
 export function accountFingerprint(root:string,name:string,account:string):string {
   if (!integrationAccounts(root,name).includes(account)) throw new Error("Choose a configured account.");
-  if(name==="granola")return createHash("sha256").update(JSON.stringify([account,granolaConnection(root,account)?.generation??"disconnected"])).digest("hex");
-  if(name==="rss")return createHash("sha256").update(JSON.stringify([account])).digest("hex"); // public: no secret to change
-  if(name!=="email")return createHash("sha256").update(JSON.stringify([account,integrationAccountKey(root,name,account)])).digest("hex");
-  const inbox=emailConfig(loadManifest(root).integrations.email).inboxes.find(i=>i.address===account);
-  return createHash("sha256").update(JSON.stringify([inbox,readEnvValues(root)[passwordEnvKey(account)] ?? ""])).digest("hex");
+  return managed(name).fingerprint(root,account);
 }
 export function accountPolicy(root:string,name:string,account:string):AccountPolicy {
   const empty:AccountPolicy={version:2,connected:false,fingerprint:"",checkedAt:null,grants:[]};
@@ -119,7 +115,7 @@ export function accountPolicy(root:string,name:string,account:string):AccountPol
   catch(e){
     if((e as NodeJS.ErrnoException).code!=="ENOENT")return empty;
     // Tolerant read of explicit prior activation; never infer consent from credentials.
-    if(name==="granola"||(name!=="email"&&account!==name))return empty;
+    if(integrationNamed(name)?.credential.kind==="oauth"||(name!=="email"&&account!==name))return empty;
     const old=activationRecord(root,name);
     const valid=!!old?.active && integrationEnabledIn(loadManifest(root).integrations,name) && old.fingerprint===integrationFingerprint(root,name);
     return {...empty,connected:valid,fingerprint:valid?accountFingerprint(root,name,account):"",checkedAt:old?.checkedAt??null,
@@ -131,7 +127,7 @@ export function accountPolicy(root:string,name:string,account:string):AccountPol
     if(p.liveAccess!==undefined&&typeof p.liveAccess!=="boolean")return empty;
     // a retired `remembering` switch or rule in an older file is ignored: a connected account is remembered
     const {remembering:_retired,...policy}=p;
-    return {...policy,connected:p.connected&&(name!=="granola"||!!granolaConnection(root,account))&&p.fingerprint===accountFingerprint(root,name,account)};
+    return {...policy,connected:p.connected&&(managed(name).credential.signedIn?.(root,account)??true)&&p.fingerprint===accountFingerprint(root,name,account)};
   }catch{return empty;}
 }
 export function writeAccountPolicy(root:string,name:string,account:string,policy:AccountPolicy):void {
@@ -147,25 +143,25 @@ export function removeAccountPolicy(root:string,name:string,account:string):void
 export function integrationConnected(root:string,name:string,account?:string):boolean {
   return (account?[account]:integrationAccounts(root,name)).some(a=>accountPolicy(root,name,a).connected);
 }
+/** Whether the provider lets BigBrain change this account at all, whatever a grant says. */
+const providerWritable = (root:string,name:string,account:string):boolean => integrationNamed(name)?.writable?.(root,account) ?? true;
 export function requireIntegrationWrite(root:string,name:string,account:string,caller:IntegrationCaller):void {
   if (caller.kind === "worker") throw new Error("Workers have read-only source access.");
-  const id=callerId(root,caller),p=accountPolicy(root,name,account);
-  if((name==="email"&&gmailReadOnly(root,account))||!p.connected||!(p.liveAccess??(p.grants.find(g=>g.caller===id)?.access==="read-write")))throw new Error("This account does not grant this caller live write access.");
+  const id=integrationCallerId(root,caller),p=accountPolicy(root,name,account);
+  if(!providerWritable(root,name,account)||!p.connected||!(p.liveAccess??(p.grants.find(g=>g.caller===id)?.access==="read-write")))throw new Error("This account does not grant this caller live write access.");
 }
 
 export function writableIntegrationAccounts(root:string,name:string,caller:IntegrationCaller):string[] {
   if (caller.kind === "worker") return [];
-  const id=callerId(root,caller);
-  return integrationAccounts(root,name).filter(a=>{const p=accountPolicy(root,name,a);return !(name==="email"&&gmailReadOnly(root,a))&&p.connected&&(p.liveAccess??(p.grants.find(g=>g.caller===id)?.access==="read-write"));});
+  const id=integrationCallerId(root,caller);
+  return integrationAccounts(root,name).filter(a=>{const p=accountPolicy(root,name,a);return providerWritable(root,name,a)&&p.connected&&(p.liveAccess??(p.grants.find(g=>g.caller===id)?.access==="read-write"));});
 }
 
-export function extraAccounts(root:string,name:string):{id:string;label:string}[] {
-  if(name==="email"||name==="rss")return [];
-  try{const v=JSON.parse(readFileSync(join(root,".spool","integration-accounts",name,"accounts.json"),"utf8"));return Array.isArray(v)?v.filter(a=>typeof a.id==="string"&&/^account-[a-f0-9]{16}$/.test(a.id)&&typeof a.label==="string"):[];}catch{return [];}
-}
+
 export function integrationAccountEnvKey(name:string,account:string):string {
-  const base=name==="granola"?"GRANOLA_API_KEY":"THAT_TRACKS_API_KEY";
-  return account===name?base:base+"__"+account.replaceAll("-","_").toUpperCase();
+  const envKey=managed(name).credential.envKey;
+  if(!envKey)throw new Error("This integration keeps no key.");
+  return envKey(account);
 }
 export function integrationAccountKey(root:string,name:string,account:string):string|undefined {
   return readEnvValues(root)[integrationAccountEnvKey(name,account)];

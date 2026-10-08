@@ -33,6 +33,7 @@ import { arrangeDesktop, closeView, desktopDetail, desktopReference, DESKTOP_TOO
 import { namingMoment, type TaskNamer } from "./pilotTaskName";
 import { savedPilotBackend } from "./pilotDefault";
 import { spoolDir } from "./spool";
+import { integrationTool } from "./integrations";
 
 /** Untrusted material that reached the agent: a note its desktop was started
  * about (`via: "start"`), what a tool read, or a file a tainted desktop wrote
@@ -78,9 +79,8 @@ const MAX_TAINT = 20, MAX_COMMAND = 2_000, MAX_REASON = 300;
 const CURATED = /^(?:memory|entities|projection\/entities)\//;
 const untrustedNote = (path: string): boolean => !CURATED.test(normalize(path));
 
-/** Host tools that read live integrations: what they return came from outside, so calling one taints the desktop. Named as its notice says it. */
-const LIVE_READERS = new Map([["email_read", "your email"], ["email_search", "your email"], ["inbox_read", "your inbox"], ["inbox_list", "your inbox"],
-  ["granola_read", "your Granola notes"], ["granola_tools", "your Granola notes"]]);
+/** A host tool that reads a live integration: what it returns came from outside, so calling one taints the desktop. Named as its notice says it (lib/integrations/). */
+const liveReader = (name: string): string | undefined => integrationTool(name)?.tool.reads;
 
 /** Host tools that list sources: titles, snippets and senders are their text. */
 const LISTERS = new Set(["search_vault", "recent"]);
@@ -477,7 +477,7 @@ export class CodingDesktops {
    * integration read or read_note on anything but a curated note taints the
    * desktop; a listing shows sources only by path while its shell is on. */
   private watched(id: string, t: HostTool): HostTool {
-    const live = LIVE_READERS.get(t.name);
+    const live = liveReader(t.name);
     if (LISTERS.has(t.name)) return { ...t, execute: async (args, signal) => {
       const out = await t.execute(args, signal);
       return this.get(id).taint ? out : redacted(out);

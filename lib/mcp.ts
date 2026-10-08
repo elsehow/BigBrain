@@ -1,4 +1,5 @@
 import { INTEGRATION_TOOLS, integrationToolCall, integrationCapabilities, type IntegrationCallOptions } from "./integrationTools";
+import { integrationTool } from "./integrations";
 /** The public local MCP surface. Internal maintenance tools are never dispatched here. */
 import { VAULT_TOOLS, VaultToolError, type VaultToolContext } from "./vaultTools";
 export { VaultToolError as McpToolError } from "./vaultTools";
@@ -12,13 +13,17 @@ export const MCP_INSTRUCTIONS =
   "Say when the vault is silent. Use drop to save findings or requests; saved material is attributed " +
   "to your agent, and BigBrain's own gardener files it. Conversations are not automatically captured.";
 export function mcpToolList(ctx?: McpContext) {
-  let emailAvailable=false,granolaAvailable=false,writable=false;
-  try { if(ctx?.integrationToken){
-    const caps=integrationCapabilities(ctx.root,{kind:"mcp",token:ctx.integrationToken,storePath:ctx.tokenStore});
-    emailAvailable=caps.email.available;granolaAvailable=caps.granola.available;writable=caps.email.operations.includes("inbox_set_unread");
-  }} catch { /* Invalid or revoked clients have no live access. */ }
-  const live=INTEGRATION_TOOLS.filter(t=>t.name==="integration_capabilities" ? emailAvailable||granolaAvailable : t.name.startsWith("granola_") ? granolaAvailable : emailAvailable&&(t.name!=="inbox_set_unread"||writable));
-  return [...MCP_TOOLS, ...live].map(({ name, description, inputSchema }) => ({ name, description, inputSchema, annotations:{readOnlyHint:!["drop","inbox_set_unread"].includes(name),destructiveHint:false,idempotentHint:name!=="drop",openWorldHint:name.startsWith("inbox_")||name.startsWith("email_")||name.startsWith("granola_")} }));
+  let caps: Record<string, { available?: boolean; operations?: string[] }> = {};
+  try { if(ctx?.integrationToken) caps=integrationCapabilities(ctx.root,{kind:"mcp",token:ctx.integrationToken,storePath:ctx.tokenStore}) as typeof caps; }
+  catch { /* Invalid or revoked clients have no live access. */ }
+  // a live tool is listed while its integration is available to this client and capabilities reports it
+  const offered=(name:string)=>{const i=integrationTool(name)?.integration;return !!i&&!!caps[i.id]?.available&&!!caps[i.id]?.operations?.includes(name);};
+  const live=INTEGRATION_TOOLS.filter(t=>t.name==="integration_capabilities" ? Object.values(caps).some(c=>c.available) : offered(t.name));
+  return [...MCP_TOOLS, ...live].map(({ name, description, inputSchema }) => {
+    // the outside world: a live tool that brings in its text or changes something there
+    const tool=integrationTool(name)?.tool;
+    return { name, description, inputSchema, annotations:{readOnlyHint:tool?tool.access==="read":name!=="drop",destructiveHint:false,idempotentHint:name!=="drop",openWorldHint:!!tool&&(!!tool.reads||tool.access==="write")} };
+  });
 }
 export function handleMcpTool(ctx: McpContext, name: string, args: Record<string, unknown> = {}): unknown | Promise<unknown> {
   if (INTEGRATION_TOOLS.some(t => t.name === name)) return integrationToolCall(ctx.root, {kind:"mcp",token:ctx.integrationToken,storePath:ctx.tokenStore}, name, args, ctx.integrationOptions);

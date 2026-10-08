@@ -21,6 +21,9 @@ import { validateSavedPilot } from "./pilotChatPersistence";
 import { primaryGraphCached } from "./graphCache";
 import { findNode, type GraphIdentity } from "./graphIdentity";
 import { pilotToolCall, pilotTools, PilotError } from "./pilot";
+import { INTEGRATION_TOOLS } from "./integrationTools";
+import { email } from "./integrations/email";
+import { errText } from "./errText";
 import { PILOT_RUNTIME } from "./pilotRuntimeConfig";
 import { readConversation, saveConversation, conversationPath, saveTiming, refreshPilotContract, type PilotConversation, type PilotTiming } from "./pilotConversation";
 import { mentionText, parseMentions } from "./pilotMentions";
@@ -41,7 +44,7 @@ import { savedPilotBackend } from "./pilotDefault";
 import { NOTIFICATION_CHARS, NOTIFICATION_HARD_CHARS, PILOT_NOTIFICATION_TOOLS, type PilotNotification } from "./pilotNotifications";
 import { withCredits } from "./providerCredits";
 
-const READERS = new Set(["load_memory", "search_vault", "read_note", "recent", "email_search", "email_read", "inbox_list", "inbox_read", "granola_tools", "granola_read", "source_read_state", "integration_capabilities"]);
+const READERS = new Set(["load_memory", "search_vault", "read_note", "recent", ...INTEGRATION_TOOLS.filter(t => t.access === "read").map(t => t.name)]);
 const UNTITLED = ["New session", "Draft session"];
 /** The stopgap name: the first user message, clipped. */
 function firstLineTitle(s: PilotChatSession): string | null {
@@ -70,7 +73,7 @@ function engineTitled(s: PilotChatSession): boolean {
 function desktopRule<T>(step: () => T): T {
   try { return step(); } catch (e) { throw e instanceof DesktopError ? new PilotError(e.message) : e; }
 }
-const SHARED_TOOLS = new Set([...READERS, "inbox_set_unread", "drop", "directive", "status", "capabilities"]);
+const SHARED_TOOLS = new Set([...READERS, ...INTEGRATION_TOOLS.filter(t => t.access === "write").map(t => t.name), "drop", "directive", "status", "capabilities"]);
 export const pilotChatTools = () => [
   ...PILOT_LOCAL_TOOLS,
   ...PILOT_NOTIFICATION_TOOLS,
@@ -756,8 +759,8 @@ export class PilotChats {
       if (this.closed || this.changingPermissions || s.deactivatedAt) throw new PilotError("This Pilot cannot start an action.");
       if (name === "inbox_set_unread") {
         let account: string;
-        try { account = JSON.parse(Buffer.from(String(a.ref), "base64url").toString()).account; }
-        catch { throw new PilotError("Invalid inbox reference."); }
+        try { account = email.refAccount!(String(a.ref)); }
+        catch (e) { throw new PilotError(errText(e)); }
         requireIntegrationWrite(this.root, "email", account, { kind: "pilot" });
       }
     };

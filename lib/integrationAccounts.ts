@@ -16,14 +16,16 @@ import { loadManifest } from './manifest';
 import { ThatTracksClient } from './thatTracks';
 import { configuredFeeds, feedUrl, writeFeeds } from './rssConfig';
 import { fetchFeed, type Feed } from './rssFeed';
-export const LIVE_ACCESS_DESCRIPTIONS = {
-  granola:{read:"Read current meeting notes, transcripts and folders via Granola MCP. Does not change meetings or remember evidence.",write:null},
-  email:{read:'List inbox messages, read messages and threads, and inspect current read/unread flags. Reads do not mark messages read or save evidence.',write:'Mark specific inbox messages read or unread. Does not send, delete, move, or remember messages.'},
-};
+import { integrationNamed } from './integrations';
+/** What live access an account offers: none without tools, and no writes without write tools or where the provider forbids them. */
+function offered(root:string,name:string,account:string){
+  const i=integrationNamed(name),writes=!!i?.tools.some(t=>t.access==='write')&&(i.writable?.(root,account)??true);
+  return {read:!!i?.tools.length,write:writes,capabilities:i?.live?{...i.live,...(writes?{}:{write:null})}:{read:null,write:null}};
+}
 export function configuredAccounts(root:string){
   const inboxes=emailConfig(loadManifest(root).integrations.email).inboxes;
   return [...MANAGED_INTEGRATIONS].flatMap(name=>integrationAccounts(root,name).map(account=>({name,account,...accountPolicy(root,name,account),
-    label:(name==='rss'?configuredFeeds(root).find(f=>f.url===account)?.title:extraAccounts(root,name).find(a=>a.id===account)?.label) ?? account,removable:name==='email'||account!==name,...(name==='email'?{gmail:gmailReadOnly(root,account),google:inboxes.some(i=>i.address===account&&isGmailInbox(i)),host:inboxes.find(i=>i.address===account)?.host,sync:readEmailState(root).inboxes[account]?.last}:{}),capabilities:name==='email'?{...LIVE_ACCESS_DESCRIPTIONS.email,...(gmailReadOnly(root,account)?{write:null}:{})}:name==='granola'?LIVE_ACCESS_DESCRIPTIONS.granola:{read:null,write:null},...(name==='granola'?{transport:'mcp',auth:granolaSignInStatus(root,account),identity:granolaConnection(root,account)?.identity}:{})})));
+    label:(name==='rss'?configuredFeeds(root).find(f=>f.url===account)?.title:extraAccounts(root,name).find(a=>a.id===account)?.label) ?? account,removable:name==='email'||account!==name,...(name==='email'?{gmail:gmailReadOnly(root,account),google:inboxes.some(i=>i.address===account&&isGmailInbox(i)),host:inboxes.find(i=>i.address===account)?.host,sync:readEmailState(root).inboxes[account]?.last}:{}),capabilities:offered(root,name,account).capabilities,...(name==='granola'?{transport:'mcp',auth:granolaSignInStatus(root,account),identity:granolaConnection(root,account)?.identity}:{})})));
 }
 function backfill(since:unknown):Backfill{
   if(typeof since!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(since)||!Number.isFinite(Date.parse(since))||new Date(since).toISOString().slice(0,10)!==since||since>new Date().toISOString().slice(0,10))throw Error('Choose a past history start date.');
@@ -155,14 +157,14 @@ export class IntegrationAccounts {
     }
     if(name==='granola'&&value.backfillSince)prior.granola={...prior.granola,backfill:backfill(value.backfillSince)};
     if(value.liveAccess!==undefined){
-      if(typeof value.liveAccess!=='boolean'||((name==='that-tracks'||name==='rss')&&value.liveAccess))throw Error('Choose supported live access.');
+      if(typeof value.liveAccess!=='boolean'||(!offered(this.root,name,account).read&&value.liveAccess))throw Error('Choose supported live access.');
       writeAccountPolicy(this.root,name,account,{...prior,liveAccess:value.liveAccess,grants:[]});
       return this.list();
     }
-    const callers=new Set(integrationCallerChoices(this.root).map(c=>c.id)),seen=new Set<string>();
+    const callers=new Set(integrationCallerChoices(this.root).map(c=>c.id)),seen=new Set<string>(),live=offered(this.root,name,account);
     if(!Array.isArray(value.grants)||value.grants.length>100)throw Error('Choose live access for existing callers.');
     const grants=value.grants.map((g:any)=>{
-      if(!g||!callers.has(g.caller)||seen.has(g.caller)||!['off','read','read-write'].includes(g.access)||((name==='that-tracks'||name==='rss')&&g.access!=='off')||((name==='granola'||(name==='email'&&gmailReadOnly(this.root,account)))&&g.access==='read-write'))throw Error('Choose a supported access level for an existing caller.');
+      if(!g||!callers.has(g.caller)||seen.has(g.caller)||!['off','read','read-write'].includes(g.access)||(!live.read&&g.access!=='off')||(!live.write&&g.access==='read-write'))throw Error('Choose a supported access level for an existing caller.');
       seen.add(g.caller);return {caller:g.caller,access:g.access as LiveAccess};
     });
     writeAccountPolicy(this.root,name,account,{...prior,grants});
