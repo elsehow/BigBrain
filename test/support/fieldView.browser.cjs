@@ -25,8 +25,9 @@ const assert = require('node:assert/strict');
     await page.keyboard.press('Enter');
     const draft = page.getByText('Not kept until you send');
     await draft.waitFor();
-    // ⌘O hands the source's origin to the OS: a page goes to the browser (a new tab here)
-    assert.match(await draft.innerText(), /⌘O Open original/i);
+    // ⌘O hands the source's origin to the OS: a page goes to the browser (a new tab here).
+    // The hint is keyText()'s, so it reads Ctrl+O off a Mac, as the key is pressed.
+    assert.match(await draft.innerText(), process.platform === 'darwin' ? /⌘O Open original/ : /Ctrl\+O Open original/);
     const [popup] = await Promise.all([page.waitForEvent('popup'), page.keyboard.press(process.platform === 'darwin' ? 'Meta+o' : 'Control+o')]);
     await popup.waitForEvent('domcontentloaded').catch(() => {});
     assert.equal(popup.url(), 'https://example.com/ins_b');
