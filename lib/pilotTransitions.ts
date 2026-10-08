@@ -43,10 +43,6 @@ export function transitionPilot(current: PilotChatSession, event: PilotEvent): {
     s.inputs = [...(s.inputs ?? []), { ...input, message }];
     begin({ id: turn, status: "running", replyTo: message });
   };
-  const acknowledge = (input: PilotInput) => {
-    if (s.draft.trim() === input.text) s.draft = "";
-    s.draftImages = (s.draftImages ?? []).filter(image => !input.images?.some(sent => sent.id === image.id));
-  };
   switch (event.kind) {
     case "restart":
       s.lastActivityAt ??= s.updated; s.lifecycle ??= "active";
@@ -73,7 +69,8 @@ export function transitionPilot(current: PilotChatSession, event: PilotEvent): {
         // Appending is not permission to resume an explicitly stopped queue.
         if (s.turn) activity(event.at);
       } else accept(event.input, event.message, event.turn, event.at);
-      acknowledge(event.input);
+      if (s.draft.trim() === event.input.text) s.draft = "";
+      s.draftImages = (s.draftImages ?? []).filter(image => !event.input.images?.some(sent => sent.id === image.id));
       break;
     }
     case "resume": {
