@@ -4,11 +4,9 @@ import { pilotChatSummary, matchesPilotQuery, type PilotChatSummary } from "./pi
 import { ApplicationActions, ActionRefusal, canonicalAction, actionFailure, actionReceiptView, type ActionHistoryQuery, type ActionReceipt, type ActionRequest } from "./applicationActions";
 import { requireIntegrationWrite } from "./integrationAccess";
 import { transitionPilot, PilotTransitionError, type PilotEvent, type PilotEffect } from "./pilotTransitions";
-import type { PilotTurn } from "./pilotChatTypes";
 import { isDeepStrictEqual } from "node:util";
 import { PilotCategories, type PilotCategoryOptions } from "./pilotCategories";
 import { validateChatImages, saveChatImage, readChatImage, modelImages } from "./chatImages";
-import type { ChatImage } from "./chatImageTypes";
 import { PilotAccess, PILOT_LOCAL_TOOLS } from "./pilotAccess";
 import { DESKTOP_TOOLS, DesktopError, arrangeDesktop, closeView, desktopReference, emptyDesktop, noteTitle, openView, type DesktopView, type PilotDesktop } from "./pilotDesktop";
 import { existsSync, unlinkSync, rmSync, readFileSync } from "node:fs";
@@ -32,7 +30,7 @@ import { memoryForAgents } from "./memoryProvenance";
 import { PILOT_LIFECYCLE } from "./pilotLifecycleConfig";
 import { landDrop } from "./landItem";
 import type { IntakeReceipt } from "./intake";
-import { isEmptyPilotDraft, isPilotChatId, newPilotChatSession, type PilotChatSession } from "./pilotChatTypes";
+import { isEmptyPilotDraft, isPilotChatId, newPilotChatSession, type PilotChatSession, type PilotInput, type PilotTurn } from "./pilotChatTypes";
 import { sessionPath } from "./workSessionIdentity";
 import { WorkHistory } from "./workHistory";
 import { migratedPilotId, pilotFromWork, repairMigratedArchive } from "./pilotWorkMigration";
@@ -539,11 +537,11 @@ export class PilotChats {
   }
   uploadImage(data: unknown, name: unknown) { return saveChatImage(this.root, data, name); }
   image(id: unknown) { return readChatImage(this.root, id); }
-  submit(id: unknown, text: unknown, input: { id: string; mode: "text" | "voice"; target?: string; images?: ChatImage[] }): PilotChatSession {
+  submit(id: unknown, text: unknown, input: Omit<PilotInput, "text">): PilotChatSession {
     if (!input || typeof input.id !== "string" || !/^[a-zA-Z0-9_-]{8,150}$/.test(input.id) || !["text", "voice"].includes(input.mode)) throw new PilotError("A stable input ID and input method are required.");
     return this.acceptInput(id, text, input, true);
   }
-  private acceptInput(id: unknown, text: unknown, input: { id: string; mode: "text" | "voice"; target?: string; images?: ChatImage[] }, queue: boolean): PilotChatSession {
+  private acceptInput(id: unknown, text: unknown, input: Omit<PilotInput, "text">, queue: boolean): PilotChatSession {
     const s = this.get(id);
     if (typeof text !== "string" || (!text.trim() && !input.images?.length) || text.length > 32_000) throw new PilotError("Write or say a message under 32,000 characters.");
     const images = validateChatImages(this.root, input.images);
@@ -565,7 +563,7 @@ export class PilotChats {
     if (!s.spoken?.some(r => r.id === v.id)) { (s.spoken ??= []).push({ id: v.id, message: v.message, text: v.text, status: v.status, at: new Date(this.now()).toISOString() }); this.save(s); }
     return s;
   }
-  send(id: unknown, text: unknown, input?: { id: string; mode: "text" | "voice"; target?: string; images?: ChatImage[] }): PilotChatSession {
+  send(id: unknown, text: unknown, input?: Omit<PilotInput, "text">): PilotChatSession {
     return this.acceptInput(id, text, input ?? { id: crypto.randomUUID(), mode: "text" }, false);
   }
   private startTurn(s: PilotChatSession, turn: PilotTurn): void {

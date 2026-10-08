@@ -42,9 +42,9 @@ export interface PilotChatSession {
   /** Last local command remains visible to the model after an interrupted turn. */
   localCommand?: { id: string; command: string; cwd: string; status: "running" | "completed" | "uncertain"; exitCode?: number };
   backend?: import("./pilotBackendTypes").PilotBackendConfig;
-  inputs?: { id: string; message: string; mode: "text" | "voice"; text: string; target?: string; images?: ChatImage[] }[];
+  inputs?: (PilotInput & { message: string })[];
   spoken?: { id: string; message: string; text: string; status: "played" | "interrupted"; at: string }[];
-  pendingInputs?: { id: string; text: string; mode: "text" | "voice"; target?: string; images?: ChatImage[] }[];
+  pendingInputs?: PilotInput[];
   transport?: "subscription" | "api";
   phase: PilotChatPhase;
   /** Absent only in records written before lifecycle support. */
@@ -59,7 +59,7 @@ export interface PilotChatSession {
   ingestionError?: string;
   /** Retired report scheduling metadata, cleared during recovery. */
   reportStoppedAt?: string;
-  reportHandling?: Record<string, { attempts: number; next: number; disposition?: "replied" | "notified" | "escalated" }>;
+  reportHandling?: unknown;
   pendingAgentSessionReports?: string[];
   workEvents?: import("./workHistory").HistoricalWorkerReport[];
   seed: string[];
