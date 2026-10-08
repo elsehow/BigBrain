@@ -1059,7 +1059,7 @@ exports[`accounts, credentials and library rows: settings rows 1`] = `
     "removable": false,
     "signIn": true,
     "unavailable": "Hardcover sign-in isn't available in this build yet. To sign in with your own Hardcover app, set integrations.hardcover.clientId in vault.yaml (docs/hardcover.md).",
-    "version": 2,
+    "version": 3,
   },
 ]
 `;

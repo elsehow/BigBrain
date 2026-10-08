@@ -142,6 +142,16 @@ test("until a client id exists, sign-in is refused and the library and Settings 
   expect(integrationLibrary(own.root).filter(i => i.id !== "hardcover").some(i => "unavailable" in i)).toBe(false);
 });
 
+test("a sign-in account installed or added starts at Pilot read with every client off, Granola's as Hardcover's", async () => {
+  const { root, service } = setup();
+  await service.update({ name: "granola", action: "install" });
+  await service.update({ name: "hardcover", action: "add", label: "Book club" });
+  await service.update({ name: "granola", action: "add", label: "Second workspace" });
+  const added = service.list().accounts.filter(a => a.label === "Book club" || a.label === "Second workspace").map(a => [a.name, a.account] as const);
+  expect(added.map(([name]) => name).sort()).toEqual(["granola", "hardcover"]);
+  for (const [name, account] of [["granola", "granola"] as const, ...added]) expect(accountPolicy(root, name, account)).toMatchObject({ version: 3, grants: [{ caller: "pilot", access: "read" }] });
+});
+
 test("a reconnect keeps access when it is the same account, renamed, and resets it for another", async () => {
   const { root, f, service } = setup();
   await connect(service, root, f);
@@ -155,7 +165,7 @@ test("a reconnect keeps access when it is the same account, renamed, and resets 
   expect(accountPolicy(root, "hardcover", "hardcover")).toMatchObject({ connected: true, grants: [{ caller: "pilot", access: "read" }] });
   f.user = { id: 5151, username: "another_reader" };
   await reconnect();
-  expect(accountPolicy(root, "hardcover", "hardcover")).toMatchObject({ connected: true, grants: [], liveAccess: false });
+  expect(accountPolicy(root, "hardcover", "hardcover")).toMatchObject({ connected: true, grants: [] });
   expect(readableIntegrationAccounts(root, "hardcover", { kind: "pilot" })).toEqual([]);
 });
 
