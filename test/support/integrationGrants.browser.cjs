@@ -35,9 +35,8 @@ const base=process.env.SIDEBAR_PREVIEW_URL||'http://127.0.0.1:5219';
   // a client whose connection lapsed is still listed, marked expired, its grant kept for when it is renewed
   await page.setViewportSize({width:1280,height:1000});
   await page.goto(`${base}/sidebar-workbench.html?gmail&expired-clients=1#/integrations`);
-  // the expired notice sits over Configure; clearing it leaves the client expired
-  await page.getByRole('button',{name:'Clear BigBrain connections expired',exact:true}).click();
-  await page.locator('[data-notice-kind="connection"]').waitFor({state:'detached'});
+  // Configure takes the click with the expired notice still up (#167)
+  await page.locator('[data-notice-id="connection:expired"]').waitFor();
   await page.getByRole('region',{name:'Your integrations'}).getByRole('button',{name:'Configure',exact:true}).click();
   const lapsedRegion=page.getByRole('region',{name:'granola accounts'});await lapsedRegion.waitFor();
   await lapsedRegion.locator('summary').first().click();

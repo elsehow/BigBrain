@@ -12,6 +12,7 @@
   "integrationAccess",
   "integrationGrants",
   "integrationReconnect",
+  "noticePlacement",
   "connectedClients",
   "settingsLists",
   "firstRunFlow",
