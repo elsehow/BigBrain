@@ -33,6 +33,8 @@ export interface FieldLook {
   entTone: number;
   /** 0 the shipped size; 1 also sized by how many sources mention it. */
   entByTies: number;
+  /** How many of the most-connected entities are hubs: named at rest, drawn larger. */
+  hubCount: number;
   /** A dot's rim: 1 the shipped soft edge, 0 crisp (antialiased over a pixel). */
   entSoft: number;
   srcSoft: number;
@@ -43,7 +45,7 @@ export interface FieldLook {
 
 export const LOOK_DEFAULTS: Readonly<FieldLook> = Object.freeze({
   srcSize: 1, srcByTies: 0, srcAlpha: 0.75, srcTone: 0, srcAccent: 0, srcHole: 0, srcSquare: 0, srcTurn: 0,
-  srcLift: 0, srcFlat: 0, srcTies: 0, entSize: 1, entAlpha: 1, entTone: 0, entByTies: 0, entSoft: 1, srcSoft: 1, entHalo: 1, srcHalo: 1,
+  srcLift: 0, srcFlat: 0, srcTies: 0, entSize: 1, entAlpha: 1, entTone: 0, entByTies: 0, entSoft: 1, srcSoft: 1, entHalo: 1, srcHalo: 1, hubCount: 8,
 });
 
 export const look: FieldLook = { ...LOOK_DEFAULTS };

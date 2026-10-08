@@ -22,6 +22,7 @@
     { key: "srcTies", label: "Ties at rest", min: 0, max: 0.5, step: 0.005 },
   ];
   const ENTITIES: Knob[] = [
+    { key: "hubCount", label: "Hubs (named)", min: 0, max: 40, step: 1 },
     { key: "entSize", label: "Size", min: 0.2, max: 3, step: 0.05 },
     { key: "entByTies", label: "Size by mentions", min: 0, max: 1, step: 0.05 },
     { key: "entAlpha", label: "Opacity", min: 0, max: 1.6, step: 0.01 },
@@ -65,7 +66,7 @@
         <label class="row" class:moved={v[k.key] !== LOOK_DEFAULTS[k.key]}>
           <span>{k.label}</span>
           <input type="range" min={k.min} max={k.max} step={k.step} bind:value={v[k.key]} ondblclick={() => (v[k.key] = LOOK_DEFAULTS[k.key])} />
-          <output>{fmt(v[k.key])}</output>
+          <output>{k.step >= 1 ? v[k.key] : fmt(v[k.key])}</output>
         </label>
       {/each}
     {/each}

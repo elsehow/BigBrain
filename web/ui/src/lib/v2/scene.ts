@@ -156,7 +156,21 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
   points.renderOrder = 3;
   points.frustumCulled = false;
   scene.add(points);
-  const baseSize = field.nodes.map((n) => NODE_SCALE * (n.named ? 4.5 + 1.2 * Math.log1p(n.degree) : 1.8 + 0.75 * Math.log1p(n.degree)));
+  // hubs: the most-connected entities, named at rest and drawn larger. The
+  // field's own, until the field look asks for a different count.
+  const byDegree = field.nodes.filter((n) => !n.memory).sort((a, b) => b.degree - a.degree).map((n) => n.i);
+  const isNamed = field.nodes.map((n) => n.named);
+  const hubs = new Set(field.hubs);
+  const sizeOf = (n: Field["nodes"][number]) => NODE_SCALE * (isNamed[n.i] ? 4.5 + 1.2 * Math.log1p(n.degree) : 1.8 + 0.75 * Math.log1p(n.degree));
+  const baseSize = field.nodes.map(sizeOf);
+  let hubCount = -1;
+  const rehub = () => {
+    if (look.hubCount === hubCount) return;
+    hubCount = look.hubCount;
+    hubs.clear();
+    for (const i of byDegree.slice(0, hubCount)) hubs.add(i);
+    for (const n of field.nodes) { isNamed[n.i] = n.memory || hubs.has(n.i); baseSize[n.i] = sizeOf(n); }
+  };
   const P = field.nodes.map((n) => new THREE.Vector3(...n.p));
 
   // ── sources: hidden at rest; the one in hand is a node like any other ────
@@ -657,6 +671,7 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
     const k = ease(9);
     dim += ((inPlay ? 1 : 0) - dim) * k;
     searchDim += ((srch && srch.matches.size ? 0.12 : srch ? 0.5 : 1) - searchDim) * ease(10);
+    rehub();
     dust.copy(col.fg).lerp(col.bg, 0.42);
     entInk.copy(dust).lerp(col.fg, look.entTone);
     srcShown += ((hooks.sources?.() ? 1 : 0) - srcShown) * ease(8);
@@ -673,9 +688,9 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
       const h = Math.max(heat[i]!, match[i]!);
       const r = rel[i]!;
       sizes[i] = baseSize[i]! * look.entSize * THREE.MathUtils.lerp(1, entScale[i]!, look.entByTies) * (1 + 0.7 * h) * (1 + 0.45 * r * dim);
-      const rest = Math.min(1, (n.named ? 0.95 : 0.6) * look.entAlpha);
-      alphas[i] = Math.max(h, THREE.MathUtils.lerp(rest, THREE.MathUtils.lerp(n.named ? 0.22 : 0.12, 1, r), dim)) * THREE.MathUtils.lerp(searchDim, 1, match[i]!);
-      c1.copy(n.named || r > 0.5 ? col.fg : entInk).lerp(col.act, h * 0.9).toArray(colors, i * 3);
+      const rest = Math.min(1, (isNamed[i] ? 0.95 : 0.6) * look.entAlpha);
+      alphas[i] = Math.max(h, THREE.MathUtils.lerp(rest, THREE.MathUtils.lerp(isNamed[i] ? 0.22 : 0.12, 1, r), dim)) * THREE.MathUtils.lerp(searchDim, 1, match[i]!);
+      c1.copy(isNamed[i] || r > 0.5 ? col.fg : entInk).lerp(col.act, h * 0.9).toArray(colors, i * 3);
     }
     let srcHeld = 0;
     sources.forEach((s, k) => {
@@ -806,7 +821,7 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
       const n = field.nodes[i]!;
       const related = rl?.j === i;
       const full = related || (i === inHand && handText !== undefined);
-      const restOp = n.named && (field.hubs.has(i) || n.memory) ? 1 : 0;
+      const restOp = isNamed[i] && (hubs.has(i) || n.memory) ? 1 : 0;
       let op = srch && srch.matches.size ? match[i]! : Math.max(heat[i]!, THREE.MathUtils.lerp(restOp, rel[i]!, dim)) * (srch ? searchDim : 1);
       if (i === inHand || related) op = 1;
       // the dot under the pointer always says its name
@@ -826,7 +841,7 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
       // the opened entity's caption is placed first and never moves; a
       // relation then finds room around its tie, ahead of every plain name
       const g = labelGap(P[i]!, (aSize.array as Float32Array)[i]!);
-      cand.push({ L: lab, x: s1.x + g, y: s1.y, g, op, full, pointed, pri: (related ? 9e3 : full ? 1e4 : pointed ? 8e3 : 0) + heat[i]! * 2e3 + match[i]! * 400 + Math.log1p(n.degree) * 5 + (n.named ? 20 : 0) });
+      cand.push({ L: lab, x: s1.x + g, y: s1.y, g, op, full, pointed, pri: (related ? 9e3 : full ? 1e4 : pointed ? 8e3 : 0) + heat[i]! * 2e3 + match[i]! * 400 + Math.log1p(n.degree) * 5 + (isNamed[i] ? 20 : 0) });
     }
     cand.sort((a, b) => b.pri - a.pri);
     const rect = (x: number, y: number, w: number, h: number) => [x - 4, y - h / 2 - 3, x + w + 4, y + h / 2 + 3];
