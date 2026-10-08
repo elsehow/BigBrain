@@ -122,10 +122,11 @@ const fake = window.fetch;
   const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url, location.origin);
   const json = (v: unknown, status = 200) => new Response(JSON.stringify(v), { status, headers: { "content-type": "application/json" } });
   if (url.pathname === "/api/graph") return json(graph);
-  // recents from this vault, not the fixture's: what search lists before you type
+  // recents from this vault, not the fixture's: what search lists before you type.
+  // One row per path, as the engine's: a feed source is a graph node too.
   if (url.pathname === "/api/recent") {
     const rows = [...sorted.map((r) => ({ path: r.path, title: r.title, modified: Date.parse(r.added), author: "intake", action: "added", band: "service" })),
-      ...graph.nodes.filter((n) => n.path).map((n, i) => ({ path: n.path, title: n.title, modified: Date.parse(at(0)) - i * 60_000, author: "gardener", action: "added", band: "engine" }))]
+      ...graph.nodes.filter((n) => n.path && !sorted.some((r) => r.path === n.path)).map((n, i) => ({ path: n.path, title: n.title, modified: Date.parse(at(0)) - i * 60_000, author: "gardener", action: "added", band: "engine" }))]
       .sort((a, b) => b.modified - a.modified);
     const offset = Number(url.searchParams.get("offset") ?? 0), limit = Number(url.searchParams.get("limit") ?? 40);
     return json({ recent: rows.slice(offset, offset + limit), total: rows.length, nextOffset: offset + limit < rows.length ? offset + limit : null });
