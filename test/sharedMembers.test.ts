@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -15,6 +15,8 @@ import {
   usagePath,
   verifyCredential,
 } from "../lib/sharedMembers";
+import { SharedMemberBusyError } from "../lib/sharedMemberLock";
+import { holdElsewhere } from "./support/lockElsewhere";
 
 const scratch = (): { store: string; vault: string } => {
   const dir = mkdtempSync(join(tmpdir(), "bb-shared-members-"));
@@ -127,5 +129,20 @@ describe("shared-vault member store", () => {
     writeFileSync(usagePath(store), "{not json");
     expect(() => touchCredential(store, r.credential.id, new Date("2026-01-01T00:02:02Z"))).not.toThrow();
     expect(listCredentials(store, "owner")[0]!.last_used).toBe("2026-01-01T00:02:02.000Z");
+  });
+});
+
+describe("the member store's lock", () => {
+  test("a change elsewhere makes this one busy, never stuck: freed the moment that process dies", async () => {
+    const { store, vault } = scratch();
+    mkdirSync(store + ".lock"); // what an interrupted change left before: it refused every change after it
+    initMemberStore(store, vault, { handle: "owner" });
+    expect(existsSync(store + ".lock")).toBe(false);
+    const other = await holdElsewhere("sqliteLock.ts", "tryHold", [store + ".lock.sqlite"]);
+    try {
+      expect(() => addMember(store, { handle: "ada" })).toThrow(SharedMemberBusyError);
+    } finally { await other.kill(); }
+    expect(addMember(store, { handle: "ada" }).handle).toBe("ada");
+    expect(listMembers(store).map(m => m.handle)).toEqual(["owner", "ada"]);
   });
 });

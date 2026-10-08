@@ -270,7 +270,7 @@ prints `2`.
 | `refusing to bind … without --remote` | Option B in step 4 without `--remote`, or a `--host` you did not mean. |
 | `… does not say shared: true` | `--vault` points at the wrong directory, never a personal vault. |
 | `another server holds …/shared-server.lock.sqlite` | Another `serve` is running on this vault, often a manual run beside the service. A process that dies lets go of the lock as it exits. |
-| Member commands hang or fail on `members.json.lock` | A membership change was interrupted. Stop the service and any `bigbrain-shared` commands, remove the empty `members.json.lock` directory, then start again. |
+| `Membership is being updated. Please retry.` | Another membership change (the service, or a `bigbrain-shared` command) is mid-write; retry. A process killed mid-change lets go of the lock as it exits. |
 | exe.dev asks visitors to log in | The VM's HTTPS URL is still private: `ssh exe.dev share set-public <vm>` (step 4). |
 | Every path is 401, even `/.well-known/…` | The connector is off: no public URL in the unit. |
 | Claude says it cannot connect | The proxy or firewall blocks Anthropic's range, or answers slowly (Claude allows 10 seconds). |

@@ -25,7 +25,7 @@ import { integrationActive, accountPolicy } from "../../lib/integrationAccess";
  * Usage: bun integrations/email/run.ts [--since <ISO date>]
  */
 
-import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { ImapFlow, type FetchMessageObject } from "imapflow";
 import { simpleParser, type AddressObject, type ParsedMail } from "mailparser";
@@ -38,6 +38,7 @@ import { loadManifest } from "../../lib/manifest";
 import { ownerLabelsFor } from "../../lib/assertionAgent";
 import { friendlyImapError as friendly } from "../../lib/imapProbe";
 import { hold } from "../../lib/door";
+import { tryHold } from "../../lib/sqliteLock";
 import { emailConfig, passwordEnvKey, type EmailConfig, type Inbox } from "../../lib/emailConfig";
 import { readEmailState, writeEmailState, type EmailState } from "../../lib/emailState";
 import { emailItem, headLine, type EmailBody, type Head } from "../../lib/emailItem";
@@ -61,47 +62,9 @@ const log = (s: string): void => console.log(`email: ${s}`);
 
 // ── one poll at a time ───────────────────────────────────────────────────────
 
-const lockDir = join(root, ".state", "email.lock");
-
-const alive = (pid: number): boolean => {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-};
-
 /** A backfill can outlive the minute the supervisor fires on; a second poll
- * must not start beside it. Stale locks (a dead pid) are taken over. */
-function takeLock(): boolean {
-  const claim = (): void => {
-    mkdirSync(join(root, ".state"), { recursive: true });
-    mkdirSync(lockDir, { recursive: false });
-    writeFileSync(join(lockDir, "pid"), `${process.pid}\n`);
-  };
-  try {
-    claim();
-    return true;
-  } catch {
-    let pid = 0;
-    try {
-      pid = Number(readFileSync(join(lockDir, "pid"), "utf8").trim());
-    } catch {
-      /* no pid file: stale */
-    }
-    if (pid && alive(pid)) return false;
-    rmSync(lockDir, { recursive: true, force: true });
-    try {
-      claim();
-      return true;
-    } catch {
-      return false;
-    }
-  }
-}
-
-const releaseLock = (): void => rmSync(lockDir, { recursive: true, force: true });
+ * must not start beside it. The OS frees a killed poll's lock at once. */
+const takeLock = () => tryHold(join(root, ".state", "email.lock.sqlite"), { retired: join(root, ".state", "email.lock") });
 
 // ── heads ────────────────────────────────────────────────────────────────────
 
@@ -404,7 +367,8 @@ function attachmentsOf(p: ParsedMail): Attachment[] {
 // ── main ─────────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
-  if (!takeLock()) {
+  const lock = takeLock();
+  if (!lock) {
     log("another poll is still running");
     return;
   }
@@ -448,7 +412,7 @@ async function main(): Promise<void> {
     }
     writeEmailState(root, state);
   } finally {
-    releaseLock();
+    lock.release();
   }
 }
 

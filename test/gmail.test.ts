@@ -13,6 +13,7 @@ import {createEmailReadStateAdapter} from '../lib/emailReadState';
 import {liveInboxTool} from '../lib/liveInbox';
 import {admitStaged,passStaged} from '../lib/stage';
 import {headFiles} from '../lib/stageStorage';
+import {holdElsewhere} from './support/lockElsewhere';
 const roots:string[]=[];
 afterAll(()=>roots.forEach(root=>rmSync(root,{recursive:true,force:true})));
 function vault(){const root=gitVault({files:{'vault.yaml':'{}\n','.gitignore':'.env\n.state/\n.spool/\n'}});roots.push(root);return root;}
@@ -74,6 +75,14 @@ test('the viewer may flip only \\Seen on a Gmail message; agents stay read-only'
  expect(await viewer.setUnread!(root,source,false)).toMatchObject({unread:false});expect(lockedReadOnly).toBe(false);
  expect(await viewer.setUnread!(root,source,true)).toMatchObject({unread:true});
  expect(stored).toEqual([['\\Seen'],['\\Seen']]);
+});
+test('one poll at a time: a second skips while another process holds the lock, and polls once that one is killed',async()=>{
+ const root=vault();await enable(root);
+ const other=await holdElsewhere('sqliteLock.ts','tryHold',[join(root,'.state','email.lock.sqlite')]);
+ try{expect(await poll(root,{count:1})).toContain('email: another poll is still running');}
+ finally{await other.kill();}
+ expect(await poll(root,{count:1})).not.toContain('another poll');
+ expect(readEmailState(root).inboxes['me@example.com']?.last?.ok).toBe(true);
 });
 test('real runner preserves stable identity across UID reset, labels and duplicate Message-IDs; attachment retention is opt-in',async()=>{
  const root=vault();await enable(root);

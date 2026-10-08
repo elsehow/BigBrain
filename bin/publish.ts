@@ -10,21 +10,20 @@
  * Usage: bun bin/publish.ts
  */
 
-import { existsSync, mkdirSync, rmdirSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { VAULT_ROOT } from "../lib/vaultRoot";
 import { gitProcessEnv } from "../lib/env";
 import { ensureDir, writeAtomic } from "../lib/fsx";
+import { tryHold } from "../lib/sqliteLock";
 
 const root = VAULT_ROOT;
 
 const stateDir = join(root, ".state");
-const lockDir = join(stateDir, "publish.lock");
 ensureDir(stateDir);
-try {
-  mkdirSync(lockDir); // atomic: fails if another publisher holds it
-} catch {
+// Freed the moment this process dies, so a killed push never wedges the next.
+const lock = tryHold(join(stateDir, "publish.lock.sqlite"), { retired: join(stateDir, "publish.lock") });
+if (!lock) {
   console.log("publish: another publish holds the lock; exiting");
   process.exit(0);
 }
@@ -56,5 +55,5 @@ try {
   }
   writeAtomic(join(stateDir, "publish.json"), JSON.stringify(stamp) + "\n");
 } finally {
-  if (existsSync(lockDir)) rmdirSync(lockDir);
+  lock.release();
 }
