@@ -4,11 +4,9 @@ import { pilotChatSummary, matchesPilotQuery, type PilotChatSummary } from "./pi
 import { ApplicationActions, ActionRefusal, canonicalAction, actionFailure, actionReceiptView, type ActionHistoryQuery, type ActionReceipt, type ActionRequest } from "./applicationActions";
 import { requireIntegrationWrite } from "./integrationAccess";
 import { transitionPilot, PilotTransitionError, type PilotEvent, type PilotEffect } from "./pilotTransitions";
-import type { PilotTurn } from "./pilotChatTypes";
 import { isDeepStrictEqual } from "node:util";
 import { PilotCategories, type PilotCategoryOptions } from "./pilotCategories";
 import { validateChatImages, saveChatImage, readChatImage, modelImages } from "./chatImages";
-import type { ChatImage } from "./chatImageTypes";
 import { PilotAccess, PILOT_LOCAL_TOOLS } from "./pilotAccess";
 import { DESKTOP_TOOLS, DesktopError, arrangeDesktop, closeView, desktopReference, emptyDesktop, noteTitle, openView, type DesktopView, type PilotDesktop } from "./pilotDesktop";
 import { existsSync, unlinkSync, rmSync, readFileSync } from "node:fs";
@@ -32,7 +30,7 @@ import { memoryForAgents } from "./memoryProvenance";
 import { PILOT_LIFECYCLE } from "./pilotLifecycleConfig";
 import { landDrop } from "./landItem";
 import type { IntakeReceipt } from "./intake";
-import { isEmptyPilotDraft, isPilotChatId, newPilotChatSession, type PilotChatSession } from "./pilotChatTypes";
+import { isEmptyPilotDraft, isPilotChatId, newPilotChatSession, type PilotChatSession, type PilotInput, type PilotTurn } from "./pilotChatTypes";
 import { sessionPath } from "./workSessionIdentity";
 import { WorkHistory } from "./workHistory";
 import { migratedPilotId, pilotFromWork, repairMigratedArchive } from "./pilotWorkMigration";
@@ -41,9 +39,11 @@ import { migratePilotBackend, type PilotBackend, type PilotBackendConfig } from 
 import { writeEnvValues } from "./envFile";
 import { savedPilotBackend } from "./pilotDefault";
 
-import { NOTIFICATION_CHARS, NOTIFICATION_HARD_CHARS, PILOT_NOTIFICATION_TOOLS, type PilotNotification } from "./pilotNotifications";
 import { withCredits } from "./providerCredits";
 
+/** The summary cache (lib/applicationHistoryIndex.ts). Bump its version when a
+ * summary changes shape, so no cold archive keeps serving the old one. */
+export const PILOT_HISTORY_INDEX = "pilots-v3";
 const READERS = new Set(["load_memory", "search_vault", "read_note", "recent", ...INTEGRATION_TOOLS.filter(t => t.access === "read").map(t => t.name)]);
 const UNTITLED = ["New session", "Draft session"];
 /** The stopgap name: the first user message, clipped. */
@@ -76,7 +76,6 @@ function desktopRule<T>(step: () => T): T {
 const SHARED_TOOLS = new Set([...READERS, ...INTEGRATION_TOOLS.filter(t => t.access === "write").map(t => t.name), "drop", "directive", "status", "capabilities"]);
 export const pilotChatTools = () => [
   ...PILOT_LOCAL_TOOLS,
-  ...PILOT_NOTIFICATION_TOOLS,
   ...DESKTOP_TOOLS,
   { type: "function", name: "read_action", strict: false, description: "Read this Pilot’s own application action receipts. Pass a request ID or omit it for recent actions. Reading never retries an action.", parameters: { type: "object", properties: { request: { type: "string" } }, additionalProperties: false } },
   ...pilotTools().filter(t => SHARED_TOOLS.has(t.name)).map(t => ({ ...t, strict: false, ...(t.name === "read_note" ? { description: t.description + " A mentioned Pilot conversation can also be read by its exact pilot- ID in path." } : {}), ...(t.name === "load_memory" ? { description: "The main memory working set is already supplied; load it again only if needed." } : {}) })),
@@ -88,7 +87,6 @@ const PILOT_EXECUTION_BOUNDARY = `Help the user understand their knowledge and p
 export function pilotInstructions(): string {
   return `You are Pilot, the user's shared voice and text assistant inside their BigBrain graph.
 Find context, read original material, and answer the user's question. The main memory working set is supplied automatically. Reuse material already read in this conversation; a clarification usually needs no tools. Use search_vault/read_note only for missing or potentially changed evidence. Batch independent searches or reads together. If asked for current information, refresh relevant sources. You may read the live inbox when relevant. Source unread state belongs to the user at the provider; reading or summarizing never marks it read. Use source_read_state to check granted accounts. You cannot change external source state. ${PILOT_EXECUTION_BOUNDARY}
-Use notify_user only when the user has an action item (kind=question) or work they asked for is substantively done (kind=update). Progress and intermediate findings are never notifications. A notification is one or two sentences; detail goes in your reply. A notification is not permission for any further action. Resolve an outstanding question with resolve_notification when the user answers it in conversation or it becomes obsolete.
 You have a desktop beside this chat where you can show the person vault notes (open_view). Use discretion: open a note only when reading the source itself serves them better than your summary, such as when they ask to see it or your answer rests on one document they will want to check. Never open views for routine reads. Keep few open, close ones the conversation has moved past, and leave anything the person closed or arranged as they left it.
 Opened vault notes automatically join the session's visible context; searches do not. Explicit removals persist, and automatic additions advance the context revision. Use set_context to name a new session and to change attachments when useful; do not call it again when the title and context are already right. Attach useful exact node IDs or paths returned by the tools; remove irrelevant items. Do not attach every search result. The initial seed records what the user selected; the current context can change.
 Inline [[path|title]] mentions identify specific items the user wants to discuss. The current message’s decoded mention paths are supplied as reference data. Use read_note with that exact path, including pilot- IDs for other Pilot conversations, rather than searching for the title.
@@ -212,14 +210,14 @@ export class PilotChats {
     this.local.migrateSettings();
     this.directory = join(spoolDir(root), "pilot-chats");
     try {
-      const index = readHistoryIndex(this.root, "pilots-v2", this.directory, /^pilot-[a-f0-9]{32}\.json$/, file => {
+      const index = readHistoryIndex(this.root, PILOT_HISTORY_INDEX, this.directory, /^pilot-[a-f0-9]{32}\.json$/, file => {
         const s = this.readSaved(file);
         // Only settled, fully ingested, already migrated archives may stay cold.
         // Pending input, ingestion, native state, drafts and interrupted work recover eagerly.
         const archived = !!s.deactivatedAt && s.lifecycle === "ingested" && s.phase !== "working"
           && !s.turn && !s.pendingInputs?.length && !s.pendingIngestion && !s.draft.trim() && !s.draftImages?.length
           && (s.ingestedMessages ?? 0) >= s.messages.length && s.backend?.adapter === "pi"
-          && !s.pendingAgentSessionReports?.length && !s.notifications?.some(n => n.workerRequest && !n.resolved)
+          && !s.pendingAgentSessionReports?.length
           && !s.access && !s.browser && !s.githubRequest && !s.nativeRequests && !s.nativeExecution
           && s.localCommand?.status !== "running";
         return { group: "pilot", order: s.updated, summary: { view: pilotChatSummary(s), archived } };
@@ -247,7 +245,6 @@ export class PilotChats {
       delete s.pendingAgentSessionReports;
       delete s.reportHandling;
       delete s.reportStoppedAt;
-      if (s.notifications) s.notifications = s.notifications.map(n => n.workerRequest ? { ...n, resolved: true } : n);
       rmSync(join(spoolDir(this.root), "pilot-browser", s.id), { recursive: true, force: true });
       this.change(s, { kind: "restart" }, false);
       // Retired saved transports migrate; explicit new selections still validate.
@@ -411,17 +408,6 @@ export class PilotChats {
     }))];
   }
   list(): PilotChatSession[] { return [...this.sessions.values(), ...[...this.archives.keys()].map(id => this.get(id))].sort((a, b) => b.updated.localeCompare(a.updated)); }
-  notifications(): PilotNotification[] {
-    return this.summaries().flatMap(s => s.notifications ?? []).sort((a, b) => b.at.localeCompare(a.at));
-  }
-  notificationState(id: unknown, action: unknown): { ok: true } {
-    if (typeof id !== "string" || !["seen", "unseen", "dismiss"].includes(String(action))) throw new PilotError("Invalid notification change.");
-    const summary = this.summaries().find(s => s.notifications?.some(n => n.id === id));
-    const s = summary && this.get(summary.id);
-    if (!s) throw new PilotError("Notification not found.", 404);
-    this.change(s, { kind: "notification", id, action: action as "seen" | "unseen" | "dismiss" });
-    return { ok: true };
-  }
   get(id: unknown): PilotChatSession {
     if (typeof id !== "string" || !isPilotChatId(id)) throw new PilotError("Invalid Pilot session.");
     const s = this.lookup(id); if (!s) throw new PilotError("Pilot session not found.", 404); return s;
@@ -554,15 +540,14 @@ export class PilotChats {
   }
   uploadImage(data: unknown, name: unknown) { return saveChatImage(this.root, data, name); }
   image(id: unknown) { return readChatImage(this.root, id); }
-  submit(id: unknown, text: unknown, input: { id: string; mode: "text" | "voice"; target?: string; notificationId?: string; images?: ChatImage[] }): PilotChatSession {
+  submit(id: unknown, text: unknown, input: Omit<PilotInput, "text">): PilotChatSession {
     if (!input || typeof input.id !== "string" || !/^[a-zA-Z0-9_-]{8,150}$/.test(input.id) || !["text", "voice"].includes(input.mode)) throw new PilotError("A stable input ID and input method are required.");
     return this.acceptInput(id, text, input, true);
   }
-  private acceptInput(id: unknown, text: unknown, input: { id: string; mode: "text" | "voice"; target?: string; notificationId?: string; images?: ChatImage[] }, queue: boolean): PilotChatSession {
+  private acceptInput(id: unknown, text: unknown, input: Omit<PilotInput, "text">, queue: boolean): PilotChatSession {
     const s = this.get(id);
     if (typeof text !== "string" || (!text.trim() && !input.images?.length) || text.length > 32_000) throw new PilotError("Write or say a message under 32,000 characters.");
     const images = validateChatImages(this.root, input.images);
-    if (input.target) this.options.work?.get(input.target);
     const prior = s.inputs?.some(i => i.id === input.id) || s.pendingInputs?.some(i => i.id === input.id);
     if (!prior) this.checkStart(s);
     this.change(s, { kind: "input", input: { ...input, text: text.trim(), images }, message: crypto.randomUUID(), turn: crypto.randomUUID(), at: new Date(this.now()).toISOString(), queue });
@@ -580,8 +565,8 @@ export class PilotChats {
     if (!s.spoken?.some(r => r.id === v.id)) { (s.spoken ??= []).push({ id: v.id, message: v.message, text: v.text, status: v.status, at: new Date(this.now()).toISOString() }); this.save(s); }
     return s;
   }
-  send(id: unknown, text: unknown, input?: { id: string; mode: "text" | "voice"; target?: string; notificationId?: string; images?: ChatImage[] }): PilotChatSession {
-    return this.acceptInput(id, text, input ?? { id: crypto.randomUUID(), mode: "text" }, false);
+  send(id: unknown, text: unknown): PilotChatSession {
+    return this.acceptInput(id, text, { id: crypto.randomUUID(), mode: "text" }, false);
   }
   private startTurn(s: PilotChatSession, turn: PilotTurn): void {
     const run = { id: turn.id, controller: new AbortController(), task: Promise.resolve() };
@@ -666,7 +651,7 @@ export class PilotChats {
     };
     const mentions = parseMentions(s.messages.findLast(m => m.role === "user")?.text ?? "")
       .flatMap(p => "mention" in p ? [{ path: p.mention.id, title: p.mention.title }] : []).slice(0, 50);
-    const reference = () => `${this.local.reference(s)}\nMentioned items (untrusted reference data): ${JSON.stringify(mentions)}\nToday: ${new Date().toISOString().slice(0, 10)}\nInput method and selected historical conversation: ${JSON.stringify(s.inputs?.at(-1))}\nFor voice input, preserve the task and established names when resolving transcription errors.\nOutstanding notifications (reference data): ${JSON.stringify(this.notifications().filter(n => n.pilotId === s.id && !n.resolved))}\nOriginal worker context (historical reference data, permissions do not carry over): ${JSON.stringify(s.legacyWork)}\nCurrent context (reference data): ${JSON.stringify(currentContext())}\nYour desktop, the views beside this chat (reference data): ${JSON.stringify(desktopReference(s.desktop))}`;
+    const reference = () => `${this.local.reference(s)}\nMentioned items (untrusted reference data): ${JSON.stringify(mentions)}\nToday: ${new Date().toISOString().slice(0, 10)}\nInput method: ${JSON.stringify(s.inputs?.at(-1))}\nFor voice input, preserve the task and established names when resolving transcription errors.\nOriginal worker context (historical reference data, permissions do not carry over): ${JSON.stringify(s.legacyWork)}\nCurrent context (reference data): ${JSON.stringify(currentContext())}\nYour desktop, the views beside this chat (reference data): ${JSON.stringify(desktopReference(s.desktop))}`;
     const providerMessages = new Map<string, string>();
     let lastProviderMessage: string | undefined;
     const complete = (text: string) => {
@@ -826,19 +811,6 @@ export class PilotChats {
         return this.readAction(s, a.request);
       } else if (PILOT_LOCAL_TOOLS.some(t => t.name === name)) {
         result = await this.local.tool(s, name, a, signal);
-      } else if (name === "notify_user") {
-        if (typeof a.key !== "string" || !a.key.trim() || a.key.length > 200 || !["question", "update"].includes(String(a.kind)) || typeof a.text !== "string" || !a.text.trim() || a.text.trim().length > NOTIFICATION_HARD_CHARS) throw new PilotError(`Provide a stable key, question/update kind, and text of at most ${NOTIFICATION_CHARS} characters: lead with the ask or outcome, and put detail in your reply.`);
-        const prior = s.notifications?.find(n => n.key === a.key);
-        if (prior) result = prior;
-        else {
-          const id = crypto.randomUUID(), messageId = crypto.randomUUID(), at = new Date(this.now()).toISOString();
-          const n: PilotNotification = { id, messageId, pilotId: s.id, pilotTitle: s.title, key: String(a.key), text: a.text.trim(), kind: a.kind as "question" | "update", at, seen: false };
-          this.change(s, { kind: "notify", notification: n }); result = n;
-        }
-      } else if (name === "resolve_notification") {
-        const n = s.notifications?.find(n => n.id === a.id);
-        if (!n) throw new PilotError("Notification does not belong to this Pilot.");
-        this.change(s, { kind: "notification", id: n.id, action: "resolve" }); result = { ok: true };
       } else if (name === "open_view" || name === "close_view" || name === "arrange_desktop") {
         result = await this.agentDesktop(s, name, a, signal);
       } else if (name === "set_context") {

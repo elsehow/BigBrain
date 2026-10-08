@@ -32,14 +32,6 @@ test("publication receipts are scoped to their chapter and cannot archive resume
   expect(step(s, published)).toBe(s);
 });
 
-test("notification answers and stale attempts to mark them unseen share transition rules", () => {
-  let s = newPilotChatSession([], id, at);
-  s = step(s, { kind: "notify", notification: { id: "q", key: "q", messageId: "question", pilotId: id, pilotTitle: s.title, text: "Which project?", kind: "question", at, seen: false } });
-  s = step(s, { kind: "input", input: { id: "reply", text: "The test project", mode: "text", notificationId: "q" }, message: "reply-message", turn: "reply-turn", at, queue: true });
-  expect(s.notifications?.[0]?.resolved).toBe(true);
-  expect(() => step(s, { kind: "notification", id: "q", action: "unseen" })).toThrow("subsequent turn");
-});
-
 const resources: { root: string; chats: PilotChats }[] = [];
 afterEach(() => { for (const { root, chats } of resources.splice(0)) { chats.close(); rmSync(root, { recursive: true, force: true }); } });
 function controlled() {

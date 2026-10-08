@@ -172,92 +172,10 @@ test("voice disabled does not disable the shared text backend", async () => {
   s.submit(parent.id, "Typed request", { id: "voice-off-text", mode: "text" }); await s.settled(parent.id);
   expect(parent.phase).toBe("answered");
 });
-test("Pilot notifications are explicit, bound to their creator, deduplicated and durable", async () => {
-  const root = vault();
-  const s = chats(root, { fetch: scripted([
-    [call("notify_user", { key: "date-choice", kind: "question", text: "Thursday or Friday?", pilotId: "spoofed" })],
-    [call("notify_user", { key: "date-choice", kind: "question", text: "Thursday or Friday?" })],
-    [message("I need your date choice.")],
-  ]) });
-  const parent = s.create([]); s.send(parent.id, "Plan the meeting"); await s.settled(parent.id);
-  const [n] = s.notifications(); expect(s.notifications()).toHaveLength(1);
-  expect(n!.pilotId).toBe(parent.id);
-  expect(parent.messages.find(m => m.id === n!.messageId)?.text).toBe(n!.text);
-  s.notificationState(n!.id, "seen");
-  s.notificationState(n!.id, "unseen");
-  expect(s.notifications()[0]).toMatchObject({ seen: false, dismissed: false, resolved: false });
-  s.notificationState(n!.id, "seen"); s.notificationState(n!.id, "dismiss");
-  expect(s.notifications()[0]).toMatchObject({ seen: true, dismissed: true, resolved: false });
-  s.close();
-  const restarted = chats(root, { fetch: scripted([[message("Thursday it is.")]]) });
-  expect(restarted.notifications()[0]).toMatchObject({ id: n!.id, seen: true, dismissed: true, resolved: false });
-  const input = { id: "notification-answer-1", mode: "text" as const, notificationId: n!.id };
-  restarted.submit(parent.id, "Thursday", input); await restarted.settled(parent.id);
-  expect(restarted.notifications()[0]!.resolved).toBe(true);
-  expect(() => restarted.notificationState(n!.id, "unseen")).toThrow("subsequent turn");
-  const count = restarted.get(parent.id).messages.length;
-  restarted.submit(parent.id, "Thursday", input);
-  expect(restarted.get(parent.id).messages).toHaveLength(count);
-  expect(() => restarted.submit(parent.id, "Friday", { ...input, id: "different-answer-id" })).toThrow("no longer");
-  expect(() => restarted.submit(parent.id, "Thursday", { ...input, notificationId: "different" })).toThrow("different message");
-});
-
-test("a different Pilot cannot answer or resolve another Pilot's notification", async () => {
-  const root = vault(), s = chats(root, { fetch: scripted([
-    [call("notify_user", { key: "question", kind: "question", text: "Which dataset?" })], [message("Waiting")],
-  ]) });
-  const a = s.create([]); s.send(a.id, "Check datasets"); await s.settled(a.id);
-  const n = s.notifications()[0]!; const b = s.create([]);
-  expect(() => s.submit(b.id, "Dataset A", { id: "cross-pilot-input", mode: "text", notificationId: n.id })).toThrow("no longer");
-  await (s as any).executeTool(b, "resolve_notification", { id: n.id }, new AbortController().signal);
-  expect(s.notifications()[0]!.resolved).toBe(false);
-});
-
-test("queued notification replies keep their question identity across restart", async () => {
-  const root = vault(); let requests = 0, release!: () => void;
-  const gate = new Promise<void>(resolve => { release = resolve; });
-  const fake = scripted([[call("notify_user", { key: "date", kind: "question", text: "Which date?" })], [message("Waiting")]]);
-  const s = chats(root, { fetch: (async (...args: Parameters<typeof fetch>) => { if (++requests > 1) await gate; return fake(...args); }) as typeof fetch });
-  const parent = s.create([]); s.send(parent.id, "Plan dates");
-  for (let i = 0; i < 100 && !s.notifications().length; i++) await Bun.sleep(1);
-  const n = s.notifications()[0]!;
-  expect(n).toBeDefined();
-  const input = { id: "queued-notification-answer", mode: "text" as const, notificationId: n.id };
-  s.submit(parent.id, "Friday", input); s.submit(parent.id, "Friday", input);
-  expect(parent.pendingInputs).toHaveLength(1);
-  expect(s.notifications()[0]!.resolved).toBe(true);
-  s.close(); release(); await s.settled(parent.id);
-  const restarted = chats(root, { fetch: scripted([[message("Friday confirmed")]]) });
-  expect(restarted.get(parent.id).pendingInputs?.[0]?.notificationId).toBe(n.id);
-  expect(restarted.notifications()[0]!.resolved).toBe(true);
-  restarted.submit(parent.id, "Friday", input);
-  expect(restarted.get(parent.id).pendingInputs).toHaveLength(1);
-  restarted.resumeInputs(parent.id); await restarted.settled(parent.id);
-  expect(restarted.get(parent.id).inputs?.find(i => i.id === input.id)?.notificationId).toBe(n.id);
-});
-
 test("large unread selections can seed a Pilot without truncation", () => {
   const nodes = Array.from({ length: 105 }, (_, i) => ({ id: `mail-${i}`, path: `references/mail-${i}.md`, title: `Mail ${i}` }));
   const s = chats(vault(), { graph: () => nodes, fetch: scripted([]) });
   expect(s.create(nodes.map(n => n.id)).context).toHaveLength(105);
-});
-
-test("a normal follow-up clears existing notifications and prevents marking them unread", async () => {
-  const root = vault();
-  const s = chats(root, { fetch: scripted([
-    [call("notify_user", { key: "choice", kind: "question", text: "Which date?" })],
-    [message("Waiting for a date.")],
-    [message("Understood.")],
-  ]) });
-  const parent = s.create([]); s.send(parent.id, "Plan it"); await s.settled(parent.id);
-  const notice = s.notifications()[0]!;
-  s.submit(parent.id, "Use Thursday", { id: "ordinary-follow-up", mode: "text" });
-  await s.settled(parent.id);
-  expect(s.notifications()[0]).toMatchObject({ seen: true, resolved: true });
-  expect(() => s.notificationState(notice.id, "unseen")).toThrow("subsequent turn");
-  s.close();
-  const restarted = chats(root, {});
-  expect(restarted.notifications()[0]).toMatchObject({ seen: true, resolved: true });
 });
 
 test("saved Codex defaults migrate to Pi, while new Codex selections are rejected", async () => {

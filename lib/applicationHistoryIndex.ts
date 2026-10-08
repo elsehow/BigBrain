@@ -1,11 +1,12 @@
 /** Rebuildable file metadata. Durable JSON remains authoritative; no result bodies
  * enter this database. A cheap filesystem census detects external edits/deletion. */
 import { Database } from "bun:sqlite";
-import { mkdirSync, readdirSync, statSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, statSync, rmSync } from "node:fs";
 import { join } from "node:path";
 export interface HistoryMetadata<T> { group: string; order: string; summary: T }
 export interface HistoryQuery { group?: string; limit?: number; after?: { order: string; file: string } }
 export interface HistoryRow<T> { file: string; order: string; summary: T }
+const DATABASE_FILES = ["", "-wal", "-shm", "-journal"];
 export function readHistoryIndex<T>(root: string, name: string, directory: string, pattern: RegExp,
   summarize: (file: string) => HistoryMetadata<T>, query: HistoryQuery = {}): { rows: HistoryRow<T>[]; damaged: number; problems: string[]; more: boolean } {
   let files: string[];
@@ -13,6 +14,12 @@ export function readHistoryIndex<T>(root: string, name: string, directory: strin
   catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") files = []; else throw error; }
   const cache = join(root, ".state", "application-history"); mkdirSync(cache, { recursive: true });
   const path = join(cache, name + ".sqlite");
+  // A version bump (pilots-v2 → pilots-v3) abandons the earlier databases;
+  // the new one clears them as it is created.
+  if (!existsSync(path)) {
+    const [, base, version] = /^(.+)-v(\d+)$/.exec(name) ?? [];
+    for (let v = 1; v < Number(version ?? 0); v++) for (const suffix of DATABASE_FILES) rmSync(join(cache, `${base}-v${v}.sqlite${suffix}`), { force: true });
+  }
   const run = () => {
     const db = new Database(path, { create: true });
     try {
@@ -50,7 +57,7 @@ export function readHistoryIndex<T>(root: string, name: string, directory: strin
   try { return run(); }
   catch {
     // Only the derived database is discarded, never an authoritative record.
-    for (const suffix of ["", "-wal", "-shm", "-journal"]) rmSync(path + suffix, { force: true });
+    for (const suffix of DATABASE_FILES) rmSync(path + suffix, { force: true });
     return run();
   }
 }

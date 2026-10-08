@@ -13,6 +13,4 @@ capability. Gmail/IMAP is the first implementation. Do not freeze read flags int
 source insertion events or invent local unread state when a provider's state
 cannot be determined. See the [contract, API, and integration checklist](../docs/source-read-state.md).
 
-Unread source state never creates a user notification by itself. Notifications
-are an explicit Pilot action, independent of integration arrivals and worker
-activity.
+Unread source state never creates a user notification.

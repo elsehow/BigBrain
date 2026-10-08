@@ -76,7 +76,7 @@ test("valid JSON with invalid nested fields is isolated before migration, pollin
   writeAtomic(f.path(provider.id), JSON.stringify(provider));
   const broken = new Map([
     [f.path(f.a.id), { ...f.a, access: { ...f.a.access, requests: {} } }],
-    [f.path(f.b.id), { ...f.b, notifications: {} }],
+    [f.path(f.b.id), { ...f.b, spoken: {} }],
     [join(spoolDir(f.root), "pilot-runtime", `${provider.id}.json`), { through: 0, actions: [] }],
     [join(spoolDir(f.root), "work-sessions", `work-${"d".repeat(32)}.json`), { id: `work-${"d".repeat(32)}`, title: "Broken context", created: f.a.created, updated: f.a.updated, messages: [], context: { nodes: 42 } }],
     [join(spoolDir(f.root), "handoffs", `handoff-${"e".repeat(32)}.json`), { id: `handoff-${"e".repeat(32)}`, updated_at: f.a.updated, request: { task: "Broken research", user_words: "Research", created_at: f.a.created, selection: { nodes: 42 } } }],

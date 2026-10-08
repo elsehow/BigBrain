@@ -5,8 +5,7 @@ import { sessionAccessSchema } from "./workAccess";
 
 const strings = z.array(z.string());
 const images = z.array(z.object({ id: z.string(), name: z.string() }).passthrough());
-const input = z.object({ id: z.string(), text: z.string(), mode: z.enum(["text", "voice"]),
-  target: z.string().optional(), notificationId: z.string().optional(), images: images.optional() }).passthrough();
+const input = z.object({ id: z.string(), text: z.string(), mode: z.enum(["text", "voice"]), images: images.optional() }).passthrough();
 const savedPilot = z.object({
   id: z.string().regex(/^pilot-[a-f0-9]{32}$/), title: z.string(), model: z.string(),
   category: z.object({ memory: z.string().nullable(), inputKey: z.string(), model: z.string(),
@@ -25,9 +24,6 @@ const savedPilot = z.object({
   localCommand: z.object({ id: z.string(), command: z.string(), cwd: z.string(), status: z.enum(["running", "completed", "uncertain"]), exitCode: z.number().optional() }).passthrough().optional(),
   backend: z.object({ adapter: z.string(), model: z.string(), provider: z.string().optional(), reasoning: z.string().optional() }).passthrough().optional(),
   inputs: z.array(input.extend({ message: z.string() })).optional(), pendingInputs: z.array(input).optional(),
-  notifications: z.array(z.object({ id: z.string(), pilotId: z.string(), pilotTitle: z.string(), messageId: z.string(),
-    key: z.string(), text: z.string(), kind: z.enum(["question", "update"]), at: z.string(), seen: z.boolean(),
-    dismissed: z.boolean().optional(), resolved: z.boolean().optional() }).passthrough()).optional(),
   spoken: z.array(z.object({ id: z.string(), message: z.string(), text: z.string(), at: z.string(), status: z.enum(["played", "interrupted"]) }).passthrough()).optional(),
   draftImages: images.optional(), removedContext: strings.optional(),
   contextNodes: z.array(z.object({ id: z.string(), path: z.string(), title: z.string(), group: z.string() }).passthrough()).optional(),

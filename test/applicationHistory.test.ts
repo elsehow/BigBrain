@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ApplicationActions } from "../lib/applicationActions";
-import { PilotChats } from "../lib/pilotChat";
+import { PILOT_HISTORY_INDEX, PilotChats } from "../lib/pilotChat";
 import { newPilotChatSession } from "../lib/pilotChatTypes";
 import { DEFAULT_PILOT_BACKEND } from "../lib/pilotBackendTypes";
 import { WorkHistory } from "../lib/workHistory";
@@ -51,7 +51,7 @@ test("warm Pilot archives retain summaries; search and selected detail read only
     let reads = 0; const options = { graph: () => [], observeRead: () => reads++ };
     const cold = new PilotChats(root, options); expect(cold.loadIssues).toEqual([]); cold.close(); expect(reads).toBe(20);
     reads = 0; const warm = new PilotChats(root, options);
-    expect(warm.summaries()).toHaveLength(20); expect(warm.notifications()).toEqual([]); expect(reads).toBe(0);
+    expect(warm.summaries()).toHaveLength(20); expect(reads).toBe(0);
     expect(warm.get(records[0].id).messages[0].text).toContain("transcript 0"); expect(reads).toBe(1);
     expect(warm.summaries("transcript 19").map(s => s.id)).toEqual([records[19].id]);
     reads = 0; warm.get(records[19].id); expect(reads).toBe(1); warm.close();
@@ -103,5 +103,17 @@ test("Pilot pages include legacy outcomes once, after modern receipts, without i
     } while (cursor);
     expect(seen).toHaveLength(9); expect(new Set(seen).size).toBe(9); expect(seen).not.toContain("legacy-0");
     expect(actions.list({ kind: "pilot", id: saved.id }).receipts).toHaveLength(1); chats.close();
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+test("a new cache version clears the databases its earlier versions left", () => {
+  const root = scratch(), cache = join(root, ".state", "application-history");
+  try {
+    const retired = ["pilots-v1.sqlite", "pilots-v2.sqlite", "pilots-v2.sqlite-wal", "pilots-v2.sqlite-shm", "pilots-v2.sqlite-journal"];
+    const kept = ["actions-v1.sqlite", "work-sessions-v1.sqlite", "other-pilots-v1.sqlite"];
+    for (const file of [...retired, ...kept]) writeAtomic(join(cache, file), "derived bytes");
+    archive(root, 1);
+    new PilotChats(root, { graph: () => [] }).close();
+    expect(readdirSync(cache).filter(file => retired.includes(file))).toEqual([]);
+    expect(readdirSync(cache)).toEqual(expect.arrayContaining([...kept, `${PILOT_HISTORY_INDEX}.sqlite`]));
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
