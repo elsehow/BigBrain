@@ -82,6 +82,7 @@
   {:else if account.reconnect}<div class="actions">{#if !account.unavailable}<button disabled={busy} onclick={()=>act(account,'connect')}>Reconnect</button>{/if}<button disabled={busy} onclick={()=>act(account,'disconnect')}>Disconnect</button></div>
   {:else if !account.connected}{#if !account.unavailable}<button disabled={busy} onclick={()=>act(account,'connect')}>Connect</button>{/if}{:else}<button disabled={busy} onclick={()=>act(account,'disconnect')}>Disconnect</button>{/if}
   {#if account.unavailable&&(!account.connected||account.reconnect)}<p role="status">{account.unavailable}</p>{/if}
+  {#if account.signIn&&account.connected}<p>Disconnecting forgets who signed in; choose access again after the next sign-in.</p>{/if}
   {#if account.auth?.error}<p role="alert">{account.auth.error}</p>{/if}
   {@render note('connection',account.account)}
   </div>

@@ -169,6 +169,16 @@ test("a reconnect keeps access when it is the same account, renamed, and resets 
   expect(readableIntegrationAccounts(root, "hardcover", { kind: "pilot" })).toEqual([]);
 });
 
+test("a disconnect forgets who signed in: after the next sign-in, access is chosen again", async () => {
+  const { root, f, service } = setup();
+  await connect(service, root, f);
+  expect(accountPolicy(root, "hardcover", "hardcover").grants).toEqual([{ caller: "pilot", access: "read" }]);
+  await service.update({ name: "hardcover", account: "hardcover", action: "disconnect" });
+  await service.update({ name: "hardcover", account: "hardcover", action: "connect" });
+  expect((await f.approve(hardcoverSignInStatus(root, "hardcover")!.url!)).status).toBe(200);
+  expect(accountPolicy(root, "hardcover", "hardcover")).toMatchObject({ connected: true, grants: [] });
+});
+
 test("each tool sends its own fixed query, one top-level field, with only validated variables", async () => {
   const { root, f, service, call } = setup();
   await connect(service, root, f);

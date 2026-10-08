@@ -24,6 +24,9 @@ const base=process.env.SIDEBAR_PREVIEW_URL||'http://127.0.0.1:5219';
   const region=page.getByRole('region',{name:'hardcover accounts'});await region.waitFor();
   await region.locator('summary > span').first().waitFor();
   assert.deepEqual(await region.locator('summary > span').allInnerTexts(),Array(5).fill('Needs reconnecting'));
+  // a sign-in card says what Disconnect forgets
+  await region.locator('summary').first().click();
+  await region.getByText('Disconnecting forgets who signed in; choose access again after the next sign-in.',{exact:true}).first().waitFor();
   // one lapsed account is named, with Reconnect, which signs in as the card's does
   await page.goto(`${base}/sidebar-workbench.html?lapsed-accounts=1#/settings/connected-clients`);
   await notice.waitFor();
