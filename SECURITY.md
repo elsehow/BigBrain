@@ -27,7 +27,10 @@ report suspected vulnerabilities even if an update is not possible.
   expose these servers through a public reverse proxy or share their
   forwarded ports with untrusted users.
 - The separate integration HTTP API uses scoped, revocable bearer tokens.
-  Local MCP clients use individual credentials. A memory-reading grant permits
+  Local MCP clients use individual credentials. Client and script credentials
+  that read the vault (not the gardener's `tend` credential) lapse after 30
+  days unused and are renewed in the app (Settings → Connected clients) or
+  with `bigbrain auth renew`. A memory-reading grant permits
   reading the vault's memory; this is not a multi-user or per-note access system.
 - Imported pages, messages, files and model output are untrusted content.
   Sanitized rendering and host-enforced tool permissions provide separate

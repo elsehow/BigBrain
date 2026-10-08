@@ -25,14 +25,23 @@ a private local file; the command contains only its ID. Disconnect revokes
 subsequent MCP calls, including existing sessions. A local process still has
 its operating-system account's filesystem permissions.
 
+A connection lapses after 30 days unused; any use restarts the clock. A lapsed
+connection's tools all answer "This BigBrain connection expired after 30 days
+unused. Renew it in BigBrain → Settings → Connected clients.", and when a
+client tries one the app shows a notice with **Renew** (several share one
+notice, which opens Connected clients). Renewing keeps the connection's ID,
+configuration and access, so nothing in the client changes.
+
 The public tools are `load_memory`, `search_vault`, `read_note`, and `drop`.
 Contributions are attributed to the named credential. This does not grant
 internal gardener operations or integration access.
 
 ## Replace a legacy plugin
 
-Existing Claude Code and Codex plugin connections are deprecated. Choose
-**Replace connection** on the legacy row and complete the replacement's MCP
+Existing Claude Code and Codex plugin connections are deprecated, including
+the older HTTP plugin credential `bigbrain connect` once made (`claude code on
+<machine>`), which is listed here too. Choose **Replace connection** on the
+legacy row and complete the replacement's MCP
 setup. The plugin remains authorized until the replacement authenticates;
 then its old credential is revoked. Canceling a pending replacement does not
 revoke the plugin. New plugin connections cannot provision credentials.

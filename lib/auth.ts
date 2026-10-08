@@ -11,6 +11,12 @@
  * vault) — no wildcards, no hierarchy. (`outbox:write` retired with email,
  * 2026-08-10.)
  *
+ * A credential that can read the vault (`vault:read`, without `tend`)
+ * lapses after IDLE_EXPIRY_DAYS unused, counted from its last use (or its
+ * minting, or its last renewal). There is no absolute cap: use keeps it
+ * alive, and renewing restarts the clock without changing the id. Pairing
+ * credentials (`inbox:write` only) and the gardener's `tend` never lapse.
+ *
  * Stores live OUTSIDE the vault (like the vault pointer): the vault's
  * .state/ is a cache that may be deleted freely,
  * and a credential store is truth, not cache. Host-side stores are keyed
@@ -50,7 +56,8 @@ export interface TokenRecord {
    *
    * A closed union rather than a free string:
    * `client` is an authenticated MCP configuration;
-   * `connect` is the legacy local Claude Code (the agents card), `pair` is a
+   * `connect` is the legacy local Claude Code (a legacy row in Connected
+   * clients, since the agents card retired), `pair` is a
    * browser extension that redeemed a pairing code (the integrations card,
    * lib/pair.ts). Each card is a CONSENT surface, so the one thing it has to
    * be able to prove is that a human authorized this credential on that
@@ -67,6 +74,12 @@ export interface TokenRecord {
   sha256: string;
   created: string;
   last_used: string | null;
+  /** When a person last renewed it: restarts the idle clock without
+   * claiming a use. Absent on credentials never renewed. */
+  renewed?: string | null;
+  /** The last time it was presented after it lapsed — what the app's
+   * notice reports. Renewing, or clearing the notice, resets it. */
+  expired_use?: string | null;
   /** Revocation timestamp; the record stays for audit. */
   revoked: string | null;
 }
@@ -78,7 +91,11 @@ interface TokenStore {
   tokens: TokenRecord[];
 }
 
-export type VerifyResult = { ok: true; record: TokenRecord } | { ok: false; reason: string };
+/** `expired` is set only for a credential that matched and was not revoked —
+ * its holder, not a guesser, is the one told that it lapsed. */
+export type VerifyResult =
+  | { ok: true; record: TokenRecord }
+  | { ok: false; reason: string; expired?: TokenRecord };
 
 const TOKEN_RE = /^bb_([0-9a-f]{8})_[A-Za-z0-9_-]+$/;
 
@@ -143,7 +160,7 @@ const DUMMY_DIGEST = Buffer.from(sha256hex("bigbrain-dummy"), "hex");
  * store, empty token list, malformed token, unknown id, revoked, or hash
  * mismatch all refuse. `reason` is for the SERVER LOG only — callers must
  * answer the wire with an undifferentiated 401. */
-export function verifyToken(storePath: string, presented: string): VerifyResult {
+export function verifyToken(storePath: string, presented: string, now: Date = new Date()): VerifyResult {
   const store = readStore(storePath);
   if (!store) return { ok: false, reason: "token store missing or unreadable" };
   if (!store.tokens.length) return { ok: false, reason: "token store is empty" };
@@ -159,11 +176,41 @@ export function verifyToken(storePath: string, presented: string): VerifyResult 
   if (!match) return { ok: false, reason: `secret mismatch for token ${record.id}` };
   if (record.revoked)
     return { ok: false, reason: `token ${record.id} revoked at ${record.revoked}` };
+  if (tokenExpired(record, now))
+    return { ok: false, reason: `token ${record.id} expired after ${IDLE_EXPIRY_DAYS} days unused`, expired: record };
   return { ok: true, record };
 }
 
 export function hasScope(record: TokenRecord, scope: string): boolean {
   return record.scopes.includes(scope);
+}
+
+export const IDLE_EXPIRY_DAYS = 30;
+
+/** Listed, and renewed, in Settings → Connected clients: a connected
+ * client, or the legacy local Claude Code. */
+export const listedInConnectedClients = (record: TokenRecord): boolean =>
+  record.via === "client" || record.via === "connect";
+
+/** What the holder of a lapsed credential is told: where to renew it — the
+ * app for what Connected clients lists, the CLI for an operator's token. */
+export const expiredMessage = (record: TokenRecord): string =>
+  listedInConnectedClients(record)
+    ? `This BigBrain connection expired after ${IDLE_EXPIRY_DAYS} days unused. Renew it in BigBrain → Settings → Connected clients.`
+    : `This BigBrain credential expired after ${IDLE_EXPIRY_DAYS} days unused. Renew it with \`bigbrain auth renew ${record.id}\`.`;
+
+/** Reads the vault and is not the gardener's: the credentials that lapse. */
+export const expiresWhenIdle = (record: TokenRecord): boolean =>
+  hasScope(record, "vault:read") && !hasScope(record, "tend");
+
+/** Lapsed: unused (and unrenewed) for IDLE_EXPIRY_DAYS. Fail-closed — a
+ * record with no readable timestamp counts as lapsed. */
+export function tokenExpired(record: TokenRecord, now: Date = new Date()): boolean {
+  if (!expiresWhenIdle(record)) return false;
+  const since = Math.max(
+    ...[record.created, record.last_used, record.renewed].map((t) => (t ? Date.parse(t) : NaN)).filter(Number.isFinite)
+  );
+  return now.getTime() - since >= IDLE_EXPIRY_DAYS * 86_400_000;
 }
 
 export function listTokens(storePath: string): TokenRecord[] {
@@ -181,10 +228,50 @@ export function revokeToken(storePath: string, id: string): boolean {
   return true;
 }
 
+/** Restart a credential's idle clock, keeping its id — and with it every
+ * grant keyed to that id. A revoked credential stays revoked. */
+export function renewToken(storePath: string, id: string, now: Date = new Date()): boolean {
+  const store = readStore(storePath);
+  const record = store?.tokens.find((t) => t.id === id);
+  if (!store || !record || record.revoked) return false;
+  record.renewed = now.toISOString();
+  record.expired_use = null;
+  writeStore(storePath, store);
+  return true;
+}
+
+/** Note that a lapsed credential was presented, so the app can say so.
+ * Throttled like touchLastUsed. Writes only while it is still lapsed. */
+export function noteExpiredUse(storePath: string, id: string, now: Date = new Date()): void {
+  const store = readStore(storePath);
+  const record = store?.tokens.find((t) => t.id === id);
+  if (!store || !record || record.revoked || !tokenExpired(record, now)) return;
+  if (record.expired_use && now.getTime() - Date.parse(record.expired_use) < 60_000) return;
+  record.expired_use = now.toISOString();
+  writeStore(storePath, store);
+}
+
+/** Forget a lapsed credential's last attempt: the notice clears until the
+ * next one. */
+export function clearExpiredUse(storePath: string, id: string): boolean {
+  const store = readStore(storePath);
+  const record = store?.tokens.find((t) => t.id === id);
+  if (!store || !record) return false;
+  if (record.expired_use) {
+    record.expired_use = null;
+    writeStore(storePath, store);
+  }
+  return true;
+}
+
 /** Record a use. Re-reads the store fresh so a revocation that landed
  * between verify and touch is never overwritten with stale state; the
  * worst concurrent-write outcome is a lost timestamp tick. Throttled:
- * a tick younger than 60s is not worth a write per request. */
+ * a tick younger than 60s is not worth a write per request.
+ * renewToken is the same unlocked whole-store read-modify-write, so a
+ * concurrent noteExpiredUse or touchLastUsed can drop a renewal in a
+ * millisecond window; the UI re-fetches after Renew, so the person would
+ * see it still expired and click again. */
 export function touchLastUsed(storePath: string, id: string, now: Date = new Date()): void {
   const store = readStore(storePath);
   const record = store?.tokens.find((t) => t.id === id);

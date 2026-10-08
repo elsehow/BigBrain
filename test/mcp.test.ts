@@ -405,9 +405,9 @@ describe("stdio round-trip", () => {
     const root = vault(mail);
     const store=join(root,".tokens"), clients=new ConnectedClients(root,store), setup=clients.create({name:"test-client",kind:"generic"});
     const proc = Bun.spawn(
-      [process.execPath, join(import.meta.dir, "..", "bin", "mcp.ts")],
+      [process.execPath, join(import.meta.dir, "..", "bin", "mcp.ts"), "--client", setup.id],
       {
-        env: { ...process.env, BIGBRAIN_VAULT: root, BIGBRAIN_TOKENS:store, BIGBRAIN_MCP_TOKEN:clients.token(setup.id) },
+        env: { ...process.env, BIGBRAIN_VAULT: root, BIGBRAIN_TOKENS:store },
         stdin: "pipe",
         stdout: "pipe",
         stderr: "pipe",

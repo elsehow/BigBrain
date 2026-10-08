@@ -10,19 +10,21 @@
   function enterInput(id: string) {
     panel?.querySelector(`[data-notice-id="${CSS.escape(id)}"]`)?.querySelector<HTMLInputElement>('input:not(:disabled), textarea:not(:disabled)')?.focus();
   }
-  async function clear(id: string) {
+  async function settle(id: string, run?: () => void | Promise<void>) {
     if (clearing.includes(id)) return;
     clearing = [...clearing, id];
-    try { await items.find(item => item.id === id)?.onclear(); delete errors[id]; }
+    try { await run?.(); delete errors[id]; }
     catch (error) { errors[id] = (error as Error).message; }
     finally { clearing = clearing.filter(value => value !== id); }
   }
+  const clear = (id: string) => settle(id, items.find(item => item.id === id)?.onclear);
+  const KIND = { capture: 'Capture', agent: 'Agent', connection: 'Connection' } as const;
 </script>
 {#if items.length}
   <aside class="notification-stack" aria-label="Notifications" bind:this={panel}>
     <div class="notice-list">
       {#each items as item (item.id)}
-        <section class="notification-sheet" data-notice-id={item.id} data-notice-kind={item.kind} aria-label={`${item.kind === 'capture' ? 'Capture' : 'Agent'} notification: ${item.title}`}>
+        <section class="notification-sheet" data-notice-id={item.id} data-notice-kind={item.kind} aria-label={`${KIND[item.kind]} notification: ${item.title}`}>
           <header class="notification-heading">
             <h2 class="notification-title" title={item.title}>{item.title}</h2>
             {#if item.status}{@render item.status()}{/if}
@@ -32,6 +34,7 @@
             {#if errors[item.id]}<p role="alert">{errors[item.id]}</p>{/if}
           </div>
           <footer>
+            {#if item.action}<button onclick={() => settle(item.id, item.action?.run)} disabled={clearing.includes(item.id)}>{item.action.label}</button>{/if}
             {#if item.onopen}<button onclick={() => void item.onopen?.()}>Open conversation</button>{/if}
             {#if item.hasInput}<button onclick={() => enterInput(item.id)}>Add note</button>{/if}
             <button onclick={() => clear(item.id)} disabled={clearing.includes(item.id)} aria-label={`Clear ${item.title}`}>Clear</button>

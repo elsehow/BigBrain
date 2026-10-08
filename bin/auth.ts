@@ -9,6 +9,7 @@
  *   bigbrain auth create --name "chrome extension" [--scope inbox:write]...
  *                        [--owner <email>] [--kind person-device|agent]
  *   bigbrain auth list
+ *   bigbrain auth renew <id>
  *   bigbrain auth revoke <id>
  *
  * Identity: --owner names the person the credential belongs to; intake
@@ -29,11 +30,12 @@
  * credential for non-browser API clients) · tend (the gardener door, #479 —
  * claim and submit the vault's due work; ONE designated machine per vault
  * holds it). Default inbox:write. (`outbox:write` retired with email,
- * 2026-08-10.)
+ * 2026-08-10.) A `vault:read` credential without `tend` lapses after 30
+ * days unused; `renew` restarts its clock and keeps its id.
  */
 
 import { VAULT_ROOT } from "../lib/vaultRoot";
-import { listTokens, mintToken, revokeToken, tokenStorePath } from "../lib/auth";
+import { IDLE_EXPIRY_DAYS, listTokens, mintToken, renewToken, revokeToken, tokenExpired, tokenStorePath } from "../lib/auth";
 import { flagValue, flagValues, positionals } from "../lib/cliflags";
 
 const [cmd, ...rest] = process.argv.slice(2);
@@ -45,6 +47,7 @@ function usage(code: number): never {
     "usage: bigbrain auth create --name <label> [--scope inbox:write]... [--owner <email>] [--kind person-device|agent]"
   );
   console.error("       bigbrain auth list");
+  console.error("       bigbrain auth renew <id>");
   console.error("       bigbrain auth revoke <id>");
   process.exit(code);
 }
@@ -113,13 +116,26 @@ function runList(): void {
     t.scopes.join(","),
     t.created.slice(0, 10),
     t.last_used ? t.last_used.slice(0, 16).replace("T", " ") : "never",
-    t.revoked ? `REVOKED ${t.revoked.slice(0, 10)}` : "active",
+    t.revoked ? `REVOKED ${t.revoked.slice(0, 10)}` : tokenExpired(t) ? "expired" : "active",
   ]);
   const header = ["id", "name", "kind", "owner", "scopes", "created", "last used", "status"];
   const widths = header.map((h, i) => Math.max(h.length, ...rows.map((r) => r[i]!.length)));
   const fmt = (r: string[]) => r.map((c, i) => c.padEnd(widths[i]!)).join("  ");
   console.log(fmt(header));
   for (const r of rows) console.log(fmt(r));
+}
+
+function runRenew(): void {
+  const storePath = tokenStorePath(VAULT_ROOT);
+  const id = positionals(rest)[0];
+  if (!id) usage(2);
+  if (!renewToken(storePath, id)) {
+    console.error(
+      `auth renew: no live token with id ${JSON.stringify(id)} — see \`bigbrain auth list\``
+    );
+    process.exit(1);
+  }
+  console.log(`auth: ${id} renewed — same id and secret; it lapses again after ${IDLE_EXPIRY_DAYS} days unused`);
 }
 
 function runRevoke(): void {
@@ -137,5 +153,6 @@ function runRevoke(): void {
 
 if (cmd === "create") runCreate();
 else if (cmd === "list") runList();
+else if (cmd === "renew") runRenew();
 else if (cmd === "revoke") runRevoke();
 else usage(cmd ? 2 : 0);

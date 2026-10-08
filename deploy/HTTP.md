@@ -20,6 +20,7 @@ account is the root of trust, exactly as with ssh):
 bigbrain auth create --name "chrome extension"                      # inbox:write
 bigbrain auth create --name "laptop" --scope inbox:write
 bigbrain auth list
+bigbrain auth renew <id>
 bigbrain auth revoke <id>
 ```
 
@@ -32,6 +33,12 @@ bigbrain auth revoke <id>
   vault holds it. (`outbox:write` retired with email on 2026-08-10 — the
   vault does not send.)
 - Revocation is immediate — the API re-reads the store per request.
+- A `vault:read` token (without `tend`) lapses after 30 days unused. Every
+  request it is accepted for, except `/v1/whoami`, restarts the clock; there
+  is no absolute cap. A lapsed token gets a 401 that says where to renew it:
+  `bigbrain auth renew <id>`, or Settings → Connected clients for an MCP
+  connection or a `bigbrain connect` credential. Renewing keeps the id and
+  secret. Drop-only (`inbox:write`) and `tend` tokens never lapse.
 - Fail-closed: no store, empty store, unreadable store ⇒ every request 401s.
 
 ## Host setup (once)
@@ -71,7 +78,7 @@ vault into `~/.config/bigbrain/client-tokens.json`.
 `bigbrain connect` also installs the plugin from the engine tree.
 
 **Anything else:** it's one curl. `POST /v1/drop?name=<basename>`,
-body = the markdown item, `Authorization: Bearer <token>`. 401 bad/revoked
+body = the markdown item, `Authorization: Bearer <token>`. 401 bad/revoked/lapsed
 token · 403 missing scope · 413 over 10MB · 429 over 30 req/min per token.
 
 ## API surface
