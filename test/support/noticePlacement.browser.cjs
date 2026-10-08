@@ -6,7 +6,8 @@
 // of a view meets a notice, nothing covers a notice's own buttons, and
 // Configure takes a click while a notice shows. Also with one and two strips
 // over the top bar (an update, a provider out of credits), and with the
-// chat's split dragged as wide as it goes. The strips cover nothing either
+// chat's split dragged as wide as it goes, and the agent picker's last
+// choice stays in reach. The strips cover nothing either
 // (#171: they sat over the field's top bar, a chat's top row and Settings'
 // close button), and nothing scrolls sideways.
 const { chromium } = require('./browserHarness.cjs');
@@ -111,6 +112,19 @@ const overlaps = page => page.evaluate(() => {
       await page.getByText('Not kept until you send').waitFor();
       await page.getByRole('button', { name: 'Close Atlas survey update', exact: true }).waitFor();
       await clear('Desktop');
+      // the chat's agent picker scrolls within the room the notices leave it: its last choice is in reach
+      await page.locator('.chat .agent').click({ timeout: 5000 });
+      const picker = page.getByRole('dialog', { name: 'Choose the agent' }), last = picker.getByRole('button').last();
+      await last.waitFor();
+      await picker.evaluate(el => { el.scrollTop = el.scrollHeight; });
+      await clear('Agent picker');
+      const reach = await last.evaluate(el => {
+        const r = el.getBoundingClientRect(), x = (r.left + r.right) / 2, y = (r.top + r.bottom) / 2;
+        return { x, y, hit: el.contains(document.elementFromPoint(x, y)) };
+      });
+      assert(reach.hit, `the picker's last choice is in reach at ${at}`);
+      await page.mouse.click(reach.x, reach.y);
+      await picker.waitFor({ state: 'detached' });
       if (width >= 1152) {
         // the split dragged as far right as it goes: the chat stops short of the notices' column
         const split = await page.locator('.split').boundingBox();

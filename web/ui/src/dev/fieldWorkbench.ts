@@ -154,6 +154,11 @@ const fake = window.fetch;
   if (url.pathname === "/api/v2") return json({ authors: [], feed });
   if (url.pathname === "/api/v2/sorted") return json({ rows: sorted });
   if (url.pathname === "/api/v2/entity") return json({ rows: feed.filter((r) => r.entities.includes(url.searchParams.get("id") ?? "")) });
+  // the chat's agent picker: two connected agents, more models than a short window holds
+  if (url.pathname === "/api/pilot/chat/models") return json({ agents: [
+    { id: "claude", label: "Claude Code", ready: true, models: ["opus", "sonnet", "haiku", "fable"].map((id) => ({ id, label: id, reasoning: ["low", "medium", "high"] })) },
+    { id: "codex", label: "Codex", ready: true, models: [{ id: "gpt-5.6-terra", label: "Terra" }, { id: "gpt-example", label: "Example Codex model" }] },
+  ] });
   if (url.pathname === "/api/desktops") return json({ desktops: hostScene ? [HOST_DESK] : [] });
   // `?hostRequest`: a coding desktop whose agent asks to reach a site, until you answer
   if (hostScene && url.pathname === "/api/desktops/session") return json({ ...HOST_DESK, seq: 4, changes: [], servers: [],

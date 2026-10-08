@@ -1586,7 +1586,9 @@
   .agent:hover:not(:disabled) { color: var(--fg); }
   .agent:disabled { cursor: default; opacity: .6; }
   .scrim { position: absolute; inset: 0; z-index: 5; background: color-mix(in srgb, var(--bg) 40%, transparent); }
-  .picker { position: absolute; z-index: 6; top: calc(var(--under-bar) + 48px); left: var(--app-gutter, 34px); width: min(420px, calc(100% - 68px)); max-height: 70vh; overflow-y: auto; padding: 16px;
+  /* it scrolls within the field, above the field's 26px foot: below the
+     notices in a short window there is little room left */
+  .picker { position: absolute; z-index: 6; top: calc(var(--under-bar) + 48px); left: var(--app-gutter, 34px); width: min(420px, calc(100% - 68px)); max-height: min(70vh, calc(100% - var(--under-bar) - 74px)); overflow-y: auto; padding: 16px;
     border-radius: 12px; background: var(--bg); box-shadow: 0 0 0 1px var(--rule), 0 28px 70px -28px color-mix(in srgb, var(--fg) 45%, transparent); }
   .picker .eyebrow { margin: 0 0 10px; display: block; }
   .picker h3 { margin: 10px 0 4px; font: 600 12px/1.3 var(--font-app); color: var(--v2-muted); }
