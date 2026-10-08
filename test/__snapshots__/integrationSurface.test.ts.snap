@@ -1058,6 +1058,7 @@ exports[`accounts, credentials and library rows: settings rows 1`] = `
     "name": "hardcover",
     "removable": false,
     "signIn": true,
+    "unavailable": "Hardcover sign-in isn't available in this build yet. To sign in with your own Hardcover app, set integrations.hardcover.clientId in vault.yaml (docs/hardcover.md).",
     "version": 2,
   },
 ]
@@ -1094,6 +1095,7 @@ exports[`accounts, credentials and library rows: library 1`] = `
     "description": "Look up your shelves, books and reviews on Hardcover.",
     "id": "hardcover",
     "name": "Hardcover",
+    "unavailable": "Hardcover sign-in isn't available in this build yet. To sign in with your own Hardcover app, set integrations.hardcover.clientId in vault.yaml (docs/hardcover.md).",
   },
 ]
 `;

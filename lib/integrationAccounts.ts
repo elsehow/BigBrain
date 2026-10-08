@@ -33,7 +33,8 @@ export function configuredAccounts(root:string){
 /** A browser sign-in's part of an account row: that it signs in so, the flow under way, who is signed in, and whether it must sign in again. */
 function signInRow(root:string,name:string,account:string){
   const signIn=browserSignIn(name);if(!signIn)return {};
-  return {...(name==='granola'?{transport:'mcp'}:{}),signIn:true,auth:signIn.status(root,account),identity:signIn.identity(root,account),...(signIn.lapsed?.(root,account)?{reconnect:true}:{})};
+  const unavailable=signIn.unavailable?.(root);
+  return {...(name==='granola'?{transport:'mcp'}:{}),signIn:true,auth:signIn.status(root,account),identity:signIn.identity(root,account),...(signIn.lapsed?.(root,account)?{reconnect:true}:{}),...(unavailable?{unavailable}:{})};
 }
 function backfill(since:unknown):Backfill{
   if(typeof since!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(since)||!Number.isFinite(Date.parse(since))||new Date(since).toISOString().slice(0,10)!==since||since>new Date().toISOString().slice(0,10))throw Error('Choose a past history start date.');
@@ -100,11 +101,11 @@ export class IntegrationAccounts {
     if(signIn&&action==='cancel'){signIn.cancel(this.root,account);return this.list();}
     if(signIn&&(action==='connect'||action==='check')){
       writeAccountPolicy(this.root,name,account,{...prior,connected:false});
-      const oldIdentity=signIn.identity(this.root,account);
+      const subject=()=>JSON.stringify((signIn.subject??signIn.identity)(this.root,account)),oldSubject=subject();
       const start=this.probes.signIn?.[name]??(name==='granola'?this.probes.granolaSignIn:undefined)??signIn.start;
       await start(this.root,account,()=>{
-        // signed in as someone else: nobody inherits the earlier account's access
-        const current=accountPolicy(this.root,name,account),other=prior.checkedAt&&JSON.stringify(oldIdentity)!==JSON.stringify(signIn.identity(this.root,account));
+        // signed in as someone else (by subject, else identity): nobody inherits the earlier account's access
+        const current=accountPolicy(this.root,name,account),other=prior.checkedAt&&oldSubject!==subject();
         writeAccountPolicy(this.root,name,account,connectedPolicy(name,other?{...current,grants:[]}:current,accountFingerprint(this.root,name,account),fresh));
       });
       return this.list();

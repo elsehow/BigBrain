@@ -35,8 +35,12 @@ export interface BrowserSignIn {
   cancel(root: string, account: string): void;
   /** Forgets the account's sign-in. */
   disconnect(root: string, account: string): void;
-  /** Who is signed in, as Settings shows it; a change on reconnect resets the account's access. */
+  /** Who is signed in, as Settings shows it. */
   identity(root: string, account: string): unknown;
+  /** What identifies the signed-in account, compared on reconnect: a change resets the account's access. `identity` when absent. */
+  subject?(root: string, account: string): unknown;
+  /** Why this build or vault can't sign in yet, as the library and Settings say it; undefined when it can. */
+  unavailable?(root: string): string | undefined;
   /** Kept, but no longer renewable: only signing in again restores it. */
   lapsed?(root: string, account: string): boolean;
 }

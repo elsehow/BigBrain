@@ -12,6 +12,7 @@ import { sha256hex } from "../lib/hash";
 import { HARDCOVER_RECONNECT, HARDCOVER_SCOPES, hardcoverConnection, hardcoverSignInStatus, startHardcoverSignIn, type HardcoverOptions } from "../lib/hardcover";
 import { HARDCOVER_DOCUMENTS } from "../lib/integrations/hardcover";
 import { IntegrationAccounts } from "../lib/integrationAccounts";
+import { integrationLibrary } from "../lib/integrationLibrary";
 import { accountFingerprint, accountPolicy, readableIntegrationAccounts } from "../lib/integrationAccess";
 import { dispatchIntegrationTool, integrationCapabilities, integrationToolCall, observeIntegrationCalls } from "../lib/integrationTools";
 import { LimitError, takeRequest } from "../lib/requestLimit";
@@ -67,7 +68,7 @@ test("signs in with PKCE, the vault's client and read scopes only; keeps it priv
   expect(p.get("redirect_uri")).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/callback$/u);
   expect(row(service)).toMatchObject({ connected: false, signIn: true, auth: { phase: "browser" } });
   expect((await f.approve(auth.toString())).status).toBe(200);
-  expect(row(service)).toMatchObject({ connected: true, signIn: true, identity: { id: 4242, username: "fixture_reader" }, auth: { phase: "connected" } });
+  expect(row(service)).toMatchObject({ connected: true, signIn: true, identity: { username: "fixture_reader" }, auth: { phase: "connected" } });
   expect(row(service).reconnect).toBeUndefined();
   // a new account's access: Pilot reads, no client does until someone grants it
   expect(accountPolicy(root, "hardcover", "hardcover")).toMatchObject({ connected: true, grants: [{ caller: "pilot", access: "read" }] });
@@ -123,11 +124,37 @@ test("a grant with more than read access is refused, kept nowhere, and revoked",
   }
 });
 
-test("the placeholder client id is refused until a vault names its own", async () => {
-  const { root, options } = setup("integrations: {}\n");
-  expect(await failure(startHardcoverSignIn(root, "hardcover", () => {}, options))).toContain("isn't available in this build yet");
+test("until a client id exists, sign-in is refused and the library and Settings say so plainly", async () => {
+  const { root, options, service } = setup("integrations: {}\n");
+  const unavailable = "Hardcover sign-in isn't available in this build yet. To sign in with your own Hardcover app, set integrations.hardcover.clientId in vault.yaml (docs/hardcover.md).";
+  expect(await failure(startHardcoverSignIn(root, "hardcover", () => {}, options))).toBe(unavailable);
+  expect(integrationLibrary(root).find(i => i.id === "hardcover")).toMatchObject({ added: false, unavailable });
+  expect(row(service)).toMatchObject({ connected: false, unavailable });
   const odd = setup("integrations:\n  hardcover:\n    clientId: \"not a client id\"\n");
   expect(await failure(startHardcoverSignIn(odd.root, "hardcover", () => {}, odd.options))).toContain("is not a client id");
+  expect(row(odd.service).unavailable).toContain("is not a client id");
+  // a vault with a client of its own can sign in
+  const own = setup();
+  expect(integrationLibrary(own.root).find(i => i.id === "hardcover")!).not.toHaveProperty("unavailable");
+  expect(row(own.service)).not.toHaveProperty("unavailable");
+  expect(integrationLibrary(own.root).filter(i => i.id !== "hardcover").some(i => "unavailable" in i)).toBe(false);
+});
+
+test("a reconnect keeps access when it is the same account, renamed, and resets it for another", async () => {
+  const { root, f, service } = setup();
+  await connect(service, root, f);
+  const reconnect = async () => {
+    await service.update({ name: "hardcover", account: "hardcover", action: "connect" });
+    expect((await f.approve(hardcoverSignInStatus(root, "hardcover")!.url!)).status).toBe(200);
+  };
+  f.user = { id: 4242, username: "renamed_reader" };
+  await reconnect();
+  expect(row(service).identity).toEqual({ username: "renamed_reader" });
+  expect(accountPolicy(root, "hardcover", "hardcover")).toMatchObject({ connected: true, grants: [{ caller: "pilot", access: "read" }] });
+  f.user = { id: 5151, username: "another_reader" };
+  await reconnect();
+  expect(accountPolicy(root, "hardcover", "hardcover")).toMatchObject({ connected: true, grants: [], liveAccess: false });
+  expect(readableIntegrationAccounts(root, "hardcover", { kind: "pilot" })).toEqual([]);
 });
 
 test("each tool sends its own fixed query, one top-level field, with only validated variables", async () => {

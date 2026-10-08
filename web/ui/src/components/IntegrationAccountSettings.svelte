@@ -14,7 +14,7 @@
  import IntegrationReads from "./IntegrationReads.svelte";
  import {onMount} from 'svelte';
  const {source}:{source:string}=$props();
-  type Account={gmail?:boolean;google?:boolean;host?:string;removable?:boolean;email?:{startAt:string;attachments:boolean;backfill?:{since:string}};granola?:{backfill?:{since:string}};sync?:{ok:boolean;error?:string};auth?:{phase:string;url?:string;error?:string};identity?:unknown;signIn?:boolean;reconnect?:boolean;label:string;name:string;account:string;connected:boolean;grants?:{caller:string;access:Access}[];capabilities:{read:string|null;write:string|null}};
+  type Account={gmail?:boolean;google?:boolean;host?:string;removable?:boolean;email?:{startAt:string;attachments:boolean;backfill?:{since:string}};granola?:{backfill?:{since:string}};sync?:{ok:boolean;error?:string};auth?:{phase:string;url?:string;error?:string};identity?:unknown;signIn?:boolean;reconnect?:boolean;unavailable?:string;label:string;name:string;account:string;connected:boolean;grants?:{caller:string;access:Access}[];capabilities:{read:string|null;write:string|null}};
  let newLabel=$state(''),newKey=$state(''),adding=$state(false),destination=$state('this vault');
  let history=$state<Record<string,string>>({});
  let includeHistory=$state<Record<string,boolean>>({});
@@ -79,8 +79,9 @@
   {#if account.signIn&&account.identity}<details><summary>Signed-in account</summary><pre>{typeof account.identity==='string'?account.identity:JSON.stringify(account.identity,null,2)}</pre></details>{/if}
   {#if account.auth?.phase==='browser'}
     <div class="actions"><button onclick={()=>account.auth?.url&&openExternal(account.auth.url)}>Continue sign-in</button><button disabled={busy} onclick={()=>act(account,'cancel')}>Cancel</button></div>
-  {:else if account.reconnect}<div class="actions"><button disabled={busy} onclick={()=>act(account,'connect')}>Reconnect</button><button disabled={busy} onclick={()=>act(account,'disconnect')}>Disconnect</button></div>
-  {:else if !account.connected}<button disabled={busy} onclick={()=>act(account,'connect')}>Connect</button>{:else}<button disabled={busy} onclick={()=>act(account,'disconnect')}>Disconnect</button>{/if}
+  {:else if account.reconnect}<div class="actions">{#if !account.unavailable}<button disabled={busy} onclick={()=>act(account,'connect')}>Reconnect</button>{/if}<button disabled={busy} onclick={()=>act(account,'disconnect')}>Disconnect</button></div>
+  {:else if !account.connected}{#if !account.unavailable}<button disabled={busy} onclick={()=>act(account,'connect')}>Connect</button>{/if}{:else}<button disabled={busy} onclick={()=>act(account,'disconnect')}>Disconnect</button>{/if}
+  {#if account.unavailable&&(!account.connected||account.reconnect)}<p role="status">{account.unavailable}</p>{/if}
   {#if account.auth?.error}<p role="alert">{account.auth.error}</p>{/if}
   {@render note('connection',account.account)}
   </div>

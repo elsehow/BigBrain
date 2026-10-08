@@ -36,6 +36,10 @@ you grant them access in Settings → Integrations.
 Settings → Integrations → Library → Hardcover → Add, then Connect. Your browser
 opens Hardcover's consent screen; approve it and return to BigBrain.
 
+Until BigBrain's own Hardcover app is registered, the library card and Settings
+say that Hardcover sign-in isn't available in this build; a vault can sign in
+with an app of its own meanwhile ([below](#your-own-client-id-self-hosting)).
+
 - BigBrain asks for exactly `read:me:content read:library read:catalog:search
   read:catalog:data`: who you are, your library, and the catalog.
 - If Hardcover grants anything more (`all`, or any `write:` scope), BigBrain
@@ -61,6 +65,11 @@ longer be renewed: you revoked BigBrain on Hardcover's Authorized Apps page, six
 months passed without use, Hardcover reset its tokens, or a refresh failed
 after it may have reached Hardcover (BigBrain never resends one). Click
 Reconnect on the Hardcover card.
+
+**Restoring a backup means reconnecting.** A backup that includes the vault's
+`.spool/` holds a refresh token that has since been spent; the first refresh
+after the restore sends it again, Hardcover ends the whole sign-in, and the
+account needs reconnecting.
 
 Disconnect forgets the tokens on this machine. To end them on Hardcover too,
 revoke BigBrain on Hardcover's Authorized Apps page.

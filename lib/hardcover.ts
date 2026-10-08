@@ -87,15 +87,23 @@ export function disconnectHardcover(root: string, account: string): void {
 export const hardcoverSignInStatus = (root: string, account: string): SignInStatus | undefined => signInStatus("hardcover", root, account);
 export const cancelHardcoverSignIn = (root: string, account: string): void => cancelSignIn("hardcover", root, account);
 
-/** The client this vault signs in with: its own from vault.yaml, else BigBrain's. */
-export function hardcoverClientId(root: string): string {
+/** The client this vault signs in with, its own from vault.yaml else BigBrain's, or why there is none. */
+function client(root: string): { id: string } | { unavailable: string } {
   const own = loadManifest(root).integrations["hardcover"]?.["clientId"];
-  if (own !== undefined) {
-    if (typeof own !== "string" || !/^[\w.~-]{1,200}$/.test(own)) throw Error("integrations.hardcover.clientId in vault.yaml is not a client id.");
-    return own;
-  }
-  if (HARDCOVER_CLIENT_ID === HARDCOVER_CLIENT_ID_PLACEHOLDER) throw Error("Hardcover sign-in isn't available in this build yet. To sign in with your own Hardcover app, set integrations.hardcover.clientId in vault.yaml (docs/hardcover.md).");
-  return HARDCOVER_CLIENT_ID;
+  if (own !== undefined) return typeof own === "string" && /^[\w.~-]{1,200}$/.test(own) ? { id: own } : { unavailable: "integrations.hardcover.clientId in vault.yaml is not a client id." };
+  return HARDCOVER_CLIENT_ID === HARDCOVER_CLIENT_ID_PLACEHOLDER
+    ? { unavailable: "Hardcover sign-in isn't available in this build yet. To sign in with your own Hardcover app, set integrations.hardcover.clientId in vault.yaml (docs/hardcover.md)." }
+    : { id: HARDCOVER_CLIENT_ID };
+}
+export function hardcoverClientId(root: string): string {
+  const c = client(root);
+  if ("unavailable" in c) throw Error(c.unavailable);
+  return c.id;
+}
+/** Why this vault can't sign in to Hardcover yet, as the library and Settings say it; undefined when it can. */
+export function hardcoverSignInUnavailable(root: string): string | undefined {
+  const c = client(root);
+  return "unavailable" in c ? c.unavailable : undefined;
 }
 
 const userAgent = () => `BigBrain/${/^engine (\S+)/.exec(engineIdentity().bundle ?? "")?.[1] ?? "dev"} (+https://bigbrain.cool)`;
