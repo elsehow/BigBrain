@@ -428,6 +428,9 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
 
   // ── input ────────────────────────────────────────────────────────────────
   let W = 1, H = 1, drag: { x: number; y: number; moved: number } | null = null;
+  // where the canvas sits in the window, below the strips (FieldView): its
+  // host ends at the window's foot, so it moves only as it resizes
+  let at = { left: 0, top: 0 };
   // picking: a memory topic's glass under the pointer, else the nearest
   // visible point within a few pixels of it
   const ray = new THREE.Raycaster(), ndc = new THREE.Vector2(), sp = { x: 0, y: 0, ok: false };
@@ -511,7 +514,7 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
 
   const resize = () => {
     const r = host.getBoundingClientRect();
-    W = Math.max(1, r.width); H = Math.max(1, r.height);
+    W = Math.max(1, r.width); H = Math.max(1, r.height); at = { left: r.left, top: r.top };
     renderer.setSize(W, H, false);
     camera.aspect = W / H;
     camera.updateProjectionMatrix();
@@ -680,8 +683,7 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
   const placed: number[][] = [];
   const placeLabels = () => {
     placed.length = 0;
-    // the blockers are the window's; labels sit on the canvas, below the strips (FieldView)
-    const at = canvas.getBoundingClientRect();
+    // the blockers are the window's; labels sit on the canvas
     for (const r of hooks.blockers()) placed.push([r.left - at.left - 8, r.top - at.top - 8, r.right - at.left + 16, r.bottom - at.top + 8]);
     // pilot names first: they're the cast; a focused one's solid keeps labels off it
     for (const pl of pilots.values()) {
