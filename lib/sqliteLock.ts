@@ -84,6 +84,9 @@ const holds = new Set<Database>();
  * hold of the lock that replaced each. Harmless left behind; litter. */
 const swept = new Set<string>();
 
+/** Locks whose holder record could not be written, each said once. */
+const unrecorded = new Set<string>();
+
 /** Where a hold writes who took it, beside the lock. It is for telling a
  * person who has the lock (lockHolder), never for judging whether anyone
  * does: only the lock says that. */
@@ -109,7 +112,13 @@ export function tryHold(path: string, o: { name?: string; retired?: string } = {
     return null;
   }
   holds.add(db);
-  try { writeAtomic(holderFile(path), `${JSON.stringify({ pid: process.pid })}\n`, 0o600); } catch { /* only a report: the lock is held regardless */ }
+  try { writeAtomic(holderFile(path), `${JSON.stringify({ pid: process.pid })}\n`, 0o600); } catch (error) {
+    // Held regardless, but isHeld reads a lock with no record as idle
+    if (!unrecorded.has(path)) {
+      unrecorded.add(path);
+      console.error(`Could not record this process as the holder of ${path} (${error instanceof Error ? error.message : String(error)}); it reads as idle while held.`);
+    }
+  }
   if (o.retired && !swept.has(o.retired)) {
     swept.add(o.retired);
     rmSync(o.retired, { recursive: true, force: true });
@@ -117,6 +126,9 @@ export function tryHold(path: string, o: { name?: string; retired?: string } = {
   return {
     release() {
       if (!holds.delete(db)) return;
+      // The record goes BEFORE the lock, on purpose: after it, a successor may have
+      // written its own, which this must not remove (nor can a probe: it clears one
+      // only while holding the lock itself)
       try { rmSync(holderFile(path), { force: true }); } catch { /* the next hold overwrites it */ }
       try { db.run("ROLLBACK"); } finally { db.close(); }
     },

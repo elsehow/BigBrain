@@ -179,3 +179,19 @@ test("an earlier version's lock directory is removed on the first hold", () => {
   tryHold(join(root, "pass.lock.sqlite"), { retired })!.release();
   expect(existsSync(retired)).toBe(false);
 });
+
+test("a hold whose record cannot be written still holds, and says once that it will read as idle", () => {
+  const root = scratch(), lock = join(root, "pass.lock.sqlite");
+  mkdirSync(join(root, "pass.lock.holder")); // a directory where the record goes: the write fails
+  const warn = spyOn(console, "error").mockImplementation(() => {});
+  try {
+    for (let i = 0; i < 2; i++) {
+      const hold = tryHold(lock)!;
+      expect(hold).not.toBeNull();
+      expect(tryHold(lock)).toBeNull();
+      hold.release();
+    }
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0]![0])).toContain("reads as idle while held");
+  } finally { warn.mockRestore(); }
+});
