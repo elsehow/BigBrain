@@ -562,8 +562,8 @@ export class PilotChats {
     if (!s.spoken?.some(r => r.id === v.id)) { (s.spoken ??= []).push({ id: v.id, message: v.message, text: v.text, status: v.status, at: new Date(this.now()).toISOString() }); this.save(s); }
     return s;
   }
-  send(id: unknown, text: unknown, input?: Omit<PilotInput, "text">): PilotChatSession {
-    return this.acceptInput(id, text, input ?? { id: crypto.randomUUID(), mode: "text" }, false);
+  send(id: unknown, text: unknown): PilotChatSession {
+    return this.acceptInput(id, text, { id: crypto.randomUUID(), mode: "text" }, false);
   }
   private startTurn(s: PilotChatSession, turn: PilotTurn): void {
     const run = { id: turn.id, controller: new AbortController(), task: Promise.resolve() };
