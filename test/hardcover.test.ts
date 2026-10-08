@@ -327,11 +327,21 @@ test("a refresh that may have reached Hardcover is never sent again: the account
   expect(stored(root).tokens).toBeUndefined();
   // still connected, so agents hear the fix, and Settings says what to do
   expect(row(service)).toMatchObject({ connected: true, reconnect: true });
+  expect(row(service).noticeCleared).toBeUndefined();
   expect(integrationCapabilities(root, { kind: "pilot" }).hardcover).toMatchObject({ available: true, reconnect: ["hardcover"] });
+  // the app's notice can be cleared; the account still needs reconnecting
+  await service.update({ name: "hardcover", account: "hardcover", action: "dismiss" });
+  expect(row(service)).toMatchObject({ connected: true, reconnect: true, noticeCleared: true });
+  expect(await read()).toBe(HARDCOVER_RECONNECT);
   await service.update({ name: "hardcover", account: "hardcover", action: "connect" });
   expect((await f.approve(hardcoverSignInStatus(root, "hardcover")!.url!)).status).toBe(200);
   expect(row(service).reconnect).toBeUndefined();
+  expect(row(service).noticeCleared).toBeUndefined();
+  expect(stored(root).noticeCleared).toBeUndefined();
   expect(await read()).toBe("ok");
+  // clearing a notice there is none of keeps nothing for the next lapse
+  await service.update({ name: "hardcover", account: "hardcover", action: "dismiss" });
+  expect(stored(root).noticeCleared).toBeUndefined();
 });
 
 test("a refresh that never left this machine keeps its token for the next try", async () => {

@@ -31,7 +31,12 @@ export function installIntegrationAccessScene(fail=false) {
     client.lastUsed=new Date().toISOString();
     if(client.replaces)clients.find(c=>c.id===client.replaces)!.revoked=new Date().toISOString();
   });
-  const state=()=>({accounts,callers:[{id:'pilot',label:'Pilot'},...clients.filter(c=>!c.revoked).map(c=>({id:'token:'+c.id,label:c.name,...(c.expired?{expired:true}:{})}))]});
+  // `?lapsed-accounts`: a Hardcover sign-in that can no longer renew (its notice, and Needs reconnecting on its card); `=many` five
+  const lapsedAccounts=new URLSearchParams(location.search).get('lapsed-accounts');
+  const lapsed:{name:string;account:string;label:string;connected:boolean;signIn:true;reconnect?:true;noticeCleared?:true;identity?:{username:string};auth?:{phase:string};grants:{caller:string;access:string}[];capabilities:{read:string;write:null}}[]=lapsedAccounts===null?[]:
+    [['hardcover','hardcover'],...(lapsedAccounts==='many'?[['account-1111','Book club'],['account-2222','Second reader'],['account-3333','Gift ideas'],['account-4444','Reading group']]:[])].map(([account,label])=>({name:'hardcover',account:account!,label:label!,connected:true,signIn:true,reconnect:true,
+      ...(account==='hardcover'?{identity:{username:'sample_reader'}}:{}),grants:[{caller:'pilot',access:'read'}],capabilities:{read:'Look up your Hardcover shelves, books and reviews.',write:null}}));
+  const state=()=>({...(lapsed.length?{library:[{id:'hardcover',name:'Hardcover',description:'Look up your shelves, books and reviews on Hardcover.',added:true}]}:{}),accounts:[...accounts,...lapsed],callers:[{id:'pilot',label:'Pilot'},...clients.filter(c=>!c.revoked).map(c=>({id:'token:'+c.id,label:c.name,...(c.expired?{expired:true}:{})}))]});
   const prior=window.fetch.bind(window);
   window.fetch=(async(input: RequestInfo | URL,options?: RequestInit)=>{
     const path=new URL(input instanceof Request?input.url:String(input),location.href).pathname;
@@ -63,6 +68,13 @@ export function installIntegrationAccessScene(fail=false) {
     }
     if(!options?.method)return json(state());
     window.dispatchEvent(new CustomEvent('workbench-integration-action',{detail:body}));
+    const signIn=lapsed.find(a=>a.name===body.name&&a.account===body.account);
+    if(signIn){
+      // signing in again completes at once here
+      if(body.action==='connect'){delete signIn.reconnect;delete signIn.noticeCleared;signIn.auth={phase:'connected'};}
+      else if(body.action==='dismiss')signIn.noticeCleared=true;
+      return json(state());
+    }
     const account=accounts.find(a=>a.account===body.account)!;
     if(body.action==='connect'){
       if(fail){fail=false;return json({error:'Account access failed. Check the inbox connection.'},400);}account.connected=true;

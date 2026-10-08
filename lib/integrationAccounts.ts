@@ -30,11 +30,11 @@ export function configuredAccounts(root:string){
   return [...MANAGED_INTEGRATIONS].flatMap(name=>integrationAccounts(root,name).map(account=>({name,account,...accountPolicy(root,name,account),
     label:(name==='rss'?configuredFeeds(root).find(f=>f.url===account)?.title:extraAccounts(root,name).find(a=>a.id===account)?.label) ?? account,removable:name==='email'||account!==name,...(name==='email'?{gmail:gmailReadOnly(root,account),google:inboxes.some(i=>i.address===account&&isGmailInbox(i)),host:inboxes.find(i=>i.address===account)?.host,sync:readEmailState(root).inboxes[account]?.last}:{}),capabilities:offered(root,name,account).capabilities,...signInRow(root,name,account)})));
 }
-/** A browser sign-in's part of an account row: that it signs in so, the flow under way, who is signed in, and whether it must sign in again. */
+/** A browser sign-in's part of an account row: that it signs in so, the flow under way, who is signed in, and whether it must sign in again (and whether its notice was cleared). */
 function signInRow(root:string,name:string,account:string){
   const signIn=browserSignIn(name);if(!signIn)return {};
-  const unavailable=signIn.unavailable?.(root);
-  return {...(name==='granola'?{transport:'mcp'}:{}),signIn:true,auth:signIn.status(root,account),identity:signIn.identity(root,account),...(signIn.lapsed?.(root,account)?{reconnect:true}:{}),...(unavailable?{unavailable}:{})};
+  const unavailable=signIn.unavailable?.(root),reconnect=!!signIn.lapsed?.(root,account);
+  return {...(name==='granola'?{transport:'mcp'}:{}),signIn:true,auth:signIn.status(root,account),identity:signIn.identity(root,account),...(reconnect?{reconnect:true,...(signIn.noticeCleared?.(root,account)?{noticeCleared:true}:{})}:{}),...(unavailable?{unavailable}:{})};
 }
 function backfill(since:unknown):Backfill{
   if(typeof since!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(since)||!Number.isFinite(Date.parse(since))||new Date(since).toISOString().slice(0,10)!==since||since>new Date().toISOString().slice(0,10))throw Error('Choose a past history start date.');
@@ -99,6 +99,8 @@ export class IntegrationAccounts {
     // whether this account had a policy before anything below writes one: only a first connection takes the defaults
     const prior=accountPolicy(this.root,name,account),fresh=!hasAccountPolicy(this.root,name,account);
     if(signIn&&action==='cancel'){signIn.cancel(this.root,account);return this.list();}
+    // the app's notice that it needs reconnecting, cleared; the card still says so
+    if(signIn&&action==='dismiss'){signIn.clearNotice?.(this.root,account);return this.list();}
     if(signIn&&(action==='connect'||action==='check')){
       writeAccountPolicy(this.root,name,account,{...prior,connected:false});
       const subject=()=>JSON.stringify((signIn.subject??signIn.identity)(this.root,account)),oldSubject=subject();

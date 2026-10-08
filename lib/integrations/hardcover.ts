@@ -6,7 +6,7 @@
  * person's own review included, so every string reaches agents fenced. */
 import { existsSync } from "node:fs";
 import { z } from "zod";
-import { cancelHardcoverSignIn, disconnectHardcover, hardcoverConnection, hardcoverRead, hardcoverSignInStatus, hardcoverSignInUnavailable, startHardcoverSignIn, type HardcoverDocument } from "../hardcover";
+import { cancelHardcoverSignIn, clearHardcoverNotice, disconnectHardcover, hardcoverConnection, hardcoverRead, hardcoverSignInStatus, hardcoverSignInUnavailable, startHardcoverSignIn, type HardcoverDocument } from "../hardcover";
 import { sha256hex } from "../hash";
 import { fencedDataForAgent, type Tally } from "../agentReads";
 import { extraAccounts, policyPath, tool, type Integration, type ToolContext } from "./contract";
@@ -85,6 +85,7 @@ export const hardcover: Integration = {
   credential: { kind: "oauth", signedIn: (root, a) => !!hardcoverConnection(root, a),
     signIn: { start: (root, a, onConnected) => startHardcoverSignIn(root, a, onConnected), status: hardcoverSignInStatus, cancel: cancelHardcoverSignIn,
       disconnect: disconnectHardcover, lapsed: (root, a) => !!hardcoverConnection(root, a)?.lapsed, unavailable: hardcoverSignInUnavailable,
+      noticeCleared: (root, a) => !!hardcoverConnection(root, a)?.noticeCleared, clearNotice: clearHardcoverNotice,
       // shown by username, known by id: a renamed account is the same account
       identity: (root, a) => { const user = hardcoverConnection(root, a)?.identity; return user && { username: user.username }; },
       subject: (root, a) => hardcoverConnection(root, a)?.identity?.id } },

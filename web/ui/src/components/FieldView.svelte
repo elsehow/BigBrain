@@ -7,6 +7,7 @@
   import TopStrips from "./TopStrips.svelte";
   import NotificationStack from "./NotificationStack.svelte";
   import ExpiredClientNotices from "./ExpiredClientNotices.svelte";
+  import IntegrationReconnectNotices from "./IntegrationReconnectNotices.svelte";
   import SettingsScreens from "./SettingsScreens.svelte";
   import V2View from "./V2View.svelte";
   import { app, goto } from "../lib/store.svelte";
@@ -47,6 +48,7 @@
 {/if}
 <NotificationStack />
 <ExpiredClientNotices />
+<IntegrationReconnectNotices />
 <div class="feedback"><Feedback bind:open={feedbackOpen} visible={awake} panel={open ? "settings" : "field"} expanded={false} {wake} /></div>
 
 <style>

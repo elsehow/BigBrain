@@ -66,6 +66,8 @@ interface Credential {
   unverified?: true;
   /** The refresh chain is gone; only signing in again restores it. */
   lapsed?: true;
+  /** The app's notice of the lapse was cleared; a new sign-in starts without it. */
+  noticeCleared?: true;
 }
 type Live = Credential & { clientId: string; tokens: Tokens; user: HardcoverUser };
 
@@ -77,9 +79,14 @@ const read = (root: string, account: string) => readSignIn<Credential>(file(root
 const save = (root: string, account: string, c: Credential) => saveSignIn(file(root, account), c);
 
 /** The account's sign-in as Settings and policies see it, or undefined when it has none. `lapsed`: kept, but no longer renewable. */
-export function hardcoverConnection(root: string, account: string): { generation: string; identity?: HardcoverUser; lapsed: boolean } | undefined {
+export function hardcoverConnection(root: string, account: string): { generation: string; identity?: HardcoverUser; lapsed: boolean; noticeCleared: boolean } | undefined {
   const c = read(root, account);
-  return c?.connected ? { generation: c.generation, ...(c.user ? { identity: c.user } : {}), lapsed: !!c.lapsed || !c.tokens } : undefined;
+  return c?.connected ? { generation: c.generation, ...(c.user ? { identity: c.user } : {}), lapsed: !!c.lapsed || !c.tokens, noticeCleared: !!c.noticeCleared } : undefined;
+}
+/** Clear the notice of a lapsed sign-in. Writes only while it is lapsed: the next sign-in is a new credential, and its lapse is noticed afresh. */
+export function clearHardcoverNotice(root: string, account: string): void {
+  const c = read(root, account);
+  if (c?.connected && (c.lapsed || !c.tokens) && !c.noticeCleared) save(root, account, { ...c, noticeCleared: true });
 }
 export function disconnectHardcover(root: string, account: string): void {
   cancelSignIn("hardcover", root, account);

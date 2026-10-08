@@ -63,8 +63,9 @@ Settings shows **Needs reconnecting**, and agents are told "Hardcover needs
 reconnecting: BigBrain → Settings → Integrations", when the sign-in can no
 longer be renewed: you revoked BigBrain on Hardcover's Authorized Apps page, six
 months passed without use, Hardcover reset its tokens, or a refresh failed
-after it may have reached Hardcover (BigBrain never resends one). Click
-Reconnect on the Hardcover card.
+after it may have reached Hardcover (BigBrain never resends one). The app
+also shows a notice until you reconnect or clear it (one notice however many
+accounts need it). Click Reconnect on the notice or the Hardcover card.
 
 **Restoring a backup means reconnecting.** A backup that includes the vault's
 `.spool/` holds a refresh token that has since been spent; the first refresh

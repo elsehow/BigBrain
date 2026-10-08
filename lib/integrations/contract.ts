@@ -43,6 +43,10 @@ export interface BrowserSignIn {
   unavailable?(root: string): string | undefined;
   /** Kept, but no longer renewable: only signing in again restores it. */
   lapsed?(root: string, account: string): boolean;
+  /** The lapsed sign-in's notice was cleared: it stays quiet until the account lapses again. */
+  noticeCleared?(root: string, account: string): boolean;
+  /** Clears the lapsed sign-in's notice; the account still needs reconnecting. */
+  clearNotice?(root: string, account: string): void;
 }
 
 export interface ToolContext {
