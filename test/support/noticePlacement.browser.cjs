@@ -4,7 +4,9 @@
 // lapsed connections and lapsed accounts raising notices, at the desktop
 // app's window sizes and a phone's, light and dark: no button, field or link
 // of a view meets a notice, nothing covers a notice's own buttons, and
-// Configure takes a click while a notice shows.
+// Configure takes a click while a notice shows. Also with one and two strips
+// over the top bar (an update, a provider out of credits), and with the
+// chat's split dragged as wide as it goes.
 const { chromium } = require('./browserHarness.cjs');
 const assert = require('node:assert/strict');
 const base = process.env.SIDEBAR_PREVIEW_URL || 'http://127.0.0.1:5279';
@@ -42,8 +44,9 @@ const overlaps = page => page.evaluate(() => {
 (async () => {
   const browser = await chromium.launch({ channel: process.env.PLAYWRIGHT_CHANNEL || 'chrome', headless: true });
   try {
-    for (const [width, height, scheme] of [[1280, 1000, 'light'], [1280, 1000, 'dark'], [1440, 900, 'light'], [1864, 1100, 'dark'], [390, 844, 'light']]) {
-      const at = `${width}×${height} ${scheme}`;
+    for (const [width, height, scheme, strips] of [[1280, 1000, 'light', ''], [1280, 1000, 'dark', '&update'], [1440, 900, 'light', ''],
+      [1864, 1100, 'dark', '&update&credits'], [390, 844, 'light', '&update&credits']]) {
+      const at = `${width}×${height} ${scheme}${strips.replaceAll('&', ' ')}`, scene = `${base}/field-workbench.html?view=field&expired-clients=many&lapsed-accounts=many${strips}`;
       const context = await browser.newContext({ viewport: { width, height }, colorScheme: scheme });
       const page = await context.newPage(), errors = [];
       page.on('pageerror', e => errors.push(e.message));
@@ -53,9 +56,17 @@ const overlaps = page => page.evaluate(() => {
         assert.deepEqual(found.covered, [], `${scene} at ${at}: no control under a notice`);
         assert.deepEqual(found.blocked, [], `${scene} at ${at}: nothing over a notice's buttons`);
       };
-      await page.goto(`${base}/field-workbench.html?view=field&expired-clients=many&lapsed-accounts=many#/integrations`);
+      await page.goto(`${scene}#/integrations`);
       await page.locator('[data-notice-id="connection:expired"]').waitFor();
       await page.locator('[data-notice-id="integration:reconnect"]').waitFor();
+      if (strips) {
+        // the stack starts below the strips over the top bar, however many there are
+        await page.locator('.update .nudge').waitFor();
+        if (strips.includes('credits')) await page.locator('.update .credits').waitFor();
+        await page.waitForTimeout(300); // the nudge's slide in
+        const [bar, stack] = await Promise.all(['.update', '.notification-stack'].map(s => page.locator(s).first().boundingBox()));
+        assert(stack.y >= bar.y + bar.height, `the stack starts below the strips at ${at}`);
+      }
       const yours = page.getByRole('region', { name: 'Your integrations' }), scroller = page.locator('aside.panel .settings:has(> .rail)');
       await yours.getByRole('button', { name: 'Configure', exact: true }).waitFor();
       await clear('Settings → integrations');
@@ -79,7 +90,7 @@ const overlaps = page => page.evaluate(() => {
       await page.getByRole('region', { name: 'hardcover accounts' }).waitFor();
       assert.equal(await page.locator('[data-notice-id="connection:expired"]').count(), 1, 'the notice is still up');
       // the field, and a source opened beside its chat: the desktop's view starts below the notices
-      await page.goto(`${base}/field-workbench.html?view=field&expired-clients=many&lapsed-accounts=many`);
+      await page.goto(scene);
       await page.locator('[data-notice-id="connection:expired"]').waitFor();
       await page.locator('.feed.sorted .row').nth(2).waitFor();
       await clear('Field');
@@ -87,6 +98,22 @@ const overlaps = page => page.evaluate(() => {
       await page.getByText('Not kept until you send').waitFor();
       await page.getByRole('button', { name: 'Close Atlas survey update', exact: true }).waitFor();
       await clear('Desktop');
+      if (width >= 1152) {
+        // the split dragged as far right as it goes: the chat stops short of the notices' column
+        const split = await page.locator('.split').boundingBox();
+        await page.mouse.move(split.x + split.width / 2, split.y + split.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(width - 20, split.y + split.height / 2, { steps: 8 });
+        await page.mouse.up();
+        const [chat, stack] = await Promise.all(['.chat', '.notification-stack'].map(s => page.locator(s).boundingBox()));
+        assert(Number(await page.evaluate(() => localStorage.getItem('v2.chatWidth'))) + 34 > stack.x, `the drag asked for the stack's column at ${at}`);
+        assert(chat.x + chat.width <= stack.x, `the chat keeps left of the notices at ${at}`);
+        await clear('Desktop, split dragged wide');
+        // (by script: with two strips up, they sit over the chat's own top row, a separate matter)
+        await page.locator('.chat .find', { hasText: '1 view' }).evaluate(button => button.click());
+        await page.locator('.chat.solo').waitFor();
+        await clear('Lone chat, split dragged wide');
+      }
       if (width === 1280 && scheme === 'light') {
         // a tall stack (three captures more) stops short of the feed, the key hints and Feedback
         await page.keyboard.press('Escape');

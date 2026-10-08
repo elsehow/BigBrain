@@ -1486,6 +1486,9 @@
 
 <style>
   .v2 { --chat-w: clamp(520px, 44vw, 1000px);
+    /* the chat as drawn: your width (or the default), kept left of the
+       notification stack's column while a notice shows */
+    --chat-at: min(var(--chat-w), 100vw - var(--notice-lane, 0px) - 3 * var(--app-gutter, 34px));
     --font-app: "IBM Plex Sans", system-ui, sans-serif;
     --font-mono: "IBM Plex Mono", ui-monospace, monospace;
     --v2-muted: color-mix(in srgb, var(--fg) 65%, var(--bg));
@@ -1553,16 +1556,18 @@
   .find.lit { color: var(--fg); }
   /* What sits under the strip leaves the notification stack its corner
      (NotificationStack.svelte): --notice-band moves it below the stack in a
-     narrow window, --notice-lane centres it left of the stack's column, and
-     --notice-foot starts a desktop's views below the stack. */
+     narrow window, --notice-lane keeps the chat (--chat-at) and the empty
+     state left of the stack's column, and --notice-foot starts a desktop's
+     views below the stack. The lane holds with Settings closed too, on
+     purpose: the field's own chat and empty state have controls there. */
   /* the chat sits on the ground itself: opaque, fading into the field at its right edge */
   .chat { container-type: inline-size;
-    position: absolute; top: 0; bottom: 0; left: 0; width: calc(var(--chat-w) + var(--app-gutter, 34px)); padding: max(72px, var(--notice-band, 0px)) 0 26px var(--app-gutter, 34px); box-sizing: border-box;
+    position: absolute; top: 0; bottom: 0; left: 0; width: calc(var(--chat-at) + var(--app-gutter, 34px)); padding: max(72px, var(--notice-band, 0px)) 0 26px var(--app-gutter, 34px); box-sizing: border-box;
     display: flex; flex-direction: column; gap: 10px; background: var(--bg); z-index: 1; }
   .chat::after { content: ""; position: absolute; top: 0; bottom: 0; right: -96px; width: 96px; pointer-events: none;
     background: linear-gradient(to right, var(--bg), color-mix(in srgb, var(--bg) 0%, transparent)); }
   /* with no views the chat stands alone, centred, fading into the field on both sides */
-  .chat.solo { left: calc((100% - var(--notice-lane, 0px)) / 2); transform: translateX(-50%); padding-right: var(--app-gutter, 34px); width: calc(var(--chat-w) + 2 * var(--app-gutter, 34px)); }
+  .chat.solo { left: calc((100% - var(--notice-lane, 0px)) / 2); transform: translateX(-50%); padding-right: var(--app-gutter, 34px); width: calc(var(--chat-at) + 2 * var(--app-gutter, 34px)); }
   .chat.solo::before { content: ""; position: absolute; top: 0; bottom: 0; left: -96px; width: 96px; pointer-events: none;
     background: linear-gradient(to left, var(--bg), color-mix(in srgb, var(--bg) 0%, transparent)); }
   .chat .top { display: flex; align-items: flex-start; gap: 12px; }
@@ -1638,10 +1643,10 @@
   .composer .row { display: flex; align-items: center; gap: 8px; }
   .composer .row .k { margin-right: auto; }
   /* the desktop's views take every pixel the chat doesn't */
-  .split { position: absolute; z-index: 2; top: max(62px, var(--notice-band, 0px)); bottom: 26px; left: calc(var(--chat-w) + 2 * var(--app-gutter, 34px)); width: 14px; transform: translateX(-50%); cursor: col-resize; touch-action: none; }
+  .split { position: absolute; z-index: 2; top: max(62px, var(--notice-band, 0px)); bottom: 26px; left: calc(var(--chat-at) + 2 * var(--app-gutter, 34px)); width: 14px; transform: translateX(-50%); cursor: col-resize; touch-action: none; }
   .split::after { content: ""; position: absolute; top: 0; bottom: 0; left: 6px; width: 2px; border-radius: 1px; background: var(--fg); opacity: 0; transition: opacity .15s; }
   .split:hover::after, .split:active::after { opacity: .35; }
-  .side { position: absolute; top: max(62px, var(--notice-foot, 0px)); bottom: 26px; right: var(--app-gutter, 34px); left: calc(var(--chat-w) + 3 * var(--app-gutter, 34px)); z-index: 1;
+  .side { position: absolute; top: max(62px, var(--notice-foot, 0px)); bottom: 26px; right: var(--app-gutter, 34px); left: calc(var(--chat-at) + 3 * var(--app-gutter, 34px)); z-index: 1;
     display: flex; flex-direction: column; gap: 8px; }
   .side > .ws-split, .side > .view { flex: 1; min-height: 0; }
   .ws-split { display: flex; gap: 10px; min-width: 0; min-height: 0; }

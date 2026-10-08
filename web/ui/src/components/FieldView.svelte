@@ -23,6 +23,8 @@
   let sleep: ReturnType<typeof setTimeout> | undefined;
   const wake = () => { awake = true; clearTimeout(sleep); sleep = setTimeout(() => { awake = false; }, 2500); };
   const close = () => goto("home");
+  // the strips over the top bar, which the notification stack starts below
+  let strips = $state(0);
   // Esc closes the panel, from any field in it. An open Feedback dialog is
   // modal, so the registry hands its keys to the dialog instead.
   $effect(() => {
@@ -34,7 +36,7 @@
 
 <svelte:window onpointermove={wake} />
 
-<div class="update"><TopStrips /></div>
+<div class="update" bind:offsetHeight={strips}><TopStrips /></div>
 <DropZone />
 <V2View paused={open || feedbackOpen} />
 {#if open}
@@ -46,7 +48,7 @@
     <SettingsScreens />
   </aside>
 {/if}
-<NotificationStack />
+<NotificationStack below={strips} />
 <ExpiredClientNotices />
 <IntegrationReconnectNotices />
 <div class="feedback"><Feedback bind:open={feedbackOpen} visible={awake} panel={open ? "settings" : "field"} expanded={false} {wake} /></div>
