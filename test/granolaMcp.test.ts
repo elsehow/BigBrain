@@ -1,5 +1,5 @@
 import {test,expect} from 'bun:test';
-import {mkdirSync,rmSync,readdirSync,statSync,writeFileSync} from 'node:fs';
+import {existsSync,mkdirSync,rmSync,readdirSync,statSync,writeFileSync} from 'node:fs';
 import {dirname,join} from 'node:path';
 import {nativeVault} from './support/vault';
 import {sha256hex} from '../lib/hash';
@@ -170,5 +170,18 @@ test('explicit library addition keeps its enabled defaults through first OAuth s
   await service.update({name:'granola',action:'install'});
   await connect(service,root);
   expect(service.list().accounts.find(a=>a.name==='granola')).toMatchObject({connected:true,grants:[{caller:'pilot',access:'read'}]});
+ }finally{disconnectGranola(root,'granola');f.server.stop(true);rmSync(root,{recursive:true,force:true});}
+});
+
+test('the pid-lock directory earlier versions left beside a sign-in is removed',async()=>{
+ const root=nativeVault(),f=fake();
+ try{
+  const status=await startGranolaSignIn(root,'granola',()=>{},{endpoint:f.endpoint});
+  const auth=new URL(status.url!);
+  expect((await fetch(auth.searchParams.get('redirect_uri')+'?code=work&state='+auth.searchParams.get('state'))).status).toBe(200);
+  const legacy=join(root,'.spool/source-mcp/granola',sha256hex('granola')+'.json.lock');
+  mkdirSync(legacy,{recursive:true});writeFileSync(join(legacy,'pid'),'999999999\n');
+  await withGranola(root,'granola',async()=>null,{endpoint:f.endpoint});
+  expect(existsSync(legacy)).toBe(false);
  }finally{disconnectGranola(root,'granola');f.server.stop(true);rmSync(root,{recursive:true,force:true});}
 });

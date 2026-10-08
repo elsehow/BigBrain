@@ -70,3 +70,19 @@ test("an instant's hold waits only its bound, and what it writes commits or roll
   expect(lockBusy(refused)).toBe(true);
   expect(performance.now() - started).toBeLessThan(3_000);
 });
+
+test("holding a lock again inside its own hold throws at once; another call chain in the process waits its turn", async () => {
+  const root = scratch(), lock = join(root, "a.lock.sqlite"), o = { busy: "Held elsewhere.", wait: 5_000 };
+  const started = performance.now();
+  await expect(withHeldLock(lock, () => withHeldLock(lock, async () => "inner", o), o)).rejects.toThrow("holding it again inside would wait on itself");
+  expect(performance.now() - started).toBeLessThan(1_000);
+  const order: string[] = [];
+  const hold = (name: string) => withHeldLock(lock, async () => { order.push(name + " in"); await Bun.sleep(100); order.push(name + " out"); }, o);
+  await Promise.all([hold("a"), hold("b")]);
+  expect(order).toEqual(["a in", "a out", "b in", "b out"]);
+});
+
+test("an error SQLite already rolled back for is the one reported", () => {
+  const root = scratch(), lock = join(root, "budget.sqlite");
+  expect(() => withLockedDatabase(lock, db => { db.run("ROLLBACK"); throw Error("disk full"); }, 100)).toThrow("disk full");
+});

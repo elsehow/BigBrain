@@ -1,6 +1,7 @@
 /** Granola's upstream MCP client. Credentials are private, per vault/account.
  * OAuth uses the SDK's discovery, dynamic registration and PKCE implementation;
  * the browser flow and the refresh lock are lib/oauthSignIn.ts's. */
+import { rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -81,9 +82,13 @@ export async function startGranolaSignIn(root:string,account:string,onConnected:
     close:async()=>{await closeClient?.();},
   });
 }
+/** Accounts whose pid-lock directory, the lock earlier versions took, is gone. */
+const swept=new Set<string>();
 /** Serialize refreshes across the web process and integration poller. */
 export async function withGranola<T>(root:string,account:string,fn:(client:Client,tools:Tool[])=>Promise<T>,options:{endpoint?:string;fetch?:FetchLike;signal?:AbortSignal}={}):Promise<T>{
-  return withSignInLock(path(root,account).replace(/\.json$/,'.lock.sqlite'),async()=>{
+  const credential=path(root,account);
+  if(!swept.has(credential)){swept.add(credential);rmSync(credential+'.lock',{recursive:true,force:true});}
+  return withSignInLock(credential.replace(/\.json$/,'.lock.sqlite'),async()=>{
     let conn:ReturnType<typeof connection>|undefined;
     try{
       const c=read(root,account);if(!c?.connected||!c.tokens)throw Error('Connect Granola in Settings → Integrations.');

@@ -9,8 +9,8 @@ import { lockBusy, withLockedDatabase } from "./sqliteLock";
 
 export interface RequestLimits { burst: number; perMinute: number; daily: number }
 interface Budget { tokens: number; at: number; day: string; used: number }
-/** Another process holds the budget for an instant at most; waiting longer than this means something is wrong. */
-const WAIT = 2_000;
+/** Another process holds the budget for milliseconds; held longer, its holder is suspended, and this waits synchronously, freezing the event loop, so not for long. */
+const WAIT = 500;
 
 /** Why a request was not taken: the day's budget is spent, or the next slot is further off than the caller waits. */
 export class LimitError extends Error {
