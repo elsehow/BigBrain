@@ -28,8 +28,9 @@ its operating-system account's filesystem permissions.
 A connection lapses after 30 days unused; any use restarts the clock. A lapsed
 connection's tools all answer "This BigBrain connection expired after 30 days
 unused. Renew it in BigBrain → Settings → Connected clients.", and when a
-client tries one the app shows a notice with **Renew**. Renewing keeps the
-connection's ID, configuration and access, so nothing in the client changes.
+client tries one the app shows a notice with **Renew** (several share one
+notice, which opens Connected clients). Renewing keeps the connection's ID,
+configuration and access, so nothing in the client changes.
 
 The public tools are `load_memory`, `search_vault`, `read_note`, and `drop`.
 Contributions are attributed to the named credential. This does not grant

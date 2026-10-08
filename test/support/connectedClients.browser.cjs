@@ -58,22 +58,41 @@ const base=process.env.SIDEBAR_PREVIEW_URL||'http://127.0.0.1:5219';
  await migrated.getByText('Authorized',{exact:true}).waitFor();
  assert.equal(await page.getByRole('heading',{name:'Claude Code',exact:true}).count(),2,'revoking one credential preserves the other');
  await page.setViewportSize({width:1280,height:1000});
- await page.goto(`${base}/sidebar-workbench.html?expired-clients=1#/settings/connected-clients`);
+ // lapsed connections a client tried share ONE notice, which opens Connected clients
+ await page.goto(`${base}/sidebar-workbench.html?expired-clients=1#/integrations`);
+ const notices=page.locator('[data-notice-kind="connection"]');
+ await notices.first().waitFor();
+ assert.equal(await notices.count(),1,'one notice however many lapsed connections were tried');
+ const several=notices.first();
+ assert.equal(await several.getByRole('heading').innerText(),'BigBrain connections expired');
+ await several.getByText('Claude Code at the studio and claude code on sample laptop. Clients tried to use them; renew to restore the same access.',{exact:true}).waitFor();
+ assert.deepEqual(await several.getByRole('button').allInnerTexts(),['Open Connected clients','Clear']);
+ await several.getByRole('button',{name:'Open Connected clients',exact:true}).click();
+ await page.getByText('Existing connections',{exact:true}).waitFor();
  const lapsed=page.locator('.settings-card').filter({hasText:'Claude Code at the studio'});
  await lapsed.getByText('Expired after 30 days unused',{exact:true}).waitFor();
  await page.locator('.settings-card').filter({hasText:'Old generic client'}).getByRole('button',{name:'Renew',exact:true}).waitFor();
- const notices=page.locator('[data-notice-kind="connection"]');
- await notices.first().waitFor();
- assert.equal(await notices.count(),2,'only lapsed connections a client tried raise a notice');
  const lapsedLegacy=page.locator('.settings-card').filter({hasText:'claude code on sample laptop'});
  await lapsedLegacy.getByText('Expired after 30 days unused',{exact:true}).waitFor();
  await lapsedLegacy.getByText('Renew it, or replace it with a named MCP connection.',{exact:true}).waitFor();
  assert.equal(await lapsedLegacy.getByText(/keeps working/).count(),0,'a lapsed plugin is not promised to keep working');
- const notice=notices.filter({hasText:'Claude Code at the studio'});
+ // Clear forgets every attempt; the connections stay expired
+ await several.getByRole('button',{name:'Clear BigBrain connections expired',exact:true}).click();
+ await several.waitFor({state:'detached'});
+ await lapsed.getByText('Expired after 30 days unused',{exact:true}).waitFor();
+ // past three names, how many more
+ await page.goto(`${base}/sidebar-workbench.html?expired-clients=many#/settings/connected-clients`);
+ await notices.first().getByText('Claude Code at the studio, claude code on sample laptop, Codex in the workshop and 2 more. Clients tried to use them; renew to restore the same access.',{exact:true}).waitFor();
+ assert.equal(await notices.count(),1);
+ // one tried connection is named, with Renew
+ await page.goto(`${base}/sidebar-workbench.html?expired-clients=one#/settings/connected-clients`);
+ const notice=notices.first();await notice.waitFor();
+ assert.equal(await notice.getByRole('heading').innerText(),'Claude Code at the studio');
  assert.match(await notice.innerText(),/Expired after 30 days unused/);
+ assert.deepEqual(await notice.getByRole('button').allInnerTexts(),['Renew','Clear']);
  await notice.getByRole('button',{name:'Renew',exact:true}).click();
  await notice.waitFor({state:'detached'});
- assert.equal(await notices.count(),1);
+ assert.equal(await notices.count(),0);
  await lapsed.getByText('Authorized',{exact:true}).waitFor();
  await lapsed.getByText('Connection 77777777 · Manual setup',{exact:true}).waitFor();
  assert.deepEqual(errors,[]);console.log('Connected Clients: production shell passed');
