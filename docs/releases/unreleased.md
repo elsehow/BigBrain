@@ -1,3 +1,5 @@
 # BigBrain (unreleased)
 
 - **Choose which agents read each account.** After updating, external agents such as Claude Code and Codex start with no access to your accounts. In Settings → Integrations, each account lists Pilot and every connected client; choose who can read it. Pilot keeps reading the accounts where Live access was on. Saved passwords and sign-ins are kept, so nothing needs reconnecting.
+- **Unused connections expire after 30 days.** A client connection that goes 30 days without use stops working until you renew it. **Renew** in Settings → Connected clients keeps the same connection and access, so nothing changes in the client. When a client tries an expired connection, BigBrain shows a notice to renew it. A connection that had already gone unused for 30 days raises that notice as soon as its client starts after the update.
+- **See what agents read.** Each account in Settings → Integrations has **Recent reads**: who read it, with which tool, and whether it worked. Each client in Settings → Connected clients shows its last successful read. The log stays on this computer for at least 90 days and includes search queries, but never what was read.
