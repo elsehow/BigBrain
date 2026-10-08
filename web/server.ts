@@ -863,7 +863,7 @@ export function start(): void {
   if (!secret) throw new Error(`no viewer session at ${viewerSessionPath(PORT)}; the supervisor writes it at start`);
   const allowSession = viewerGate(secret, PORT);
   live.start();
-  // Pilot's live reads, and its coding desktops', are dispatched in this process.
+  // Pilot's live reads are dispatched in this process.
   logIntegrationCalls(ROOT);
   // Cold projection recovery happens HERE, off the request path (#456): a
   // fresh process against a native vault syncs once at boot, so the first

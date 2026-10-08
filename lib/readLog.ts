@@ -97,7 +97,9 @@ const clip = (s: string, n: number): string => (s.length > n ? s.slice(0, n) + "
 const ID_KEY = /^(?:ref|id|uid|uidvalidity)$|_(?:id|ref|uid|uidvalidity)$/u;
 /** The dispatcher's argument summary with credential shapes withheld (refs
  * and ids, opaque on purpose, only from the definite shapes), each string
- * clipped to `room`. */
+ * clipped to `room`. A call refused before its arguments were validated is
+ * summarized as sent, so its top-level strings are logged, clipped and
+ * screened, whatever their keys: by design, to show what was attempted. */
 export function loggedArgs(summary: Arguments, room = 200): Arguments {
   return Object.fromEntries(Object.entries(summary).map(([k, v]) => [clip(scrub(k), 64), typeof v === "string" ? clip(scrub(v, ID_KEY.test(k) ? "id" : "text"), room) : v]));
 }
@@ -212,9 +214,10 @@ export function mcpParent(): NonNullable<ReadRecord["parent"]> {
  * `mcp` notes the client program that started this server. Returns the way to stop. */
 export function logIntegrationCalls(root: string, options: { mcp?: boolean } = {}): () => void {
   let said = false;
+  const parent = options.mcp ? mcpParent() : undefined; // asked now, not in a call's finally
   return observeIntegrationCalls(call => {
     try {
-      appendRead(readLogDir(root), readRecord(call, { label: callerLabel(root, call.caller), ...(options.mcp ? { parent: mcpParent() } : {}) }));
+      appendRead(readLogDir(root), readRecord(call, { label: callerLabel(root, call.caller), ...(parent ? { parent } : {}) }));
     } catch (error) {
       if (said) return;
       said = true;
@@ -226,13 +229,16 @@ export function logIntegrationCalls(root: string, options: { mcp?: boolean } = {
 // ── reading ─────────────────────────────────────────────────────────────────
 
 const OUTCOMES = new Set(["ok", "refused", "error"]);
-/** Every retained record, newest month and line first. */
-function* newestFirst(dir: string): Generator<ReadRecord> {
+/** Every retained record, newest month and line first; past the newest month, at most `older` lines more. */
+function* newestFirst(dir: string, older = Infinity): Generator<ReadRecord> {
   let names: string[];
   try { names = readdirSync(dir).filter(n => MONTH.test(n)).sort().reverse(); } catch { return; }
-  for (const name of names)
-    for (const r of (jsonLines(join(dir, name)) as Partial<ReadRecord>[]).reverse())
+  for (const [i, name] of names.entries()) {
+    const lines = (jsonLines(join(dir, name)) as Partial<ReadRecord>[]).reverse();
+    for (const r of i === 0 ? lines : lines.slice(0, older))
       if (typeof r?.ts === "string" && typeof r.caller === "string" && typeof r.integration === "string" && typeof r.tool === "string" && OUTCOMES.has(r.outcome!)) yield r as ReadRecord;
+    if (i > 0 && (older -= lines.length) <= 0) return;
+  }
 }
 
 /** An account's latest records, newest first, each caller's first read of the
@@ -250,12 +256,17 @@ export function recentReads(root: string, integration: string, account: string, 
   return out.sort((a, b) => b.ts.localeCompare(a.ts));
 }
 
-/** Each caller's latest successful call: when, and on which integration. */
-export function lastReads(root: string): Map<string, { ts: string; integration: string }> {
-  const out = new Map<string, { ts: string; integration: string }>();
-  for (const r of newestFirst(readLogDir(root))) {
+/** Each caller's latest successful call: when, and on which integration. The
+ * scan stops once every caller in `wanted` has one, and reads no further back
+ * than the newest month and 5,000 lines before it. */
+export function lastReads(root: string, wanted: readonly string[]): Map<string, { ts: string; integration: string }> {
+  const out = new Map<string, { ts: string; integration: string }>(), missing = new Set(wanted);
+  for (const r of newestFirst(readLogDir(root), 5_000)) {
+    if (r.outcome !== "ok") continue;
     const prior = out.get(r.caller);
-    if (r.outcome === "ok" && (!prior || prior.ts < r.ts)) out.set(r.caller, { ts: r.ts, integration: r.integration });
+    if (!prior || prior.ts < r.ts) out.set(r.caller, { ts: r.ts, integration: r.integration });
+    missing.delete(r.caller);
+    if (!missing.size) break;
   }
   return out;
 }

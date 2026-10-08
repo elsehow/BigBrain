@@ -2,6 +2,7 @@
  * recent reads, and when each caller last read. Behind the viewer session,
  * like every route the viewer serves. */
 import { json, type Route } from "./httpx";
+import { integrationCallerChoices } from "./integrationAccess";
 import { integrationNamed } from "./integrations";
 import { lastReads, recentReads } from "./readLog";
 
@@ -13,7 +14,7 @@ export function readLogRoutes(root: string): Route[] {
       json(res, 200, { reads: recentReads(root, integration, account) });
     } },
     { method: "GET", path: "/api/integration-reads/callers", handler: ({ res }) => {
-      json(res, 200, { callers: Object.fromEntries([...lastReads(root)].map(([caller, last]) => [caller, { ...last, name: integrationNamed(last.integration)?.name ?? last.integration }])) });
+      json(res, 200, { callers: Object.fromEntries([...lastReads(root, integrationCallerChoices(root).map(c => c.id))].map(([caller, last]) => [caller, { ...last, name: integrationNamed(last.integration)?.name ?? last.integration }])) });
     } },
   ];
 }

@@ -37,10 +37,11 @@ report suspected vulnerabilities even if an update is not possible.
   least-privilege defaults and tie every read to a named caller; they are not a
   sandbox. A program on this Mac that has a shell can reach what your account
   can, whatever BigBrain grants it.
-  Every live integration call by Pilot or a connected client is recorded in an
-  owner-only read log on this machine, kept 90 days: who asked, which account
-  and tool, the arguments in summary and how the call ended, never what was
-  read or a credential ([where it lives](docs/self-host.md#the-read-log)).
+  Every live integration call except discovery, by Pilot or a connected
+  client, is recorded in an owner-only read log on this machine, kept at least
+  90 days: who asked, which account and tool, the arguments in summary and how
+  the call ended, never what was read or a credential
+  ([where it lives](docs/self-host.md#the-read-log)).
 - Imported pages, messages, files and model output are untrusted content.
   Sanitized rendering and host-enforced tool permissions provide separate
   protections. Prompt wording alone is not a security boundary.

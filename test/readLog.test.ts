@@ -125,7 +125,7 @@ test("a caller's first read of an integration is marked, and remembered after it
   await integrationToolCall(root, pilot, "inbox_list", { account: "me@example.com" }, provider());
   const reads = recentReads(root, "email", "me@example.com");
   expect(reads.map(r => !!r.first)).toEqual([false, true]);
-  expect(lastReads(root).get("pilot")).toEqual({ ts: reads[0]!.ts, integration: "email" });
+  expect(lastReads(root, ["pilot"]).get("pilot")).toEqual({ ts: reads[0]!.ts, integration: "email" });
   // a log whose first read is in a pruned month: later reads are not first
   log = process.env.BIGBRAIN_READ_LOG = scratch();
   writeFileSync(join(log, "firsts.jsonl"), JSON.stringify({ ts: "2025-01-01T00:00:00.000Z", caller: "pilot", integration: "email" }) + "\n");
@@ -152,6 +152,21 @@ test("one file a month; months that ended over 90 days ago are pruned as it writ
   // June ended 98 days before; July 68
   expect(readdirSync(log).sort()).toEqual(["2026-07.jsonl", "2026-09.jsonl", "2026-10.jsonl", "notes.txt"]);
   expect(readFileSync(join(log, "2026-09.jsonl"), "utf8").trim().split("\n")).toHaveLength(1);
+});
+
+test("each caller's last read is found without reading the whole log", () => {
+  const line = (caller: string, ts: string, outcome: ReadRecord["outcome"] = "ok") =>
+    JSON.stringify({ ts, caller, label: caller, integration: "email", account: "me@example.com", tool: "inbox_list", args: {}, outcome, ms: 1 });
+  writeFileSync(join(log, "2026-10.jsonl"), [line("token:aaaa0001", "2026-10-01T00:00:00.000Z"), line("pilot", "2026-10-02T00:00:00.000Z"), line("pilot", "2026-10-03T00:00:00.000Z", "refused")].join("\n") + "\n");
+  // an older month: one client's read behind 5,000 lines of others' refusals, another's after
+  writeFileSync(join(log, "2026-09.jsonl"), [line("token:bbbb0002", "2026-09-01T00:00:00.000Z"), ...Array.from({ length: 5_000 }, () => line("token:cccc0003", "2026-09-02T00:00:00.000Z", "refused")),
+    line("token:dddd0004", "2026-09-03T00:00:00.000Z")].join("\n") + "\n");
+  // stops once everyone asked for is found
+  expect([...lastReads(root, ["pilot"]).keys()]).toEqual(["pilot"]);
+  expect(lastReads(root, ["pilot", "token:aaaa0001"]).get("pilot")).toEqual({ ts: "2026-10-02T00:00:00.000Z", integration: "email" });
+  // reads the newest month whole, then 5,000 lines more at most
+  const far = lastReads(root, ["pilot", "token:bbbb0002", "token:dddd0004"]);
+  expect([...far.keys()].sort()).toEqual(["pilot", "token:aaaa0001", "token:dddd0004"]);
 });
 
 test("two processes appending at once leave whole lines", async () => {
