@@ -7,13 +7,12 @@ export interface StackNotice {
   children: Snippet;
   status?: Snippet;
   hasInput?: boolean;
-  onopen?: () => void | Promise<void>;
   /** The fix, when the notice names one (Renew). */
   action?: { label: string; run: () => void | Promise<void> };
   onclear: () => void | Promise<void>;
 }
 
-// Every producer registers the same presentation type. Uploads and agent state
+// Every producer registers the same presentation type. Uploads and connections
 // remain with their owners; this registry owns only their visible notices.
 export const notificationStack = $state({ items: [] as StackNotice[] });
 export function registerNotice(notice: StackNotice): () => void {

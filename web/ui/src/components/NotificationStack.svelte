@@ -54,7 +54,6 @@
           </div>
           <footer>
             {#if item.action}<button onclick={() => settle(item.id, item.action?.run)} disabled={clearing.includes(item.id)}>{item.action.label}</button>{/if}
-            {#if item.onopen}<button onclick={() => void item.onopen?.()}>Open conversation</button>{/if}
             {#if item.hasInput}<button onclick={() => enterInput(item.id)}>Add note</button>{/if}
             <button onclick={() => clear(item.id)} disabled={clearing.includes(item.id)} aria-label={`Clear ${item.title}`}>Clear</button>
           </footer>
@@ -66,7 +65,7 @@
 <style>
   /* at most half the window, and never down into the field's bottom 230px
      (the feed, the key hints, Feedback, a chat's message box) */
-  .notification-stack { position:absolute; top:88px; right:16px; z-index:125; width:460px; max-width:calc(100vw - 32px); max-height:min(50dvh, calc(100% - 318px)); display:flex; flex-direction:column; gap:8px; }
+  .notification-stack { position:absolute; top:88px; right:16px; z-index:125; width:460px; max-width:calc(100vw - 32px); max-height:min(50dvh, calc(100% - 318px)); display:flex; flex-direction:column; }
   .notice-list { overflow:auto; padding:3px; margin:-3px; display:flex; flex-direction:column; gap:12px; }
   .notification-sheet { flex:none; outline:none; }
   button { border:0; background:none; color:var(--text-strong); font:var(--type-meta); cursor:pointer; }
