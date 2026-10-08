@@ -61,8 +61,8 @@ test("old Pilot worker reports and approval notifications cannot restart a model
   const notifications = [{ id: "notice", pilotId: pilot, pilotTitle: s.title, messageId: "notice-message", key: "access", text: "Historical access request", kind: "update", workerRequest: `${id}:pending-access`, at, seen: false }];
   const file = join(spoolDir(root), "pilot-chats", `${pilot}.json`);
   writeAtomic(file, JSON.stringify({ ...s, notifications }));
-  // A previous engine cached this as a cold archive despite its outstanding request.
-  readHistoryIndex(root, "pilots-v1", join(spoolDir(root), "pilot-chats"), /^pilot-.*\.json$/,
+  // A previous engine cached this as a cold archive despite its pending report.
+  readHistoryIndex(root, "pilots-v3", join(spoolDir(root), "pilot-chats"), /^pilot-.*\.json$/,
     () => ({ group: "pilot", order: s.updated, summary: { view: pilotChatSummary(s), archived: true } }));
   let dispatches = 0;
   for (let restart = 0; restart < 2; restart++) {
