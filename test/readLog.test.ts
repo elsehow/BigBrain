@@ -17,7 +17,8 @@ import { sha256hex } from "../lib/hash";
 import { ConnectedClients } from "../lib/connectedClients";
 import { accountFingerprint, writeAccountPolicy, type IntegrationCaller } from "../lib/integrationAccess";
 import { integrationToolCall } from "../lib/integrationTools";
-import { appendRead, argsSummary, lastReads, logIntegrationCalls, mcpParent, measured, readLogDir, readRecord, recentReads, type ReadRecord } from "../lib/readLog";
+import { appendRead, lastReads, loggedArgs, logIntegrationCalls, mcpParent, readLogDir, readRecord, recentReads, type ReadRecord } from "../lib/readLog";
+import type { IntegrationCall } from "../lib/integrationTools";
 
 const dirs: string[] = [];
 const scratch = (prefix = "bb-reads-"): string => { const d = mkdtempSync(join(tmpdir(), prefix)); dirs.push(d); return d; };
@@ -58,11 +59,12 @@ test("a read is one line: who, what, how it ended, how much came back", async ()
   await integrationToolCall(root, pilot, "inbox_read", { ref }, provider());
   const [r] = lines();
   expect(r).toMatchObject({ caller: "pilot", label: "Pilot", integration: "email", account: "me@example.com", tool: "inbox_read", args: { ref }, outcome: "ok", first: true });
-  expect(Object.keys(r!).sort()).toEqual(["account", "args", "bytes", "caller", "first", "integration", "items", "label", "ms", "outcome", "tool", "ts", "withheld"]);
+  expect(Object.keys(r!).sort()).toEqual(["account", "args", "caller", "first", "held", "integration", "items", "label", "ms", "outcome", "resultBytes", "screened", "tool", "ts"]);
   expect(Date.parse(r!.ts)).toBeGreaterThan(Date.now() - 60_000);
-  expect(r!.bytes).toBeGreaterThan(100);
+  expect(r!.resultBytes).toBeGreaterThan(100);
   expect(typeof r!.items).toBe("number");
-  expect(r!.withheld).toBeGreaterThanOrEqual(1); // the code the screen withheld
+  expect(r!.screened).toBeGreaterThanOrEqual(1); // the code the screen withheld
+  expect(r!.held).toBe(0);
   expect(month()).toBe(`${r!.ts.slice(0, 7)}.jsonl`);
 });
 
@@ -81,21 +83,21 @@ test("fresh sign-in mail held back is counted, not kept", async () => {
   const [r] = lines();
   expect(r!.held).toBe(1);
   expect(JSON.stringify(r)).not.toContain("731904");
-  const result = { provenance: {}, result: { messages: [{ held: "x" }, { subject: "[one-time code withheld — open in Mail]" }, {}] } };
-  expect(measured(result)).toEqual({ bytes: Buffer.byteLength(JSON.stringify(result)), items: 3, withheld: 1, held: 1 });
 });
 
-test("arguments are summarized: strings clipped to 200, refs and ids kept, credentials withheld", () => {
-  const long = "q".repeat(500), id = "R".repeat(300);
-  const s = argsSummary({ query: long, ref: id, meeting_id: "m-1", limit: 10, arguments: { a: { b: { c: { d: 1 } } }, ids: Array.from({ length: 15 }, (_, i) => `id${i}`) },
-    note: "password: hunter2x and Bearer abcdefghijklmnop1234 and ghp_ABCDEFGHIJKLMNOPQRSTUV and eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl" });
-  expect(s.query).toBe("q".repeat(200) + "…");
-  expect(s.ref).toBe(id);
-  expect(s.meeting_id).toBe("m-1");
-  expect(s.limit).toBe(10);
-  expect(s.arguments).toEqual({ a: { b: "{…}" }, ids: [...Array.from({ length: 10 }, (_, i) => `id${i}`), "… 5 more"] });
+test("the dispatcher's argument summary is logged with credential shapes withheld again; refs kept", () => {
+  const s = loggedArgs({ query: "q".repeat(199) + "…", ref, meeting_id: "m-1", limit: 10, arguments: "{2 keys}", off: null,
+    note: "password: hunter2x and Bearer abcdefghijklmnop1234 and ghp_ABCDEFGHIJKLMNOPQRSTUV and eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl", opaque: ref });
+  expect(s).toMatchObject({ query: "q".repeat(199) + "…", ref, meeting_id: "m-1", limit: 10, arguments: "{2 keys}", off: null, opaque: "[withheld]" });
   for (const secret of ["hunter2x", "abcdefghijklmnop1234", "ghp_", "eyJhbGci"]) expect(String(s.note)).not.toContain(secret);
-  expect(argsSummary({ query: "invoice from example.com 2026" })).toEqual({ query: "invoice from example.com 2026" });
+  expect(loggedArgs({ query: "invoice from example.com 2026" })).toEqual({ query: "invoice from example.com 2026" });
+  // a summary too long for one line is clipped harder, then left out
+  const call: IntegrationCall = { at: "2026-10-07T12:00:00.000Z", caller: "pilot", integration: "email", account: "me@example.com", tool: "email_search", outcome: "refused", ms: 1, resultBytes: 0, items: 0, screened: 0, held: 0,
+    argsSummary: Object.fromEntries(Array.from({ length: 20 }, (_, i) => [`k${i}`, "w ".repeat(99) + "…"])) };
+  expect(Object.values(readRecord(call, { label: "Pilot" }).args).every(v => String(v).length === 41)).toBe(true);
+  // control characters take six bytes each in JSON
+  const wide = "\u0001".repeat(199) + "…";
+  expect(readRecord({ ...call, argsSummary: Object.fromEntries(Array.from({ length: 20 }, (_, i) => [`${i}${wide}`, wide])) }, { label: "Pilot" }).args).toEqual({ "…": "arguments too long to log" });
 });
 
 test("refusals and failures are logged, their errors clipped and screened", async () => {
@@ -105,15 +107,15 @@ test("refusals and failures are logged, their errors clipped and screened", asyn
   const [refused, gardener, failed] = lines();
   expect(refused).toMatchObject({ caller: "pilot", account: "", args: { account: "me@example.com", folder: "Spam" }, outcome: "refused" });
   expect(refused!.error).toContain("folder is not an argument it takes");
-  expect(refused).not.toHaveProperty("bytes");
+  expect(refused).not.toHaveProperty("resultBytes");
   expect(gardener).toMatchObject({ caller: "gardener", label: "Gardener", outcome: "refused" });
   expect(failed).toMatchObject({ caller: "pilot", account: "me@example.com", outcome: "error", error: "Live inbox read failed or timed out. Check the inbox connection; no mail was changed." });
-  // whatever a provider's error says, the log keeps 300 characters of it, credentials withheld
-  const said = readRecord({ at: failed!.ts, caller: "pilot", integration: "email", account: "me@example.com", tool: "inbox_list", args: {}, outcome: "error", ms: 1,
+  // whatever a provider's error says, the log keeps 200 characters of it, credentials withheld
+  const said = readRecord({ at: failed!.ts, caller: "pilot", integration: "email", account: "me@example.com", tool: "inbox_list", argsSummary: {}, outcome: "error", ms: 1, resultBytes: 0, items: 0, screened: 0, held: 0,
     error: `login failed for abcd efgh ijkl mnop; password: hunter2x; token sk-proj-ABCDEFGHIJKLMNOPQRSTUV ${"x".repeat(600)}` }, { label: "Pilot" }).error!;
   for (const secret of ["abcd efgh", "hunter2x", "sk-proj"]) expect(said).not.toContain(secret);
   expect(said.startsWith("login failed for [withheld]")).toBe(true);
-  expect(said.length).toBe(301);
+  expect(said.length).toBe(201);
   // under the account it named, though refused before one was resolved
   expect(recentReads(root, "email", "me@example.com").map(r => r.outcome)).toEqual(["error", "refused", "refused"]);
 });
@@ -200,7 +202,7 @@ test("the log is the vault's own under ~/.config/bigbrain/reads, as the token st
 });
 
 test("the viewer serves it read-only, and only with its session", async () => {
-  appendRead(log, { ts: "2026-10-07T12:00:00.000Z", caller: "token:0123abcd", label: "Sample client", integration: "email", account: "me@example.com", tool: "email_search", args: { query: "invoice" }, outcome: "ok", ms: 12, bytes: 900, items: 3 });
+  appendRead(log, { ts: "2026-10-07T12:00:00.000Z", caller: "token:0123abcd", label: "Sample client", integration: "email", account: "me@example.com", tool: "email_search", args: { query: "invoice" }, outcome: "ok", ms: 12, resultBytes: 900, items: 3, screened: 0, held: 0 });
   const home = viewerHome(), vault = nativeVault({ files: { "vault.yaml": NATIVE_YAML } });
   dirs.push(home, vault);
   const probe = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: () => new Response() }), port = probe.port!;

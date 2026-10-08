@@ -315,13 +315,14 @@ remembers each caller's first read of each integration and is not pruned.
 
 A line records when the call began; the caller (`pilot` or `token:<id>`) and
 its name at the time; the integration, account and tool; the arguments in
-summary (strings clipped to 200 characters, refs and ids kept,
-credential-shaped text replaced with `[withheld]`); the outcome (`ok`,
-`refused` or `error`) and the error, clipped and screened the same way; the
-duration; the size of what came back in bytes and entries; how many
-credentials were withheld from it and sign-in messages held back; whether it
-was the caller's first read of that integration; and, for `bigbrain mcp`, the
-pid and command name of the program that started it.
+summary (at most 20, strings clipped to 200 characters, objects and lists by
+their size, refs kept, credential-shaped text replaced with `[withheld]`);
+the outcome (`ok`, `refused` or `error`) and the error, clipped and screened
+the same way; the duration; for a call that succeeded, the size of what came
+back in bytes and items, how many credentials were screened out of it and how
+many fresh sign-in messages were held to their headers; whether it was the
+caller's first read of that integration; and, for `bigbrain mcp`, the pid and
+command name of the program that started it.
 
 It never records what came back (no message, note or transcript text) and
 never a token, password or key. Discovery (`integration_capabilities`) is not

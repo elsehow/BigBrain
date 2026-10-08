@@ -4,11 +4,11 @@
  * log kept on the host, outside the vault and outside agents' reach:
  * ~/.config/bigbrain/reads/<vault-hash>/YYYY-MM.jsonl (the token store's
  * hash; a file per UTC month), owner-only, months that ended more than 90
- * days ago pruned as it writes. A line says who asked and what they were
- * called then, which integration, account and tool, the arguments in
- * summary, how the call ended and how long it took, and how much came back:
- * its size, its entries, how many credentials were withheld from it and
- * sign-in messages held. Never what came back, and never a credential.
+ * days ago pruned as it writes. A line is the dispatcher's record of the
+ * call, which holds no content (its argument summary, outcome, duration and
+ * counts of what came back), with credential shapes withheld from it once
+ * more, and who asked as they were called then. Never what came back, and
+ * never a credential.
  *
  * Pilot's engine and every client's `bigbrain mcp` append to the same file,
  * each line in one write() of a file opened O_APPEND and kept under 4 KiB,
@@ -19,7 +19,7 @@ import { execFileSync } from "node:child_process";
 import { closeSync, mkdirSync, openSync, readdirSync, readFileSync, unlinkSync, writeSync } from "node:fs";
 import { basename, join } from "node:path";
 import { listTokens, tokenStorePath } from "./auth";
-import { countWithheld, screenCredentials } from "./credentialScreen";
+import { screenCredentials } from "./credentialScreen";
 import { configDir } from "./engine";
 import { readLogOverride } from "./env";
 import { makePrivate } from "./fsx";
@@ -29,6 +29,8 @@ import { observeIntegrationCalls, type IntegrationCall } from "./integrationTool
 export const READ_LOG_RETENTION_DAYS = 90;
 /** A line is one write(); far below this, appends from several processes cannot interleave. */
 const MAX_LINE = 4096;
+
+type Arguments = IntegrationCall["argsSummary"];
 
 /** One live integration call, as the log keeps it. */
 export interface ReadRecord {
@@ -42,16 +44,16 @@ export interface ReadRecord {
   /** Empty when the call was refused before an account was resolved. */
   account: string;
   tool: string;
-  /** In summary: strings clipped, credentials withheld; refs and ids kept. */
-  args: Record<string, unknown>;
+  /** The dispatcher's summary (strings clipped, objects and lists by size), credentials withheld; refs kept. */
+  args: Arguments;
   outcome: "ok" | "refused" | "error";
   error?: string;
   ms: number;
-  /** What came back, measured: its JSON size, the entries of its lists. */
-  bytes?: number;
+  /** For a call that succeeded, what came back, counted: its JSON bytes, its
+   * items, credentials screened out of it, fresh sign-in mail held to headers. */
+  resultBytes?: number;
   items?: number;
-  /** Credentials withheld from it and sign-in messages held back, when any were. */
-  withheld?: number;
+  screened?: number;
   held?: number;
   /** This caller's first successful call on this integration. */
   first?: true;
@@ -93,60 +95,27 @@ function scrub(text: string, as: "text" | "id" | "error" = "text"): string {
 const clip = (s: string, n: number): string => (s.length > n ? s.slice(0, n) + "…" : s);
 
 const ID_KEY = /^(?:ref|id|uid|uidvalidity)$|_(?:id|ref|uid|uidvalidity)$/u;
-/** Arguments as the log keeps them: credentials withheld, strings clipped
- * (refs and ids to a longer bound, whole in practice), at most 20 keys and 10
- * list entries, three levels deep. */
-export function argsSummary(args: Record<string, unknown>, room = { text: 200, id: 512 }): Record<string, unknown> {
-  const walk = (v: unknown, key: string, depth: number): unknown => {
-    if (typeof v === "string") return ID_KEY.test(key) ? clip(scrub(v, "id"), room.id) : clip(scrub(v), room.text);
-    if (v === null || typeof v === "number" || typeof v === "boolean") return v;
-    if (Array.isArray(v)) {
-      const head = v.slice(0, 10).map(x => walk(x, key, depth + 1));
-      return v.length > 10 ? [...head, `… ${v.length - 10} more`] : head;
-    }
-    if (typeof v !== "object") return typeof v;
-    if (depth >= 3) return "{…}";
-    const entries = Object.entries(v as Record<string, unknown>);
-    const out: Record<string, unknown> = Object.fromEntries(entries.slice(0, 20).map(([k, x]) => [clip(scrub(k), 64), walk(x, k, depth + 1)]));
-    if (entries.length > 20) out["…"] = `${entries.length - 20} more`;
-    return out;
-  };
-  return walk(args, "", 0) as Record<string, unknown>;
+/** The dispatcher's argument summary with credential shapes withheld (refs
+ * and ids, opaque on purpose, only from the definite shapes), each string
+ * clipped to `room`. */
+export function loggedArgs(summary: Arguments, room = 200): Arguments {
+  return Object.fromEntries(Object.entries(summary).map(([k, v]) => [clip(scrub(k), 64), typeof v === "string" ? clip(scrub(v, ID_KEY.test(k) ? "id" : "text"), room) : v]));
 }
 
-/** What came back, measured and let go: its size, the entries of its lists,
- * and the markers lib/agentReads.ts leaves where it withheld a credential or
- * held a sign-in message. */
-export function measured(result: unknown): Pick<ReadRecord, "bytes" | "items" | "withheld" | "held"> {
-  let withheld = 0, held = 0;
-  const walk = (v: unknown, depth: number): void => {
-    if (typeof v === "string") { withheld += countWithheld(v); return; }
-    if (!v || typeof v !== "object" || depth > 64) return;
-    if (!Array.isArray(v) && typeof (v as { held?: unknown }).held === "string") held++;
-    for (const x of Array.isArray(v) ? v : Object.values(v)) walk(x, depth + 1);
-  };
-  walk(result, 0);
-  let bytes: number | undefined;
-  try { bytes = Buffer.byteLength(JSON.stringify(result) ?? ""); } catch { /* unmeasurable */ }
-  const inner = result && typeof result === "object" && "result" in result ? (result as { result: unknown }).result : result;
-  const items = Array.isArray(inner) ? inner.length
-    : inner && typeof inner === "object" ? Object.values(inner).reduce<number>((n, v) => n + (Array.isArray(v) ? v.length : 0), 0) : undefined;
-  return { ...(bytes !== undefined ? { bytes } : {}), ...(items !== undefined ? { items } : {}), ...(withheld ? { withheld } : {}), ...(held ? { held } : {}) };
-}
-
-/** A call as one line of the log: nothing of its result but measures, and short enough to append in one write. */
+/** A call as one line of the log, short enough to append in one write. */
 export function readRecord(call: IntegrationCall, who: { label: string; parent?: ReadRecord["parent"] }): ReadRecord {
-  const base = (args: Record<string, unknown>): ReadRecord => ({
+  const base = (args: Arguments): ReadRecord => ({
     ts: call.at, caller: clip(call.caller, 80), label: clip(who.label, 120), integration: clip(call.integration, 64),
     account: clip(scrub(call.account), 254), tool: clip(scrub(call.tool), 64), args, outcome: call.outcome,
-    ...(call.error ? { error: clip(scrub(call.error, "error"), 300) } : {}), ms: call.ms,
-    ...(call.outcome === "ok" ? measured(call.result) : {}), ...(who.parent ? { parent: who.parent } : {}),
+    ...(call.error ? { error: clip(scrub(call.error, "error"), 200) } : {}), ms: call.ms,
+    ...(call.outcome === "ok" ? { resultBytes: call.resultBytes, items: call.items, screened: call.screened, held: call.held } : {}),
+    ...(who.parent ? { parent: who.parent } : {}),
   });
   // room for `first`, added as it is written
   const fits = (r: ReadRecord) => Buffer.byteLength(JSON.stringify(r)) < MAX_LINE - 64;
-  const record = base(argsSummary(call.args));
+  const record = base(loggedArgs(call.argsSummary));
   if (fits(record)) return record;
-  const tighter = base(argsSummary(call.args, { text: 40, id: 80 }));
+  const tighter = base(loggedArgs(call.argsSummary, 40));
   return fits(tighter) ? tighter : base({ "…": "arguments too long to log" });
 }
 
