@@ -23,6 +23,8 @@
   let sleep: ReturnType<typeof setTimeout> | undefined;
   const wake = () => { awake = true; clearTimeout(sleep); sleep = setTimeout(() => { awake = false; }, 2500); };
   const close = () => goto("home");
+  // the strips over the top bar, which the notification stack starts below
+  let strips = $state(0);
   // Esc closes the panel, from any field in it. An open Feedback dialog is
   // modal, so the registry hands its keys to the dialog instead.
   $effect(() => {
@@ -34,7 +36,7 @@
 
 <svelte:window onpointermove={wake} />
 
-<div class="update"><TopStrips /></div>
+<div class="update" bind:offsetHeight={strips}><TopStrips /></div>
 <DropZone />
 <V2View paused={open || feedbackOpen} />
 {#if open}
@@ -46,15 +48,18 @@
     <SettingsScreens />
   </aside>
 {/if}
-<NotificationStack />
+<NotificationStack below={strips} />
 <ExpiredClientNotices />
 <IntegrationReconnectNotices />
 <div class="feedback"><Feedback bind:open={feedbackOpen} visible={awake} panel={open ? "settings" : "field"} expanded={false} {wake} /></div>
 
 <style>
   .scrim { position: fixed; inset: 0; z-index: 20; background: color-mix(in srgb, var(--bg) 35%, transparent); }
-  .panel { position: fixed; z-index: 21; top: 0; right: 0; bottom: 0; width: min(1040px, 100%); display: flex; flex-direction: column;
-    background: var(--bg); box-shadow: -1px 0 0 var(--rule), -28px 0 70px -40px color-mix(in srgb, var(--fg) 45%, transparent);
+  /* the notices keep their corner (NotificationStack): the panel widens
+     into their column and lays Settings out beside it, or, in a narrower
+     window, starts Settings below them */
+  .panel { position: fixed; z-index: 21; top: 0; right: 0; bottom: 0; width: min(calc(1040px + var(--notice-lane, 0px)), 100%); display: flex; flex-direction: column;
+    box-sizing: border-box; padding: var(--notice-band, 0px) var(--notice-lane, 0px) 0 0; background: var(--bg); box-shadow: -1px 0 0 var(--rule), -28px 0 70px -40px color-mix(in srgb, var(--fg) 45%, transparent);
     animation: slide .18s ease-out; }
   .close { position: absolute; top: 18px; right: 18px; z-index: 1; display: inline-flex; padding: 6px; border: 0; border-radius: 999px;
     background: none; color: var(--text-muted); cursor: pointer; }
