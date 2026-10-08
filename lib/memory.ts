@@ -7,11 +7,11 @@ import { join } from "node:path";
 import { hasAssertionEvents, type AssertionEvent } from "./assertionLog";
 import { ensureDir, writeAtomic } from "./fsx";
 import { scheduledVerdict, type StageVerdict } from "./chain";
-import { acquire, held, release } from "./pidLock";
 import type { SourceInsertion } from "./insertionLog";
 import { loadManifest } from "./manifest";
 import { memoryInputDelta, readMemoryInputs, type MemoryCheckpoint, type LogCursor } from "./memoryInputs";
 import { readSharedMemory, sharedMemoryDelta } from "./sharedMemory";
+import { isHeld, tryHold, type Hold } from "./sqliteLock";
 export { pastCursor, type LogCursor } from "./memoryInputs";
 
 /** The memory pass's BIGBRAIN_ROLE value — the ONE machine role allowed to
@@ -192,22 +192,19 @@ export function memoryDue(
 // Not the editor's: the two passes write disjoint trees and may overlap;
 // commits use commitPathsOnly so neither sweeps the other's staged work.
 
-export const memoryLockDir = (root: string): string => join(root, ".state", "memory.lock");
+export const memoryLockFile = (root: string): string => join(root, ".state", "memory.lock.sqlite");
 
-export function acquireMemoryLock(root: string): boolean {
+/** The pass's hold, or null when another run has it (lib/sqliteLock.ts:
+ * freed the moment its holder dies, so nothing is ever stale). */
+export function acquireMemoryLock(root: string): Hold | null {
   ensureDir(join(root, ".state"));
-  return acquire(memoryLockDir(root), "memory");
+  return tryHold(memoryLockFile(root), { name: "memory", retired: join(root, ".state", "memory.lock") });
 }
 
-export function releaseMemoryLock(root: string): void {
-  release(memoryLockDir(root));
-}
-
-/** Is a sweep executing right now? A pure read of the lock — dir held AND
- * its pid alive (a crashed run's stale lock must not read as running; the
- * next acquire reclaims it anyway). The queue view's activity spinner
+/** Is a sweep executing right now? Asks the lock itself, so a crashed run
+ * never reads as running. The queue view's activity spinner
  * hangs off this: gray dot = waiting, spinner = executing (Nick,
  * 2026-08-05 — the bullet reports activity, never pass identity). */
 export function memoryRunning(root: string): boolean {
-  return held(memoryLockDir(root));
+  return isHeld(memoryLockFile(root));
 }

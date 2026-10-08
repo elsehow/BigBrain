@@ -34,11 +34,13 @@
  * bun test does not collect this file (not *.test.ts);
  * test/sharedVaultServer.test.ts imports from it.
  */
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { flagValue, hasFlag } from "../../lib/cliflags";
 import { ENGINE_ROOT } from "../../lib/engine";
+import { sharedServerLock } from "../../lib/sharedVault";
 import { makeSharedApiHandler, MAX_SHARED_REQUEST_BYTES } from "../../lib/sharedVaultApi";
+import { isHeld, lockHolder } from "../../lib/sqliteLock";
 
 export type Fetcher = (path: string, init?: RequestInit) => Promise<Response>;
 
@@ -259,10 +261,10 @@ export async function runScenario(
 export async function runPersistence(session: Session, p: Provisioned, ids: ScenarioIds): Promise<string[]> {
   const report: string[] = [];
   const api = apiOver(session.fetcher);
-  const lock = join(p.root, ".state", "shared-server.lock");
+  const lock = sharedServerLock(p.root);
 
   await session.restart();
-  if (session.mode === "http") check(existsSync(lock) && readFileSync(join(lock, "pid"), "utf8").trim() !== "", "a live server holds the lock");
+  if (session.mode === "http") check(isHeld(lock) && lockHolder(lock) !== null, "a live server holds the lock");
   report.push(session.mode === "http" ? "SIGTERM the server, start another over the same directory" : "open a fresh handler over the same directory (what a restart does to the record)");
 
   check((await api("GET", "/v1/whoami", p.alice)).status === 200, "alice still verifies after restart");
@@ -582,7 +584,7 @@ export interface Spawned {
   pid: number;
   /** SIGTERM and wait. */
   stop: () => Promise<void>;
-  /** SIGKILL and wait — no cleanup, the lock stays behind. */
+  /** SIGKILL and wait — no cleanup, though the OS lets its lock go. */
   kill: () => Promise<void>;
   /** Everything the server printed so far (stdout lines: the listening
    * line, then one JSON line per request). */
@@ -745,12 +747,16 @@ export async function httpSession(p: Provisioned): Promise<Session & { current: 
     alt: curlFetcher(url),
     restart: async () => {
       await server.stop();
-      if (existsSync(join(p.root, ".state", "shared-server.lock"))) throw new Error("smoke: SIGTERM did not release the lock");
+      const lock = sharedServerLock(p.root);
+      if (isHeld(lock) || lockHolder(lock) !== null) throw new Error("smoke: SIGTERM did not release the lock");
       server = await spawnServer(p.root, p.store);
     },
     crash: async () => {
+      const killed = server.pid, lock = sharedServerLock(p.root);
       await server.kill();
-      if (!existsSync(join(p.root, ".state", "shared-server.lock"))) throw new Error("smoke: SIGKILL should have left the lock behind");
+      // SIGKILL leaves its record of who held the lock behind, but never the lock
+      if (lockHolder(lock) !== killed) throw new Error("smoke: SIGKILL should have left the holder's record behind");
+      if (isHeld(lock)) throw new Error("smoke: the OS should have let a killed server's lock go");
       server = await spawnServer(p.root, p.store);
     },
     current: () => server,

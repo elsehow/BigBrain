@@ -670,7 +670,7 @@ async function observeHandler({
 //
 // next/submit ARE lib/work.ts (#520) — the same contract the MCP server
 // serves on this disk; this door serves it to a caller that is not on it. `next` is a pure read of the due-work view — no claim, no
-// lease, by decision (#479 revised: the tender's client-side pid lock
+// lease, by decision (#479 revised: the tender's client-side lock
 // single-flights; the server's only tending state is the logs). `submit`
 // runs the one wire validator (lib/work.ts submitWire), so a rejection here
 // is word-for-word the MCP submit tool's. Neither route is rate-limited: submit is

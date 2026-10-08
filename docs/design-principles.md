@@ -55,7 +55,7 @@ the view recomputes. Delete `.state/` and the same due set comes back.
 Consequences:
 
 - **No claim state, by decision** (#479). Single-flight is the caller's
-  job via a pid-liveness lock on the one machine that tends. `nextWork`
+  job via a lock on the one machine that tends. `nextWork`
   is a pure read and submission is per-item idempotent, so a lost caller
   loses at most one un-submitted batch and never corrupts the view.
 - **Free text is data, never instructions.** Anything authenticated can

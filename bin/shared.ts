@@ -43,7 +43,6 @@ import { parse as parseYaml } from "yaml";
 import { flagValue, hasFlag, positionals } from "../lib/cliflags";
 import { ensureDir } from "../lib/fsx";
 import { sharedGoogleClientId, sharedGoogleClientSecret, sharedMemberStore, sharedPort, sharedPublicUrl, sharedVaultOverride } from "../lib/env";
-import { acquire, release } from "../lib/pidLock";
 import {
   addMember,
   initMemberStore,
@@ -58,7 +57,7 @@ import {
   SharedMemberError,
   type SharedCredentialKind,
 } from "../lib/sharedMembers";
-import { SharedVault, SHARED_FEED_DIR } from "../lib/sharedVault";
+import { holdSharedVault, SharedVault, SHARED_FEED_DIR, sharedServerLock } from "../lib/sharedVault";
 import { makeSharedApiHandler, MAX_SHARED_REQUEST_BYTES } from "../lib/sharedVaultApi";
 import { MCP_PATH, parsePublicUrl, type SharedConnectorConfig } from "../lib/sharedOAuth";
 
@@ -268,12 +267,11 @@ function run(): void {
         fail(`serve: refusing to bind ${hostname} without --remote — bearer credentials would cross the network in plaintext; front the door with TLS and pass --remote (docs/shared-vault.md)`);
       if (!loopback) console.error(`shared: binding ${hostname} (--remote) — this is plaintext HTTP; TLS must terminate in front of it`);
       const connector = connectorConfig();
-      // The lock is a directory under .state/ (lib/pidLock.ts: mkdir is
-      // atomic); its PARENT must exist first or the mkdir fails for the
-      // wrong reason and reads as a live holder.
+      // Held for as long as this process serves; the OS lets it go the
+      // moment the process dies, however it dies (lib/sqliteLock.ts).
       ensureDir(join(root, ".state"));
-      const lock = join(root, ".state", "shared-server.lock");
-      if (!acquire(lock, "shared")) fail(`serve: another server holds ${lock}`);
+      const lock = holdSharedVault(root, "shared");
+      if (!lock) fail(`serve: another server holds ${sharedServerLock(root)}`);
       const vault = new SharedVault(root);
       vault.recoverPending();
       const handler = makeSharedApiHandler({ root, storePath: store, vault, ...(connector ? { connector } : {}) });
@@ -281,7 +279,7 @@ function run(): void {
       try {
         server = Bun.serve({ hostname, port, maxRequestBodySize: MAX_SHARED_REQUEST_BYTES, idleTimeout: 30, fetch: handler });
       } catch (error) {
-        release(lock);
+        lock.release();
         const message = error instanceof Error ? error.message : String(error);
         // Bun reports a refused bind (a sandbox without listen permission,
         // EPERM) as EADDRINUSE; on port 0 "in use" is impossible, so name
@@ -291,7 +289,7 @@ function run(): void {
       }
       const stop = (): void => {
         server.stop(true);
-        release(lock);
+        lock.release();
         process.exit(0);
       };
       process.on("SIGINT", stop);

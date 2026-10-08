@@ -10,7 +10,6 @@ import {
   acquireAssertionLock,
   ASSERTION_AGENT_TIMEOUT_MS,
   ownerLabelsFor,
-  releaseAssertionLock,
 } from "./assertionAgent";
 import type { Chain } from "./chain";
 import type { RunMeter } from "./meterTypes";
@@ -181,7 +180,7 @@ export interface TendOpts {
 }
 
 /**
- * One tend run: single-flight via the pid-liveness lock (the #479 revision:
+ * One tend run: single-flight via the intake lock (the #479 revision:
  * the LOCK is the concurrency story, `next` is a pure read), bounded intake
  * rounds, then the memory pass when due. Partial progress is durable —
  * every submitted event landed the moment the model called submit; a killed
@@ -197,8 +196,8 @@ export async function runTend(opts: TendOpts): Promise<TendResult> {
   // every half hour, or Retry in the app, tries again.
   if (creditsPaused(root, manifest.gardener.provider, now().getTime()))
     return { ran: false, reason: `paused: out of usage credits with ${manifest.gardener.provider}`, rounds: [] };
-  if (!acquireAssertionLock(root))
-    return { ran: false, reason: "another gardener holds the lock", rounds: [] };
+  const lock = acquireAssertionLock(root);
+  if (!lock) return { ran: false, reason: "another gardener holds the lock", rounds: [] };
   try {
     const rounds: TendRound[] = [];
     // Preflight the MCP server's own dependency: a `git pull` without
@@ -287,7 +286,7 @@ export async function runTend(opts: TendOpts): Promise<TendResult> {
       feed = await (opts.feedRunner ?? runFeed)({ root, manifest, now });
     return { ran: true, rounds, ...(memory ? { memory } : {}), ...(feed ? { feed } : {}) };
   } finally {
-    releaseAssertionLock(root);
+    lock.release();
   }
 }
 

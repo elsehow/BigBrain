@@ -3,7 +3,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { existsSync, realpathSync } from 'node:fs';
 import { basename, join } from 'node:path';
-import { acquireAssertionLock, releaseAssertionLock, ownerLabelsFor, ASSERTION_AGENT_TIMEOUT_MS } from '../../lib/assertionAgent';
+import { acquireAssertionLock, ownerLabelsFor, ASSERTION_AGENT_TIMEOUT_MS } from '../../lib/assertionAgent';
 import { runAgent } from '../../lib/run/agent';
 import type { AgentRunResult } from '../../lib/run/model';
 import type { ModelRunRequest } from '../../lib/run/request';
@@ -80,7 +80,8 @@ export async function runConcurrentGardener(root: string, manifest: Manifest,
   root = realpathSync(root);
   if (!basename(root).startsWith('bb-gardener-profile-') || !existsSync(join(root, '.benchmark-snapshot')))
     throw new Error('Concurrent experiment requires a marked scratch vault');
-  if (!acquireAssertionLock(root)) throw new Error('Another gardener holds the lock');
+  const lock = acquireAssertionLock(root);
+  if (!lock) throw new Error('Another gardener holds the lock');
   let restore: (() => void) | undefined;
   try {
     const before = dueIntakeIds(root), stages = stagedIds(root);
@@ -118,5 +119,5 @@ export async function runConcurrentGardener(root: string, manifest: Manifest,
       remaining: [...remaining].filter(id => assignment.owned(id, lane)).length,
       ...(outcome.status === 'fulfilled' ? { usage: outcome.value.usage } : { error: String(outcome.reason) }),
     })) };
-  } finally { restore?.(); releaseAssertionLock(root); }
+  } finally { restore?.(); lock.release(); }
 }

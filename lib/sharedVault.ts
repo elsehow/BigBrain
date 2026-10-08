@@ -42,7 +42,7 @@
  *   deliberately do not. Rebuilding it from the other logs would lose both,
  *   so it is retained like them.
  *
- * One writer process per vault (bin/shared.ts takes a pid lock): the feed's
+ * One writer process per vault (holdSharedVault below): the feed's
  * sequence is assigned in memory from the file's tail and every write is a
  * synchronous block, so in-process concurrency cannot interleave two
  * sequence numbers. The event files themselves are create-only either way.
@@ -82,6 +82,16 @@ import {
   type RevocationEvent,
 } from "./revocationLog";
 import type { SharedActor } from "./sharedMembers";
+import { tryHold, type Hold } from "./sqliteLock";
+
+/** The lock the vault's one writer process holds for as long as it serves
+ * (`bin/shared.ts serve`, or the owner interface). */
+export const sharedServerLock = (root: string): string => join(root, ".state", "shared-server.lock.sqlite");
+
+/** Hold the vault as its one writer process, until released or this
+ * process exits: null while another server has it. */
+export const holdSharedVault = (root: string, name?: string): Hold | null =>
+  tryHold(sharedServerLock(root), { name, retired: join(root, ".state", "shared-server.lock") });
 
 export const SHARED_FEED_DIR = "log/shared-feed";
 const FEED_FILE = "feed.ndjson";
@@ -309,7 +319,7 @@ class Feed {
   append(entry: FeedInput): FeedEntry {
     ensureDir(join(this.root, SHARED_FEED_DIR));
     // Re-check the tail: if another process appended (it should not — the
-    // server holds a pid lock — but a hand-run CLI might), continue from
+    // server holds the vault's lock — but a hand-run CLI might), continue from
     // what is on disk rather than reissuing a sequence number.
     const tail = this.tail();
     if (tail.seq > this.headSeq) this.headSeq = tail.seq;

@@ -3,7 +3,8 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { acquireAssertionLock, releaseAssertionLock } from "../lib/assertionAgent";
+import { acquireAssertionLock } from "../lib/assertionAgent";
+import { holdElsewhere } from "./support/lockElsewhere";
 import type { PiLoader } from "./support/pi";
 import type { Options } from "./support/pi";
 import { fakePi } from "./support/pi";
@@ -184,14 +185,25 @@ describe("the loop", () => {
 
   test("single-flight: a held lock skips with a reason, no error", async () => {
     const root = vault(insertion());
-    expect(acquireAssertionLock(root)).toBe(true);
+    const lock = acquireAssertionLock(root)!;
+    expect(lock).not.toBeNull();
     try {
       const result = await runTend({ root, manifest: manifest(root), loadPi: fakePi(() => { throw new Error("unreachable"); }) });
       expect(result.ran).toBe(false);
       expect(result.reason).toContain("lock");
     } finally {
-      releaseAssertionLock(root);
+      lock.release();
     }
+  });
+
+  test("single-flight across processes: a second tend skips while the first holds, and runs once that one is killed", async () => {
+    const root = vault(insertion());
+    const other = await holdElsewhere("assertionAgent.ts", "acquireAssertionLock", [root]);
+    try {
+      const result = await runTend({ root, manifest: manifest(root), loadPi: fakePi(() => { throw new Error("unreachable"); }) });
+      expect(result).toEqual({ ran: false, reason: "another gardener holds the lock", rounds: [] });
+    } finally { await other.kill(); }
+    acquireAssertionLock(root)!.release(); // the OS let the killed holder's lock go
   });
 
   test("a non-native vault runs no intake rounds but still tends memory (forced first run)", async () => {
