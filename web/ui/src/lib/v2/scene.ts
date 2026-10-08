@@ -687,7 +687,7 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
       if (n.memory) { alphas[i] = 0; continue; }
       const h = Math.max(heat[i]!, match[i]!);
       const r = rel[i]!;
-      sizes[i] = baseSize[i]! * look.entSize * THREE.MathUtils.lerp(1, entScale[i]!, look.entByTies) * (1 + 0.7 * h) * (1 + 0.45 * r * dim);
+      sizes[i] = baseSize[i]! * look.entSize * (isNamed[i] ? 1 : THREE.MathUtils.lerp(1, entScale[i]!, look.entByTies)) * (1 + 0.7 * h) * (1 + 0.45 * r * dim);
       const rest = Math.min(1, (isNamed[i] ? 0.95 : 0.6) * look.entAlpha);
       alphas[i] = Math.max(h, THREE.MathUtils.lerp(rest, THREE.MathUtils.lerp(isNamed[i] ? 0.22 : 0.12, 1, r), dim)) * THREE.MathUtils.lerp(searchDim, 1, match[i]!);
       c1.copy(isNamed[i] || r > 0.5 ? col.fg : entInk).lerp(col.act, h * 0.9).toArray(colors, i * 3);

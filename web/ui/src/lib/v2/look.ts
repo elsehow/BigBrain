@@ -31,7 +31,7 @@ export interface FieldLook {
   entAlpha: number;
   /** An unnamed entity's colour: 0 the field's dust, 1 full ink (a named one is always ink). */
   entTone: number;
-  /** 0 the shipped size; 1 also sized by how many sources mention it. */
+  /** 0 the shipped size; 1 also sized by how many sources mention it (hubs keep theirs). */
   entByTies: number;
   /** How many of the most-connected entities are hubs: named at rest, drawn larger. */
   hubCount: number;
