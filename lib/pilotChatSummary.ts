@@ -4,7 +4,7 @@ import { desktopDetail } from "./pilotDesktop";
 
 import { fields, imageView, outputView } from "./publicViews";
 const summaryFields = ["id", "title", "titleSource", "model", "transport", "phase", "lifecycle", "lastActivityAt", "deactivatedAt", "ingestedMessages", "ingestionError", "seed", "context", "viewRevision", "revision", "draft", "live", "activity", "error", "created", "updated"] as const;
-const inputView = (v: PilotInput) => ({ ...fields(v, ["id", "text", "mode", "target"]), images: v.images?.map(imageView) });
+const inputView = (v: PilotInput) => ({ ...fields(v, ["id", "text", "mode"]), images: v.images?.map(imageView) });
 /** Navigation/status and graph activity, independent of the storage schema. */
 export type PilotChatSummary = ReturnType<typeof pilotChatSummary>;
 export function pilotChatSummary(s: PilotChatSession) {

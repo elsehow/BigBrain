@@ -5,8 +5,7 @@ import { sessionAccessSchema } from "./workAccess";
 
 const strings = z.array(z.string());
 const images = z.array(z.object({ id: z.string(), name: z.string() }).passthrough());
-const input = z.object({ id: z.string(), text: z.string(), mode: z.enum(["text", "voice"]),
-  target: z.string().optional(), images: images.optional() }).passthrough();
+const input = z.object({ id: z.string(), text: z.string(), mode: z.enum(["text", "voice"]), images: images.optional() }).passthrough();
 const savedPilot = z.object({
   id: z.string().regex(/^pilot-[a-f0-9]{32}$/), title: z.string(), model: z.string(),
   category: z.object({ memory: z.string().nullable(), inputKey: z.string(), model: z.string(),

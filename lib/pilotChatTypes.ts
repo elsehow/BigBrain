@@ -4,7 +4,7 @@ export const PILOT_TEXT_MODEL = "gpt-5.6-terra";
 export type PilotChatPhase = "draft" | "working" | "answered" | "interrupted" | "failed";
 /** One application turn. Absence means idle; process resources live elsewhere. */
 export type PilotTurn = { id: string; status: "running" | "stopping"; replyTo?: string; reports?: string[] };
-export interface PilotInput { id: string; text: string; mode: "text" | "voice"; target?: string; images?: ChatImage[] }
+export interface PilotInput { id: string; text: string; mode: "text" | "voice"; images?: ChatImage[] }
 /** Derived primary memory, separate from the notes consulted by the agent. */
 export interface PilotCategory {
   memory: string | null;

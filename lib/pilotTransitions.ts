@@ -57,8 +57,7 @@ export function transitionPilot(current: PilotChatSession, event: PilotEvent): {
       if (prior) {
         const a = event.input;
         // Text and voice can retry the same logical input through either door.
-        if (prior.text !== a.text || prior.target !== a.target
-          || JSON.stringify(prior.images ?? []) !== JSON.stringify(a.images ?? [])) throw new PilotTransitionError("That input ID already belongs to a different message.");
+        if (prior.text !== a.text || JSON.stringify(prior.images ?? []) !== JSON.stringify(a.images ?? [])) throw new PilotTransitionError("That input ID already belongs to a different message.");
         return unchanged();
       }
       if (s.turn?.status === "stopping") throw new PilotTransitionError("Pilot is stopping. Wait before resuming it.");

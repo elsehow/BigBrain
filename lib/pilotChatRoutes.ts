@@ -52,7 +52,7 @@ export function pilotChatRoutes(sessions: PilotChats, options: { graph?: () => P
     post("check", () => sessions.check()),
     post("draft", b => sessions.draft(b.id, b.text, b.images)),
     post("discard", b => { sessions.discard(b.id); return { ok: true }; }),
-    post("send", b => sessions.submit(b.id, b.text, { id: typeof b.inputId === "string" ? b.inputId : crypto.randomUUID(), mode: b.mode === "voice" ? "voice" : "text", images: b.images as import("./chatImageTypes").ChatImage[] | undefined, ...(typeof b.target === "string" ? { target: b.target } : {}) })),
+    post("send", b => sessions.submit(b.id, b.text, { id: typeof b.inputId === "string" ? b.inputId : crypto.randomUUID(), mode: b.mode === "voice" ? "voice" : "text", images: b.images as import("./chatImageTypes").ChatImage[] | undefined })),
     post("spoken", b => sessions.recordSpoken(b.id, b.receipt)),
     post("backend", b => b.id ? sessions.setBackend(b.id, b.backend) : sessions.setDefaultBackend(b.backend)),
     post("deactivate", b => sessions.stopTree(b.id)),
