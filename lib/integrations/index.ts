@@ -5,12 +5,13 @@ import type { OriginKind } from "../provenance";
 import type { Integration, IntegrationTool } from "./contract";
 import { email } from "./email";
 import { granola } from "./granola";
+import { hardcover } from "./hardcover";
 import { rss } from "./rss";
 import { thatTracks } from "./thatTracks";
 
 export type { Integration, IntegrationTool, IntegrationCallOptions, ToolContext } from "./contract";
 
-export const INTEGRATIONS: readonly Integration[] = [email, granola, thatTracks, rss];
+export const INTEGRATIONS: readonly Integration[] = [email, granola, thatTracks, rss, hardcover];
 export const MANAGED_INTEGRATIONS: ReadonlySet<string> = new Set(INTEGRATIONS.map(i => i.id));
 
 export const integrationNamed = (id: string): Integration | undefined => INTEGRATIONS.find(i => i.id === id);

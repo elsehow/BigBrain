@@ -18,9 +18,12 @@ function installed(root:string):string[] {
 }
 export function integrationLibrary(root:string) {
   const saved=installed(root);
-  return INTEGRATION_LIBRARY.map(i=>({...i,added:saved.includes(i.id)||(i.id==='browser'
-    ? listTokens(tokenStorePath(root)).some(t=>t.via==='pair')
-    : !!integrationNamed(i.id)?.library?.added(root))}));
+  return INTEGRATION_LIBRARY.map(i=>{
+    const unavailable=integrationNamed(i.id)?.credential.signIn?.unavailable?.(root);
+    return {...i,added:saved.includes(i.id)||(i.id==='browser'
+      ? listTokens(tokenStorePath(root)).some(t=>t.via==='pair')
+      : !!integrationNamed(i.id)?.library?.added(root)),...(unavailable?{unavailable}:{})};
+  });
 }
 export function addLibraryIntegration(root:string,id:string) {
   if(!INTEGRATION_LIBRARY.some(i=>i.id===id))throw Error('Choose an available integration.');

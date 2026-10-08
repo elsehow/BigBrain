@@ -5,7 +5,7 @@
   import '../lib/settingsLists.css';
   import IntegrationAccountSettings from './IntegrationAccountSettings.svelte';
   import BrowserPair from './BrowserPair.svelte';
-  type Entry={id:string;name:string;description:string;added:boolean};
+  type Entry={id:string;name:string;description:string;added:boolean;unavailable?:string};
   let entries=$state<Entry[]>([]),editing=$state(''),busy=$state(''),error=$state('');
   async function request(body?:unknown){const r=await fetch('/api/integration-accounts',body?{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)}:undefined);const v=await r.json();if(!r.ok)throw Error(v.error||'Could not load integrations.');entries=v.library??[];}
   async function add(id:string){busy=id;error='';try{await request({name:id,action:'install'});editing=id;}catch(e){error=e instanceof Error?e.message:'Could not add integration.';}finally{busy='';}}
@@ -19,7 +19,7 @@
     </div>{/each}
   </section>{/if}
   <section aria-label="Integration library"><h2>Library</h2><div class="library">
-    {#each entries as entry}<article><h3>{entry.name}</h3><p>{entry.description}</p><button disabled={!!busy||entry.added} onclick={()=>add(entry.id)}>{entry.added?'✓ Added':busy===entry.id?'Adding…':'+ Add'}</button></article>{/each}
+    {#each entries as entry}<article><h3>{entry.name}</h3><p>{entry.description}</p>{#if entry.unavailable&&!entry.added}<p role="status">{entry.unavailable}</p>{/if}<button disabled={!!busy||entry.added||!!entry.unavailable} onclick={()=>add(entry.id)}>{entry.added?'✓ Added':busy===entry.id?'Adding…':entry.unavailable?'Not available yet':'+ Add'}</button></article>{/each}
   </div></section>
 </div>
 <style>

@@ -15,11 +15,13 @@ export const INTEGRATION_TOOLS: { name: string; description: string; inputSchema
 ];
 function capabilities(root: string, i: Integration, caller: IntegrationCaller) {
   const accounts = readableIntegrationAccounts(root, i.id, caller), available = accounts.length > 0;
+  // accounts whose sign-in has lapsed: a client can say so before calling, and every read names the fix
+  const lapsed = accounts.filter(a => i.credential.signIn?.lapsed?.(root, a)), reconnect = lapsed.length ? { reconnect: lapsed } : {};
   const reads = i.tools.filter(t => t.access === "read").map(t => t.name), writes = i.tools.filter(t => t.access === "write").map(t => t.name);
-  if (!writes.length) return { accounts, available, descriptors: i.live, operations: reads };
+  if (!writes.length) return { accounts, available, descriptors: i.live, operations: reads, ...reconnect };
   const writable = writableIntegrationAccounts(root, i.id, caller);
   return { accounts, descriptors: i.live, accountAccess: accounts.map(account => ({ account, access: writable.includes(account) ? "read-write" : "read" })), available,
-    operations: [...reads, ...(writable.length > 0 ? writes : [])], access: "Per-account grants; write operations require read+write" };
+    operations: [...reads, ...(writable.length > 0 ? writes : [])], access: "Per-account grants; write operations require read+write", ...reconnect };
 }
 export function integrationCapabilities(root: string, caller: IntegrationCaller) {
   return { ...Object.fromEntries(INTEGRATIONS.filter(i => i.tools.length).map(i => [i.id, capabilities(root, i, caller)])),
@@ -45,7 +47,7 @@ export interface IntegrationCall {
   ms: number;
   /** What the agent received, as JSON bytes; 0 unless ok. */
   resultBytes: number;
-  /** Messages, thread messages, content blocks or results it received; 0 if none. */
+  /** Messages, thread messages, content blocks, results or books it received; 0 if none. */
   items: number;
   /** Credentials screened out of the result. */
   screened: number;
@@ -69,7 +71,7 @@ const argsSummary = (args: Record<string, unknown>) =>
 const items = (r: unknown): number => {
   if (Array.isArray(r)) return r.length;
   const o = (r && typeof r === "object" ? r : {}) as Record<string, unknown>;
-  return ["messages", "thread", "content", "results"].reduce((n, k) => n + (Array.isArray(o[k]) ? (o[k] as unknown[]).length : 0), 0);
+  return ["messages", "thread", "content", "results", "books"].reduce((n, k) => n + (Array.isArray(o[k]) ? (o[k] as unknown[]).length : 0), 0);
 };
 function report(call: IntegrationCall): void {
   Object.freeze(call.argsSummary); Object.freeze(call);

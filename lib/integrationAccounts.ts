@@ -1,6 +1,6 @@
 import { integrationLibrary, addLibraryIntegration, hasAccountPolicy } from "./integrationLibrary";
 /** Independent connection and live access for each configured account; a connected account is remembered. */
-import { startGranolaSignIn, cancelGranolaSignIn, granolaSignInStatus, granolaConnection, disconnectGranola } from './granolaMcp';
+import type { startGranolaSignIn } from './granolaMcp';
 import { applyConfig } from './config';
 import { basename } from 'node:path';
 import { readFileSync } from 'node:fs';
@@ -17,6 +17,9 @@ import { ThatTracksClient } from './thatTracks';
 import { configuredFeeds, feedUrl, writeFeeds } from './rssConfig';
 import { fetchFeed, type Feed } from './rssFeed';
 import { integrationNamed } from './integrations';
+/** How an integration's accounts sign in through the browser, when they do. */
+const browserSignIn=(name:string)=>integrationNamed(name)?.credential.signIn;
+type StartSignIn=(root:string,account:string,onConnected:()=>void)=>Promise<unknown>;
 /** What live access an account offers: none without tools, and no writes without write tools or where the provider forbids them. */
 function offered(root:string,name:string,account:string){
   const i=integrationNamed(name),writes=!!i?.tools.some(t=>t.access==='write')&&(i.writable?.(root,account)??true);
@@ -25,20 +28,26 @@ function offered(root:string,name:string,account:string){
 export function configuredAccounts(root:string){
   const inboxes=emailConfig(loadManifest(root).integrations.email).inboxes;
   return [...MANAGED_INTEGRATIONS].flatMap(name=>integrationAccounts(root,name).map(account=>({name,account,...accountPolicy(root,name,account),
-    label:(name==='rss'?configuredFeeds(root).find(f=>f.url===account)?.title:extraAccounts(root,name).find(a=>a.id===account)?.label) ?? account,removable:name==='email'||account!==name,...(name==='email'?{gmail:gmailReadOnly(root,account),google:inboxes.some(i=>i.address===account&&isGmailInbox(i)),host:inboxes.find(i=>i.address===account)?.host,sync:readEmailState(root).inboxes[account]?.last}:{}),capabilities:offered(root,name,account).capabilities,...(name==='granola'?{transport:'mcp',auth:granolaSignInStatus(root,account),identity:granolaConnection(root,account)?.identity}:{})})));
+    label:(name==='rss'?configuredFeeds(root).find(f=>f.url===account)?.title:extraAccounts(root,name).find(a=>a.id===account)?.label) ?? account,removable:name==='email'||account!==name,...(name==='email'?{gmail:gmailReadOnly(root,account),google:inboxes.some(i=>i.address===account&&isGmailInbox(i)),host:inboxes.find(i=>i.address===account)?.host,sync:readEmailState(root).inboxes[account]?.last}:{}),capabilities:offered(root,name,account).capabilities,...signInRow(root,name,account)})));
+}
+/** A browser sign-in's part of an account row: that it signs in so, the flow under way, who is signed in, and whether it must sign in again (and whether its notice was cleared). */
+function signInRow(root:string,name:string,account:string){
+  const signIn=browserSignIn(name);if(!signIn)return {};
+  const unavailable=signIn.unavailable?.(root),reconnect=!!signIn.lapsed?.(root,account);
+  return {...(name==='granola'?{transport:'mcp'}:{}),signIn:true,auth:signIn.status(root,account),identity:signIn.identity(root,account),...(reconnect?{reconnect:true,...(signIn.noticeCleared?.(root,account)?{noticeCleared:true}:{})}:{}),...(unavailable?{unavailable}:{})};
 }
 function backfill(since:unknown):Backfill{
   if(typeof since!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(since)||!Number.isFinite(Date.parse(since))||new Date(since).toISOString().slice(0,10)!==since||since>new Date().toISOString().slice(0,10))throw Error('Choose a past history start date.');
   return {since:new Date(since).toISOString(),request:crypto.randomUUID()};
 }
 export class IntegrationAccounts {
-  constructor(readonly root:string,private probes:{email?:InboxProbe;granolaSignIn?:typeof startGranolaSignIn;tracks?:(key:string)=>Promise<unknown>;rss?:(url:string)=>Promise<Feed>}={}){}
+  constructor(readonly root:string,private probes:{email?:InboxProbe;granolaSignIn?:typeof startGranolaSignIn;signIn?:Record<string,StartSignIn>;tracks?:(key:string)=>Promise<unknown>;rss?:(url:string)=>Promise<Feed>}={}){}
   list(){return {destination:basename(this.root),library:integrationLibrary(this.root),accounts:configuredAccounts(this.root),callers:integrationCallerChoices(this.root)};}
   async update(value:any):Promise<ReturnType<IntegrationAccounts["list"]> & {checked?:boolean}>{
-    const {name,account,action}=value;
+    const {name,account,action}=value,signIn=browserSignIn(name);
     if(action==='install') {
       // New additions start at the defaults; existing account choices never change on upgrade or re-add.
-      if(name==='granola'&&!hasAccountPolicy(this.root,name,name))writeAccountPolicy(this.root,name,name,{...accountPolicy(this.root,name,name),grants:defaultGrants(name)});
+      if(signIn&&!hasAccountPolicy(this.root,name,name))writeAccountPolicy(this.root,name,name,{...accountPolicy(this.root,name,name),grants:defaultGrants(name)});
       addLibraryIntegration(this.root,name);
       return this.list();
     }
@@ -66,11 +75,11 @@ export class IntegrationAccounts {
       return this.list();
     }
     if(action==='add'){
-      if(!['granola','that-tracks'].includes(name)||typeof value.label!=='string'||!value.label.trim()||value.label.length>120||(name!=='granola'&&(typeof value.key!=='string'||!value.key.trim()||value.key.length>8000)))throw Error('Choose a source, account name, and API key.');
+      if(!(signIn||name==='that-tracks')||typeof value.label!=='string'||!value.label.trim()||value.label.length>120||(!signIn&&(typeof value.key!=='string'||!value.key.trim()||value.key.length>8000)))throw Error('Choose a source, account name, and API key.');
       const id='account-'+crypto.randomUUID().replaceAll('-','').slice(0,16);
-      if(name!=='granola')writeEnvValues(this.root,{[integrationAccountEnvKey(name,id)]:value.key.trim()});
+      if(!signIn)writeEnvValues(this.root,{[integrationAccountEnvKey(name,id)]:value.key.trim()});
       writeAtomic(join(this.root,'.spool','integration-accounts',name,'accounts.json'),JSON.stringify([...extraAccounts(this.root,name),{id,label:value.label.trim()}])+'\n',0o600);
-      if(name==='granola')writeAccountPolicy(this.root,name,id,{...accountPolicy(this.root,name,id),grants:defaultGrants(name)});
+      if(signIn)writeAccountPolicy(this.root,name,id,{...accountPolicy(this.root,name,id),grants:defaultGrants(name)});
       return this.list();
     }
     if(!MANAGED_INTEGRATIONS.has(name)||!integrationAccounts(this.root,name).includes(account))throw Error('Choose a configured account.');
@@ -80,7 +89,7 @@ export class IntegrationAccounts {
       else if(name==='rss')writeFeeds(this.root,configuredFeeds(this.root).filter(f=>f.url!==account),'config: remove an RSS feed');
       else {
         if(account===name)throw Error('This account comes with the integration. Disconnect it instead.');
-        if(name==='granola')disconnectGranola(this.root,account);
+        if(signIn)signIn.disconnect(this.root,account);
         else writeEnvValues(this.root,{[integrationAccountEnvKey(name,account)]:''});
         writeAtomic(join(this.root,'.spool','integration-accounts',name,'accounts.json'),JSON.stringify(extraAccounts(this.root,name).filter(a=>a.id!==account))+'\n',0o600);
       }
@@ -89,13 +98,16 @@ export class IntegrationAccounts {
     }
     // whether this account had a policy before anything below writes one: only a first connection takes the defaults
     const prior=accountPolicy(this.root,name,account),fresh=!hasAccountPolicy(this.root,name,account);
-    if(name==='granola'&&action==='cancel'){cancelGranolaSignIn(this.root,account);return this.list();}
-    if(name==='granola'&&(action==='connect'||action==='check')){
+    if(signIn&&action==='cancel'){signIn.cancel(this.root,account);return this.list();}
+    // the app's notice that it needs reconnecting, cleared; the card still says so
+    if(signIn&&action==='dismiss'){signIn.clearNotice?.(this.root,account);return this.list();}
+    if(signIn&&(action==='connect'||action==='check')){
       writeAccountPolicy(this.root,name,account,{...prior,connected:false});
-      const oldIdentity=granolaConnection(this.root,account)?.identity;
-      await (this.probes.granolaSignIn??startGranolaSignIn)(this.root,account,()=>{
-        // signed in as someone else: nobody inherits the earlier account's access
-        const current=accountPolicy(this.root,name,account),other=prior.checkedAt&&JSON.stringify(oldIdentity)!==JSON.stringify(granolaConnection(this.root,account)?.identity);
+      const subject=()=>JSON.stringify((signIn.subject??signIn.identity)(this.root,account)),oldSubject=subject();
+      const start=this.probes.signIn?.[name]??(name==='granola'?this.probes.granolaSignIn:undefined)??signIn.start;
+      await start(this.root,account,()=>{
+        // signed in as someone else (by subject, else identity): nobody inherits the earlier account's access
+        const current=accountPolicy(this.root,name,account),other=prior.checkedAt&&oldSubject!==subject();
         writeAccountPolicy(this.root,name,account,connectedPolicy(name,other?{...current,grants:[]}:current,accountFingerprint(this.root,name,account),fresh));
       });
       return this.list();
@@ -119,7 +131,7 @@ export class IntegrationAccounts {
       writeAccountPolicy(this.root,name,account,{...prior,connected:false});
       return this.list();
     }
-    if(action==='disconnect'){if(name==='granola')disconnectGranola(this.root,account);writeAccountPolicy(this.root,name,account,{...prior,connected:false});return this.list();}
+    if(action==='disconnect'){if(signIn)signIn.disconnect(this.root,account);writeAccountPolicy(this.root,name,account,{...prior,connected:false});return this.list();}
     if(action==='check'||action==='connect'){
       const fingerprint=accountFingerprint(this.root,name,account);
       const snapshot=JSON.stringify(prior);

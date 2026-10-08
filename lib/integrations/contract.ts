@@ -18,12 +18,36 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 import { sha256hex } from "../hash";
+import type { HardcoverOptions } from "../hardcover";
 import type { InboxClientFactory } from "../liveInbox";
+import type { SignInStatus } from "../oauthSignIn";
 import type { OriginKind } from "../provenance";
 import type { Tally } from "../agentReads";
 
 /** Test seams for providers, and the caller's own cancellation. */
-export interface IntegrationCallOptions { signal?: AbortSignal; client?: InboxClientFactory; granola?: { endpoint?: string } }
+export interface IntegrationCallOptions { signal?: AbortSignal; client?: InboxClientFactory; granola?: { endpoint?: string }; hardcover?: HardcoverOptions }
+
+/** A sign-in the person makes in their own browser (lib/oauthSignIn.ts), as Settings drives it. */
+export interface BrowserSignIn {
+  /** Returns the URL for the app to open; `onConnected` runs once the sign-in is kept. */
+  start(root: string, account: string, onConnected: () => void): Promise<SignInStatus>;
+  status(root: string, account: string): SignInStatus | undefined;
+  cancel(root: string, account: string): void;
+  /** Forgets the account's sign-in. */
+  disconnect(root: string, account: string): void;
+  /** Who is signed in, as Settings shows it. */
+  identity(root: string, account: string): unknown;
+  /** What identifies the signed-in account, compared on reconnect: a change resets the account's access. `identity` when absent. */
+  subject?(root: string, account: string): unknown;
+  /** Why this build or vault can't sign in yet, as the library and Settings say it; undefined when it can. */
+  unavailable?(root: string): string | undefined;
+  /** Kept, but no longer renewable: only signing in again restores it. */
+  lapsed?(root: string, account: string): boolean;
+  /** The lapsed sign-in's notice was cleared: it stays quiet until the account lapses again. */
+  noticeCleared?(root: string, account: string): boolean;
+  /** Clears the lapsed sign-in's notice; the account still needs reconnecting. */
+  clearNotice?(root: string, account: string): void;
+}
 
 export interface ToolContext {
   root: string;
@@ -68,6 +92,8 @@ export interface Integration {
     envKey?(account: string): string;
     /** A sign-in BigBrain keeps: whether this account's still holds tokens. A policy is connected only while it does. */
     signedIn?(root: string, account: string): boolean;
+    /** How the person signs in, for kind "oauth". */
+    signIn?: BrowserSignIn;
   };
   accounts(root: string): string[];
   /** Changes whenever the account's connection or credential does, so a policy checked against an older one lapses. Never the secret itself. */

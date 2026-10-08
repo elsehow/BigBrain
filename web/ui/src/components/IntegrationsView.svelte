@@ -34,7 +34,7 @@
   async function load(): Promise<void> {
     try {
       // External conversation capture is retired.
-      integrations = ((await api.config()).integrations ?? []).filter((i) => !["agent-chat", "granola", "email", "that-tracks"].includes(i.name));
+      integrations = ((await api.config()).integrations ?? []).filter((i) => !["agent-chat", "granola", "email", "that-tracks", "hardcover"].includes(i.name));
     } catch {
       integrations = [];
     }

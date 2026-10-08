@@ -27,7 +27,7 @@ export { memoryForAgents } from "./memoryProvenance";
  * unaffected. */
 export const FRESH_MAIL_MS = 10 * 60_000;
 
-const where = (kind: OriginKind): string => kind === "email" ? "open in Mail" : kind === "granola" ? "open in Granola" : "open the original";
+const where = (kind: OriginKind): string => kind === "email" ? "open in Mail" : kind === "granola" ? "open in Granola" : kind === "hardcover" ? "open in Hardcover" : "open the original";
 
 /** A path's provenance, decided from the record (the trust rule is lib/provenance.ts's). */
 export function provenanceOf(root: string, path: string): Provenance {
@@ -169,13 +169,12 @@ function mailForAgent(m: Mail, now: number, tally?: Tally, ref?: string): Mail {
   return { ...m, subject, provenance, body: fencedForAgent(provenance, text, { context: said ?? "" }, tally) };
 }
 
+/** `f` applied to every string in a structured value, at any depth; keys and everything else as they were. */
+const mapStrings = (v: unknown, f: (s: string) => string): unknown => typeof v === "string" ? f(v)
+  : Array.isArray(v) ? v.map(x => mapStrings(x, f)) : v && typeof v === "object" ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, mapStrings(x, f)])) : v;
+
 /** Screen every string in a structured value. */
-export function screenDeep(v: unknown, at: { where: string }, tally?: Tally): unknown {
-  if (typeof v === "string") return counted(screenCredentials(v, at), tally);
-  if (Array.isArray(v)) return v.map(x => screenDeep(x, at, tally));
-  if (v && typeof v === "object") return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, screenDeep(x, at, tally)]));
-  return v;
-}
+export const screenDeep = (v: unknown, at: { where: string }, tally?: Tally): unknown => mapStrings(v, s => counted(screenCredentials(s, at), tally));
 
 /** A live mail read, one message and a page of its thread, as an agent receives it. */
 export function mailReadForAgent(result: unknown, now = Date.now(), tally?: Tally): unknown {
@@ -204,6 +203,14 @@ export function upstreamForAgent(kind: OriginKind, result: unknown, tally?: Tall
     ...(Array.isArray(r.content) ? { content: (r.content as Array<Record<string, unknown>>).map(c => c?.type === "text" && typeof c.text === "string"
       ? { ...c, text: fenceUntrusted({ kind }, counted(screenCredentials(c.text, at), tally)) } : c) } : {}),
     ...(r.structuredContent !== undefined ? { structuredContent: screenDeep(r.structuredContent, at, tally) } : {}) };
+}
+
+/** Structured data a live integration returned, all of it from outside, as an
+ * agent receives it: every string, at any depth, screened and fenced as that
+ * integration's material; numbers, booleans and keys as they were. */
+export function fencedDataForAgent(kind: OriginKind, data: unknown, tally?: Tally): unknown {
+  const at = { where: where(kind) };
+  return mapStrings(data, s => fenceUntrusted({ kind }, counted(screenCredentials(s, at), tally), true));
 }
 
 /** An upstream MCP server's tool list as an agent receives it: the prose in it
