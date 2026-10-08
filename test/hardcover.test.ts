@@ -298,7 +298,7 @@ test("a refresh that may have reached Hardcover is never sent again: the account
   expect(stored(root).tokens).toBeUndefined();
   // still connected, so agents hear the fix, and Settings says what to do
   expect(row(service)).toMatchObject({ connected: true, reconnect: true });
-  expect(integrationCapabilities(root, { kind: "pilot" }).hardcover).toMatchObject({ available: true });
+  expect(integrationCapabilities(root, { kind: "pilot" }).hardcover).toMatchObject({ available: true, reconnect: ["hardcover"] });
   await service.update({ name: "hardcover", account: "hardcover", action: "connect" });
   expect((await f.approve(hardcoverSignInStatus(root, "hardcover")!.url!)).status).toBe(200);
   expect(row(service).reconnect).toBeUndefined();
