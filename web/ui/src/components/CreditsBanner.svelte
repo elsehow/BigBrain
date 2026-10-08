@@ -3,15 +3,12 @@
   // provider ran out, what that paused, and that nothing is lost. It stays
   // until credits return, in the update banner's slot (TopStrips) in every
   // view; Retry clears the marks so the paused jobs try again now.
-  import { getContext } from "svelte";
   import { app } from "../lib/store.svelte";
-  import { SIDEBAR_LAYOUT, type SidebarLayout } from "../lib/sidebarLayout";
   import { vaultFetch as fetch } from "../lib/vaultScope";
 
   type Mark = { since: string; at: string; roles: string[]; detail: string };
   let providers = $state<Record<string, Mark>>({});
   let busy = $state(false);
-  const sidebar = getContext<SidebarLayout | undefined>(SIDEBAR_LAYOUT);
 
   const PROVIDER: Record<string, string> = { anthropic: "Anthropic", "openai-codex": "ChatGPT", openai: "OpenAI", typesafe: "Jev", google: "Google" };
   const ROLE: Record<string, string> = { tend: "filing", gardener: "filing", memory: "memory", quick: "summaries", feed: "the feed", firewall: "new arrivals", gate: "the worth gate", inclusion: "inclusion rules", pilot: "Pilot", voice: "Pilot voice" };
@@ -30,7 +27,7 @@
 </script>
 
 {#if Object.keys(providers).length}
-  <div class="credits" class:sidebar={!!sidebar} role="alert">
+  <div class="credits" role="alert">
     {#each Object.entries(providers) as [p, m] (p)}
       <span title={m.detail}><b>Out of usage credits with {named(p)}.</b> Paused: {paused(m)}. Nothing is lost; it picks up when credits return.</span>
     {/each}
@@ -50,9 +47,4 @@
     background: color-mix(in srgb, var(--err, #c33) 20%, var(--bg)); border: none; border-radius: var(--r-chip); padding: 5px 12px; }
   button:hover { background: color-mix(in srgb, var(--err, #c33) 30%, var(--bg)); }
   button:disabled { opacity: .5; cursor: default; }
-  .sidebar { box-sizing: border-box; min-height: 48px; padding: 10px 24px; gap: 6px 12px; color: var(--bg);
-    background: color-mix(in srgb, var(--err, #c33) 70%, var(--text-strong)); border-right: 1px solid var(--text-strong);
-    border-top: 1px solid color-mix(in srgb, var(--bg) 18%, transparent); }
-  .sidebar button { font: inherit; color: inherit; background: transparent; padding: 5px 0; border-radius: 0; }
-  .sidebar button:hover { text-decoration: underline; }
 </style>
