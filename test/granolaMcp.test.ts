@@ -52,25 +52,28 @@ async function connect(service:IntegrationAccounts,root:string){
  const response=await fetch(auth.searchParams.get('redirect_uri')+'?code=work&state='+auth.searchParams.get('state'));
  expect(response.status).toBe(200);
 }
-test('Granola live access applies to every authenticated client and never stages; revocation withholds results',async()=>{
- const root=nativeVault();let beforeRead=()=>{};
+test('Granola live access follows each caller\'s grant and never stages; revocation withholds results',async()=>{
+ const root=nativeVault(),tokens=process.env.BIGBRAIN_TOKENS;let beforeRead=()=>{};
  const f=fake(()=>{beforeRead();return result('current meeting data');});
  const service=new IntegrationAccounts(root,{granolaSignIn:(r,a,cb)=>startGranolaSignIn(r,a,cb,{endpoint:f.endpoint})});
  try{
   await connect(service,root);
-  const save=(liveAccess:boolean)=>service.update({name:'granola',account:'granola',action:'save',liveAccess});
-  await save(true);
-  const store=join(root,'tokens.json'),a=mintToken(store,root,'Independent client',['vault:read'],{kind:'agent'}),b=mintToken(store,root,'Orchestrated client',['vault:read'],{kind:'agent'});
+  const store=join(root,'tokens.json');process.env.BIGBRAIN_TOKENS=store;
+  const a=mintToken(store,root,'Independent client',['vault:read'],{kind:'agent'}),b=mintToken(store,root,'Orchestrated client',['vault:read'],{kind:'agent'});
   const callers=[{kind:'pilot' as const},...[a,b].map(c=>({kind:'mcp' as const,token:c.token,storePath:store}))];
   const read=(caller:typeof callers[number])=>integrationToolCall(root,caller,'granola_read',{account:'granola',tool:'list_meetings',arguments:{}},{granola:{endpoint:f.endpoint}});
-  for(const caller of callers){expect(readableIntegrationAccounts(root,'granola',caller)).toEqual(['granola']);expect(await read(caller)).toMatchObject({provenance:{remembered:false}});}
+  // a first connection: Pilot reads; a client reads only once granted
+  expect(callers.map(c=>readableIntegrationAccounts(root,'granola',c))).toEqual([['granola'],[],[]]);
+  await service.update({name:'granola',account:'granola',action:'grant',caller:'token:'+a.record.id,access:'read'});
+  for(const caller of callers.slice(0,2)){expect(readableIntegrationAccounts(root,'granola',caller)).toEqual(['granola']);expect(await read(caller)).toMatchObject({provenance:{remembered:false}});}
+  await expect(read(callers[2]!)).rejects.toThrow('not available');
   expect(headFiles(root)).toHaveLength(0);
   beforeRead=()=>revokeToken(store,a.record.id);
   await expect(read(callers[1]!)).rejects.toThrow();
-  beforeRead=()=>{};await save(false);
+  beforeRead=()=>{};await service.update({name:'granola',account:'granola',action:'grant',caller:'pilot',access:'off'});
   for(const caller of [callers[0]!,callers[2]!])await expect(read(caller)).rejects.toThrow('not available');
   expect(headFiles(root)).toHaveLength(0);
- }finally{disconnectGranola(root,'granola');f.server.stop(true);rmSync(root,{recursive:true,force:true});}
+ }finally{if(tokens===undefined)delete process.env.BIGBRAIN_TOKENS;else process.env.BIGBRAIN_TOKENS=tokens;disconnectGranola(root,'granola');f.server.stop(true);rmSync(root,{recursive:true,force:true});}
 });
 test('a connected Granola stages independently of live access, deduplicates, captures changes and stops when disconnected',async()=>{
  const root=nativeVault();let revision=1,broken=false,disable=false;
@@ -132,7 +135,7 @@ test('"Import earlier meetings" brings in history a window at a time, once per r
  try{
   await connect(service,root);
   expect(await poll()).toEqual({arrivals:0});
-  await service.update({name:'granola',account:'granola',action:'save',liveAccess:false,backfillSince:'2026-07-01'});
+  await service.update({name:'granola',account:'granola',action:'save',backfillSince:'2026-07-01'});
   expect(accountPolicy(root,'granola','granola').granola?.backfill?.since).toBe('2026-07-01T00:00:00.000Z');
   const before=lists();
   expect(await poll()).toEqual({arrivals:3});
@@ -166,6 +169,6 @@ test('explicit library addition keeps its enabled defaults through first OAuth s
  try{
   await service.update({name:'granola',action:'install'});
   await connect(service,root);
-  expect(service.list().accounts.find(a=>a.name==='granola')).toMatchObject({connected:true,liveAccess:true});
+  expect(service.list().accounts.find(a=>a.name==='granola')).toMatchObject({connected:true,grants:[{caller:'pilot',access:'read'}]});
  }finally{disconnectGranola(root,'granola');f.server.stop(true);rmSync(root,{recursive:true,force:true});}
 });

@@ -33,7 +33,6 @@ export interface IntegrationOp {
   enabled?: boolean;
   activate?: boolean;
   checkAccess?: boolean;
-  readers?: import("./integrationAccess").IntegrationGrant[];
   /** YAML map replacing the entry's opaque config keys wholesale. `enabled`
    *  is the framework's key and may not appear inside it. */
   configYaml?: string;

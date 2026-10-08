@@ -10,6 +10,7 @@
   "subscriptionConnection",
   "providerMonitoring",
   "integrationAccess",
+  "integrationGrants",
   "connectedClients",
   "settingsLists",
   "firstRunFlow",

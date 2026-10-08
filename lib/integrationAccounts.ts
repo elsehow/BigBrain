@@ -5,7 +5,7 @@ import { applyConfig } from './config';
 import { basename } from 'node:path';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { accountFingerprint, accountPolicy, writeAccountPolicy, removeAccountPolicy, integrationAccounts, integrationCallerChoices, MANAGED_INTEGRATIONS, type Backfill, type LiveAccess } from './integrationAccess';
+import { accountFingerprint, accountPolicy, writeAccountPolicy, removeAccountPolicy, integrationAccounts, integrationCallerChoices, connectedPolicy, defaultGrants, MANAGED_INTEGRATIONS, type AccountGrant, type Backfill, type GrantCaller, type LiveAccess } from './integrationAccess';
 import { probeInbox, probeGmail, type InboxProbe } from './imapProbe';
 import { emailConfig, passwordEnvKey, gmailReadOnly, isGmailInbox, parseInboxAdd } from "./emailConfig";
 import { readEmailState } from "./emailState";
@@ -37,11 +37,8 @@ export class IntegrationAccounts {
   async update(value:any):Promise<ReturnType<IntegrationAccounts["list"]> & {checked?:boolean}>{
     const {name,account,action}=value;
     if(action==='install') {
-      // New additions opt in; existing account choices never change on upgrade or re-add.
-      if(name==='granola'&&!hasAccountPolicy(this.root,name,name)) {
-        const policy=accountPolicy(this.root,name,name);
-        writeAccountPolicy(this.root,name,name,{...policy,liveAccess:true});
-      }
+      // New additions start at the defaults; existing account choices never change on upgrade or re-add.
+      if(name==='granola'&&!hasAccountPolicy(this.root,name,name))writeAccountPolicy(this.root,name,name,{...accountPolicy(this.root,name,name),grants:defaultGrants(name)});
       addLibraryIntegration(this.root,name);
       return this.list();
     }
@@ -54,7 +51,7 @@ export class IntegrationAccounts {
       if(revision!==JSON.stringify(integrationAccounts(this.root,'email')))throw Error('Accounts changed during connection. Try again.');
       applyConfig({integrations:[{name:'email',add:{address:add.address,host:add.host,password:add.password,provider:'gmail'}}]},this.root);
       const policy=accountPolicy(this.root,'email',add.address);
-      writeAccountPolicy(this.root,'email',add.address,{...policy,connected:true,fingerprint:accountFingerprint(this.root,'email',add.address),checkedAt:new Date().toISOString(),liveAccess:false,email:{startAt:new Date().toISOString(),attachments:false}});
+      writeAccountPolicy(this.root,'email',add.address,{...policy,connected:true,fingerprint:accountFingerprint(this.root,'email',add.address),checkedAt:new Date().toISOString(),grants:defaultGrants('email'),email:{startAt:new Date().toISOString(),attachments:false}});
       addLibraryIntegration(this.root,'email');
       return this.list();
     }
@@ -65,7 +62,7 @@ export class IntegrationAccounts {
       const feed=await (this.probes.rss??fetchFeed)(url);
       writeFeeds(this.root,[...feeds,{url,title:feed.title}],`config: add the RSS feed ${feed.title}`);
       addLibraryIntegration(this.root,'rss');
-      writeAccountPolicy(this.root,'rss',url,{...accountPolicy(this.root,'rss',url),connected:true,fingerprint:accountFingerprint(this.root,'rss',url),checkedAt:new Date().toISOString(),liveAccess:false});
+      writeAccountPolicy(this.root,'rss',url,{...accountPolicy(this.root,'rss',url),connected:true,fingerprint:accountFingerprint(this.root,'rss',url),checkedAt:new Date().toISOString(),grants:defaultGrants('rss')});
       return this.list();
     }
     if(action==='add'){
@@ -73,10 +70,7 @@ export class IntegrationAccounts {
       const id='account-'+crypto.randomUUID().replaceAll('-','').slice(0,16);
       if(name!=='granola')writeEnvValues(this.root,{[integrationAccountEnvKey(name,id)]:value.key.trim()});
       writeAtomic(join(this.root,'.spool','integration-accounts',name,'accounts.json'),JSON.stringify([...extraAccounts(this.root,name),{id,label:value.label.trim()}])+'\n',0o600);
-      if(name==='granola') {
-        const policy=accountPolicy(this.root,name,id);
-        writeAccountPolicy(this.root,name,id,{...policy,liveAccess:true});
-      }
+      if(name==='granola')writeAccountPolicy(this.root,name,id,{...accountPolicy(this.root,name,id),grants:defaultGrants(name)});
       return this.list();
     }
     if(!MANAGED_INTEGRATIONS.has(name)||!integrationAccounts(this.root,name).includes(account))throw Error('Choose a configured account.');
@@ -93,14 +87,16 @@ export class IntegrationAccounts {
       removeAccountPolicy(this.root,name,account);
       return this.list();
     }
-    const prior=accountPolicy(this.root,name,account);
+    // whether this account had a policy before anything below writes one: only a first connection takes the defaults
+    const prior=accountPolicy(this.root,name,account),fresh=!hasAccountPolicy(this.root,name,account);
     if(name==='granola'&&action==='cancel'){cancelGranolaSignIn(this.root,account);return this.list();}
     if(name==='granola'&&(action==='connect'||action==='check')){
       writeAccountPolicy(this.root,name,account,{...prior,connected:false});
       const oldIdentity=granolaConnection(this.root,account)?.identity;
       await (this.probes.granolaSignIn??startGranolaSignIn)(this.root,account,()=>{
-        const current=accountPolicy(this.root,name,account);
-        writeAccountPolicy(this.root,name,account,{...current,...(prior.checkedAt && JSON.stringify(oldIdentity)!==JSON.stringify(granolaConnection(this.root,account)?.identity)?{liveAccess:false,grants:[]}:{}),connected:true,fingerprint:accountFingerprint(this.root,name,account),checkedAt:new Date().toISOString()});
+        // signed in as someone else: nobody inherits the earlier account's access
+        const current=accountPolicy(this.root,name,account),other=prior.checkedAt&&JSON.stringify(oldIdentity)!==JSON.stringify(granolaConnection(this.root,account)?.identity);
+        writeAccountPolicy(this.root,name,account,connectedPolicy(name,other?{...current,grants:[]}:current,accountFingerprint(this.root,name,account),fresh));
       });
       return this.list();
     }
@@ -114,7 +110,7 @@ export class IntegrationAccounts {
       await (this.probes.email??(gmail?probeGmail:probeInbox))({address:account,host:inbox.host,port:inbox.port,password});
       if(fingerprint!==accountFingerprint(this.root,name,account)||snapshot!==JSON.stringify(accountPolicy(this.root,name,account)))throw Error('Account settings changed. Try again.');
       writeEnvValues(this.root,{[passwordEnvKey(account)]:password});
-      writeAccountPolicy(this.root,name,account,{...prior,connected:true,fingerprint:accountFingerprint(this.root,name,account),checkedAt:new Date().toISOString()});
+      writeAccountPolicy(this.root,name,account,connectedPolicy(name,prior,accountFingerprint(this.root,name,account),fresh));
       return this.list();
     }
     if(action==='credentials'){
@@ -140,10 +136,10 @@ export class IntegrationAccounts {
         await (this.probes.tracks??(key=>new ThatTracksClient(key).identity()))(key);
       }
       if(fingerprint!==accountFingerprint(this.root,name,account)||snapshot!==JSON.stringify(accountPolicy(this.root,name,account))||revision!==stateSnapshot())throw Error('Account settings changed during the access check. Try again.');
-      if(action==='connect')writeAccountPolicy(this.root,name,account,{...prior,connected:true,fingerprint,checkedAt:new Date().toISOString()});
+      if(action==='connect')writeAccountPolicy(this.root,name,account,connectedPolicy(name,prior,fingerprint,fresh));
       return {...this.list(),checked:true};
     }
-    if(action==='grant')return this.update({name,account,action:'save',grants:[...prior.grants.filter(g=>g.caller!==value.caller&&integrationCallerChoices(this.root).some(c=>c.id===g.caller)),{caller:value.caller,access:value.access}]});
+    if(action==='grant')return this.update({name,account,action:'save',grants:[{caller:value.caller,access:value.access}]});
     if(action!=='save')throw Error('Unknown account action.');
     if(!prior.connected)throw Error('Connect this account before changing its settings.');
     if(name==='email' && gmailReadOnly(this.root,account)) {
@@ -156,18 +152,20 @@ export class IntegrationAccounts {
       prior.email=email;
     }
     if(name==='granola'&&value.backfillSince)prior.granola={...prior.granola,backfill:backfill(value.backfillSince)};
-    if(value.liveAccess!==undefined){
-      if(typeof value.liveAccess!=='boolean'||(!offered(this.root,name,account).read&&value.liveAccess))throw Error('Choose supported live access.');
-      writeAccountPolicy(this.root,name,account,{...prior,liveAccess:value.liveAccess,grants:[]});
-      return this.list();
+    // One switch for every caller is gone: access is chosen per caller.
+    if(value.liveAccess!==undefined)throw Error('Choose live access for each caller.');
+    if(value.grants!==undefined){
+      const callers=new Set(integrationCallerChoices(this.root).map(c=>c.id)),seen=new Set<string>(),live=offered(this.root,name,account);
+      if(!Array.isArray(value.grants)||value.grants.length>100)throw Error('Choose live access for existing callers.');
+      const changed:AccountGrant[]=value.grants.map((g:any)=>{
+        if(!g||!callers.has(g.caller)||seen.has(g.caller)||!['off','read','read-write'].includes(g.access)||(!live.read&&g.access!=='off')||(!live.write&&g.access==='read-write'))throw Error('Choose a supported access level for an existing caller.');
+        seen.add(g.caller);return {caller:g.caller as GrantCaller,access:g.access as LiveAccess};
+      });
+      // Only the callers named change: saving one caller's access never touches another's. A revoked client's grant goes.
+      // When desktops get grants, add desktop:<id> to the choices (or spare it here), or this drops them.
+      prior.grants=[...prior.grants.filter(g=>!seen.has(g.caller)&&callers.has(g.caller)),...changed.filter(g=>g.access!=='off')];
     }
-    const callers=new Set(integrationCallerChoices(this.root).map(c=>c.id)),seen=new Set<string>(),live=offered(this.root,name,account);
-    if(!Array.isArray(value.grants)||value.grants.length>100)throw Error('Choose live access for existing callers.');
-    const grants=value.grants.map((g:any)=>{
-      if(!g||!callers.has(g.caller)||seen.has(g.caller)||!['off','read','read-write'].includes(g.access)||(!live.read&&g.access!=='off')||(!live.write&&g.access==='read-write'))throw Error('Choose a supported access level for an existing caller.');
-      seen.add(g.caller);return {caller:g.caller,access:g.access as LiveAccess};
-    });
-    writeAccountPolicy(this.root,name,account,{...prior,grants});
+    writeAccountPolicy(this.root,name,account,prior);
     return this.list();
   }
 }

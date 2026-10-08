@@ -1,5 +1,7 @@
 import {integrationAccountRoutes} from '../lib/integrationAccountRoutes';
 import {IntegrationAccounts} from '../lib/integrationAccounts';
+import {readLogRoutes} from '../lib/readLogRoutes';
+import {logIntegrationCalls} from '../lib/readLog';
 import {inclusionReviewApi} from '../lib/inclusionReviewApi';
 import {inclusionBackfillApi} from '../lib/inclusionBackfillApi';
 import {tickIntegrationAdmission} from '../lib/integrationAdmission';
@@ -770,7 +772,7 @@ function events({ req, res }: Ctx): void {
 }
 
 export const ROUTES: readonly Route[] = [
-  ...(!DESKTOP&&!isDev()&&process.env.NODE_ENV!=='test'?integrationAccountRoutes(new IntegrationAccounts(ROOT)):[]),
+  ...(!DESKTOP&&!isDev()&&process.env.NODE_ENV!=='test'?[...integrationAccountRoutes(new IntegrationAccounts(ROOT)),...readLogRoutes(ROOT)]:[]),
   { method: "GET", path: "/", handler: serveIndex },
   { method: "GET", path: "/assets/*", handler: serveAsset },
   { method: "GET", path: "/api/vault", handler: vaultIndex },
@@ -861,6 +863,8 @@ export function start(): void {
   if (!secret) throw new Error(`no viewer session at ${viewerSessionPath(PORT)}; the supervisor writes it at start`);
   const allowSession = viewerGate(secret, PORT);
   live.start();
+  // Pilot's live reads are dispatched in this process.
+  logIntegrationCalls(ROOT);
   // Cold projection recovery happens HERE, off the request path (#456): a
   // fresh process against a native vault syncs once at boot, so the first
   // interactive search never carries the catch-up. Sync is incremental —

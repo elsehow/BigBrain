@@ -168,7 +168,7 @@ describe("That Tracks connection", () => {
     expect(readFileSync(join(root, "vault.yaml"), "utf8")).toBe(before);
     const accepted = await configSave(root, patch, undefined, async key => { expect(key).toBe("tt_synthetic"); });
     expect(accepted.status).toBe(200);
-    const activation = await configSave(root, JSON.stringify({integrations:[{name:"that-tracks",enabled:true,activate:true,remember:"Remember tracked events",readers:[]}]}), undefined, async () => {});
+    const activation = await configSave(root, JSON.stringify({integrations:[{name:"that-tracks",enabled:true,activate:true,remember:"Remember tracked events"}]}), undefined, async () => {});
     expect(activation.status).toBe(200);
     const rows = integrationsInfo(root, loadManifest(root)) as any[];
     const tracks = rows.find(r => r.name === "that-tracks");

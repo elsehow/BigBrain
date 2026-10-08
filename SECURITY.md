@@ -26,12 +26,22 @@ report suspected vulnerabilities even if an update is not possible.
   your account's files can read the secret, so they remain trusted. Do not
   expose these servers through a public reverse proxy or share their
   forwarded ports with untrusted users.
-- The separate integration HTTP API uses scoped, revocable bearer tokens.
-  Local MCP clients use individual credentials. Client and script credentials
-  that read the vault (not the gardener's `tend` credential) lapse after 30
-  days unused and are renewed in the app (Settings → Connected clients) or
-  with `bigbrain auth renew`. A memory-reading grant permits
+- The separate integration HTTP API uses scoped, revocable bearer tokens, and
+  each local MCP client has its own credential. A memory-reading grant permits
   reading the vault's memory; this is not a multi-user or per-note access system.
+  Client and script credentials that read the vault (not the gardener's `tend`
+  credential) lapse after 30 days unused. Renewing one in the app (Settings →
+  Connected clients) or with `bigbrain auth renew` keeps the same credential,
+  and with it the live access below.
+- Live access to a connected account (mail, meeting notes) is granted per
+  account and per caller: Pilot, or one connected client. A new account starts
+  with Pilot reading and every client off. Every live integration call except
+  discovery is recorded in an owner-only read log on this machine, kept at
+  least 90 days: who asked, which account and tool, the arguments in summary
+  and how the call ended, never what was read or a credential
+  ([where it lives](docs/self-host.md#the-read-log)). Grants decide what
+  BigBrain hands each caller and the log records who read what; neither is a
+  sandbox around a program that runs as you.
 - Imported pages, messages, files and model output are untrusted content.
   Sanitized rendering and host-enforced tool permissions provide separate
   protections. Prompt wording alone is not a security boundary.

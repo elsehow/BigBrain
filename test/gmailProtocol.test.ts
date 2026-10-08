@@ -58,7 +58,6 @@ test('real IMAP wire: EXAMINE + PEEK, archive/thread pagination, stale cursors, 
  const imap=await server();const root=gitVault({files:{'vault.yaml':'{}\n','.gitignore':'.env\n.spool/\n.state/\n'}});
  try{
   const api=new IntegrationAccounts(root,{email:async()=>{}});await api.update({name:'email',action:'add',address:'me@example.com',password:'abcdefghijklmnop'});
-  await api.update({name:'email',account:'me@example.com',action:'save',liveAccess:true});
   const options={client:()=>new ImapFlow({host:'127.0.0.1',port:imap.port,secure:false,doSTARTTLS:false,auth:{user:'me@example.com',pass:'synthetic'},logger:false})};
   const call=async(name:string,args:Record<string,unknown>)=>(await integrationToolCall(root,{kind:'pilot'},name,args,options) as any).result;
   const before=snapshot(root);
@@ -70,7 +69,7 @@ test('real IMAP wire: EXAMINE + PEEK, archive/thread pagination, stale cursors, 
   expect(snapshot(root)).toBe(before);
   imap.reset();await expect(call('email_read',{ref:page.messages[0].ref})).rejects.toThrow('identity changed');
   await expect(call('email_search',{account:'me@example.com',before_uid:14,uidvalidity:page.uidvalidity})).rejects.toThrow('identity changed');
-  await api.update({name:'email',account:'me@example.com',action:'save',liveAccess:true,backfillSince:'2026-09-01'});
+  await api.update({name:'email',account:'me@example.com',action:'save',backfillSince:'2026-09-01'});
   const child=Bun.spawn([process.execPath,'--preload',resolve('test/support/gmailWirePreload.ts'),resolve('integrations/email/run.ts')],{cwd:root,env:{...process.env,BIGBRAIN_VAULT:root,GMAIL_WIRE_PORT:String(imap.port)},stdout:'pipe',stderr:'pipe'});
   const [out,err,exit]=await Promise.all([new Response(child.stdout).text(),new Response(child.stderr).text(),child.exited]);expect(exit,err+out).toBe(0);expect(headFiles(root)).toHaveLength(15);
   expect(imap.commands.some(c=>c.startsWith('EXAMINE'))).toBe(true);expect(imap.commands.some(c=>c.includes('BODY.PEEK[]'))).toBe(true);

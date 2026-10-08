@@ -24,6 +24,10 @@ process.env["BIGBRAIN_VAULT"] = root;
 process.env["BIGBRAIN_SHARED_CONNECTIONS"] = join(mkdtempSync(join(tmpdir(), "bb-test-connections-")), "shared-connections.json");
 delete process.env["TYPESAFE_API_KEY"];
 
+// The read log (lib/readLog.ts) lives under ~/.config/bigbrain: a test's live
+// calls must never land in the developer's.
+process.env["BIGBRAIN_READ_LOG"] = mkdtempSync(join(tmpdir(), "bb-test-reads-"));
+
 // Catalog refresh is automatic in production; tests must explicitly inject a
 // fabricated transport before opting into model metadata network behavior.
 process.env.PI_OFFLINE = "1";

@@ -247,7 +247,7 @@ Quit the app and drag `BigBrain.app` to the trash, then:
 
 ```sh
 rm -f ~/.local/bin/bigbrain ~/.config/bigbrain/vault ~/.config/bigbrain/telemetry.json
-rm -rf ~/.config/bigbrain/tokens ~/.config/bigbrain/client-tokens.json
+rm -rf ~/.config/bigbrain/tokens ~/.config/bigbrain/client-tokens.json ~/.config/bigbrain/reads
 claude plugin uninstall bigbrain@bigbrain
 ```
 
@@ -300,3 +300,37 @@ curates staged and landed material and has no live-account access. Public MCP
 uses its own external-client grants. Email is the first live adapter. See [agent connections](agent-memory.md)
 for external-client credentials and grants. These grants govern BB's source
 credentials, not a connected agent's filesystem, terminal, or native approvals.
+
+## The read log
+
+Every call Pilot or a connected MCP client makes to a live integration tool
+(`inbox_list`, `email_search`, `granola_read`, …) is recorded on this machine,
+outside the vault: `~/.config/bigbrain/reads/<vault-hash>/YYYY-MM.jsonl`, one
+JSON line per call, a file per month (UTC), owner-only (the folder 0700, the
+files 0600). `<vault-hash>` is the token store's: the first 12 hex characters
+of the sha256 of the vault's path. Files for months that ended more than 90
+days ago are deleted as new calls are written. `firsts.jsonl` beside them
+remembers each caller's first read of each integration and is not pruned.
+`BIGBRAIN_READ_LOG` points the log at another folder.
+
+A line records when the call began; the caller (`pilot` or `token:<id>`) and
+its name at the time; the integration, account and tool; the arguments in
+summary, including search queries (at most 20, strings clipped to 200
+characters, objects and lists by their size, refs kept, credential-shaped text
+replaced with `[withheld]`); the outcome (`ok`, `refused` or `error`) and the
+error, clipped and screened the same way; the duration; for a call that
+succeeded, the size of what came back in bytes and items, how many credentials
+were screened out of it and how many fresh sign-in messages were held to their
+headers; whether it was the caller's first read of that integration; and, for
+`bigbrain mcp`, the pid and command name of the program that started it (`sh`
+or `zsh` when the client launches the server through a shell).
+
+It never records what came back (no message, note or transcript text) and
+never a token, password or key. Discovery (`integration_capabilities`) is not
+recorded. Writing the log never fails a read: when it cannot be written, the
+process says so once on stderr and the read goes on.
+
+Settings shows it: each account's **Recent reads** lists its last 50 calls,
+marking a caller's first read of the integration, and each connection in
+**Connected clients** shows its last successful read. Pilot and coding desktops are
+denied `~/.config/bigbrain`; other programs running as you can read the log.

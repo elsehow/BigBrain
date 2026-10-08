@@ -35,7 +35,7 @@ writeAtomic(join(root, ".spool/source-mcp/granola", sha256hex("granola") + ".jso
   tokens: { access_token: "synthetic", token_type: "Bearer" }, identity: { email: "work@example.test", workspace: "fixture" } }), 0o600);
 const reader = mintToken(store, root, "Reader agent", ["vault:read"], { kind: "agent" });
 const policy = (name: string, account: string, grants: { caller: string; access: "read" | "read-write" }[]) =>
-  writeAccountPolicy(root, name, account, { version: 2, connected: true, fingerprint: accountFingerprint(root, name, account), checkedAt: "2026-01-01T00:00:00.000Z", grants });
+  writeAccountPolicy(root, name, account, { version: 3, connected: true, fingerprint: accountFingerprint(root, name, account), checkedAt: "2026-01-01T00:00:00.000Z", grants });
 policy("email", "me@example.com", [{ caller: "pilot", access: "read-write" }, { caller: "token:" + reader.record.id, access: "read" }]);
 policy("email", "work@example.com", [{ caller: "pilot", access: "read" }]);
 policy("granola", "granola", [{ caller: "pilot", access: "read" }]);

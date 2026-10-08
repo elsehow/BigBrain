@@ -12,6 +12,7 @@ import { IntegrationAccounts } from "../lib/integrationAccounts";
 import { integrationAccountRoutes } from "../lib/integrationAccountRoutes";
 import { ConnectedClients } from "../lib/connectedClients";
 import { connectedClientRoutes } from "../lib/connectedClientRoutes";
+import { readLogRoutes } from "../lib/readLogRoutes";
 import { telemetry, telemetryRoutes } from "../lib/telemetry";
 import { feedbackRoutes } from "../lib/feedback";
 /** Machine-local routes exposed by the desktop shell.
@@ -65,5 +66,6 @@ export function desktopRouteManifest(root: string, options: { includeSupport?: b
     ...workHistoryRoutes(work),
     ...connectedClientRoutes(new ConnectedClients(root)),
     ...integrationAccountRoutes(new IntegrationAccounts(root)),
+    ...readLogRoutes(root),
   ];
 }

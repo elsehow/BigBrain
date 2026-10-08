@@ -7,6 +7,7 @@ import type { ImapFlow } from "imapflow";
 import { gitVault } from "./support/vault";
 import { configSave, integrationsInfo } from "../lib/configWrite";
 import { deactivateIntegration, integrationActive } from "../lib/integrationAccess";
+import { IntegrationAccounts } from "../lib/integrationAccounts";
 import { integrationToolCall } from "../lib/integrationTools";
 import { pilotToolCall, pilotTools } from "../lib/pilot";
 import { handleMcpTool, mcpToolList, type McpContext } from "../lib/mcp";
@@ -25,10 +26,14 @@ function fixture() {
  roots.push(root); const store=join(root,"tokens.json"); process.env.BIGBRAIN_TOKENS=store;
  const clients=new ConnectedClients(root,store),id=clients.create({name:"Test external agent",kind:"generic"}).id;
  const credential={token:clients.token(id),record:{id}};
- const grants=[{caller:"pilot",accounts:["me@example.com"]},{caller:"token:"+credential.record.id,accounts:["me@example.com"]}];
- const op={name:"email",enabled:true,activate:true,readers:grants};
+ const op={name:"email",enabled:true,activate:true};
  const save=(value:unknown,probe=async()=>{})=>configSave(root,JSON.stringify({integrations:[value]}),probe);
- return {root,store,credential,grants,op,save};
+ /** Activate, then choose in each account's Settings: Pilot and this client read me@example.com, nobody reads work@example.com. */
+ const activate=async()=>{
+  expect(await save(op)).toMatchObject({status:200});const accounts=new IntegrationAccounts(root);
+  for(const account of ["me@example.com","work@example.com"]){const access=account==="me@example.com"?"read":"off";await accounts.update({name:"email",account,action:"save",grants:[{caller:"pilot",access},{caller:"token:"+credential.record.id,access}]});}
+ };
+ return {root,store,credential,op,save,activate};
 }
 function provider(onConnect?:()=>Promise<void>) {
  let calls=0,closes=0;
@@ -45,7 +50,8 @@ test("activation is explicit and verified; failed/canceled setup remains inactiv
  expect((await f.save({name:"email",checkAccess:true},probe)).status).toBe(200);
  expect(probes).toBe(2);expect(integrationActive(f.root,"email")).toBe(false);
  expect(readFileSync(join(f.root,"vault.yaml"),"utf8")).toBe(before);
- for(const op of [{name:"email",enabled:true},{...f.op,readers:[{caller:"pilot",accounts:["other@example.com"]}]}])expect((await f.save(op,probe)).status).toBe(400);
+ // readers are chosen per account in Settings now, never in a configuration save
+ for(const op of [{name:"email",enabled:true},{...f.op,readers:[{caller:"pilot",accounts:["me@example.com"]}]}])expect((await f.save(op,probe)).status).toBe(400);
  expect((await f.save(f.op,async()=>{throw Error("bad credentials");})).status).toBe(400);
  expect(integrationActive(f.root,"email")).toBe(false);expect(readFileSync(join(f.root,"vault.yaml"),"utf8")).toBe(before);
  expect(await f.save(f.op,probe)).toMatchObject({status:200});expect(integrationActive(f.root,"email")).toBe(true);
@@ -54,7 +60,7 @@ test("activation is explicit and verified; failed/canceled setup remains inactiv
  expect((await f.save(f.op,async()=>{throw Error("revoked");})).status).toBe(400);expect(integrationActive(f.root,"email")).toBe(false);
 });
 test("Pilot and authenticated MCP use the same account-scoped reads without remembering",async()=>{
- const f=fixture();expect(await f.save(f.op)).toMatchObject({status:200});const p=provider();
+ const f=fixture();await f.activate();const p=provider();
  const ctx:McpContext={root:f.root,via:"cli",clientName:"untrusted name",integrationToken:f.credential.token,tokenStore:f.store,integrationOptions:p};
  const pilot:any=await pilotToolCall(f.root,"inbox_list",{},p);
  const external:any=await handleMcpTool(ctx,"inbox_list",{});
@@ -82,7 +88,7 @@ test("Pilot and authenticated MCP use the same account-scoped reads without reme
  expect(readSourceInsertionLog(f.root)).toHaveLength(1);
 });
 test("revocation and account changes affect existing sessions; in-flight results are withheld",async()=>{
- const f=fixture();await f.save(f.op);const p=provider();
+ const f=fixture();await f.activate();const p=provider();
  const ctx:McpContext={root:f.root,via:"cli",integrationToken:f.credential.token,tokenStore:f.store,integrationOptions:p};
  expect(mcpToolList(ctx).some(t=>t.name==="inbox_list")).toBe(true);
  revokeToken(f.store,f.credential.record.id);
@@ -90,7 +96,7 @@ test("revocation and account changes affect existing sessions; in-flight results
  await expect(handleMcpTool(ctx,"inbox_list",{})).rejects.toThrow("Authenticate");expect(p.calls()).toBe(0);
  const slow=provider(async()=>{deactivateIntegration(f.root,"email");});
  await expect(pilotToolCall(f.root,"inbox_list",{},slow)).rejects.toThrow();expect(slow.closes()).toBeGreaterThan(0);
- await f.save({...f.op,readers:f.grants.filter(g=>!g.caller.startsWith("token:"))});
+ await f.save(f.op);
  writeFileSync(join(f.root,".env"),"BIGBRAIN_IMAP_PASSWORD__ME_EXAMPLE_COM=replacement\n");
  await expect(pilotToolCall(f.root,"inbox_list",{},p)).rejects.toThrow("not available");expect(p.calls()).toBe(0);
 });
@@ -110,7 +116,7 @@ test("pending mail is never the gardener's; while deactivated it survives and ca
  expect(admitStaged(f.root,["mail"])[0]?.ok).toBe(true);expect(readSourceInsertionLog(f.root)).toHaveLength(1);
 });
 test("the actual MCP transport authenticates integrations by token, never client name",async()=>{
- const f=fixture();await f.save(f.op);
+ const f=fixture();await f.activate();
  const client=new Client({name:"pilot",version:"1"});
  try {
   await client.connect(new StdioClientTransport({command:process.execPath,args:[resolve("bin/mcp.ts"),"--client",f.credential.record.id],env:{...process.env,BIGBRAIN_VAULT:f.root,BIGBRAIN_TOKENS:f.store} as Record<string,string>,stderr:"pipe"}));

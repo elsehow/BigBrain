@@ -38,9 +38,6 @@ exports[`MCP lists live tools by what the client may do: email + granola, read o
 exports[`MCP lists live tools by what the client may do: no grants of its own 1`] = `
 [
   "drop",
-  "granola_read",
-  "granola_tools",
-  "integration_capabilities",
   "load_memory",
   "read_note",
   "search_vault",
@@ -196,7 +193,7 @@ exports[`capabilities and access decisions per caller: access: pilot 1`] = `
     "accounts": {
       "account-0123456789abcdef": {
         "read": "ok",
-        "write": "ok",
+        "write": "refused: This account does not grant this caller live write access.",
       },
       "granola": {
         "read": "ok",
@@ -207,9 +204,7 @@ exports[`capabilities and access decisions per caller: access: pilot 1`] = `
       "granola",
       "account-0123456789abcdef",
     ],
-    "writable": [
-      "account-0123456789abcdef",
-    ],
+    "writable": [],
   },
   "rss": {
     "accounts": {
@@ -269,7 +264,6 @@ exports[`capabilities and access decisions per caller: capabilities: writer 1`] 
   "granola": {
     "accounts": [
       "granola",
-      "account-0123456789abcdef",
     ],
     "available": true,
     "descriptors": {
@@ -309,8 +303,8 @@ exports[`capabilities and access decisions per caller: access: writer 1`] = `
   "granola": {
     "accounts": {
       "account-0123456789abcdef": {
-        "read": "ok",
-        "write": "ok",
+        "read": "refused: This account is not available to this caller. Update access in Settings → Integrations.",
+        "write": "refused: This account does not grant this caller live write access.",
       },
       "granola": {
         "read": "ok",
@@ -319,11 +313,8 @@ exports[`capabilities and access decisions per caller: access: writer 1`] = `
     },
     "readable": [
       "granola",
-      "account-0123456789abcdef",
     ],
-    "writable": [
-      "account-0123456789abcdef",
-    ],
+    "writable": [],
   },
   "rss": {
     "accounts": {
@@ -382,7 +373,6 @@ exports[`capabilities and access decisions per caller: capabilities: reader 1`] 
   "granola": {
     "accounts": [
       "granola",
-      "account-0123456789abcdef",
     ],
     "available": true,
     "descriptors": {
@@ -420,8 +410,8 @@ exports[`capabilities and access decisions per caller: access: reader 1`] = `
   "granola": {
     "accounts": {
       "account-0123456789abcdef": {
-        "read": "ok",
-        "write": "ok",
+        "read": "refused: This account is not available to this caller. Update access in Settings → Integrations.",
+        "write": "refused: This account does not grant this caller live write access.",
       },
       "granola": {
         "read": "ok",
@@ -430,11 +420,8 @@ exports[`capabilities and access decisions per caller: access: reader 1`] = `
     },
     "readable": [
       "granola",
-      "account-0123456789abcdef",
     ],
-    "writable": [
-      "account-0123456789abcdef",
-    ],
+    "writable": [],
   },
   "rss": {
     "accounts": {
@@ -479,10 +466,8 @@ exports[`capabilities and access decisions per caller: capabilities: stranger 1`
     ],
   },
   "granola": {
-    "accounts": [
-      "account-0123456789abcdef",
-    ],
-    "available": true,
+    "accounts": [],
+    "available": false,
     "descriptors": {
       "read": "Read current meeting notes, transcripts and folders via Granola MCP. Does not change meetings or remember evidence.",
       "write": null,
@@ -515,20 +500,16 @@ exports[`capabilities and access decisions per caller: access: stranger 1`] = `
   "granola": {
     "accounts": {
       "account-0123456789abcdef": {
-        "read": "ok",
-        "write": "ok",
+        "read": "refused: This account is not available to this caller. Update access in Settings → Integrations.",
+        "write": "refused: This account does not grant this caller live write access.",
       },
       "granola": {
         "read": "refused: This account is not available to this caller. Update access in Settings → Integrations.",
         "write": "refused: This account does not grant this caller live write access.",
       },
     },
-    "readable": [
-      "account-0123456789abcdef",
-    ],
-    "writable": [
-      "account-0123456789abcdef",
-    ],
+    "readable": [],
+    "writable": [],
   },
   "rss": {
     "accounts": {
@@ -795,7 +776,7 @@ exports[`accounts, credentials and library rows: settings rows 1`] = `
     "label": "me@example.com",
     "name": "email",
     "removable": true,
-    "version": 2,
+    "version": 3,
   },
   {
     "account": "work@example.com",
@@ -826,7 +807,7 @@ exports[`accounts, credentials and library rows: settings rows 1`] = `
     "label": "work@example.com",
     "name": "email",
     "removable": true,
-    "version": 2,
+    "version": 3,
   },
   {
     "account": "granola",
@@ -858,7 +839,7 @@ exports[`accounts, credentials and library rows: settings rows 1`] = `
     "name": "granola",
     "removable": false,
     "transport": "mcp",
-    "version": 2,
+    "version": 3,
   },
   {
     "account": "account-0123456789abcdef",
@@ -869,16 +850,20 @@ exports[`accounts, credentials and library rows: settings rows 1`] = `
     "checkedAt": "2026-01-01T00:00:00.000Z",
     "connected": true,
     "fingerprint": "82cca2c8b5e6c5014e8f576f4ce3c7d9281250d85bd323c7edd9d501b3d5f478",
-    "grants": [],
+    "grants": [
+      {
+        "access": "read",
+        "caller": "pilot",
+      },
+    ],
     "identity": {
       "workspace": "fixture",
     },
     "label": "Second workspace",
-    "liveAccess": true,
     "name": "granola",
     "removable": true,
     "transport": "mcp",
-    "version": 2,
+    "version": 3,
   },
   {
     "account": "that-tracks",
@@ -898,7 +883,7 @@ exports[`accounts, credentials and library rows: settings rows 1`] = `
     "label": "that-tracks",
     "name": "that-tracks",
     "removable": false,
-    "version": 2,
+    "version": 3,
   },
   {
     "account": "https://feeds.example.com/news.xml",
@@ -911,10 +896,9 @@ exports[`accounts, credentials and library rows: settings rows 1`] = `
     "fingerprint": "13bbab9c6f857d395b8a4fcf42ea8b6bedd8751cfe9cd2be1ba61afcfeb19740",
     "grants": [],
     "label": "Example news",
-    "liveAccess": false,
     "name": "rss",
     "removable": true,
-    "version": 2,
+    "version": 3,
   },
 ]
 `;

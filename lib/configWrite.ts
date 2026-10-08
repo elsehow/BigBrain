@@ -1,4 +1,4 @@
-import { activationRecord, integrationConnected, integrationActive, integrationAccounts, integrationFingerprint, integrationCallerChoices, validateIntegrationGrants, saveIntegrationActivation, deactivateIntegration, MANAGED_INTEGRATIONS } from "./integrationAccess";
+import { activationRecord, integrationConnected, integrationActive, integrationAccounts, integrationFingerprint, integrationCallerChoices, saveIntegrationActivation, deactivateIntegration, MANAGED_INTEGRATIONS } from "./integrationAccess";
 import { checkIntegrationConnection } from "./integrationProbe";
 /**
  * configWrite.ts — the viewer's one write surface, extracted from
@@ -102,10 +102,12 @@ export async function configSave(
 ): Promise<{ status: number; body: string }> {
   try {
     const patch = JSON.parse(body) as ConfigPatch;
-    const activationChecks = new Map<string, { fingerprint: string; prior: string; grants: import("./integrationAccess").IntegrationGrant[] }>();
+    const activationChecks = new Map<string, { fingerprint: string; prior: string }>();
     const ops = patch.integrations ?? [];
     if (!Array.isArray(ops) || new Set(ops.map(o => o.name)).size !== ops.length) throw new Error("Choose each integration only once per save.");
     for (const op of ops) {
+      // Who may read an account is chosen per account and caller in Settings → Integrations, and only there.
+      if ("readers" in op) throw new Error("Choose who can read each account in Settings → Integrations.");
       if (op.checkAccess) {
         if (ops.length !== 1 || Object.keys(patch).length !== 1 || Object.keys(op).some(k => !["name", "checkAccess"].includes(k))) throw new Error("Check account access separately from configuration changes.");
         await checkIntegrationConnection(root, op.name, probe, probeTracks);
@@ -114,13 +116,12 @@ export async function configSave(
       if (op.enabled === true && MANAGED_INTEGRATIONS.has(op.name)) {
         if (op.activate !== true) throw new Error("Confirm account access before activating.");
         if (op.env || op.add || op.remove || op.configYaml !== undefined) throw new Error("Save account settings before activating.");
-        const grants = validateIntegrationGrants(root, op.name, op.readers);
         const fingerprint = integrationFingerprint(root, op.name);
         const prior = JSON.stringify(activationRecord(root, op.name) ?? null);
         await checkIntegrationConnection(root, op.name, probe, probeTracks);
         if (fingerprint !== integrationFingerprint(root, op.name)) throw new Error("Account settings changed during the access check. Try again.");
-        activationChecks.set(op.name, { fingerprint, prior, grants });
-      } else if (op.readers !== undefined || op.activate !== undefined) throw new Error("Update tool access through the activation form.");
+        activationChecks.set(op.name, { fingerprint, prior });
+      } else if (op.activate !== undefined) throw new Error("Update tool access through the activation form.");
     }
     // An inbox is added only if it logs in: the first live add (2026-09-04)
     // saved a mistyped host and the row could only say so a poll later.
@@ -140,7 +141,7 @@ export async function configSave(
     for (const [name, check] of activationChecks) if (check.fingerprint !== integrationFingerprint(root, name) || check.prior !== JSON.stringify(activationRecord(root, name) ?? null)) throw new Error("Account settings changed during the access check. Try again.");
     const result = applyConfig(patch, root);
     for (const op of ops) if (op.enabled === false && MANAGED_INTEGRATIONS.has(op.name)) deactivateIntegration(root, op.name);
-    for (const [name, check] of activationChecks) saveIntegrationActivation(root, name, check.grants, check.fingerprint);
+    for (const [name, check] of activationChecks) saveIntegrationActivation(root, name, check.fingerprint);
     return { status: 200, body: JSON.stringify(result) };
   } catch (e) {
     return {

@@ -3,7 +3,7 @@ import {readFileSync,writeFileSync,existsSync,rmSync,statSync} from 'node:fs';
 import {join,resolve} from 'node:path';
 import {gitVault} from './support/vault';
 import {IntegrationAccounts} from '../lib/integrationAccounts';
-import {accountPolicy,writeAccountPolicy,requireIntegrationWrite} from '../lib/integrationAccess';
+import {accountPolicy,writeAccountPolicy,requireIntegrationWrite,readableIntegrationAccounts} from '../lib/integrationAccess';
 import { emailConfig, passwordEnvKey } from "../lib/emailConfig";
 import { readEmailState } from "../lib/emailState";
 import {loadManifest} from '../lib/manifest';
@@ -23,7 +23,7 @@ async function account(root:string,address='me@example.com'){
 }
 async function enable(root:string,options:{attachments?:boolean;startAt?:string}={}){
  const api=await account(root);
- await api.update({name:'email',action:'save',account:'me@example.com',liveAccess:true,attachments:options.attachments??false});
+ await api.update({name:'email',action:'save',account:'me@example.com',attachments:options.attachments??false});
  const p=accountPolicy(root,'email','me@example.com');
  writeAccountPolicy(root,'email','me@example.com',{...p,email:{...p.email!,startAt:options.startAt??'2026-09-01T00:00:00Z'}});
  return api;
@@ -42,7 +42,9 @@ test('Gmail onboarding verifies before saving; returns no secrets, keeps choices
  expect(emailConfig(loadManifest(root).integrations.email).inboxes).toEqual([]);expect(existsSync(join(root,'.env'))).toBe(false);
  const connected=await account(root);expect(calls).toBe(1);
  const state=connected.list();expect(JSON.stringify(state)).not.toContain('abcdefghijklmnop');expect(statSync(join(root,'.env')).mode&0o777).toBe(0o600);
- await connected.update({name:'email',action:'save',account:'me@example.com',liveAccess:true,attachments:false});
+ expect(readableIntegrationAccounts(root,'email',{kind:'pilot'})).toEqual(['me@example.com']); // a new account: Pilot reads
+ await connected.update({name:'email',action:'save',account:'me@example.com',grants:[{caller:'pilot',access:'read'}],attachments:false});
+ await expect(connected.update({name:'email',action:'save',account:'me@example.com',grants:[{caller:'pilot',access:'read-write'}]})).rejects.toThrow('supported');
  expect(integrationCapabilities(root,{kind:'pilot'}).email.operations).not.toContain('inbox_set_unread');
  expect(()=>requireIntegrationWrite(root,'email','me@example.com',{kind:'pilot'})).toThrow();
  await expect(connected.update({name:'email',action:'add',address:'me@example.com',password:'ponmlkjihgfedcba'})).rejects.toThrow('already exists');
@@ -108,7 +110,7 @@ test('real runner retries bodies and headers beyond three attempts, survives .st
 test('real runner honors exact initial start and UI backfill request across ticks',async()=>{
  const root=vault();const api=await enable(root,{startAt:'2026-09-25T13:00:00Z'});
  await poll(root,{count:1});expect(headFiles(root)).toHaveLength(0);
- await api.update({name:'email',account:'me@example.com',action:'save',liveAccess:false,backfillSince:'2026-09-01'});
+ await api.update({name:'email',account:'me@example.com',action:'save',backfillSince:'2026-09-01'});
  await poll(root,{count:1});expect(headFiles(root)).toHaveLength(1);
  expect(readEmailState(root).inboxes['me@example.com']!.backfillRequest).toBe(accountPolicy(root,'email','me@example.com').email!.backfill!.request);
 },30000);
@@ -116,7 +118,7 @@ test('Gmail installation preserves a legacy account policy and does not overwrit
  const root=vault();const {applyConfig}=await import('../lib/config');
  applyConfig({integrations:[{name:'email',add:{address:'old+tag@example.com',host:'imap.example.com',password:'legacy-secret'}}]},root);
  const {accountFingerprint}=await import('../lib/integrationAccess');
- const prior={...accountPolicy(root,'email','old+tag@example.com'),connected:true,fingerprint:accountFingerprint(root,'email','old+tag@example.com'),liveAccess:true};
+ const prior={...accountPolicy(root,'email','old+tag@example.com'),connected:true,fingerprint:accountFingerprint(root,'email','old+tag@example.com'),grants:[{caller:'pilot' as const,access:'read-write' as const}]};
  writeAccountPolicy(root,'email','old+tag@example.com',prior);
  const api=new IntegrationAccounts(root,{email:async()=>{}});await api.update({name:'email',action:'install'});
  await expect(api.update({name:'email',action:'add',address:'old.tag@example.com',password:'abcdefghijklmnop'})).rejects.toThrow('already exists');
