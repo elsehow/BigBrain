@@ -103,7 +103,7 @@
     <legend>Live access</legend>
     <p>{account.capabilities.read}{account.capabilities.write ? ' '+account.capabilities.write : ''}</p>
     <ul aria-label={`Live access to ${accountLabel(account)}`}>{#each callers as caller(caller.id)}<li><span>{caller.label}{#if caller.expired}<span class="lapsed">{' · expired'}</span>{/if}</span><select aria-label={`Live access for ${caller.label}`} value={accessOf(account,caller.id)} onchange={e=>(changed[account.account]??={})[caller.id]=e.currentTarget.value as Access}><option value="off">Off</option><option value="read">Read</option>{#if account.capabilities.write}<option value="read-write">Read and write</option>{/if}</select></li>{/each}</ul>
-    <p>Pilot is BigBrain’s own agent and has no shell. An external agent with access can act on what it reads with its own tools. This controls what BigBrain hands it.</p>
+    <p>Pilot is BigBrain’s own agent and has no shell. An external agent with access can act on what it reads with its own tools. This controls what BigBrain hands it and records who read what.</p>
   </fieldset>{/if}
   <div class="actions"><button disabled={busy||!account.connected} onclick={()=>save(account)}>Save</button>{@render note('save',account.account)}</div>
   {#if account.capabilities.read}<IntegrationReads integration={source} account={account.account}/>{/if}
