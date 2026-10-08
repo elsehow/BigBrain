@@ -13,6 +13,7 @@ import { sha256hex } from "../lib/hash";
 import { mintToken, revokeToken } from "../lib/auth";
 import { readEnvValues } from "../lib/envFile";
 import { IntegrationAccounts } from "../lib/integrationAccounts";
+import { configSave } from "../lib/configWrite";
 import { policyPath } from "../lib/integrations/contract";
 import { accountFingerprint, accountPolicy, integrationFingerprint, readableIntegrationAccounts, requireIntegrationWrite, type IntegrationCaller } from "../lib/integrationAccess";
 
@@ -106,6 +107,36 @@ test("upgrade: an activation from before account policies keeps Pilot only", () 
   expect(accountPolicy(legacy, "email", ME)).toMatchObject({ version: 3, connected: true, grants: [{ caller: "pilot", access: "read" }] });
   expect(accountPolicy(legacy, "email", WORK)).toMatchObject({ version: 3, connected: true, grants: [] });
   expect(readers("email", ME, legacy)).toEqual([true, false, false]);
+});
+
+test("upgrade: a first sign-in or connection never widens what an older engine recorded", async () => {
+  // Granola added with Live access unticked, and first signed in after the update
+  raw("granola", "granola", { version: 2, connected: false, checkedAt: null, liveAccess: false });
+  const signIn = new IntegrationAccounts(root, { granolaSignIn: async (_root, _account, done) => { done(); return undefined as never; } });
+  await signIn.update({ name: "granola", account: "granola", action: "connect" });
+  expect(accountPolicy(root, "granola", "granola")).toMatchObject({ connected: true, grants: [] });
+  expect(readers("granola", "granola")).toEqual([false, false, false]);
+  // an inbox an older engine knew but never connected
+  raw("email", WORK, { version: 2, connected: false, checkedAt: null, grants: [] });
+  await api.update({ name: "email", account: WORK, action: "connect" });
+  expect(readers("email", WORK)).toEqual([false, false, false]);
+});
+
+test("a configuration save never writes grants: readers are refused, and activation keeps each account's", async () => {
+  const at = vault(), save = (op: Record<string, unknown>) => configSave(at, JSON.stringify({ integrations: [op] }), async () => {});
+  raw("email", ME, { version: 3, grants: [{ caller: A, access: "read" }] }, at);
+  raw("email", WORK, { version: 3, connected: false, grants: [] }, at);
+  const before = readFileSync(policyPath(at, "email", ME), "utf8");
+  for (const op of [{ name: "email", enabled: true, activate: true, readers: [{ caller: B, accounts: [ME, WORK] }] }, { name: "email", readers: [] }]) {
+    const refused = await save(op);
+    expect(refused.status).toBe(400);
+    expect(JSON.parse(refused.body).error).toContain("Settings → Integrations");
+  }
+  expect(readFileSync(policyPath(at, "email", ME), "utf8")).toBe(before);
+  expect((await save({ name: "email", enabled: true, activate: true })).status).toBe(200);
+  expect(accountPolicy(at, "email", ME)).toMatchObject({ connected: true, grants: [{ caller: A, access: "read" }] });
+  expect(accountPolicy(at, "email", WORK)).toMatchObject({ connected: true, grants: [] });
+  expect(readers("email", ME, at)).toEqual([false, true, false]);
 });
 
 test("an unknown or malformed policy fails closed", () => {

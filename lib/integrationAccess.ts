@@ -8,6 +8,7 @@ import { writeAtomic } from "./fsx";
 import { listTokens, tokenStorePath, verifyToken, hasScope } from "./auth";
 import { integrationNamed, type Integration } from "./integrations";
 import { extraAccounts, policyPath } from "./integrations/contract";
+import { hasAccountPolicy } from "./integrationLibrary";
 
 export { MANAGED_INTEGRATIONS } from "./integrations";
 export { extraAccounts } from "./integrations/contract";
@@ -53,21 +54,14 @@ export function integrationCallerChoices(root: string) {
     ...listTokens(tokenStorePath(root)).filter(t => !t.revoked && hasScope(t, "vault:read"))
       .map(t => ({ id: "token:" + t.id, label: t.name }))];
 }
-export function validateIntegrationGrants(root: string, name: string, value: unknown): IntegrationGrant[] {
-  if (!Array.isArray(value) || value.length > 100) throw new Error("Choose who can read this integration.");
-  const callers = new Set(integrationCallerChoices(root).map(c => c.id)), accounts = new Set(integrationAccounts(root, name));
-  const seen = new Set<string>();
-  return value.map(g => {
-    if (!g || !callers.has(g.caller) || seen.has(g.caller) || !Array.isArray(g.accounts) || g.accounts.some((a: unknown) => typeof a !== "string" || !accounts.has(a))) throw new Error("Choose an existing caller and account.");
-    seen.add(g.caller);
-    return { caller: g.caller, accounts: [...new Set<string>(g.accounts)] };
-  });
-}
-export function saveIntegrationActivation(root: string, name: string, grants: IntegrationGrant[], fingerprint: string): void {
+/** Activation connects every account. Who reads each is chosen per account in Settings, never here: an account keeps its grants. */
+export function saveIntegrationActivation(root: string, name: string, fingerprint: string): void {
   if (fingerprint !== integrationFingerprint(root, name)) throw new Error("Account settings changed during the access check. Try again.");
-  const record: IntegrationActivation = { version: 1, active: true, fingerprint, checkedAt: new Date().toISOString(), grants };
+  // read before the record below is written: an account with no policy yet falls back to the older record
+  const policies = integrationAccounts(root,name).map(account => ({account,policy:connectedPolicy(name,accountPolicy(root,name,account),accountFingerprint(root,name,account),!hasAccountPolicy(root,name,account))}));
+  const record: IntegrationActivation = { version: 1, active: true, fingerprint, checkedAt: new Date().toISOString(), grants: [] };
   writeAtomic(file(root, name), JSON.stringify(record) + "\n", 0o600);
-  for(const account of integrationAccounts(root,name))writeAccountPolicy(root,name,account,{version:3,connected:true,fingerprint:accountFingerprint(root,name,account),checkedAt:record.checkedAt,grants:grants.filter(g=>g.accounts.includes(account)).map(g=>({caller:g.caller as GrantCaller,access:"read"}))});
+  for (const {account,policy} of policies) writeAccountPolicy(root,name,account,policy);
 }
 export function deactivateIntegration(root: string, name: string): void {
   const policies = integrationAccounts(root,name).map(account => ({account,policy:accountPolicy(root,name,account)}));
@@ -113,6 +107,11 @@ const accessOf=(p:AccountPolicy,id:string):LiveAccess=>p.grants.find(g=>g.caller
 const pilotReads=(name:string):AccountGrant[]=>integrationNamed(name)?.tools.length?[{caller:"pilot",access:"read"}]:[];
 /** A newly connected account: Pilot reads; every client starts off. */
 export const defaultGrants=(name:string):AccountGrant[]=>pilotReads(name);
+/** Connected now. Only an account connecting for the first time (`fresh`: no policy file before this change began, and never
+ * checked) starts at the defaults. Any other keeps its grants, so a choice an older engine recorded is never widened. */
+export function connectedPolicy(name:string,policy:AccountPolicy,fingerprint:string,fresh:boolean):AccountPolicy{
+  return {...policy,...(fresh&&policy.checkedAt===null?{grants:defaultGrants(name)}:{}),connected:true,fingerprint,checkedAt:new Date().toISOString()};
+}
 const accountPolicyFile = (root:string,name:string,account:string):string => { managed(name); return policyPath(root,name,account); };
 export function accountFingerprint(root:string,name:string,account:string):string {
   if (!integrationAccounts(root,name).includes(account)) throw new Error("Choose a configured account.");

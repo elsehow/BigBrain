@@ -5,7 +5,7 @@ import { applyConfig } from './config';
 import { basename } from 'node:path';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { accountFingerprint, accountPolicy, writeAccountPolicy, removeAccountPolicy, integrationAccounts, integrationCallerChoices, defaultGrants, MANAGED_INTEGRATIONS, type AccountGrant, type AccountPolicy, type Backfill, type GrantCaller, type LiveAccess } from './integrationAccess';
+import { accountFingerprint, accountPolicy, writeAccountPolicy, removeAccountPolicy, integrationAccounts, integrationCallerChoices, connectedPolicy, defaultGrants, MANAGED_INTEGRATIONS, type AccountGrant, type Backfill, type GrantCaller, type LiveAccess } from './integrationAccess';
 import { probeInbox, probeGmail, type InboxProbe } from './imapProbe';
 import { emailConfig, passwordEnvKey, gmailReadOnly, isGmailInbox, parseInboxAdd } from "./emailConfig";
 import { readEmailState } from "./emailState";
@@ -21,10 +21,6 @@ import { integrationNamed } from './integrations';
 function offered(root:string,name:string,account:string){
   const i=integrationNamed(name),writes=!!i?.tools.some(t=>t.access==='write')&&(i.writable?.(root,account)??true);
   return {read:!!i?.tools.length,write:writes,capabilities:i?.live?{...i.live,...(writes?{}:{write:null})}:{read:null,write:null}};
-}
-/** Connected now. A first connection starts at the defaults (Pilot reads, clients off); a reconnection keeps its grants. */
-function connecting(name:string,policy:AccountPolicy,fingerprint:string):AccountPolicy{
-  return {...policy,...(policy.checkedAt===null?{grants:defaultGrants(name)}:{}),connected:true,fingerprint,checkedAt:new Date().toISOString()};
 }
 export function configuredAccounts(root:string){
   const inboxes=emailConfig(loadManifest(root).integrations.email).inboxes;
@@ -91,7 +87,8 @@ export class IntegrationAccounts {
       removeAccountPolicy(this.root,name,account);
       return this.list();
     }
-    const prior=accountPolicy(this.root,name,account);
+    // whether this account had a policy before anything below writes one: only a first connection takes the defaults
+    const prior=accountPolicy(this.root,name,account),fresh=!hasAccountPolicy(this.root,name,account);
     if(name==='granola'&&action==='cancel'){cancelGranolaSignIn(this.root,account);return this.list();}
     if(name==='granola'&&(action==='connect'||action==='check')){
       writeAccountPolicy(this.root,name,account,{...prior,connected:false});
@@ -99,7 +96,7 @@ export class IntegrationAccounts {
       await (this.probes.granolaSignIn??startGranolaSignIn)(this.root,account,()=>{
         // signed in as someone else: nobody inherits the earlier account's access
         const current=accountPolicy(this.root,name,account),other=prior.checkedAt&&JSON.stringify(oldIdentity)!==JSON.stringify(granolaConnection(this.root,account)?.identity);
-        writeAccountPolicy(this.root,name,account,connecting(name,other?{...current,grants:[]}:current,accountFingerprint(this.root,name,account)));
+        writeAccountPolicy(this.root,name,account,connectedPolicy(name,other?{...current,grants:[]}:current,accountFingerprint(this.root,name,account),fresh));
       });
       return this.list();
     }
@@ -113,7 +110,7 @@ export class IntegrationAccounts {
       await (this.probes.email??(gmail?probeGmail:probeInbox))({address:account,host:inbox.host,port:inbox.port,password});
       if(fingerprint!==accountFingerprint(this.root,name,account)||snapshot!==JSON.stringify(accountPolicy(this.root,name,account)))throw Error('Account settings changed. Try again.');
       writeEnvValues(this.root,{[passwordEnvKey(account)]:password});
-      writeAccountPolicy(this.root,name,account,connecting(name,prior,accountFingerprint(this.root,name,account)));
+      writeAccountPolicy(this.root,name,account,connectedPolicy(name,prior,accountFingerprint(this.root,name,account),fresh));
       return this.list();
     }
     if(action==='credentials'){
@@ -139,7 +136,7 @@ export class IntegrationAccounts {
         await (this.probes.tracks??(key=>new ThatTracksClient(key).identity()))(key);
       }
       if(fingerprint!==accountFingerprint(this.root,name,account)||snapshot!==JSON.stringify(accountPolicy(this.root,name,account))||revision!==stateSnapshot())throw Error('Account settings changed during the access check. Try again.');
-      if(action==='connect')writeAccountPolicy(this.root,name,account,connecting(name,prior,fingerprint));
+      if(action==='connect')writeAccountPolicy(this.root,name,account,connectedPolicy(name,prior,fingerprint,fresh));
       return {...this.list(),checked:true};
     }
     if(action==='grant')return this.update({name,account,action:'save',grants:[{caller:value.caller,access:value.access}]});
@@ -165,6 +162,7 @@ export class IntegrationAccounts {
         seen.add(g.caller);return {caller:g.caller as GrantCaller,access:g.access as LiveAccess};
       });
       // Only the callers named change: saving one caller's access never touches another's. A revoked client's grant goes.
+      // When desktops get grants, add desktop:<id> to the choices (or spare it here), or this drops them.
       prior.grants=[...prior.grants.filter(g=>!seen.has(g.caller)&&callers.has(g.caller)),...changed.filter(g=>g.access!=='off')];
     }
     writeAccountPolicy(this.root,name,account,prior);

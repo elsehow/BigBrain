@@ -297,7 +297,6 @@ export interface IntegrationSource {
 export interface IntegrationOp {
   activate?: boolean;
   checkAccess?: boolean;
-  readers?: {caller:string;accounts:string[]}[];
   name: string;
   enabled?: boolean;
   /** Credential writes (env var → value) — write-only; never echoed back. */

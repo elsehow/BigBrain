@@ -19,7 +19,7 @@ const base=process.env.SIDEBAR_PREVIEW_URL||'http://127.0.0.1:5219';
   const pilot=list.getByRole('combobox',{name:'Live access for Pilot',exact:true}),client=list.getByRole('combobox',{name:'Live access for Claude Code on sample laptop',exact:true});
   assert.equal(await pilot.inputValue(),'read');assert.equal(await client.inputValue(),'off');
   assert.deepEqual(await client.locator('option').allInnerTexts(),['Off','Read'],'no write level where the account offers none');
-  await region.getByText('An external agent with access can act on what it reads with its own tools. This controls what BigBrain hands it and records who read what.',{exact:true}).waitFor();
+  await region.getByText('Pilot is BigBrain’s own agent and has no shell. An external agent with access can act on what it reads with its own tools. This controls what BigBrain hands it.',{exact:true}).waitFor();
   const save=async()=>{await region.getByRole('button',{name:'Save',exact:true}).click();await region.getByText('Saved.',{exact:true}).waitFor();};
   await client.selectOption('read');await save();
   await pilot.selectOption('off');await save();
