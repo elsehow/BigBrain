@@ -59,6 +59,9 @@ const overlaps = page => page.evaluate(() => {
       await page.goto(`${scene}#/integrations`);
       await page.locator('[data-notice-id="connection:expired"]').waitFor();
       await page.locator('[data-notice-id="integration:reconnect"]').waitFor();
+      // each notice is announced by its kind
+      await page.getByRole('region', { name: 'Connection notification: BigBrain connections expired', exact: true }).waitFor();
+      await page.getByRole('region', { name: 'Connection notification: Integrations need reconnecting', exact: true }).waitFor();
       if (strips) {
         // the stack starts below the strips over the top bar, however many there are
         await page.locator('.update .nudge').waitFor();
@@ -126,6 +129,7 @@ const overlaps = page => page.evaluate(() => {
           window.dispatchEvent(drop);
         });
         await page.locator('[data-notice-kind="capture"]').nth(2).waitFor();
+        await page.getByRole('region', { name: 'Capture notification: beta-sketch.txt', exact: true }).waitFor();
         await page.mouse.move(640, 500); await page.mouse.move(650, 510);
         await page.locator('.feedback-trigger.visible').waitFor();
         await clear('Field with five notices');

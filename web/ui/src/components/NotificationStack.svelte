@@ -18,7 +18,7 @@
     finally { clearing = clearing.filter(value => value !== id); }
   }
   const clear = (id: string) => settle(id, items.find(item => item.id === id)?.onclear);
-  const KIND = { capture: 'Capture', agent: 'Agent', connection: 'Connection' } as const;
+  const KIND = { capture: 'Capture', connection: 'Connection' } as const;
   // The stack holds the window's top-right corner, under the strips above
   // the top bar (`below`, their height), so what would sit under it makes
   // room instead (#167: it covered Settings' Configure, and every control

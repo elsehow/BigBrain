@@ -3,7 +3,7 @@ import type { Snippet } from 'svelte';
 export interface StackNotice {
   id: string;
   title: string;
-  kind: 'capture' | 'agent' | 'connection';
+  kind: 'capture' | 'connection';
   children: Snippet;
   status?: Snippet;
   hasInput?: boolean;
