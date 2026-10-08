@@ -14,7 +14,7 @@ const assert = require('node:assert/strict');
       await page.setViewportSize({ width, height: 1000 });
       await page.goto(`${base}/sidebar-workbench.html`);
       await page.locator('.v2').waitFor();
-      await page.keyboard.press(process.platform === 'darwin' ? 'Meta+,' : 'Control+,');
+      await page.keyboard.press('ControlOrMeta+,');
       await page.locator('aside.panel .settings > .content').waitFor();
       const content = await page.locator('.settings > .content').boundingBox();
       const rail = await page.locator('.settings > .rail').boundingBox();

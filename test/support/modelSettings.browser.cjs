@@ -58,7 +58,7 @@ const assert = require('node:assert/strict');
           return original(input, options);
         };
       });
-      await page.keyboard.press(process.platform === 'darwin' ? 'Meta+,' : 'Control+,');
+      await page.keyboard.press('ControlOrMeta+,');
       await page.getByRole('button', { name: 'models', exact: true }).click();
       await page.getByLabel('Gardener model', { exact: true }).waitFor();
     }

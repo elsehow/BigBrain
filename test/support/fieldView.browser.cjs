@@ -28,7 +28,7 @@ const assert = require('node:assert/strict');
     // ⌘O hands the source's origin to the OS: a page goes to the browser (a new tab here).
     // The hint is keyText()'s, so it reads Ctrl+O off a Mac, as the key is pressed.
     assert.match(await draft.innerText(), process.platform === 'darwin' ? /⌘O Open original/ : /Ctrl\+O Open original/);
-    const [popup] = await Promise.all([page.waitForEvent('popup'), page.keyboard.press(process.platform === 'darwin' ? 'Meta+o' : 'Control+o')]);
+    const [popup] = await Promise.all([page.waitForEvent('popup'), page.keyboard.press('ControlOrMeta+o')]);
     await popup.waitForEvent('domcontentloaded').catch(() => {});
     assert.equal(popup.url(), 'https://example.com/ins_b');
     await popup.close();
@@ -49,18 +49,18 @@ const assert = require('node:assert/strict');
     await page.waitForFunction(() => /search results/i.test(document.querySelector('.mention-menu .menu-label')?.textContent ?? ''));
     await page.keyboard.press('Escape');
     await menu.waitFor({ state: 'detached' });
-    await page.keyboard.press(process.platform === 'darwin' ? 'Meta+a' : 'Control+a');
+    await page.keyboard.press('ControlOrMeta+a');
     await page.keyboard.press('Backspace');
     // Esc before a first message goes back to the feed, on the same row
     await page.keyboard.press('Escape');
     await draft.waitFor({ state: 'detached' });
 
     // ⌘N starts a new desktop (the workbench counts it rather than starting one)
-    await page.keyboard.press(process.platform === 'darwin' ? 'Meta+n' : 'Control+n');
+    await page.keyboard.press('ControlOrMeta+n');
     await page.waitForFunction(() => window.desktopsCreated === 1);
 
     // settings: a panel over the field; Esc closes it and the field has its keys again
-    await page.keyboard.press(process.platform === 'darwin' ? 'Meta+,' : 'Control+,');
+    await page.keyboard.press('ControlOrMeta+,');
     await page.locator('aside.panel .settings').waitFor();
     await page.keyboard.press('j');
     assert.match(await page.locator('.feed.sorted .row.at').innerText(), /Atlas survey/, 'keys under the panel stay with the panel');
@@ -70,7 +70,7 @@ const assert = require('node:assert/strict');
     assert.match(await page.locator('.feed.sorted .row.at').innerText(), /orrery repair estimate/, 'the field has its keys back');
 
     // the view is not a setting: Settings offers no Classic
-    await page.keyboard.press(process.platform === 'darwin' ? 'Meta+,' : 'Control+,');
+    await page.keyboard.press('ControlOrMeta+,');
     await page.locator('aside.panel .settings').waitFor();
     assert.equal(await page.getByRole('button', { name: 'CLASSIC', exact: true }).count(), 0);
     await page.keyboard.press('Escape');
