@@ -31,4 +31,3 @@ libc = "0.2"
 # the pubkey in tauri.conf.json, swap the .app in place (lib.rs update_check /
 # update_install; the viewer's banner drives both over invoke)
 tauri-plugin-updater = "2"
-tauri-plugin-notification = "2"

@@ -1186,7 +1186,6 @@ pub fn run() {
         // capability in capabilities/default.json names that origin and
         // grants `dialog:allow-open`, and `app.withGlobalTauri` puts the
         // plugin's API on window.__TAURI__ there (web/ui/src/lib/native.ts).
-        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
         // Links that leave the app (the extension download page) open in the
         // system browser; a `_blank` link inside a webview has no tab to go to.
