@@ -62,6 +62,11 @@
     padding: 26px var(--app-pad-right) 34px var(--app-pad-left);
     display: flex; gap: var(--sp-10); }
   .content { flex: 1; min-width: 0; }
+  /* a narrow window has no room for the rail beside the content (#171: at
+     390px the content was 130px wide, and a model's selects, the vault's
+     path and an integration's card scrolled Settings sideways): the rail
+     wraps into rows above it (SettingsRail) */
+  @media (max-width: 600px) { .settings { flex-direction: column; gap: var(--sp-9); } }
 
   /* wrap: the toast carries a machine name of unbounded length, and a
      nowrap row pinned right pushes the whole document into a horizontal

@@ -77,7 +77,7 @@ multiple workflow files. Use `test/support/browserHarness.cjs` for diagnostics.
 | onboardingPreview | Combined interactive synthetic preview, browser-local decisions and simulated feedback outcomes; API network blocked |
 | pilotCategories | Category selection, movement and return navigation |
 | settingsLayout | Settings geometry and navigation |
-| noticePlacement | Notices never sit over a view's controls, nor anything over theirs |
+| noticePlacement | Notices and the strips over the top bar never sit over a view's controls, nor anything over the notices'; Settings never scrolls sideways |
 | sidebarWorkbench | GPU picking, hover, camera, search, recents and chat lifecycle |
 | documentTab, notePreviewPath | Document navigation and correct preview sources |
 | nestedWorkspace, agentNavigation | Workspace navigation, conversation return and drafts |

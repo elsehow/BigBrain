@@ -1493,7 +1493,8 @@
     --font-mono: "IBM Plex Mono", ui-monospace, monospace;
     --v2-muted: color-mix(in srgb, var(--fg) 65%, var(--bg));
     --v2-faint: color-mix(in srgb, var(--fg) 45%, var(--bg));
-    position: fixed; inset: 0; background: var(--bg);
+    /* the room below the strips over the top bar (FieldView) */
+    position: absolute; inset: 0; background: var(--bg);
     font-family: var(--font-app); color: var(--fg); overflow: hidden;
     /* the field is a picture, not a page: neither a drag across its names nor
        ⌘A may paint a selection over it. What's there to read — a chat, the
@@ -1544,6 +1545,8 @@
   .tok:hover, .new:hover { background: color-mix(in srgb, var(--fg) 7%, var(--bg)); }
   /* the × sits over the token's right end, shown on hover or keyboard focus */
   .tokwrap { position: relative; display: inline-flex; }
+  /* a narrow bar shortens the names rather than drawing them over + and Search */
+  .tokwrap > .tok { min-width: 0; }
   .tokx { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); width: 20px; height: 20px; padding: 0; border: 0; border-radius: 999px;
     background: color-mix(in srgb, var(--fg) 7%, var(--bg)); color: var(--v2-muted); font: 400 14px/1 var(--font-app); cursor: pointer; opacity: 0; transition: opacity .12s; }
   .tokx.on { background: var(--fg); color: color-mix(in srgb, var(--bg) 65%, var(--fg)); }

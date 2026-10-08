@@ -59,4 +59,10 @@
     font: var(--type-body); color: var(--text-faint); }
   .rail-row:hover { color: var(--text); }
   .rail-row.on { color: var(--text-strong); }
+  /* above the content in a narrow window (SettingsPage): the rows wrap, short
+     of the panel's close button, and the content's own band names the screen */
+  @media (max-width: 600px) {
+    .rail { width: auto; flex-direction: row; flex-wrap: wrap; gap: var(--sp-3) var(--sp-6); padding-right: var(--sp-7); }
+    .rail-eyebrow { display: none; }
+  }
 </style>

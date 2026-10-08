@@ -680,7 +680,9 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
   const placed: number[][] = [];
   const placeLabels = () => {
     placed.length = 0;
-    for (const r of hooks.blockers()) placed.push([r.left - 8, r.top - 8, r.right + 16, r.bottom + 8]);
+    // the blockers are the window's; labels sit on the canvas, below the strips (FieldView)
+    const at = canvas.getBoundingClientRect();
+    for (const r of hooks.blockers()) placed.push([r.left - at.left - 8, r.top - at.top - 8, r.right - at.left + 16, r.bottom - at.top + 8]);
     // pilot names first: they're the cast; a focused one's solid keeps labels off it
     for (const pl of pilots.values()) {
       const on = focus === pl.d.id;
