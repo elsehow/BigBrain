@@ -43,9 +43,11 @@ export interface FieldLook {
   srcHalo: number;
 }
 
+// Tuned live on a real vault (2026-10-08): crisp dots; entities in full ink, a
+// little larger the more sources mention them; sources stay dust.
 export const LOOK_DEFAULTS: Readonly<FieldLook> = Object.freeze({
   srcSize: 1, srcByTies: 0, srcAlpha: 0.75, srcTone: 0, srcAccent: 0, srcHole: 0, srcSquare: 0, srcTurn: 0,
-  srcLift: 0, srcFlat: 0, srcTies: 0, entSize: 1, entAlpha: 1, entTone: 0, entByTies: 0, entSoft: 1, srcSoft: 1, entHalo: 1, srcHalo: 1, hubCount: 8,
+  srcLift: 0, srcFlat: 0, srcTies: 0, entSize: 1, entAlpha: 1.6, entTone: 1, entByTies: 0.1, entSoft: 0, srcSoft: 0, entHalo: 1, srcHalo: 1, hubCount: 8,
 });
 
 export const look: FieldLook = { ...LOOK_DEFAULTS };
