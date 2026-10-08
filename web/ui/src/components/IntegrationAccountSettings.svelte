@@ -25,7 +25,7 @@
  let accounts=$state<Account[]>([]),busy=$state(false);
  /** Live access, per caller: Pilot, then each connected client. Save sends only what was changed here, so it never undoes another caller's grant. */
  type Access='off'|'read'|'read-write';
- let callers=$state<{id:string;label:string}[]>([]);
+ let callers=$state<{id:string;label:string;expired?:boolean}[]>([]);
  let changed=$state<Record<string,Record<string,Access>>>({});
  const granted=(account:Account,caller:string):Access=>account.grants?.find(g=>g.caller===caller)?.access??'off';
  const accessOf=(account:Account,caller:string):Access=>changed[account.account]?.[caller]??granted(account,caller);
@@ -41,7 +41,7 @@
    const identity=account.identity as {email?:unknown}|undefined;
    return typeof identity?.email==='string'?identity.email:'Account';
  }
- function accept(v:{accounts:Account[];destination?:string;callers?:{id:string;label:string}[]}){destination=v.destination??"this vault";accounts=v.accounts.filter(a=>a.name===source);callers=v.callers??[];
+ function accept(v:{accounts:Account[];destination?:string;callers?:{id:string;label:string;expired?:boolean}[]}){destination=v.destination??"this vault";accounts=v.accounts.filter(a=>a.name===source);callers=v.callers??[];
   // a change the server now holds is no longer pending
   for(const a of accounts)for(const [caller,access] of Object.entries(changed[a.account]??{}))if(granted(a,caller)===access)delete changed[a.account]![caller];}
  onMount(()=>{
@@ -102,7 +102,7 @@
   {#if account.capabilities.read}<fieldset class="live-access" disabled={busy||!account.connected}>
     <legend>Live access</legend>
     <p>{account.capabilities.read}{account.capabilities.write ? ' '+account.capabilities.write : ''}</p>
-    <ul aria-label={`Live access to ${accountLabel(account)}`}>{#each callers as caller(caller.id)}<li><span>{caller.label}</span><select aria-label={`Live access for ${caller.label}`} value={accessOf(account,caller.id)} onchange={e=>(changed[account.account]??={})[caller.id]=e.currentTarget.value as Access}><option value="off">Off</option><option value="read">Read</option>{#if account.capabilities.write}<option value="read-write">Read and write</option>{/if}</select></li>{/each}</ul>
+    <ul aria-label={`Live access to ${accountLabel(account)}`}>{#each callers as caller(caller.id)}<li><span>{caller.label}{#if caller.expired}<span class="lapsed">{' · expired'}</span>{/if}</span><select aria-label={`Live access for ${caller.label}`} value={accessOf(account,caller.id)} onchange={e=>(changed[account.account]??={})[caller.id]=e.currentTarget.value as Access}><option value="off">Off</option><option value="read">Read</option>{#if account.capabilities.write}<option value="read-write">Read and write</option>{/if}</select></li>{/each}</ul>
     <p>Pilot is BigBrain’s own agent and has no shell. An external agent with access can act on what it reads with its own tools. This controls what BigBrain hands it.</p>
   </fieldset>{/if}
   <div class="actions"><button disabled={busy||!account.connected} onclick={()=>save(account)}>Save</button>{@render note('save',account.account)}</div>
@@ -143,6 +143,7 @@
  .live-access ul{display:grid;margin:0;padding:0;list-style:none;border-top:1px solid var(--rule)}
  .live-access li{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 16px;padding:8px 0;border-bottom:1px solid var(--rule);font:var(--type-body);min-width:0}
  .live-access li > span{flex:1 1 10em;min-width:0;overflow-wrap:break-word}
+ .live-access .lapsed{color:var(--text-muted)}
  .live-access select{flex:none;padding:6px 8px;font:inherit;background:var(--well);color:var(--text);border:1px solid var(--rule)}
  .live-access select:focus-visible{outline:2px solid var(--activity);outline-offset:3px}
  @media(max-width:700px){.account-list{padding-left:12px}.account-list .account-settings{padding:16px}.remembering-rule{margin-left:0}}

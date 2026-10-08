@@ -5,7 +5,7 @@ import { createHash } from "node:crypto";
 import { loadManifest, integrationEnabledIn } from "./manifest";
 import { readEnvValues } from "./envFile";
 import { writeAtomic } from "./fsx";
-import { listTokens, tokenStorePath, verifyToken, hasScope } from "./auth";
+import { listTokens, tokenStorePath, verifyToken, hasScope, tokenExpired } from "./auth";
 import { integrationNamed, type Integration } from "./integrations";
 import { extraAccounts, policyPath } from "./integrations/contract";
 import { hasAccountPolicy } from "./integrationLibrary";
@@ -49,10 +49,11 @@ export function integrationActive(root: string, name: string, account?: string):
     return accountPolicy(root,name,a).connected; // a connected account is always remembered
   });
 }
-export function integrationCallerChoices(root: string) {
+/** Who a grant can name. A lapsed client is still offered, marked expired: renewing keeps its id, so its grants come back with it. */
+export function integrationCallerChoices(root: string): { id: string; label: string; expired?: true }[] {
   return [{ id: "pilot", label: "Pilot" },
     ...listTokens(tokenStorePath(root)).filter(t => !t.revoked && hasScope(t, "vault:read"))
-      .map(t => ({ id: "token:" + t.id, label: t.name }))];
+      .map(t => ({ id: "token:" + t.id, label: t.name, ...(tokenExpired(t) ? { expired: true as const } : {}) }))];
 }
 /** Activation connects every account. Who reads each is chosen per account in Settings, never here: an account keeps its grants. */
 export function saveIntegrationActivation(root: string, name: string, fingerprint: string): void {

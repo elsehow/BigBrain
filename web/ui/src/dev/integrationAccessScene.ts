@@ -31,7 +31,7 @@ export function installIntegrationAccessScene(fail=false) {
     client.lastUsed=new Date().toISOString();
     if(client.replaces)clients.find(c=>c.id===client.replaces)!.revoked=new Date().toISOString();
   });
-  const state=()=>({accounts,callers:[{id:'pilot',label:'Pilot'},...clients.filter(c=>!c.revoked).map(c=>({id:'token:'+c.id,label:c.name}))]});
+  const state=()=>({accounts,callers:[{id:'pilot',label:'Pilot'},...clients.filter(c=>!c.revoked).map(c=>({id:'token:'+c.id,label:c.name,...(c.expired?{expired:true}:{})}))]});
   const prior=window.fetch.bind(window);
   window.fetch=(async(input: RequestInfo | URL,options?: RequestInit)=>{
     const path=new URL(input instanceof Request?input.url:String(input),location.href).pathname;

@@ -32,6 +32,19 @@ const base=process.env.SIDEBAR_PREVIEW_URL||'http://127.0.0.1:5219';
   assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'no horizontal scroll at phone width');
   const box=await client.boundingBox(),row=await list.getByRole('listitem').nth(1).boundingBox();
   assert(box&&row&&box.x+box.width<=row.x+row.width+1,'the level stays inside its row');
+  // a client whose connection lapsed is still listed, marked expired, its grant kept for when it is renewed
+  await page.setViewportSize({width:1280,height:1000});
+  await page.goto(`${base}/sidebar-workbench.html?gmail&expired-clients=1#/integrations`);
+  // the expired notice sits over Configure; clearing it leaves the client expired
+  await page.getByRole('button',{name:'Clear BigBrain connections expired',exact:true}).click();
+  await page.locator('[data-notice-kind="connection"]').waitFor({state:'detached'});
+  await page.getByRole('region',{name:'Your integrations'}).getByRole('button',{name:'Configure',exact:true}).click();
+  const lapsedRegion=page.getByRole('region',{name:'granola accounts'});await lapsedRegion.waitFor();
+  await lapsedRegion.locator('summary').first().click();
+  await lapsedRegion.getByRole('button',{name:'Connect',exact:true}).click();await lapsedRegion.getByText('Connected.',{exact:true}).waitFor();
+  const lapsedList=lapsedRegion.getByRole('list',{name:'Live access to Granola'});
+  assert.deepEqual(await lapsedList.getByRole('listitem').allInnerTexts().then(t=>t.map(s=>s.split('\n')[0])),['Pilot','Claude Code on sample laptop','Claude Code at the studio · expired'],'a lapsed client is marked expired next to its name');
+  assert.equal(await lapsedList.getByRole('combobox',{name:'Live access for Claude Code at the studio',exact:true}).inputValue(),'read','its grant is kept');
   assert.deepEqual(errors,[]);console.log('Live access per caller: Settings card passed');
  }finally{await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});

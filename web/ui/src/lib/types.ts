@@ -256,7 +256,7 @@ export interface ConfigInfo {
 // vault.yaml entries first (manifest order), then integrations/ dirs not yet
 // listed.
 export interface IntegrationInfo {
-  activation?: { accounts: string[]; callers: {id:string;label:string}[]; grants: {caller:string;accounts:string[]}[]; checkedAt?: string };
+  activation?: { accounts: string[]; callers: {id:string;label:string;expired?:boolean}[]; grants: {caller:string;accounts:string[]}[]; checkedAt?: string };
   name: string;
   enabled: boolean;
   hasCode: boolean; // integrations/<name>/ exists

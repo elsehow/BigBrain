@@ -10,7 +10,7 @@ import { dirname, join } from "node:path";
 import { gitVault } from "./support/vault";
 import { writeAtomic } from "../lib/fsx";
 import { sha256hex } from "../lib/hash";
-import { mintToken, revokeToken } from "../lib/auth";
+import { mintToken, renewToken, revokeToken } from "../lib/auth";
 import { readEnvValues } from "../lib/envFile";
 import { IntegrationAccounts } from "../lib/integrationAccounts";
 import { configSave } from "../lib/configWrite";
@@ -201,4 +201,21 @@ test("a new account starts at Pilot read with every client off; a new client sta
   expect(readableIntegrationAccounts(root, "granola", mcp(d))).toEqual([]);
   expect(api.list().callers).toContainEqual({ id: D, label: "Client D" });
   expect(api.list().accounts.flatMap(x => x.grants.map(g => g.caller))).not.toContain(D);
+});
+
+test("a lapsed client is offered marked expired and reads nothing; renewing it brings its grants back", async () => {
+  raw("email", ME, { version: 3, grants: [{ caller: "pilot", access: "read" }] });
+  const e = mintToken(store, root, "Client E", ["vault:read"], { kind: "agent" }), E = `token:${e.record.id}`;
+  await api.update({ name: "email", account: ME, action: "grant", caller: E, access: "read" });
+  expect(readableIntegrationAccounts(root, "email", mcp(e))).toEqual([ME]);
+  // left unused for 31 days
+  const tokens = JSON.parse(readFileSync(store, "utf8"));
+  Object.assign(tokens.tokens.find((t: { id: string }) => t.id === e.record.id), { created: new Date(Date.now() - 31 * 86_400_000).toISOString(), last_used: null });
+  writeFileSync(store, JSON.stringify(tokens));
+  expect(api.list().callers).toContainEqual({ id: E, label: "Client E", expired: true });
+  expect(() => readableIntegrationAccounts(root, "email", mcp(e))).toThrow("Authenticate");
+  expect(accountPolicy(root, "email", ME).grants).toContainEqual({ caller: E, access: "read" });
+  renewToken(store, e.record.id);
+  expect(api.list().callers).toContainEqual({ id: E, label: "Client E" });
+  expect(readableIntegrationAccounts(root, "email", mcp(e))).toEqual([ME]);
 });

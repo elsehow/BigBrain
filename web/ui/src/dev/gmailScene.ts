@@ -1,8 +1,10 @@
 /** Safe production-component preview. Secrets never leave this page or enter storage. */
 export function installGmailScene() {
   const library=[{id:'email',name:'Gmail',description:'Connect your email for live access; new mail is remembered.',added:false},{id:'granola',name:'Granola',description:'Bring your meeting transcripts into your vault.',added:true},{id:'browser',name:'Browser extension',description:'Save pages and highlights to your vault.',added:false}];
-  const accounts:any[]=[{name:'granola',account:'granola',label:'Granola',removable:false,connected:false,grants:[{caller:'pilot',access:'read'}],capabilities:{read:'Read current meeting notes, transcripts and folders via Granola MCP. Does not change meetings or remember evidence.',write:null}}];
-  const state=()=>({library,accounts,destination:'Sample vault (preview only)',callers:[{id:'pilot',label:'Pilot'},{id:'token:12345678',label:'Claude Code on sample laptop'}]});
+  // `?expired-clients`: a client whose connection lapsed is still offered, marked expired, and keeps its grant
+  const lapsed=new URLSearchParams(location.search).has('expired-clients');
+  const accounts:any[]=[{name:'granola',account:'granola',label:'Granola',removable:false,connected:false,grants:[{caller:'pilot',access:'read'},...(lapsed?[{caller:'token:77777777',access:'read'}]:[])],capabilities:{read:'Read current meeting notes, transcripts and folders via Granola MCP. Does not change meetings or remember evidence.',write:null}}];
+  const state=()=>({library,accounts,destination:'Sample vault (preview only)',callers:[{id:'pilot',label:'Pilot'},{id:'token:12345678',label:'Claude Code on sample laptop'},...(lapsed?[{id:'token:77777777',label:'Claude Code at the studio',expired:true}]:[])]});
   const prior=window.fetch.bind(window);
   window.fetch=(async(input:RequestInfo|URL,options?:RequestInit)=>{
     const path=new URL(input instanceof Request?input.url:String(input),location.href).pathname;
