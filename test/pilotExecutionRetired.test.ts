@@ -8,6 +8,7 @@ import { WorkHistory } from "../lib/workHistory";
 import { workDetail } from "../lib/workViews";
 import { newPilotChatSession } from "../lib/pilotChatTypes";
 import { PilotChats } from "./support/pilotSession";
+import { PILOT_HISTORY_INDEX } from "../lib/pilotChat";
 import { desktopRouteManifest } from "../web/desktopRouteManifest";
 import { writeAtomic } from "../lib/fsx";
 import { spoolDir } from "../lib/spool";
@@ -62,7 +63,7 @@ test("old Pilot worker reports and approval notifications cannot restart a model
   const file = join(spoolDir(root), "pilot-chats", `${pilot}.json`);
   writeAtomic(file, JSON.stringify({ ...s, notifications }));
   // A previous engine cached this as a cold archive despite its pending report.
-  readHistoryIndex(root, "pilots-v3", join(spoolDir(root), "pilot-chats"), /^pilot-.*\.json$/,
+  readHistoryIndex(root, PILOT_HISTORY_INDEX, join(spoolDir(root), "pilot-chats"), /^pilot-.*\.json$/,
     () => ({ group: "pilot", order: s.updated, summary: { view: pilotChatSummary(s), archived: true } }));
   let dispatches = 0;
   for (let restart = 0; restart < 2; restart++) {

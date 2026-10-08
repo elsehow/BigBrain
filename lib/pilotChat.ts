@@ -41,6 +41,9 @@ import { savedPilotBackend } from "./pilotDefault";
 
 import { withCredits } from "./providerCredits";
 
+/** The summary cache (lib/applicationHistoryIndex.ts). Bump its version when a
+ * summary changes shape, so no cold archive keeps serving the old one. */
+export const PILOT_HISTORY_INDEX = "pilots-v3";
 const READERS = new Set(["load_memory", "search_vault", "read_note", "recent", ...INTEGRATION_TOOLS.filter(t => t.access === "read").map(t => t.name)]);
 const UNTITLED = ["New session", "Draft session"];
 /** The stopgap name: the first user message, clipped. */
@@ -207,7 +210,7 @@ export class PilotChats {
     this.local.migrateSettings();
     this.directory = join(spoolDir(root), "pilot-chats");
     try {
-      const index = readHistoryIndex(this.root, "pilots-v3", this.directory, /^pilot-[a-f0-9]{32}\.json$/, file => {
+      const index = readHistoryIndex(this.root, PILOT_HISTORY_INDEX, this.directory, /^pilot-[a-f0-9]{32}\.json$/, file => {
         const s = this.readSaved(file);
         // Only settled, fully ingested, already migrated archives may stay cold.
         // Pending input, ingestion, native state, drafts and interrupted work recover eagerly.
