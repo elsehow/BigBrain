@@ -65,6 +65,9 @@ turns, tokens and cost when reported. Unknown cost is retained as unknown.
   installation is required. See [provider setup](pilot-providers.md) for
   credential ownership and saved-configuration compatibility.
 - A machine that stays awake to tend. Laptops that sleep catch up on wake.
+- The vault on a local disk, not a network share (NFS, SMB): BigBrain's locks
+  are SQLite file locks, which do not keep two writers apart across a network
+  mount.
 
 ## Say who the vault is about
 

@@ -31,11 +31,11 @@ import { ensureDir, writeAtomic } from "./fsx";
 import type { SourceInsertion } from "./insertionLog";
 import type { FeedConfig, Manifest } from "./manifest";
 import { memoryRead } from "./noteRead";
-import { acquire, release } from "./pidLock";
 import { render } from "./prompts";
 import { runAgent } from "./run/agent";
 import { modelRunJournalFields, newRunId } from "./run/journal";
 import type { RunUsage } from "./run/model";
+import { tryHold } from "./sqliteLock";
 import { plainText } from "./v2Feed";
 
 export const FEED_PROMPT_VERSION = "feed/v1";
@@ -160,7 +160,7 @@ export interface FeedRunResult {
   calls: FeedCall[];
 }
 
-export const feedLockDir = (root: string): string => join(root, ".state", "feed.lock");
+export const feedLockFile = (root: string): string => join(root, ".state", "feed.lock.sqlite");
 
 /** One run: the waiting sources, oldest first, at most `feed.max`, in calls
  * of `feed.batch`. Each call is journaled as it lands, so a killed run keeps
@@ -172,7 +172,8 @@ export async function runFeed(opts: { root: string; manifest: Manifest; runner?:
   const now = opts.now ?? (() => new Date());
   const runner = opts.runner ?? runAgent;
   ensureDir(join(root, ".state"));
-  if (!acquire(feedLockDir(root), "feed")) return { ran: false, reason: "another feed run holds the lock", calls: [] };
+  const lock = tryHold(feedLockFile(root), { name: "feed", retired: join(root, ".state", "feed.lock") });
+  if (!lock) return { ran: false, reason: "another feed run holds the lock", calls: [] };
   try {
     const waiting = feedWork(root, cfg).slice(0, cfg.max);
     if (!waiting.length) return { ran: true, calls: [] };
@@ -214,6 +215,6 @@ export async function runFeed(opts: { root: string; manifest: Manifest; runner?:
     }
     return { ran: true, calls };
   } finally {
-    release(feedLockDir(root));
+    lock.release();
   }
 }

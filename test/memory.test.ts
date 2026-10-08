@@ -1,5 +1,5 @@
 import { readMemoryInputs } from "../lib/memoryInputs";
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import {
   existsSync,
   mkdtempSync,
@@ -19,10 +19,10 @@ import { previousRunFailure } from "../lib/memoryContext";
 import { MEMORY_MAX_FILES, MEMORY_MAX_WORDS, MEMORY_TRIM_ATTEMPTS } from "../lib/memoryTree";
 import { labels, readLedger, recordSearch, recordUse } from "../lib/retrieval";
 import {
+  acquireMemoryLock,
   describeMemoryWork,
   hasMemoryWork,
   memoryDue,
-  memoryLockDir,
   memoryRunning,
   memoryWork,
   readMemoryStamp,
@@ -34,6 +34,7 @@ import {
   createAssertionEvent,
 } from "../lib/assertionLog";
 import { appendSourceInsertionEvent, type SourceInsertion } from "../lib/insertionLog";
+import { holdElsewhere } from "./support/lockElsewhere";
 import { gitVault, insertion, testManifest } from "./support/vault";
 
 const freshRoot = (): string => mkdtempSync(join(tmpdir(), "bb-memory-"));
@@ -236,19 +237,29 @@ describe("memoryRunning — the viewer's spinner reads the lock, never guesses",
     expect(memoryRunning(freshRoot())).toBe(false);
   });
 
-  test("a lock held by a live pid IS running", () => {
+  test("a sweep in another process IS running, and a second sweep skips, naming it", async () => {
     const root = freshRoot();
-    mkdirSync(memoryLockDir(root), { recursive: true });
-    writeFileSync(join(memoryLockDir(root), "pid"), `${process.pid}\n`);
-    expect(memoryRunning(root)).toBe(true);
+    const other = await holdElsewhere("memory.ts", "acquireMemoryLock", [root]);
+    const log = spyOn(console, "log").mockImplementation(() => {});
+    try {
+      expect(memoryRunning(root)).toBe(true);
+      expect(await runMemory({ root, manifest: testManifest(root), force: true })).toEqual({ ran: false, reason: "another memory run holds the lock" });
+      expect(log).toHaveBeenCalledWith(`memory: another run holds the lock (pid ${other.pid}); exiting`);
+    } finally {
+      log.mockRestore();
+      await other.kill();
+    }
+    expect(memoryRunning(root)).toBe(false); // a crashed holder never reads as running
+    acquireMemoryLock(root)!.release(); // nor holds anything up
   });
 
-  test("a stale lock (dead pid, or no pid file at all) never reads as running", () => {
+  test("an earlier version's lock directory, pid file and all, never reads as running", () => {
     const root = freshRoot();
-    mkdirSync(memoryLockDir(root), { recursive: true });
-    expect(memoryRunning(root)).toBe(false); // legacy lock, no pid file
-    writeFileSync(join(memoryLockDir(root), "pid"), "999999999\n");
-    expect(memoryRunning(root)).toBe(false); // crashed holder
+    mkdirSync(join(root, ".state", "memory.lock"), { recursive: true });
+    writeFileSync(join(root, ".state", "memory.lock", "pid"), `${process.pid}\n`);
+    expect(memoryRunning(root)).toBe(false);
+    acquireMemoryLock(root)!.release();
+    expect(existsSync(join(root, ".state", "memory.lock"))).toBe(false);
   });
 });
 

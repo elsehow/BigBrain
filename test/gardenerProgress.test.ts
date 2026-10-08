@@ -2,14 +2,22 @@ import { afterEach, expect, test } from "bun:test";
 import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { nativeVault, insertion } from "./support/vault";
-import { acquireAssertionLock, releaseAssertionLock, assertionLockDir } from "../lib/assertionAgent";
-import { GARDENER_PROGRESS_PATH, readGardenerProgress, startGardenerProgress } from "../lib/gardenerProgress";
+import { acquireAssertionLock } from "../lib/assertionAgent";
+import { GARDENER_PROGRESS_DIR, GARDENER_PROGRESS_PATH, readGardenerProgress, startGardenerProgress } from "../lib/gardenerProgress";
+import type { Hold } from "../lib/sqliteLock";
 import { observeTools } from "../lib/run/toolActivity";
 import { machineTools } from "../lib/run/machineTools";
 import { createLive, defaultLiveWatch, type LiveWatchFn } from "../lib/liveEvents";
-const roots: string[] = [];
-afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
-function fixture() { const item = insertion({ body: "Ada prefers short notes." }); const root = nativeVault({ insertions: [item] }); roots.push(root); expect(acquireAssertionLock(root)).toBe(true); return { root, item }; }
+const roots: string[] = [], holds: Hold[] = [];
+afterEach(() => {
+  for (const hold of holds.splice(0)) hold.release();
+  for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
+});
+function fixture() {
+  const item = insertion({ body: "Ada prefers short notes." }), root = nativeVault({ insertions: [item] }), lock = acquireAssertionLock(root)!;
+  roots.push(root); expect(lock).not.toBeNull(); holds.push(lock);
+  return { root, item, lock };
+}
 
 test("shared tools publish safe counts, actual first filing, retries and no content", async () => {
   const { root, item } = fixture();
@@ -40,10 +48,11 @@ test("declines, failed items and deduplicated claims never count as new claims",
 });
 
 test("status cannot survive its lock owner, and observer failure cannot fail a tool", async () => {
-  const { root } = fixture(); startGardenerProgress(root);
-  writeFileSync(join(assertionLockDir(root), "pid"), "999999999\n");
+  const { root, lock } = fixture(); startGardenerProgress(root);
+  expect(readGardenerProgress(root)).not.toBeNull();
+  writeFileSync(join(root, ".state", "assertion.lock.holder"), `${JSON.stringify({ pid: 999999999 })}\n`); // another run's
   expect(readGardenerProgress(root)).toBeNull();
-  releaseAssertionLock(root);
+  lock.release();
   expect(readGardenerProgress(root)).toBeNull();
   const [tool] = observeTools([{ name: "test", description: "", inputSchema: {}, call: () => 42 }], () => { throw Error("status failed"); });
   expect(await tool!.call({})).toBe(42);
@@ -77,11 +86,11 @@ test("a vanished progress temp file reconciles the status without treating it as
   live.addClient({ write: text => writes.push(text) }); live.start();
   try {
     const progress = startGardenerProgress(root);
-    fail(Object.assign(new Error("temp file already renamed"), { code: "ENOENT", path: join(assertionLockDir(root), ".tmp-gone") }));
+    fail(Object.assign(new Error("temp file already renamed"), { code: "ENOENT", path: join(root, GARDENER_PROGRESS_DIR, ".tmp-gone") }));
     await Bun.sleep(130);
     expect(writes.at(-1)).toContain('"phase":"starting"');
     progress.finish();
-    fail(Object.assign(new Error("lock removed"), { code: "ENOENT", path: assertionLockDir(root) }));
+    fail(Object.assign(new Error("progress removed"), { code: "ENOENT", path: join(root, GARDENER_PROGRESS_PATH) }));
     await Bun.sleep(130);
     expect(writes.at(-1)).toBe("event: gardener\ndata: null\n\n");
     expect([refreshes, warms]).toEqual([1, 0]);

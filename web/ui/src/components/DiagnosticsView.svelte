@@ -109,7 +109,7 @@
       ...(f.memory ? [["memory", memory(f)]] : []),
       ["jobs PATH", f.jobsPath],
       ["next fires", fires(f)],
-      ["intake", f.intake.running ? `running (lock pid ${f.intake.lockPid})` : f.intake.lockPid ? `idle (stale lock from pid ${f.intake.lockPid})` : "idle"],
+      ["intake", f.intake.running ? `running (lock pid ${f.intake.lockPid ?? "unknown"})` : "idle"],
     ] as [string, string][];
   });
   // the gardener cannot run: no claude, a signed-out one under max, no key under api, or no supervisor

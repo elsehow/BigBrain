@@ -1,9 +1,12 @@
 import { test, expect } from 'bun:test';
-import { mkdtempSync, readFileSync, existsSync, statSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { sharedOwner } from '../lib/sharedOwner';
-import { revokeMember } from '../lib/sharedMembers';
+import { initMemberStore, revokeMember } from '../lib/sharedMembers';
+import { sharedServerLock } from '../lib/sharedVault';
+import { isHeld } from '../lib/sqliteLock';
+import { holdElsewhere } from './support/lockElsewhere';
 const assets = resolve('web/shared-owner');
 test('owner setup requires a one-use launch secret, persists, and respects revocation', async () => {
   const home = mkdtempSync(join(tmpdir(), 'shared-owner-'));
@@ -48,5 +51,25 @@ test('owner setup requires a one-use launch secret, persists, and respects revoc
     expect((await request('/owner')).status).toBe(401);
     expect((await request('/v1/evidence')).status).toBe(401);
   } finally { app.close(); }
-  expect(existsSync(join(home,'owner-ui.lock'))).toBe(false);
+  expect(isHeld(join(home,'owner-ui.lock.sqlite'))).toBe(false);
+  expect(isHeld(sharedServerLock(join(home,'vault')))).toBe(false);
+});
+
+test('one owner interface per directory and one server per vault, across processes, each freed the moment its holder dies', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'shared-owner-')), root = join(home, 'vault');
+  mkdirSync(root, { recursive: true, mode: 0o700 });
+  writeFileSync(join(root, 'vault.yaml'), 'shared: true\n');
+  const owner = initMemberStore(join(home, 'members.json'), root, { handle: 'owner' });
+  writeFileSync(join(home, 'owner.json'), JSON.stringify({ name: 'Example team', token: owner.token }), { mode: 0o600 });
+  const other = await holdElsewhere('sharedOwner.ts', 'sharedOwner', [home, assets]);
+  try { expect(() => sharedOwner(home, assets)).toThrow('An owner interface is already running for this directory.'); }
+  finally { await other.kill(); }
+  const server = await holdElsewhere('sharedVault.ts', 'holdSharedVault', [root]);
+  try {
+    expect(() => sharedOwner(home, assets)).toThrow('The shared vault is already being served. Stop that server first.');
+    expect(isHeld(join(home, 'owner-ui.lock.sqlite'))).toBe(false); // the refused interface let its own lock go
+  } finally { await server.kill(); }
+  const app = sharedOwner(home, assets);
+  try { expect(isHeld(sharedServerLock(root))).toBe(true); }
+  finally { app.close(); }
 });

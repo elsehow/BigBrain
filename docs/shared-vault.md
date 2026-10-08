@@ -131,7 +131,7 @@ the next append starts a fresh line after it.
 
 The feed is a log, not a cache: it carries what the events do not
 (receive time, credential), so it is retained and backed up with them,
-not rebuilt. One writer process per vault (`serve` takes a pid lock under
+not rebuilt. One writer process per vault (`serve` takes a lock under
 `.state/`); a hand-run CLI beside a running server is not a supported
 write path.
 

@@ -13,12 +13,12 @@
  * with it: they said the same thing the running/waiting split says, from
  * the side that no longer exists.
  */
-import { describe, expect, test } from "bun:test";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { afterEach, describe, expect, test } from "bun:test";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { assertionLockDir } from "../lib/assertionAgent";
+import { acquireAssertionLock } from "../lib/assertionAgent";
 import { queueHead, TEND_TICK_MS } from "../lib/queueHead";
-import { ensureDir } from "../lib/fsx";
+import type { Hold } from "../lib/sqliteLock";
 import { writeNextFires } from "../lib/supervisorClock";
 import { insertionSeq, nativeVault } from "./support/vault";
 
@@ -34,13 +34,10 @@ const vault = (n: number): string =>
     insertions: Array.from({ length: n }, () => insertion()),
   });
 
-/** Hold the intake lock as a live process would — our own pid, so the
- * liveness check passes for as long as this test runs. */
-const holdIntakeLock = (root: string): void => {
-  const dir = assertionLockDir(root);
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, "pid"), `${process.pid}\n`);
-};
+/** Hold the intake lock as a running round does, until the test ends. */
+const holds: Hold[] = [];
+afterEach(() => { for (const hold of holds.splice(0)) hold.release(); });
+const holdIntakeLock = (root: string): void => { holds.push(acquireAssertionLock(root)!); };
 
 const feed = queueHead;
 
@@ -107,10 +104,11 @@ describe("running — the lock's answer, not the clock's", () => {
     expect(after.waiting + after.running).toBe(before.waiting + before.running);
   });
 
-  test("a stale lock from a dead run does not read as running", () => {
+  test("a dead run's record, with no hold behind it, does not read as running", () => {
     const root = vault(2);
-    ensureDir(assertionLockDir(root));
-    writeFileSync(join(assertionLockDir(root), "pid"), "2147483647\n");
+    holdIntakeLock(root);
+    holds.pop()!.release();
+    writeFileSync(join(root, ".state", "assertion.lock.holder"), `${JSON.stringify({ pid: 2147483647 })}\n`);
     expect(feed(root)).toMatchObject({ waiting: 2, running: 0 });
   });
 });

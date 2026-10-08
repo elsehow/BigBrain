@@ -5,10 +5,10 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 
 import { join } from 'node:path';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { writeAtomic } from './fsx';
-import { acquire, release } from './pidLock';
 import { initMemberStore, verifyCredential } from './sharedMembers';
-import { SharedVault } from './sharedVault';
+import { holdSharedVault, SharedVault } from './sharedVault';
 import { makeSharedApiHandler } from './sharedVaultApi';
+import { tryHold, type Hold } from './sqliteLock';
 
 interface OwnerConnection { name: string; token: string }
 const random = () => randomBytes(32).toString('base64url');
@@ -16,20 +16,20 @@ const equal = (a: string, b: string) => a.length === b.length && timingSafeEqual
 export function sharedOwner(home: string, assets: string) {
   mkdirSync(home, { recursive: true, mode: 0o700 });
   const root = join(home, 'vault'), store = join(home, 'members.json'), connectionPath = join(home, 'owner.json');
-  const lock = join(home, 'owner-ui.lock');
-  if (!acquire(lock)) throw new Error('An owner interface is already running for this directory.');
-  let vaultLock = false;
+  const lock = tryHold(join(home, 'owner-ui.lock.sqlite'), { retired: join(home, 'owner-ui.lock') });
+  if (!lock) throw new Error('An owner interface is already running for this directory.');
+  let vaultLock: Hold | null = null;
   let connection: OwnerConnection | null = null;
   let api: ReturnType<typeof makeSharedApiHandler> | null = null;
-  const close = () => { if (vaultLock) release(join(root, '.state/shared-server.lock')); release(lock); };
+  const close = () => { vaultLock?.release(); lock.release(); };
   function attach() {
     if (!connection) return;
     if (!/^shared:\s*true\s*$/m.test(readFileSync(join(root, 'vault.yaml'), 'utf8'))) throw new Error('This is not an initialized shared vault.');
     const who = verifyCredential(store, connection.token);
     if (!who.ok || who.actor.role !== 'owner') throw new Error('Saved owner connection is no longer authorized.');
     mkdirSync(join(root, '.state'), { recursive: true });
-    if (!acquire(join(root, '.state/shared-server.lock'))) throw new Error('The shared vault is already being served. Stop that server first.');
-    vaultLock = true;
+    vaultLock = holdSharedVault(root);
+    if (!vaultLock) throw new Error('The shared vault is already being served. Stop that server first.');
     const vault = new SharedVault(root);
     vault.recoverPending();
     api = makeSharedApiHandler({ root, storePath: store, vault, log: () => {} });

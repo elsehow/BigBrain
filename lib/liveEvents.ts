@@ -16,7 +16,7 @@
  * recovery tests; the native regression also exercises the real watcher.
  */
 
-import { readGardenerProgress } from "./gardenerProgress";
+import { GARDENER_PROGRESS_DIR, readGardenerProgress } from "./gardenerProgress";
 import { watch as fsWatch } from "node:fs";
 import { isAbsolute, relative, sep } from "node:path";
 import { BROWSE_ROOTS } from "./browsePaths";
@@ -147,7 +147,7 @@ export function createLive(opts: LiveOptions): Live {
   function handleChange(rel: string): void {
     // Local status is not vault content: never invalidate a graph or replay
     // the projection for a tool-start/tool-end update.
-    if (rel === `.state${sep}assertion.lock` || rel.startsWith(`.state${sep}assertion.lock${sep}`)) {
+    if (rel === GARDENER_PROGRESS_DIR || rel.startsWith(GARDENER_PROGRESS_DIR + sep)) {
       if (!stopped && !progressTimer) progressTimer = setTimeout(() => { progressTimer = null; publishProgress(); }, 100);
       return;
     }

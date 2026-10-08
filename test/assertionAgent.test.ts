@@ -4,10 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   acquireAssertionLock,
-  assertionLockDir,
   canonicalizeAssertionLinks,
+  intakeHolder,
+  intakeRunning,
   ownerLabelsFor,
-  releaseAssertionLock,
 } from "../lib/assertionAgent";
 import { assertionEntityId, createAssertionEvent } from "../lib/assertionLog";
 import { declareUserIdentity } from "../lib/userIdentity";
@@ -16,6 +16,7 @@ import {
   projectSourceInsertion,
 } from "../lib/assertionProjection";
 import { appendSourceInsertionEvent, type SourceInsertion } from "../lib/insertionLog";
+import { holdElsewhere } from "./support/lockElsewhere";
 import { insertion } from "./support/vault";
 
 const seed = (root: string, item: SourceInsertion): void => {
@@ -75,16 +76,27 @@ describe("the scheduled intake pass's helpers (#475)", () => {
     expect(ownerLabelsFor(root, {})).toEqual(["Ada Lovelace", "ada@example.com", "Ada"]);
   });
 
-  test("the intake lock is held by a live pid, refused to a second taker, and reclaimed when stale", () => {
+  test("the intake lock is refused to a second taker, says who holds it, and is free once released", () => {
     const root = mkdtempSync(join(tmpdir(), "bb-lock-"));
-    expect(acquireAssertionLock(root)).toBe(true);
-    expect(acquireAssertionLock(root)).toBe(false); // we hold it, alive
-    releaseAssertionLock(root);
-    expect(existsSync(assertionLockDir(root))).toBe(false);
-    // a dead holder's lock is reclaimed on the next acquire
-    mkdirSync(assertionLockDir(root), { recursive: true });
-    writeFileSync(join(assertionLockDir(root), "pid"), "999999999\n");
-    expect(acquireAssertionLock(root)).toBe(true);
-    releaseAssertionLock(root);
+    mkdirSync(join(root, ".state", "assertion.lock"), { recursive: true }); // an earlier version's lock directory
+    const hold = acquireAssertionLock(root)!;
+    expect(hold).not.toBeNull();
+    expect(existsSync(join(root, ".state", "assertion.lock"))).toBe(false);
+    expect(acquireAssertionLock(root)).toBeNull(); // we hold it
+    expect([intakeRunning(root), intakeHolder(root)]).toEqual([true, process.pid]);
+    hold.release();
+    expect(intakeRunning(root)).toBe(false);
+    acquireAssertionLock(root)!.release();
+  });
+
+  test("a second process's intake skips while the first holds, and goes ahead the moment that one is killed", async () => {
+    const root = mkdtempSync(join(tmpdir(), "bb-lock-"));
+    const other = await holdElsewhere("assertionAgent.ts", "acquireAssertionLock", [root]);
+    try {
+      expect(acquireAssertionLock(root)).toBeNull();
+      expect([intakeRunning(root), intakeHolder(root)]).toEqual([true, other.pid]);
+    } finally { await other.kill(); }
+    expect(intakeRunning(root)).toBe(false);
+    acquireAssertionLock(root)!.release();
   });
 });

@@ -1,18 +1,21 @@
 import { readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { assertionLockDir, intakeRunning } from "./assertionAgent";
+import { intakeHolder, intakeRunning } from "./assertionAgent";
 import { writeAtomic } from "./fsx";
 import type { GardenerProgress } from "./gardenerProgressTypes";
 import type { ToolActivity } from "./run/toolActivity";
 import type { SubmitResult } from "./work";
 
-export const GARDENER_PROGRESS_PATH = ".state/assertion.lock/progress.json";
+/** In a directory of its own, so the viewer's watcher knows its atomic
+ * writes' temporary files (lib/liveEvents.ts). */
+export const GARDENER_PROGRESS_DIR = join(".state", "gardener");
+export const GARDENER_PROGRESS_PATH = join(GARDENER_PROGRESS_DIR, "progress.json");
 /** A status belongs to the live lock holder, not a previous/crashed run. */
 export function readGardenerProgress(root: string): GardenerProgress | null {
   try {
     if (!intakeRunning(root)) return null;
     const row = JSON.parse(readFileSync(join(root, GARDENER_PROGRESS_PATH), "utf8"));
-    if (row.pid !== Number(readFileSync(join(assertionLockDir(root), "pid"), "utf8"))) return null;
+    if (row.pid !== intakeHolder(root)) return null;
     const { phase, waitingForModel, batch, claims, rejected, batches, lookups, startedAt, updatedAt, firstFilingMs } = row;
     if (!["starting", "reviewing", "reading", "context", "saving", "checking", "finishing", "retrying"].includes(phase)
       || typeof waitingForModel !== "boolean" || ![batch, claims, rejected, batches, lookups].every(n => Number.isSafeInteger(n) && n >= 0)
@@ -58,6 +61,6 @@ export function startGardenerProgress(root: string, now = () => Date.now()) {
       status.waitingForModel = active === 0;
       publish();
     },
-    finish(): void { try { rmSync(join(root, GARDENER_PROGRESS_PATH), { force: true }); } catch { /* lock release also removes it */ } },
+    finish(): void { try { rmSync(join(root, GARDENER_PROGRESS_PATH), { force: true }); } catch { /* the reader checks the lock's holder */ } },
   };
 }

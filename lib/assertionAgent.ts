@@ -1,6 +1,6 @@
 /**
  * assertionAgent.ts — the intake pass's HOST-SIDE primitives, shared by
- * every gardener door: the per-vault pid-liveness lock (single-flight for
+ * every gardener door: the per-vault lock (single-flight for
  * `tend` and any interactive gardener beside it), the vault owner's
  * identity labels, and `canonicalizeAssertionLinks` — the validator that
  * resolves friendly `[[new entity]]` links and verifies explicit
@@ -30,40 +30,41 @@ import {
 } from "./assertionProjection";
 import { createLookalikeFinder, type Lookalike } from "./entityLookalikes";
 import { ensureDir } from "./fsx";
-import { acquire, held, release } from "./pidLock";
+import { isHeld, lockHolder, tryHold, type Hold } from "./sqliteLock";
 import { latestUserIdentity } from "./userIdentity";
 
 export const ASSERTION_AGENT_MAX_BATCH = 8;
 export const ASSERTION_AGENT_TIMEOUT_MS = 30 * 60_000;
 
 // ── the intake pass's own lock ──────────────────────────────────────────────
-// The shared pid-liveness lock (lib/pidLock.ts, same as the memory pass's).
-// Two intake runs on one vault would each
+// A SQLite lock (lib/sqliteLock.ts, like the memory pass's), freed the
+// moment its holder dies. Two intake runs on one vault would each
 // select the same oldest unprocessed insertions — the handled set is only
 // written at the end of a run — and append two models' worth of assertions
 // for them. The scheduler never overlaps passes on one vault, but a second
 // operator-invoked run beside a scheduled tend tick still could.
 
-export const assertionLockDir = (root: string): string => join(root, ".state", "assertion.lock");
+export const assertionLockFile = (root: string): string => join(root, ".state", "assertion.lock.sqlite");
 
-export function acquireAssertionLock(root: string): boolean {
+/** The intake pass's hold, or null when another run has it. */
+export function acquireAssertionLock(root: string): Hold | null {
   ensureDir(join(root, ".state"));
-  return acquire(assertionLockDir(root));
+  return tryHold(assertionLockFile(root), { retired: join(root, ".state", "assertion.lock") });
 }
 
-export function releaseAssertionLock(root: string): void {
-  release(assertionLockDir(root));
-}
+/** The pid of the run holding the intake lock, as it recorded itself: for
+ * a person to read, and for matching its progress to it. Whether anyone
+ * holds the lock is intakeRunning's question, never this one's. */
+export const intakeHolder = (root: string): number | null => lockHolder(assertionLockFile(root));
 
-/** Is an intake round executing right now? A pure read of the lock — dir held
- * AND its pid alive, so a crashed run's stale lock does not read as running
- * (the next acquire reclaims it anyway). The exact counterpart of
+/** Is an intake round executing right now? Asks the lock itself, so a
+ * crashed run never reads as running. The exact counterpart of
  * `memoryRunning` (lib/memory.ts), and what lets the queue view distinguish
  * "the gardener has this in hand" from "this is waiting for the next tick".
  * Before it existed, the queue head hardcoded `running: 0` and every intake row
  * said pending — including the ones a live round was working on. */
 export function intakeRunning(root: string): boolean {
-  return held(assertionLockDir(root));
+  return isHeld(assertionLockFile(root));
 }
 
 /** The owner's labels for the intake prompt's identity context, read from

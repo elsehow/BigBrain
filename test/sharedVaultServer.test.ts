@@ -17,6 +17,8 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { sharedServerLock } from "../lib/sharedVault";
+import { isHeld } from "../lib/sqliteLock";
 import { handlerSession, httpSession, parseCurlOutput, provision, runAll, sharedCli } from "./support/sharedVaultSmoke";
 
 const scratch = (): string => mkdtempSync(join(tmpdir(), "bb-shared-server-"));
@@ -146,7 +148,7 @@ describe("bin/shared.ts serve — the real socket", () => {
       expect(r.code).toBe(1);
       expect(r.err).toContain(`cannot listen on 127.0.0.1:${port}`);
       if (!bind.ok) expect(r.err).toContain("refused"); // names the likely cause instead of Bun's "is port 0 in use?"
-      expect(existsSync(join(p.root, ".state", "shared-server.lock"))).toBe(false);
+      expect(isHeld(sharedServerLock(p.root))).toBe(false);
     } finally {
       occupied?.stop(true);
     }
@@ -158,10 +160,11 @@ describe("bin/shared.ts serve — the real socket", () => {
     const session = await httpSession(p);
     try {
       expect(session.current().port).toBeGreaterThan(0);
-      // the pid lock single-flights the server
+      // the vault's lock single-flights the server, and says which process has it
       const second = sharedCli(["serve", "--vault", p.root, "--members", p.store, "--port", "0"], { expectFail: true });
       expect(second.code).toBe(1);
-      expect(second.err).toContain("another server holds");
+      expect(second.err).toContain(`another server holds ${sharedServerLock(p.root)}`);
+      expect(second.out).toContain(`shared: another run holds the lock (pid ${session.current().pid}); exiting`);
       // transport-level: no CORS, no caching, JSON only
       const res = await fetch(`${session.current().url}/v1/whoami`, { headers: { Authorization: `Bearer ${p.alice}` } });
       expect(res.headers.get("access-control-allow-origin")).toBeNull();
@@ -178,6 +181,6 @@ describe("bin/shared.ts serve — the real socket", () => {
     } finally {
       await session.close();
     }
-    expect(existsSync(join(p.root, ".state", "shared-server.lock"))).toBe(false);
+    expect(isHeld(sharedServerLock(p.root))).toBe(false);
   }, 120_000);
 });

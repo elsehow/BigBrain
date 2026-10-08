@@ -1,14 +1,15 @@
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, spyOn, test } from "bun:test";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { appendAssertionEvent, createAssertionEvent, type AssertionEvent } from "../lib/assertionLog";
 import { chainHasWork } from "../lib/chain";
 import { addedAt, currentFeed, feedRecords, sortedAssertions } from "../lib/feedJournal";
-import { feedDue, feedWork, runFeed } from "../lib/feedStage";
+import { feedDue, feedLockFile, feedWork, runFeed } from "../lib/feedStage";
 import type { SourceInsertion } from "../lib/insertionLog";
 import { loadManifest } from "../lib/manifest";
 import type { ModelRunRequest } from "../lib/run/request";
 import { classicChain, runTend } from "../lib/tend";
+import { holdElsewhere } from "./support/lockElsewhere";
 import { insertionSeq, nativeVault, NATIVE_YAML } from "./support/vault";
 
 const scratch: string[] = [];
@@ -136,6 +137,25 @@ describe("the feed stage", () => {
     const records = feedRecords(root);
     expect(addedAt(records).get(a.id)).toBe(records[0]!.completed_at);
     expect(records[1]!.completed_at).not.toBe(records[0]!.completed_at);
+  });
+
+  test("single-flight: a second run skips, naming the process that holds the lock, and runs once that one is killed", async () => {
+    const a = insertion({ title: "garden" });
+    const root = vault(FEED_YAML(), a);
+    claim(root, a, "The tomatoes need staking.");
+    const other = await holdElsewhere("sqliteLock.ts", "tryHold", [feedLockFile(root)]);
+    const log = spyOn(console, "log").mockImplementation(() => {});
+    const m = scripted();
+    try {
+      expect(await runFeed({ root, manifest: loadManifest(root), runner: m.runner, now }))
+        .toEqual({ ran: false, reason: "another feed run holds the lock", calls: [] });
+      expect(log).toHaveBeenCalledWith(`feed: another run holds the lock (pid ${other.pid}); exiting`);
+    } finally {
+      log.mockRestore();
+      await other.kill();
+    }
+    expect(m.calls).toHaveLength(0);
+    expect((await runFeed({ root, manifest: loadManifest(root), runner: m.runner, now })).calls).toHaveLength(1);
   });
 
   test("a failed call journals its error, sorts nothing, and waits a full interval", async () => {

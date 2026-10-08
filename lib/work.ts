@@ -10,7 +10,7 @@
  * back.
  *
  * NO claim state, by decision (2026-08-23, #479): single-flight is the
- * CALLER's job via the pid-liveness lock (`acquireAssertionLock`) on the
+ * CALLER's job via the intake lock (`acquireAssertionLock`) on the
  * one machine designated tender. `nextWork` is a pure read; `submitWork`
  * is per-ITEM idempotent, so partial progress is durable and a lost caller
  * loses at most one un-submitted batch.

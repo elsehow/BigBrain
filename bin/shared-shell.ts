@@ -6,10 +6,10 @@ import { join, resolve } from 'node:path';
 import { userInfo } from 'node:os';
 import { flagValue, hasFlag } from '../lib/cliflags';
 import { writeAtomic } from '../lib/fsx';
-import { acquire, release } from '../lib/pidLock';
 import { engineProcessEnv, handoffProcessEnv, NO_ENV_FILE } from '../lib/env';
 import { initMemberStore, verifyCredential } from '../lib/sharedMembers';
 import { readConnections, saveConnection, sharedRequest } from '../lib/sharedConnections';
+import { tryHold } from '../lib/sqliteLock';
 import { vaultIdentity } from '../lib/vaultBoundary';
 import { readViewerSession, viewerAuthorization, viewerLink } from '../lib/viewerSession';
 const args = process.argv.slice(2), location = flagValue(args,'home');
@@ -17,7 +17,7 @@ if (!location) throw Error('Usage: bun bin/shared-shell.ts --home <owner-directo
 const home = resolve(location), port = Number(flagValue(args,'port') ?? 4768), remotePort = Number(flagValue(args,'shared-port') ?? 4769);
 for (const value of [port,remotePort]) if (!Number.isInteger(value) || value<1 || value>65535) throw Error('Invalid port.');
 mkdirSync(home,{recursive:true,mode:0o700});
-const lock = join(home,'shell-ui.lock'), launch = join(home,'shell-launch-url');
+const launch = join(home,'shell-launch-url');
 // The viewer answers only its session (lib/viewerSession.ts): a browser gets a
 // fresh short-lived link to the saved view, never the saved URL bare.
 const open = (url:string) => {
@@ -26,10 +26,11 @@ const open = (url:string) => {
   const link = secret ? viewerLink(Number(at.port), secret) + at.search.replace(/^\?/, '&') : url;
   Bun.spawn([process.platform==='darwin'?'open':'xdg-open',link],{env:handoffProcessEnv(),stdout:'ignore',stderr:'ignore'});
 };
-if (!acquire(lock)) { if (existsSync(launch)) { open(readFileSync(launch,'utf8').trim()); process.exit(0); } throw Error('Shared shell is already starting.'); }
+const lock = tryHold(join(home,'shell-ui.lock.sqlite'), { retired: join(home,'shell-ui.lock') });
+if (!lock) { if (existsSync(launch)) { open(readFileSync(launch,'utf8').trim()); process.exit(0); } throw Error('Shared shell is already starting.'); }
 const children: ReturnType<typeof Bun.spawn>[] = [];
 let stopping=false;
-const stop = () => { if(stopping)return;stopping=true;for(const child of children)child.kill();release(lock); };
+const stop = () => { if(stopping)return;stopping=true;for(const child of children)child.kill();lock.release(); };
 process.on('SIGTERM',()=>{stop();process.exit()});process.on('SIGINT',()=>{stop();process.exit()});
 try {
   const root=join(home,'vault'),members=join(home,'members.json'),ownerPath=join(home,'owner.json'),personal=join(home,'preview-personal'),store=join(home,'shell-connections.json');

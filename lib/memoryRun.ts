@@ -44,7 +44,6 @@ import {
   memoryDue,
   memoryNeedsRebuild,
   readMemoryStamp,
-  releaseMemoryLock,
   writeMemoryStamp,
   type MemoryStamp,
 } from "./memory";
@@ -334,7 +333,8 @@ export async function runMemory(opts: MemoryRunOpts): Promise<MemoryRunResult> {
   // (lib/scaffold.ts shedVaultPrompts).
   const templatePath = join(ENGINE_ROOT, "prompts", "memory.md");
 
-  if (!acquireMemoryLock(root)) return { ran: false, reason: "another memory run holds the lock" };
+  const lock = acquireMemoryLock(root);
+  if (!lock) return { ran: false, reason: "another memory run holds the lock" };
 
   const startedAt = new Date();
   const runId = newRunId(startedAt);
@@ -683,7 +683,7 @@ export async function runMemory(opts: MemoryRunOpts): Promise<MemoryRunResult> {
     edits.rollback();
     throw error;
   } finally {
-    releaseMemoryLock(root);
+    lock.release();
     if (warmCompletedMemory) {
       try {
         const { warmMemoryBriefings } = await import("./memoryBriefings");

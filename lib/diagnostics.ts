@@ -7,7 +7,7 @@ import { spawn } from "node:child_process";
 import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { assertionLockDir } from "./assertionAgent";
+import { intakeHolder, intakeRunning } from "./assertionAgent";
 import { engineIdentity } from "./engine";
 import { handoffProcessEnv } from "./env";
 import { json, send, type Route } from "./httpx";
@@ -164,13 +164,10 @@ function nextFires(root: string): Record<string, number> | null {
   }
 }
 
+/** The lock says whether a round runs; its holder's record, only who. */
 function intakeLock(root: string): { running: boolean; lockPid: number | null } {
-  try {
-    const pid = Number(readFileSync(join(assertionLockDir(root), "pid"), "utf8").trim());
-    return pid ? { running: alive(pid), lockPid: pid } : { running: false, lockPid: null };
-  } catch {
-    return { running: false, lockPid: null };
-  }
+  const running = intakeRunning(root);
+  return { running, lockPid: running ? intakeHolder(root) : null };
 }
 
 /** The job logs, tend first (the one every stalled-intake question comes
@@ -279,7 +276,7 @@ export function renderBundle(r: DiagnosticsReport, app: string | null): string {
     `memory      ${memoryLine(f.memory, at)}`,
     `jobs PATH   ${f.jobsPath}`,
     `next fires  ${fires}`,
-    `intake      ${f.intake.running ? `RUNNING (lock pid ${f.intake.lockPid})` : f.intake.lockPid ? `idle (stale lock from pid ${f.intake.lockPid})` : "idle"}`,
+    `intake      ${f.intake.running ? `RUNNING (lock pid ${f.intake.lockPid ?? "unknown"})` : "idle"}`,
   ];
   const logs = r.logs.map((l) => {
     const title = l.missing

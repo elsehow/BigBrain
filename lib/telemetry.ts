@@ -6,8 +6,7 @@ import { posthogToken, posthogRegion } from "./env";
 import { writeAtomic } from "./fsx";
 import { telemetryConfig } from "./telemetryConfig";
 import { configDir, engineIdentity } from "./engine";
-import { assertionLockDir } from "./assertionAgent";
-import { alive } from "./parentWatch";
+import { intakeRunning } from "./assertionAgent";
 import { json, readBody, type Route } from "./httpx";
 
 export type Operation = "search" | "graph" | "note" | "pilot_submit";
@@ -85,8 +84,7 @@ export class Telemetry {
     if (this.foregroundClients.size > 8) this.foregroundClients.delete(this.foregroundClients.keys().next().value!);
   }
   private gardening(): boolean {
-    try { return alive(Number(readFileSync(join(assertionLockDir(this.options.root), "pid"), "utf8").trim())); }
-    catch { return false; }
+    return intakeRunning(this.options.root);
   }
   record(operation: Operation, ms: number, success: boolean, gardening = this.gardening()): void {
     if (!["search", "graph", "note", "pilot_submit"].includes(operation) || !Number.isFinite(ms) || ms < 0) return;
