@@ -49,7 +49,7 @@ directions. So:
 | **Agent** | What you talk to on a desktop: a pi session. BigBrain decides what it knows and can do; the package runs it. |
 | **Worktree** | A desktop's own `git worktree` of a project, at `desktops/<id>/<name>` on branch `desktop/<id>`, made by `start_work`. |
 | **Lease** | A desktop's claim on editing a project in place, so two don't edit one checkout at once. |
-| **Host tools** | Tools BigBrain hands an agent: vault search and read, `open_view`, `show_page`, `notify_user`. |
+| **Host tools** | Tools BigBrain hands an agent: vault search and read, `open_view`, `show_page`. |
 
 ```
 ~/bigbrain/

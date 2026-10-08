@@ -18,8 +18,8 @@ The same trace produces byte-equivalent application frames through both persiste
 adapters. Cancellation-before-completion and completion-before-cancellation are
 separate orderings. The catalog also covers queued follow-up, explicit resumption,
 duplicate/conflicting delivery, restart with pending input, and a report after
-archival. These replace three overlapping transition fixtures; publication and
-notification invariants and the full production Pilot host tests remain separate.
+archival. These replace three overlapping transition fixtures; publication
+invariants and the full production Pilot host tests remain separate.
 
 Use `bun run web:dev`, then open:
 

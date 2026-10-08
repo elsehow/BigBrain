@@ -62,4 +62,4 @@ Regressions in `test/applicationHistory.test.ts` cover page boundaries,
 concurrent insertion, actor/vault cursor isolation, cold/warm reads, cache loss,
 malformed authoritative records, selected detail, search, draft/turn recovery,
 legacy worker detail, and nonduplicated legacy action pages. Existing lifecycle,
-queue, alias, notification, output and migration tests remain merge gates.
+queue, alias, output and migration tests remain merge gates.

@@ -51,7 +51,7 @@ test("warm Pilot archives retain summaries; search and selected detail read only
     let reads = 0; const options = { graph: () => [], observeRead: () => reads++ };
     const cold = new PilotChats(root, options); expect(cold.loadIssues).toEqual([]); cold.close(); expect(reads).toBe(20);
     reads = 0; const warm = new PilotChats(root, options);
-    expect(warm.summaries()).toHaveLength(20); expect(warm.notifications()).toEqual([]); expect(reads).toBe(0);
+    expect(warm.summaries()).toHaveLength(20); expect(reads).toBe(0);
     expect(warm.get(records[0].id).messages[0].text).toContain("transcript 0"); expect(reads).toBe(1);
     expect(warm.summaries("transcript 19").map(s => s.id)).toEqual([records[19].id]);
     reads = 0; warm.get(records[19].id); expect(reads).toBe(1); warm.close();

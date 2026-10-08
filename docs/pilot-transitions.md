@@ -1,6 +1,6 @@
 # Pilot application transitions
 
-`lib/pilotTransitions.ts` owns conversation input, turn settlement, notification,
+`lib/pilotTransitions.ts` owns conversation input, turn settlement,
 worker-report, dormancy, and transcript-publication rules. Its inputs include time
 and IDs; it performs no I/O. `PilotChats.change` persists the result before it
 starts effects. The existing Pi service and worker orchestrator keep their runtime
@@ -28,7 +28,6 @@ Three independent lifetimes remain explicit:
 | Worker report | Preserve once by report key; deactivated/interrupted sessions do not auto-run |
 | Deactivate | Abort, retain history, reject late turn output and composer resurrection |
 | Restart | Clear process execution identity and expose interruption; never replay |
-| Notification answer | Validate current ownership/status and retain the input identity |
 | Aging | Decide dormancy, empty-draft cleanup, or publication from supplied time |
 | Publication result | Match the pending chapter and preserve concurrent user activity |
 

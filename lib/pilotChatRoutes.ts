@@ -1,5 +1,4 @@
 import { actionHistoryQuery } from "./applicationActions";
-import { notificationView } from "./publicViews";
 import { json, readBody, type Route } from "./httpx";
 import { pilotChatDetail } from "./pilotChatSummary";
 import { PilotError } from "./pilot";
@@ -48,14 +47,12 @@ export function pilotChatRoutes(sessions: PilotChats, options: { graph?: () => P
       catch { json(res, 404, { error: "Pilot conversation is unavailable." }); }
     } },
     { method: "GET", path: "/api/pilot/chat/backend", handler: ({ res }) => json(res, 200, sessions.defaultBackend()) },
-    { method: "GET", path: "/api/pilot/chat/notifications", handler: ({ res }) => json(res, 200, { notifications: sessions.notifications().map(notificationView) }) },
-    post("notification-state", b => sessions.notificationState(b.id, b.action)),
     post("create", b => sessions.create(b.context, b.id)),
     post("presence", b => { sessions.presence(b.client, b.id); return { ok: true }; }),
     post("check", () => sessions.check()),
     post("draft", b => sessions.draft(b.id, b.text, b.images)),
     post("discard", b => { sessions.discard(b.id); return { ok: true }; }),
-    post("send", b => sessions.submit(b.id, b.text, { id: typeof b.inputId === "string" ? b.inputId : crypto.randomUUID(), mode: b.mode === "voice" ? "voice" : "text", images: b.images as import("./chatImageTypes").ChatImage[] | undefined, ...(typeof b.target === "string" ? { target: b.target } : {}), ...(b.notificationId !== undefined ? { notificationId: b.notificationId as string } : {}) })),
+    post("send", b => sessions.submit(b.id, b.text, { id: typeof b.inputId === "string" ? b.inputId : crypto.randomUUID(), mode: b.mode === "voice" ? "voice" : "text", images: b.images as import("./chatImageTypes").ChatImage[] | undefined, ...(typeof b.target === "string" ? { target: b.target } : {}) })),
     post("spoken", b => sessions.recordSpoken(b.id, b.receipt)),
     post("backend", b => b.id ? sessions.setBackend(b.id, b.backend) : sessions.setDefaultBackend(b.backend)),
     post("deactivate", b => sessions.stopTree(b.id)),

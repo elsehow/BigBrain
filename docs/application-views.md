@@ -2,8 +2,8 @@
 
 Pilot summaries/details and worker summaries/details are allowlisted projections
 in `pilotChatSummary.ts` and `workViews.ts`. HTTP never serializes a worker or
-Pilot record directly. Nested messages, image references, notifications, grants
-and operation receipts have their own projections. Grants shown for an explicit
+Pilot record directly. Nested messages, image references, grants and
+operation receipts have their own projections. Grants shown for an explicit
 user decision are public; runtime ceilings, provider history and tool arguments
 are not. Graph activity uses these same summaries, not a second stored model.
 
@@ -22,10 +22,10 @@ the last in-flight refresh. The existing fallback polling remains for old server
 offline streams and fixtures without application events.
 
 The attention owner fetches affected Pilot/task summaries by ID. Open task panels
-subscribe independently to their own identity. Notifications derive from Pilot
-views. Browser draft text, optimistic inputs, selection and discarded identities
-remain browser-owned. Summary replacement preserves only explicitly loaded detail;
-a removed optional summary field must not survive by accidental object spreading.
+subscribe independently to their own identity. Browser draft text, optimistic
+inputs, selection and discarded identities remain browser-owned. Summary
+replacement preserves only explicitly loaded detail; a removed optional summary
+field must not survive by accidental object spreading.
 
 Application activity does not increment vault content revision. Filesystem watching
 still reconciles external vault edits, search projections and graph topology.
@@ -33,7 +33,7 @@ Source read-state refresh retains its provider reconciliation cadence and focus
 refresh. Actual publication to the vault still triggers content invalidation.
 
 The production AppShell browser test opens two fabricated views. In a 3.2-second
-healthy idle window it observes zero application list/notification requests
+healthy idle window it observes zero application list requests
 (previous visible idle polling made about two list refreshes, four requests, in
 that interval). One task event makes one task-list request and zero graph requests
 or vault revision changes. Gap/restart snapshots retain unsent drafts. These

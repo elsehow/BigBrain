@@ -4,7 +4,7 @@ export const PILOT_TEXT_MODEL = "gpt-5.6-terra";
 export type PilotChatPhase = "draft" | "working" | "answered" | "interrupted" | "failed";
 /** One application turn. Absence means idle; process resources live elsewhere. */
 export type PilotTurn = { id: string; status: "running" | "stopping"; replyTo?: string; reports?: string[] };
-export interface PilotInput { id: string; text: string; mode: "text" | "voice"; target?: string; notificationId?: string; images?: ChatImage[] }
+export interface PilotInput { id: string; text: string; mode: "text" | "voice"; target?: string; images?: ChatImage[] }
 /** Derived primary memory, separate from the notes consulted by the agent. */
 export interface PilotCategory {
   memory: string | null;
@@ -42,10 +42,9 @@ export interface PilotChatSession {
   /** Last local command remains visible to the model after an interrupted turn. */
   localCommand?: { id: string; command: string; cwd: string; status: "running" | "completed" | "uncertain"; exitCode?: number };
   backend?: import("./pilotBackendTypes").PilotBackendConfig;
-  notifications?: import("./pilotNotifications").PilotNotification[];
-  inputs?: { id: string; message: string; mode: "text" | "voice"; text: string; target?: string; notificationId?: string; images?: ChatImage[] }[];
+  inputs?: { id: string; message: string; mode: "text" | "voice"; text: string; target?: string; images?: ChatImage[] }[];
   spoken?: { id: string; message: string; text: string; status: "played" | "interrupted"; at: string }[];
-  pendingInputs?: { id: string; text: string; mode: "text" | "voice"; target?: string; notificationId?: string; images?: ChatImage[] }[];
+  pendingInputs?: { id: string; text: string; mode: "text" | "voice"; target?: string; images?: ChatImage[] }[];
   transport?: "subscription" | "api";
   phase: PilotChatPhase;
   /** Absent only in records written before lifecycle support. */

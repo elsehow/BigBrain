@@ -1,5 +1,4 @@
 import { isEmptyPilotDraft, type PilotChatSession, type PilotChatMessage, type PilotInput, type PilotTurn } from "./pilotChatTypes";
-import type { PilotNotification } from "./pilotNotifications";
 import { PILOT_LIFECYCLE } from "./pilotLifecycleConfig";
 import { pilotChatChapter } from "./pilotChatIngestion";
 
@@ -21,8 +20,6 @@ export type PilotEvent =
   | { kind: "message"; turn: string; message: PilotChatMessage }
   | { kind: "settled"; turn: string; outcome: "answered" | "interrupted" | "failed"; error?: string; at: string; advance: boolean }
   | { kind: "stop" | "deactivate"; at: string }
-  | { kind: "notification"; id: string; action: "seen" | "unseen" | "dismiss" | "resolve" }
-  | { kind: "notify"; notification: PilotNotification }
   | { kind: "age"; at: string; blocked: boolean }
   | { kind: "published"; chapter: Chapter; activity?: string; receipt: { id: string; insertionId: string; path: string } }
   | { kind: "publication-failed"; chapter: Chapter };
@@ -47,7 +44,6 @@ export function transitionPilot(current: PilotChatSession, event: PilotEvent): {
     begin({ id: turn, status: "running", replyTo: message });
   };
   const acknowledge = (input: PilotInput) => {
-    s.notifications = s.notifications?.map(n => ({ ...n, seen: true, resolved: n.workerRequest ? n.resolved : true }));
     if (s.draft.trim() === input.text) s.draft = "";
     s.draftImages = (s.draftImages ?? []).filter(image => !input.images?.some(sent => sent.id === image.id));
   };
@@ -65,13 +61,11 @@ export function transitionPilot(current: PilotChatSession, event: PilotEvent): {
       if (prior) {
         const a = event.input;
         // Text and voice can retry the same logical input through either door.
-        if (prior.text !== a.text || prior.target !== a.target || prior.notificationId !== a.notificationId
+        if (prior.text !== a.text || prior.target !== a.target
           || JSON.stringify(prior.images ?? []) !== JSON.stringify(a.images ?? [])) throw new PilotTransitionError("That input ID already belongs to a different message.");
         return unchanged();
       }
       if (s.turn?.status === "stopping") throw new PilotTransitionError("Pilot is stopping. Wait before resuming it.");
-      if (event.input.notificationId !== undefined && !s.notifications?.some(n => n.id === event.input.notificationId && n.kind === "question" && !n.resolved))
-        throw new PilotTransitionError("This question is no longer awaiting an answer. Refresh the conversation.");
       if (s.turn || s.pendingInputs?.length) {
         if (!event.queue) throw new PilotTransitionError(s.turn ? "Pilot is already working in this session." : "Messages are queued in this session. Resume them first.");
         if ((s.pendingInputs?.length ?? 0) >= 8) throw new PilotTransitionError("Wait for Pilot to process the queued messages.");
@@ -118,23 +112,6 @@ export function transitionPilot(current: PilotChatSession, event: PilotEvent): {
         if (!s.turn) effects.push({ kind: "release" });
       }
       break;
-    case "notification": {
-      const n = s.notifications?.find(n => n.id === event.id);
-      if (!n) throw new PilotTransitionError("Notification not found.");
-      const index = s.messages.findIndex(m => m.id === n.messageId);
-      if (event.action === "unseen" && (n.resolved || !n.workerRequest && index >= 0 && s.messages.slice(index + 1).some(m => m.role === "user")))
-        throw new PilotTransitionError("This notification already has a subsequent turn.");
-      s.notifications = s.notifications!.map(n => n.id !== event.id ? n : { ...n,
-        ...(event.action === "seen" ? { seen: true } : event.action === "unseen" ? { seen: false, dismissed: false } : event.action === "dismiss" ? { dismissed: true } : { resolved: true }) });
-      break;
-    }
-    case "notify": {
-      const n = event.notification;
-      if (s.notifications?.some(prior => prior.key === n.key)) return unchanged();
-      s.notifications = [...(s.notifications ?? []), n];
-      s.messages = [...s.messages, { id: n.messageId, role: "assistant", text: n.text, at: n.at }];
-      break;
-    }
     case "age": {
       const now = Date.parse(event.at), idle = now - Date.parse(s.lastActivityAt ?? s.updated);
       if (event.blocked || s.turn) return unchanged();

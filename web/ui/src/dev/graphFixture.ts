@@ -109,20 +109,6 @@ export async function installGraphFixture() {
     stopped.id = 'pilot-55555555555555555555555555555555'; stopped.title = 'Completed Atlas review'; stopped.deactivatedAt = new Date().toISOString();
     sessions.push(review, design, stopped);
   }
-  window.addEventListener('workbench-agent-notification', () => {
-    const at = new Date().toISOString();
-    const texts = [
-      'The September update and project notebook disagree on the opening date. Which date should I use for the Atlas plan?',
-      'I found the earlier design review and linked it to the project notebook.',
-      'The weekly summary is ready. There are two decisions for you to review.',
-    ];
-    const text = texts[(sample.notifications?.length ?? 0) % texts.length]!;
-    const id = crypto.randomUUID();
-    sample.messages.push({ id, role: 'assistant', text, at });
-    sample.notifications = [...sample.notifications ?? [], { id, pilotId: sample.id, pilotTitle: sample.title, messageId: id,
-      key: 'atlas-opening-date', text, kind: 'question', at, seen: false }];
-    sample.revision++; sample.updated = at;
-  });
   const archivedWorker: WorkSession | undefined = new URLSearchParams(location.search).has('archived-worker') ? {
     id: 'work-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', title: 'Atlas implementation', provider: 'pi', cwd: '/sample/project',
     created: sample.created, updated: sample.updated, status: 'interrupted',
@@ -154,17 +140,7 @@ export async function installGraphFixture() {
     }
     if (path === '/api/pilot/chat') return json({ sessions: sessions.filter(s => !url.searchParams.has("ids") || url.searchParams.get("ids")!.split(",").includes(s.id)).filter(s => matchesPilotQuery(s, url.searchParams.get('query') ?? '')).map(pilotChatSummary) });
     if (path === '/api/pilot/chat/session') { const s = sessions.find(s => s.id === url.searchParams.get('id')); return s ? json(pilotChatDetail(s)) : json({ error: 'Missing conversation' }, 404); }
-    if (path === '/api/pilot/chat/notifications') return json({ notifications: sessions.flatMap(s => s.notifications ?? []) });
-    if (path === '/api/pilot/chat/notification-state') {
-      const body = JSON.parse(typeof options?.body === 'string' ? options.body : '{}');
-      const notice = sessions.flatMap(s => s.notifications ?? []).find(n => n.id === body.id);
-      if (!notice) return json({error:'Unknown notification'},404);
-      if (body.action === 'dismiss') notice.dismissed = true;
-      else if (body.action === 'unseen') { notice.seen = false; notice.dismissed = false; }
-      else notice.seen = true;
-      return json({ok:true});
-    }
-    if (!path.startsWith('/api/pilot/chat/') || ['models', 'notifications'].includes(path.split('/').at(-1)!) || path.endsWith('/backend') && !options?.body) return fakeFetch(input, options);
+    if (!path.startsWith('/api/pilot/chat/') || path.endsWith('/models') || path.endsWith('/backend') && !options?.body) return fakeFetch(input, options);
     const body = JSON.parse(typeof options?.body === 'string' ? options.body : '{}');
     if (path.endsWith('/create')) { const s = newPilotChatSession(body.context ?? []); s.id = body.id;
       const memory = workspaces.find(n => s.context.length === 1 && n.id === s.context[0]);
@@ -185,7 +161,6 @@ export async function installGraphFixture() {
     else if (path.endsWith('/send')) {
       s.messages.push({ id: crypto.randomUUID(), role: 'user', text: body.text, at: new Date().toISOString() },
         { id: crypto.randomUUID(), role: 'assistant', text: 'This is the sample vault. Your message stayed in this browser; no agent was contacted.', at: new Date().toISOString() });
-      for (const n of s.notifications ?? []) { if(!n.workerRequest)n.resolved = true; n.seen = true; }
       s.draft = ''; s.phase = 'answered';
     } else return json({ error: 'This action is unavailable in the sample vault.' }, 409);
     s.revision++; s.updated = new Date().toISOString(); return json(pilotChatDetail(s));

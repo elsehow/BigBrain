@@ -15,15 +15,10 @@
     window.dispatchEvent(event);
   }
   import { onMount } from "svelte";
-  async function notifyAgent() { window.dispatchEvent(new Event("workbench-agent-notification")); }
   import { update } from "../lib/update.svelte";
   onMount(() => {
     const params = new URLSearchParams(location.search);
-    const timer = !params.has("vault") && params.has("notification") ? setTimeout(async () => {
-      await notifyAgent();
-      if (params.get('notification') === 'stack') { await notifyAgent(); await notifyAgent(); }
-      if (params.has('captures')) void notifyCapture();
-    }, 1200) : undefined;
+    const timer = !params.has("vault") && params.has("captures") ? setTimeout(notifyCapture, 1200) : undefined;
     const scene = params.get("update");
     if (scene) { update.available = { version: "0.7.24", notes: "Preview update" }; update.phase = scene === "installing" ? "installing" : scene === "failed" ? "failed" : "idle"; update.error = scene === "failed" ? "Could not reach the download server." : null; }
     return () => clearTimeout(timer);
@@ -58,7 +53,7 @@
   {#if scenario}<label>Application scenario <select aria-label="Application scenario" value={scenario} onchange={chooseScenario}>{#each traces as trace}<option value={trace.id}>{trace.title}</option>{/each}</select></label><span>Read-only · seed {traces[0].seed}</span>{/if}
   {#if onboarding}<span>Onboarding preview · Analytics and connections simulated</span><button onclick={restartOnboarding}>Restart preview</button>
   {:else}
-  {#if !live}<button onclick={notifyCapture}>Capture notifications</button><button onclick={notifyAgent}>Agent notification</button>{/if}
+  {#if !live}<button onclick={notifyCapture}>Capture notifications</button>{/if}
   {#if new URLSearchParams(location.search).get('selectionSubgraph') === '1'}<span>{cloud ? 'Cloud · Up to 120 items' : 'Radial · Up to 60 items'} · Hover labels · Shift-click to add · Escape to reset</span><button onclick={compareSelection}>Compare: {cloud ? 'radial' : 'cloud'}</button>{#if cloud}<button onclick={compareComposition}>{composed ? 'Compare: plain cloud' : 'Try: composed cloud'}</button><button onclick={compareMotion}>{continuous ? 'Compare: fresh layout' : 'Try: continuous layout'}</button><button onclick={compareChoreography}>{staged ? 'Compare: simultaneous reveal' : 'Try: staged reveal'}</button>{/if}<button onclick={compareSidebar}>{calmSidebar ? 'Compare: bold sidebar' : 'Try: quiet sidebar'}</button>{/if}
   <span>{live ? 'Local vault' : 'Sample vault'}</span>
   <a href={`?vault=${live ? 'sample' : 'live'}${baseline ? '&layout=original' : ''}`}>{live ? 'Sample' : 'Local vault'}</a>

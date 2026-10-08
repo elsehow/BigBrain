@@ -6,17 +6,19 @@ import { nativeVault } from './support/vault';
 
 test('Pilot retains knowledge tools without agent execution', () => {
   const names = pilotChatTools().map(t => t.name);
-  for (const name of ['read_file', 'write_scratch', 'list_files', 'notify_user']) expect(names).toContain(name);
+  for (const name of ['read_file', 'write_scratch', 'list_files']) expect(names).toContain(name);
   for (const name of ['run_command','request_access','request_browser','browser','start_preview','request_github','start_work', 'send_work', 'answer_work', 'link_work', 'list_work', 'read_work', 'stop_work']) expect(names).not.toContain(name);
   for (const name of ['launch_agent', 'message_agent', 'reply_agent', 'read_agent', 'list_agent_models', 'inspect_agent_environment', 'revise_agent_environment']) expect(names).not.toContain(name);
+  for (const name of ['notify_user', 'resolve_notification']) expect(names).not.toContain(name);
   expect(pilotInstructions()).toContain('You cannot launch agents');
   expect(pilotInstructions()).not.toContain('Delegate when');
+  expect(pilotInstructions()).not.toMatch(/notif/i);
 });
 
 test('stale execution tools are rejected by the simplified Pilot', async () => {
   const root = nativeVault({ files: { '.env': 'OPENAI_API_KEY=sk-test\nBIGBRAIN_PILOT_ENABLED=true\n' } });
   let rounds = 0;
-  const retired = ['launch_agent', 'message_agent', 'reply_agent', 'inspect_agent_environment', 'revise_agent_environment', 'run_command', 'start_work'];
+  const retired = ['launch_agent', 'message_agent', 'reply_agent', 'inspect_agent_environment', 'revise_agent_environment', 'run_command', 'start_work', 'notify_user', 'resolve_notification'];
   const toolErrors:string[]=[];
   const work = new WorkHistory(root);
   const chats = new PilotChats(root, { work, graph: () => [],

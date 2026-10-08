@@ -1,4 +1,4 @@
-# Source unread state and Pilot notifications
+# Source unread state
 
 ## What is implemented
 
@@ -13,7 +13,6 @@ the local HTTP API, Pilot tools, and a graph-node overlay. Gmail owns its state:
 BigBrain sets/removes that flag and verifies the result with the provider.
 Opening a source, agent retrieval, and gardener filing never change it.
 
-The notification center and unread toolbar are mounted in the production top bar.
 The envelope selects unread graph nodes; the existing text tab requests an
 unread-focused overview from the configured quick model (Haiku by default).
 Its purpose and the current date participate in the server cache identity;
@@ -39,7 +38,7 @@ selection, serialization, caching, and per-source results.
   missing, ambiguous, and unsupported state must never become “read.”
 - `setUnread(root, source, unread)` sets an explicit boolean, never toggles an
   inferred value. Return success only after verifying the provider state. Change
-  no unrelated flags, labels, content, filing state, or notification state.
+  no unrelated flags, labels, content, or filing state.
 - Adapters without write access set `writable: false` and reject writes.
   Providers with channel cursors instead of message flags must expose that
   scope honestly; do not implement a local pretend-message read flag.
@@ -109,86 +108,3 @@ for one granted email account. It returns read-only state with source provenance
 Pilot has no source mutation tool. Human UI actions remain a separate surface;
 email must be active for either reads or human flag changes. See
 [agent connections](agent-memory.md) for activation and caller grants.
-
-## Workbench
-
-Run `bun run web:dev` and open
-`/dev.html?c=notifications&s=overview`. Add `&preview=1` for the full-window view.
-Scenes cover unread/no-unread, empty notifications, busy-but-quiet Pilots,
-seen unanswered questions, long messages, and sync failure. Width and dark-mode
-controls belong to the existing workbench.
-
-The bell is immediately left of Settings and uses its 40px circular styling.
-The envelope and bell remain visible even when their queues are empty. The
-envelope sits left of the bell and is inactive when no unread sources can be
-selected. Otherwise it selects all unread graph sources. Shift–Enter opens a triage Pilot with those sources in
-context. The selection uses the production NoteTab, with a fabricated Haiku
-overview of decisions and background reading. A specialized unread prompt is
-implemented in the production model backend; the workbench itself never calls a model. Send a message, then use
-the mock mark-read action; “Change one in Gmail” simulates an external provider change.
-The sync-failure control keeps the old state and shows a failed confirmation.
-
-The dropdown follows the search surface's border, radius, shadow, row highlight,
-and typography. It supports keyboard navigation, opening the referenced Pilot
-message, seen state, answering, and dismissing. All are local mock
-actions; refreshing resets them. Indicators use the current Pilot phase,
-independent of notification intent. The runtime toggle demonstrates this. The bell count is unseen active notifications; a seen question
-remains “Needs you” until answered or dismissed.
-
-## Durable Pilot notifications
-
-Only Pilot can create a notification through an explicit capability. Authenticate
-the caller and stamp its identity server-side; a payload claiming to be a Pilot
-is insufficient. Workers report to their parent Pilot and integrations update
-source state. Neither creates notifications directly. Pilot/worker runtime phase
-does not itself imply that the user is needed.
-
-Notifications and their referenced assistant messages are saved together in the
-existing atomic Pilot session record. There is no public notification-creation
-HTTP route and neither the shared MCP tools nor worker tools include creation.
-Only the bound Pilot runtime receives `notify_user` and `resolve_notification`;
-it supplies the Pilot identity from the executing session, ignoring caller
-identity claims. Automatic report turns may use these two tools, but still
-cannot mutate mail or dispatch further work.
-
-`notify_user({key, kind, text})` creates a conversation message and notification;
-reusing a key returns the existing item, including after restart. `kind` is
-`question` or `update`. `resolve_notification({id})` only resolves an item owned
-by the executing Pilot, for a question answered elsewhere in the conversation
-or one that has become obsolete.
-
-Notifications persist independently of delivery. Each names its Pilot, exact
-conversation/message, intent (question or update), creation time, and stable
-deduplication key. Track seen, resolved, and dismissed separately.
-Seeing a question does not answer it. Dismissal hides the notification without
-answering the question or granting approval. “Needs you” is an explicit Pilot
-request for input, never inferred from activity or an agent finishing. Refresh/restart/retry must not duplicate
-notifications or lose outstanding questions. The source thread and notification
-can link to one another without sharing unread/acknowledgment state.
-
-Badges, toasts, voice, and system notifications deliver the same durable item;
-delivery is not evidence that the user saw or resolved it. Answering uses the
-current question identity, and any actual worker approval retains its existing
-explicit user-approval checks.
-
-The browser reads `GET /api/pilot/chat/notifications` every 1.5 seconds while
-visible and on focus. POST `/api/pilot/chat/notification-state` accepts only
-`{id, action: "seen" | "dismiss"}`; it cannot create or resolve requests. Changes
-require JSON and the app's own browser origin. Like the other viewer endpoints,
-these are served by the existing loopback host, not a new remote capability.
-
-Opening a question targets its exact message and explicitly labels the composer
-as a reply to that question; the user can cancel that association. The existing
-retry-safe send request carries `notificationId`. It must identify an outstanding
-question in that same Pilot. Its resolution is derived from the durably accepted
-input or queued input, avoiding a separate answer/resolve transaction. Retries
-retain both input and question identity; a different answer to an already
-resolved question is rejected. An ordinary conversation response can also let
-Pilot explicitly resolve a request. No notification acknowledgment grants a
-worker approval.
-
-The dropdown's glyph reads the current Pilot lifecycle/phase, never a status
-snapshot stored with the notification. Its new badge counts unseen, outstanding,
-undismissed notifications. Seen questions still need input; dismissal removes
-the notification but leaves the question unanswered. Delivery here is the in-app
-bell and dropdown; OS toasts and voice announcements are not added.

@@ -1347,7 +1347,6 @@ function route(path: string, method: string, body?: string, search?: URLSearchPa
     }
     return json({ sources: current.sourceReadStates ?? [], scope: "stored_sources" });
   }
-  if (path === "/api/pilot/chat/notifications") return json({ notifications: [] });
   if (path === "/api/pilot/chat/backend") {
     if (method === "POST") pilotBackend = JSON.parse(body ?? "{}").backend;
     return json(pilotBackend);

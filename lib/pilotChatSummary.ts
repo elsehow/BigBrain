@@ -2,13 +2,12 @@ import { lastMessageAt } from "./messageTime";
 import type { PilotChatSession } from "./pilotChatTypes";
 import { desktopDetail } from "./pilotDesktop";
 
-import { fields, imageView, notificationView, outputView } from "./publicViews";
+import { fields, imageView, outputView } from "./publicViews";
 const summaryFields = ["id", "title", "titleSource", "model", "transport", "phase", "lifecycle", "lastActivityAt", "deactivatedAt", "ingestedMessages", "ingestionError", "seed", "context", "viewRevision", "revision", "draft", "live", "activity", "error", "created", "updated"] as const;
-const inputView = (v: NonNullable<PilotChatSession["pendingInputs"]>[number]) => ({ ...fields(v, ["id", "text", "mode", "target", "notificationId"]), images: v.images?.map(imageView) });
+const inputView = (v: NonNullable<PilotChatSession["pendingInputs"]>[number]) => ({ ...fields(v, ["id", "text", "mode", "target"]), images: v.images?.map(imageView) });
 /** Navigation/status and graph activity, independent of the storage schema. */
 export type PilotChatSummary = ReturnType<typeof pilotChatSummary>;
 export function pilotChatSummary(s: PilotChatSession) {
-  const answered = new Set([...(s.inputs ?? []), ...(s.pendingInputs ?? [])].map(i => i.notificationId));
   return { ...fields(s, summaryFields),
     backend: s.backend && fields(s.backend, ["adapter", "provider", "model", "reasoning"]),
     category: s.category && fields(s.category, ["memory", "inputKey", "model", "assignedAt", "reason"]),
@@ -16,8 +15,7 @@ export function pilotChatSummary(s: PilotChatSession) {
     legacyWork: s.legacyWork && { ...fields(s.legacyWork, ["id", "provider", "thread", "cwd"]), outputs: s.legacyWork.outputs.map(outputView) },
     ingestions: s.ingestions?.map(i => fields(i, ["through", "sourceId", "insertionId", "path"])),
     draftImages: s.draftImages?.map(imageView), pendingInputs: s.pendingInputs?.map(inputView),
-    lastMessageAt: lastMessageAt(s), notifications: s.notifications?.map(n => ({ ...notificationView(n), pilotTitle: s.title, resolved: n.resolved || answered.has(n.id) })),
-    messageCount: s.messages.length, hasHistory: !!(s.messages.length || s.inputs?.length || s.workEvents?.length || s.pendingIngestion) };
+    lastMessageAt: lastMessageAt(s), messageCount: s.messages.length, hasHistory: !!(s.messages.length || s.inputs?.length || s.workEvents?.length || s.pendingIngestion) };
 }
 export type PilotChatDetail = ReturnType<typeof pilotChatDetail>;
 export function pilotChatDetail(s: PilotChatSession) {

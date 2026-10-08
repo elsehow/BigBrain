@@ -27,13 +27,7 @@ interface TauriCore {
 interface TauriApp {
   getVersion(): Promise<string>;
 }
-interface TauriNotification {
-  isPermissionGranted(): Promise<boolean>;
-  requestPermission(): Promise<string>;
-  sendNotification(options: { title: string; body: string }): void;
-}
 interface TauriGlobal {
-  notification?: TauriNotification;
   dialog?: TauriDialog;
   opener?: TauriOpener;
   core?: TauriCore;
@@ -162,18 +156,4 @@ export async function updateInstall(): Promise<void> {
   const c = core();
   if (!c) throw new Error("Updating needs the desktop app.");
   await c.invoke("update_install");
-}
-
-/** The desktop notification is supplementary: the request remains in its
- * source and in the app if system permission is unavailable or declined. */
-export async function notifySession(title: string, body: string): Promise<boolean> {
-  const notification = tauri()?.notification;
-  if (!notification) return false;
-  try {
-    let granted = await notification.isPermissionGranted();
-    if (!granted) granted = await notification.requestPermission() === "granted";
-    if (!granted) return false;
-    notification.sendNotification({ title, body });
-    return true;
-  } catch { return false; }
 }
