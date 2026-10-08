@@ -32,6 +32,11 @@ report suspected vulnerabilities even if an update is not possible.
   days unused and are renewed in the app (Settings → Connected clients) or
   with `bigbrain auth renew`. A memory-reading grant permits
   reading the vault's memory; this is not a multi-user or per-note access system.
+- Live access to a connected account (mail, meeting notes) is granted per
+  account and per caller: Pilot, or one connected client. Grants set
+  least-privilege defaults and tie every read to a named caller; they are not a
+  sandbox. A program on this Mac that has a shell can reach what your account
+  can, whatever BigBrain grants it.
 - Imported pages, messages, files and model output are untrusted content.
   Sanitized rendering and host-enforced tool permissions provide separate
   protections. Prompt wording alone is not a security boundary.
