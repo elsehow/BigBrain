@@ -48,7 +48,12 @@ export interface Field {
 }
 
 const STRONG_EDGES = 140;
-const HUBS = 8;
+/** How many of the most-connected entities are named at rest. */
+export const HUBS = 8;
+
+/** Entities by how connected they are, most first: the first HUBS are the hubs. */
+export const hubOrder = (nodes: readonly FieldNode[]): number[] =>
+  nodes.filter((n) => !n.memory).sort((a, b) => b.degree - a.degree).map((n) => n.i);
 
 /** Deterministic 0..1 from a string: an entity keeps its height across loads. */
 function unit(s: string): number {
@@ -90,7 +95,7 @@ export function buildField(graph: GraphData): Field {
     const a = byId.get(e.source), b = byId.get(e.target);
     if (a != null && b != null) edges.push([a, b, e.weight ?? 1]);
   }
-  const hubs = new Set([...nodes].filter((n) => !n.memory).sort((a, b) => b.degree - a.degree).slice(0, HUBS).map((n) => n.i));
+  const hubs = new Set(hubOrder(nodes).slice(0, HUBS));
   for (const h of hubs) nodes[h]!.named = true;
 
   // Sources keep their own place in the engine's layout, re-spaced as the

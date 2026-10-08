@@ -13,7 +13,7 @@ import * as THREE from "three";
 import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 import { LineSegments2 } from "three/examples/jsm/lines/LineSegments2.js";
 import { LineSegmentsGeometry } from "three/examples/jsm/lines/LineSegmentsGeometry.js";
-import type { Field, FieldPilot } from "./model";
+import { hubOrder, type Field, type FieldPilot } from "./model";
 import { createWireCube, type WireCube } from "./wireCube";
 import { wireClock } from "./wireMotion";
 import { look } from "./look";
@@ -121,56 +121,70 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
   const aColor = new THREE.BufferAttribute(new Float32Array((N + SOURCES) * 3), 3);
   const aAlpha = new THREE.BufferAttribute(new Float32Array(N + SOURCES), 1);
   pGeo.setAttribute("aSize", aSize); pGeo.setAttribute("aColor", aColor); pGeo.setAttribute("aAlpha", aAlpha);
-  const pointVertex = /* glsl */`
-      attribute float aSize; attribute vec3 aColor; attribute float aAlpha;
-      uniform float uPx, uRef, uFogNear, uFogFar;
-      varying vec3 vC; varying float vA; varying float vPx;
-      void main() {
-        vec4 mv = modelViewMatrix * vec4(position, 1.0);
-        gl_Position = projectionMatrix * mv;
-        float d = -mv.z;
-        gl_PointSize = max(1.5, aSize * uPx * uRef / d);
-        vPx = gl_PointSize;
-        vC = aColor;
-        vA = aAlpha * (1.0 - smoothstep(uFogNear, uFogFar, d));
-      }`;
-  const pMat = new THREE.ShaderMaterial({
-    uniforms: { uFogNear: fog.near, uFogFar: fog.far, uPx: { value: 1 }, uRef: { value: 36 }, uSoft: { value: 1 }, uHalo: { value: 1 } },
-    vertexShader: pointVertex,
-    // the dot's edge: uSoft 1 is the shipped soft rim, 0 a crisp one antialiased over a pixel
-    fragmentShader: /* glsl */`
-      uniform float uSoft, uHalo;
-      varying vec3 vC; varying float vA; varying float vPx;
-      void main() {
-        float d = length(gl_PointCoord - 0.5) * 2.0;
-        if (d > 1.0) discard;
-        float aa = mix(1.0 / vPx, 0.085, uSoft);
-        float core = 1.0 - smoothstep(0.465 - aa, 0.465 + aa, d);
-        float halo = (1.0 - d) * (1.0 - d) * 0.22 * uHalo;
-        gl_FragColor = vec4(vC, vA * max(core, halo));
-        #include <colorspace_fragment>
-      }`,
-    transparent: true, depthWrite: false,
-  });
+  // A dot: a core, its edge soft (uSoft 1) or crisp over a pixel (0), and a
+  // faint halo. Sources draw the same dot and may shape it (the field look:
+  // a ring, a square, turned); an entity's stays round.
+  const uPx = { value: 1 }, uRef = { value: 36 };
+  const dotMaterial = () => {
+    const u = { uFogNear: fog.near, uFogFar: fog.far, uPx, uRef,
+      uSoft: { value: 1 }, uHalo: { value: 1 }, uHole: { value: 0 }, uSquare: { value: 0 }, uTurn: { value: 0 } };
+    const mat = new THREE.ShaderMaterial({
+      uniforms: u,
+      vertexShader: /* glsl */`
+        attribute float aSize; attribute vec3 aColor; attribute float aAlpha;
+        uniform float uPx, uRef, uFogNear, uFogFar;
+        varying vec3 vC; varying float vA; varying float vPx;
+        void main() {
+          vec4 mv = modelViewMatrix * vec4(position, 1.0);
+          gl_Position = projectionMatrix * mv;
+          float d = -mv.z;
+          gl_PointSize = max(1.5, aSize * uPx * uRef / d);
+          vPx = gl_PointSize;
+          vC = aColor;
+          vA = aAlpha * (1.0 - smoothstep(uFogNear, uFogFar, d));
+        }`,
+      fragmentShader: /* glsl */`
+        uniform float uSoft, uHalo, uHole, uSquare, uTurn;
+        varying vec3 vC; varying float vA; varying float vPx;
+        void main() {
+          vec2 c = (gl_PointCoord - 0.5) * 2.0;
+          float a = uTurn * 0.7853982;
+          c = mat2(cos(a), -sin(a), sin(a), cos(a)) * c;
+          float d = mix(length(c), max(abs(c.x), abs(c.y)), uSquare);
+          if (d > 1.0) discard;
+          float aa = mix(1.0 / vPx, 0.085, uSoft);
+          float core = 1.0 - smoothstep(0.465 - aa, 0.465 + aa, d);
+          float rIn = 0.4 * uHole;
+          if (uHole > 0.001) core *= smoothstep(rIn - max(aa, 0.04), rIn, d);
+          float halo = (1.0 - d) * (1.0 - d) * 0.22 * uHalo * (1.0 - uHole);
+          gl_FragColor = vec4(vC, vA * max(core, halo));
+          #include <colorspace_fragment>
+        }`,
+      transparent: true, depthWrite: false,
+    });
+    return { mat, u };
+  };
+  const { mat: pMat, u: entDot } = dotMaterial();
   const points = new THREE.Points(pGeo, pMat);
   points.renderOrder = 3;
   points.frustumCulled = false;
   scene.add(points);
   // hubs: the most-connected entities, named at rest and drawn larger. The
   // field's own, until the field look asks for a different count.
-  const byDegree = field.nodes.filter((n) => !n.memory).sort((a, b) => b.degree - a.degree).map((n) => n.i);
-  const isNamed = field.nodes.map((n) => n.named);
-  const hubs = new Set(field.hubs);
-  const sizeOf = (n: Field["nodes"][number]) => NODE_SCALE * (isNamed[n.i] ? 4.5 + 1.2 * Math.log1p(n.degree) : 1.8 + 0.75 * Math.log1p(n.degree));
-  const baseSize = field.nodes.map(sizeOf);
+  const byDegree = hubOrder(field.nodes);
+  const hubs = new Set<number>(), isNamed: boolean[] = [], baseSize: number[] = [];
   let hubCount = -1;
   const rehub = () => {
     if (look.hubCount === hubCount) return;
     hubCount = look.hubCount;
     hubs.clear();
     for (const i of byDegree.slice(0, hubCount)) hubs.add(i);
-    for (const n of field.nodes) { isNamed[n.i] = n.memory || hubs.has(n.i); baseSize[n.i] = sizeOf(n); }
+    for (const n of field.nodes) {
+      isNamed[n.i] = n.memory || hubs.has(n.i);
+      baseSize[n.i] = NODE_SCALE * (isNamed[n.i] ? 4.5 + 1.2 * Math.log1p(n.degree) : 1.8 + 0.75 * Math.log1p(n.degree));
+    }
   };
+  rehub();
   const P = field.nodes.map((n) => new THREE.Vector3(...n.p));
 
   // ── sources: hidden at rest; the one in hand is a node like any other ────
@@ -205,30 +219,7 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
   const sColor = new THREE.BufferAttribute(new Float32Array(S * 3), 3);
   const sAlpha = new THREE.BufferAttribute(new Float32Array(S), 1);
   sGeo.setAttribute("aSize", sSize); sGeo.setAttribute("aColor", sColor); sGeo.setAttribute("aAlpha", sAlpha);
-  // the same dot as an entity's, with a shape of its own (field look: hole, square, turn)
-  const shape = { uHole: { value: 0 }, uSquare: { value: 0 }, uTurn: { value: 0 }, uSoft: { value: 1 }, uHalo: { value: 1 } };
-  const sMat = new THREE.ShaderMaterial({
-    uniforms: { ...pMat.uniforms, ...shape },
-    vertexShader: pointVertex,
-    fragmentShader: /* glsl */`
-      uniform float uHole, uSquare, uTurn, uSoft, uHalo;
-      varying vec3 vC; varying float vA; varying float vPx;
-      void main() {
-        vec2 c = (gl_PointCoord - 0.5) * 2.0;
-        float a = uTurn * 0.7853982;
-        c = mat2(cos(a), -sin(a), sin(a), cos(a)) * c;
-        float d = mix(length(c), max(abs(c.x), abs(c.y)), uSquare);
-        if (d > 1.0) discard;
-        float aa = mix(1.0 / vPx, 0.085, uSoft);
-        float core = 1.0 - smoothstep(0.465 - aa, 0.465 + aa, d);
-        float rIn = 0.4 * uHole;
-        if (uHole > 0.001) core *= smoothstep(rIn - max(aa, 0.04), rIn, d);
-        float halo = (1.0 - d) * (1.0 - d) * 0.22 * uHalo * (1.0 - uHole);
-        gl_FragColor = vec4(vC, vA * max(core, halo));
-        #include <colorspace_fragment>
-      }`,
-    transparent: true, depthWrite: false,
-  });
+  const { mat: sMat, u: srcDot } = dotMaterial();
   const restSources = new THREE.Points(sGeo, sMat);
   restSources.renderOrder = 3;
   restSources.frustumCulled = false;
@@ -244,7 +235,7 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
     return counts.map((n) => f(n) / mid);
   };
   const tieScale = byCount(field.sources.map((x) => x.ties.length));
-  const mentionedBy = new Array<number>(N).fill(0);
+  const mentionedBy = Array.from({ length: N }, () => 0);
   for (const x of field.sources) for (const j of x.ties) mentionedBy[j]!++;
   const entScale = byCount(mentionedBy);
   const sourceAt = new Map(field.sources.flatMap((x, k) => x.paths.map((p) => [p, SP[k]!] as const)));
@@ -275,10 +266,10 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
     return l;
   };
   const strong = lineSet(field.strong.map(([a, b]) => [P[a]!, P[b]!]), 0.14);
-  // every source's ties at rest (field look), rebuilt when the sources move
+  // every source's ties at rest (field look): built the first time they're
+  // asked for, and rebuilt when the sources move
   const srcTiePairs = () => field.sources.flatMap((x, k) => x.ties.map((j) => [SP[k]!, P[j]!] as [THREE.Vector3, THREE.Vector3]));
-  const restTies = lineSet(srcTiePairs(), 0);
-  restTies.visible = false;
+  let restTies: LineSegments2 | null = null;
   let placedAt = "0,0";
   /** Lift and flatten (field look): sources move off the layout's heights. */
   const placeSources = () => {
@@ -291,7 +282,7 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
       pos.setXYZ(k, p.x, p.y, p.z);
     });
     pos.needsUpdate = true;
-    restTies.geometry.setPositions(new Float32Array(srcTiePairs().flatMap(([a, b]) => [a.x, a.y, a.z, b.x, b.y, b.z])));
+    restTies?.geometry.setPositions(new Float32Array(srcTiePairs().flatMap(([a, b]) => [a.x, a.y, a.z, b.x, b.y, b.z])));
     for (const s of sources) if (s.home && s.want) settle(s);
   };
   const dynamic = (max: number) => {
@@ -377,11 +368,11 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
   // point's size is set in pixels at a reference distance (uRef), so in world
   // units its visible core depends only on the viewport's height.
   const hubSize = (() => {
-    const s = [...field.hubs].map((i) => baseSize[i]!).sort((a, b) => a - b);
+    const s = [...hubs].map((i) => baseSize[i]!).sort((a, b) => a - b);
     return s.length ? s[s.length >> 1]! : 6;
   })();
   const sizeMemory = () => {
-    const core = 0.47 * hubSize * pMat.uniforms["uRef"]!.value * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) / H;
+    const core = 0.47 * hubSize * uRef.value * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) / H;
     for (const g of memory) g.mesh.scale.setScalar(core);
     for (const m of lineMats) fit(m);
   };
@@ -495,7 +486,7 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
    * px across (pMat's shader); about 0.47 of that is the bright core. */
   const labelGap = (p: THREE.Vector3, size: number) => {
     const d = -v3.copy(p).applyMatrix4(camera.matrixWorldInverse).z;
-    return d > 0 ? Math.max(9, 0.235 * size * pMat.uniforms["uRef"]!.value / d + 6) : 9;
+    return d > 0 ? Math.max(9, 0.235 * size * uRef.value / d + 6) : 9;
   };
   const toScreen = (p: THREE.Vector3, out: { x: number; y: number; ok: boolean }) => {
     v3.copy(p).project(camera);
@@ -624,7 +615,7 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
     panel.geometry.dispose(); (panel.material as THREE.Material).dispose();
     for (const pl of pilots.values()) pl.line.color.copy(col.fg);
     strong.material.color.copy(col.fg);
-    restTies.material.color.copy(col.fg);
+    restTies?.material.color.copy(col.fg);
     for (const g of memory) {
       // all but colourless: the faintest ink in it, so it reads as glass, not smoke
       g.mat.color.setRGB(1, 1, 1).lerp(col.fg, 0.02);
@@ -662,7 +653,7 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
     camera.setViewOffset(W, H, W < 700 ? 0 : -shiftNow, 0, W, H);
     camera.updateMatrixWorld();
     fog.near.value = d * 1.15; fog.far.value = d * 2.6;
-    pMat.uniforms["uPx"]!.value = renderer.getPixelRatio();
+    uPx.value = renderer.getPixelRatio();
 
     // what is in play
     const fp = focus ? pilots.get(focus) : undefined;
@@ -706,9 +697,9 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
     {
       const sz = sSize.array as Float32Array, sc = sColor.array as Float32Array, sa = sAlpha.array as Float32Array;
       placeSources();
-      shape.uHole.value = look.srcHole; shape.uSquare.value = look.srcSquare; shape.uTurn.value = look.srcTurn;
-      shape.uSoft.value = look.srcSoft; shape.uHalo.value = look.srcHalo;
-      pMat.uniforms["uSoft"]!.value = look.entSoft; pMat.uniforms["uHalo"]!.value = look.entHalo;
+      srcDot.uHole.value = look.srcHole; srcDot.uSquare.value = look.srcSquare; srcDot.uTurn.value = look.srcTurn;
+      srcDot.uSoft.value = look.srcSoft; srcDot.uHalo.value = look.srcHalo;
+      entDot.uSoft.value = look.entSoft; entDot.uHalo.value = look.entHalo;
       const step = THREE.MathUtils.lerp(1, 0.3, dim) * searchDim * (1 - 0.6 * srcHeld);
       const rest = look.srcAlpha * step;
       srcInk.copy(dust).lerp(col.fg, look.srcTone).lerp(col.act, look.srcAccent);
@@ -720,8 +711,9 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
         c1.copy(srcInk).lerp(c2, sPoint[k]!).toArray(sc, k * 3);
       }
       sSize.needsUpdate = true; sColor.needsUpdate = true; sAlpha.needsUpdate = true;
-      restTies.material.opacity = look.srcTies * srcShown * THREE.MathUtils.lerp(1, 0.25, dim) * step;
-      restTies.visible = restTies.material.opacity > 0.002;
+      const tied = look.srcTies * srcShown * THREE.MathUtils.lerp(1, 0.25, dim) * step;
+      if (tied > 0.002 && !restTies) { restTies = lineSet(srcTiePairs(), 0); fit(restTies.material); restTies.material.color.copy(col.fg); }
+      if (restTies) { restTies.material.opacity = tied; restTies.visible = tied > 0.002; }
     }
     // a source in hand: the field's own lines step back so its ties read
     strong.material.opacity = 0.14 * searchDim * (1 - 0.5 * dim) * (1 - 0.6 * srcHeld);

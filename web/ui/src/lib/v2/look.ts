@@ -1,3 +1,5 @@
+import { HUBS } from "./model";
+
 // How the Field draws sources against entities. The defaults are the shipped
 // look; the scene reads this every frame, so the dev tuning panel
 // (src/dev/fieldTune.ts) can move them live. Nothing else writes it.
@@ -47,7 +49,7 @@ export interface FieldLook {
 // little larger the more sources mention them; sources stay dust.
 export const LOOK_DEFAULTS: Readonly<FieldLook> = Object.freeze({
   srcSize: 1, srcByTies: 0, srcAlpha: 0.75, srcTone: 0, srcAccent: 0, srcHole: 0, srcSquare: 0, srcTurn: 0,
-  srcLift: 0, srcFlat: 0, srcTies: 0, entSize: 1, entAlpha: 1.6, entTone: 1, entByTies: 0.1, entSoft: 0, srcSoft: 0, entHalo: 1, srcHalo: 1, hubCount: 8,
+  srcLift: 0, srcFlat: 0, srcTies: 0, entSize: 1, entAlpha: 1.6, entTone: 1, entByTies: 0.1, entSoft: 0, srcSoft: 0, entHalo: 1, srcHalo: 1, hubCount: HUBS,
 });
 
 export const look: FieldLook = { ...LOOK_DEFAULTS };
