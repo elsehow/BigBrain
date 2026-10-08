@@ -83,7 +83,7 @@ export async function startGranolaSignIn(root:string,account:string,onConnected:
 }
 /** Serialize refreshes across the web process and integration poller. */
 export async function withGranola<T>(root:string,account:string,fn:(client:Client,tools:Tool[])=>Promise<T>,options:{endpoint?:string;fetch?:FetchLike;signal?:AbortSignal}={}):Promise<T>{
-  return withSignInLock(path(root,account)+'.lock',async()=>{
+  return withSignInLock(path(root,account).replace(/\.json$/,'.lock.sqlite'),async()=>{
     let conn:ReturnType<typeof connection>|undefined;
     try{
       const c=read(root,account);if(!c?.connected||!c.tokens)throw Error('Connect Granola in Settings → Integrations.');

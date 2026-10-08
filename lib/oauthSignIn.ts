@@ -11,7 +11,7 @@
  * provider and account; starting another cancels the first.
  *
  * What it keeps: one private file per account (0600 in a 0700 directory,
- * replaced whole), and a pid lock beside it that every BigBrain process takes
+ * replaced whole), and a lock beside it that every BigBrain process takes
  * before it refreshes, so a rotating refresh token is spent once. */
 import { createServer, type Server } from "node:http";
 import { mkdirSync, readFileSync } from "node:fs";
@@ -20,7 +20,7 @@ import { discoverAuthorizationServerMetadata, refreshAuthorization } from "@mode
 import type { AuthorizationServerMetadata, OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
 import type { FetchLike } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { writeAtomic } from "./fsx";
-import { acquire, release } from "./pidLock";
+import { withHeldLock } from "./sqliteLock";
 
 /** An account's kept sign-in, or undefined when it has none or it can't be read. */
 export function readSignIn<T>(path: string): T | undefined {
@@ -32,18 +32,11 @@ export function saveSignIn(path: string, value: unknown): void {
   writeAtomic(path, JSON.stringify(value) + "\n", 0o600);
 }
 
-/** Run `fn` holding `lock`, a pid lock every BigBrain process honors (the web
- * process, pollers, each MCP client's server); a dead holder's is reclaimed. */
-export async function withSignInLock<T>(lock: string, fn: () => Promise<T>, options: { busy: string; signal?: AbortSignal; wait?: number }): Promise<T> {
-  mkdirSync(dirname(lock), { recursive: true, mode: 0o700 });
-  const deadline = Date.now() + (options.wait ?? 30_000);
-  while (!acquire(lock)) {
-    options.signal?.throwIfAborted();
-    if (Date.now() > deadline) throw Error(options.busy);
-    await new Promise(r => setTimeout(r, 50));
-  }
-  try { return await fn(); } finally { release(lock); }
-}
+/** Run `fn` holding an account's refresh lock: a private SQLite file every
+ * BigBrain process honors (the web process, pollers, each MCP client's
+ * server), released the moment its holder dies, and waited for without ever
+ * blocking this process's event loop (lib/sqliteLock.ts). */
+export const withSignInLock = withHeldLock;
 
 export type SignInPhase = "starting" | "browser" | "connected" | "error" | "cancelled";
 export interface SignInStatus { phase: SignInPhase; url?: string; error?: string }

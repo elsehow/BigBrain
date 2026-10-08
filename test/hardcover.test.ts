@@ -78,7 +78,9 @@ test("signs in with PKCE, the vault's client and read scopes only; keeps it priv
   expect(readableIntegrationAccounts(root, "hardcover", { kind: "mcp", token: client.token, storePath: store })).toEqual([]);
   const dir = join(root, ".spool/integration-oauth/hardcover");
   expect(statSync(dir).mode & 0o777).toBe(0o700);
-  for (const file of readdirSync(dir).filter(n => n.endsWith(".json"))) expect(statSync(join(dir, file)).mode & 0o777).toBe(0o600);
+  // the sign-in, its refresh lock and its request budget
+  expect(readdirSync(dir).map(n => n.replace(/^[0-9a-f]{64}/u, "<account>")).sort()).toEqual(["<account>.budget.sqlite", "<account>.json"]);
+  for (const file of readdirSync(dir)) expect(statSync(join(dir, file)).mode & 0o777).toBe(0o600);
   expect(ops(f)).toEqual(["BigBrainMe"]);
   expect(f.requests[0]!.userAgent).toMatch(/^BigBrain\/\S+ \(\+https:\/\/bigbrain\.cool\)$/u);
 });
@@ -262,6 +264,23 @@ test("an answer over the size cap, a timeout, a 429 and Hardcover's own errors a
   expect(stored(root).lapsed).toBeUndefined();
 });
 
+test("two processes renewing at once spend the refresh token once", async () => {
+  const { root, f, service, options } = setup();
+  f.expiresIn = 60; // inside the renewal margin: each process's read renews first
+  f.answer = () => ({ user_books: [] });
+  await connect(service, root, f);
+  f.beforeToken = async grant => { if (grant === "refresh_token") await Bun.sleep(300); }; // the first holds the lock while the second arrives
+  const read = `const { hardcoverRead } = await import(${JSON.stringify(join(import.meta.dir, "../lib/hardcover.ts"))});
+    const { HARDCOVER_DOCUMENTS } = await import(${JSON.stringify(join(import.meta.dir, "../lib/integrations/hardcover.ts"))});
+    try { await hardcoverRead(process.env.ROOT, "hardcover", HARDCOVER_DOCUMENTS.SHELF, user => ({ userId: user.id, status: 3, limit: 1, offset: 0 }), JSON.parse(process.env.OPTIONS)); console.log("ok"); }
+    catch (error) { console.log("refused: " + error.message); }`;
+  const children = [0, 1].map(() => Bun.spawn([process.execPath, "-e", read], { env: { ...process.env, ROOT: root, OPTIONS: JSON.stringify(options) }, stdout: "pipe", stderr: "pipe" }));
+  const said = await Promise.all(children.map(async c => { await c.exited; return (await new Response(c.stdout).text()).trim(); }));
+  expect(said).toEqual(["ok", "ok"]);
+  expect(f.refreshes).toHaveLength(1);
+  expect(stored(root).tokens.refresh).toBe(f.issued.filter(t => t.startsWith("hc_rt_")).at(-1));
+});
+
 test("a refresh token is spent once per rotation, and `me` is checked after each refresh", async () => {
   const { root, f, service, call } = setup();
   f.expiresIn = 60; // inside the renewal margin: every read renews first
@@ -398,10 +417,10 @@ test("a disconnected account's tools refuse, and its sign-in is forgotten", asyn
   expect(await failure(call("hardcover_shelf", { status: "read" }))).toContain("not available to this caller");
 });
 
-test("the request budget holds across processes, and stops at the day's cap", async () => {
+test("the request budget holds across processes, refills by the minute, and stops at the day's cap", async () => {
   const root = nativeVault();
   cleanups.push(() => rmSync(root, { recursive: true, force: true }));
-  const file = join(root, ".spool/budget.json"), module = join(import.meta.dir, "../lib/requestLimit.ts");
+  const file = join(root, ".spool/budget.sqlite"), module = join(import.meta.dir, "../lib/requestLimit.ts");
   // four processes racing for a bucket of five, refilled once a minute
   const take = `const { takeRequest } = await import(${JSON.stringify(module)}); let ok = 0;
     for (let i = 0; i < 10; i++) { try { await takeRequest(process.env.BUDGET, { burst: 5, perMinute: 1, daily: 100 }, { maxWait: 0 }); ok++; } catch {} }
@@ -412,7 +431,15 @@ test("the request budget holds across processes, and stops at the day's cap", as
   expect(statSync(file).mode & 0o777).toBe(0o600);
   await expect(takeRequest(file, { burst: 5, perMinute: 1, daily: 100 }, { maxWait: 0 })).rejects.toThrow(LimitError);
 
-  const daily = join(root, ".spool/daily.json"), limits = { burst: 10, perMinute: 600, daily: 3 };
+  // one a second: taken, refused, taken again a second later
+  let clock = Date.now();
+  const minute = join(root, ".spool/minute.sqlite"), perSecond = { burst: 1, perMinute: 60, daily: 100 }, at = { now: () => clock, maxWait: 0 };
+  await takeRequest(minute, perSecond, at);
+  await expect(takeRequest(minute, perSecond, at)).rejects.toThrow(LimitError);
+  clock += 1_000;
+  await takeRequest(minute, perSecond, at);
+
+  const daily = join(root, ".spool/daily.sqlite"), limits = { burst: 10, perMinute: 600, daily: 3 };
   for (let i = 0; i < 3; i++) await takeRequest(daily, limits);
   const refused = await takeRequest(daily, limits).catch(e => e);
   expect(refused).toBeInstanceOf(LimitError);

@@ -71,7 +71,8 @@ type Live = Credential & { clientId: string; tokens: Tokens; user: HardcoverUser
 
 const dir = (root: string) => join(root, ".spool", "integration-oauth", "hardcover");
 const file = (root: string, account: string) => join(dir(root), sha256hex(account) + ".json");
-const budget = (root: string, account: string) => join(dir(root), sha256hex(account) + ".budget.json");
+const budget = (root: string, account: string) => join(dir(root), sha256hex(account) + ".budget.sqlite");
+const refreshLock = (root: string, account: string) => join(dir(root), sha256hex(account) + ".lock.sqlite");
 const read = (root: string, account: string) => readSignIn<Credential>(file(root, account));
 const save = (root: string, account: string, c: Credential) => saveSignIn(file(root, account), c);
 
@@ -163,7 +164,7 @@ function lapse(root: string, account: string, generation: string): Error {
  * that `me` is still the person who signed in. */
 function renew(root: string, account: string, stale: string, o: Call): Promise<Live> {
   const issuer = o.issuer ?? HARDCOVER_ISSUER, fetchFn = fetcher(o);
-  return withSignInLock(file(root, account) + ".lock", async () => {
+  return withSignInLock(refreshLock(root, account), async () => {
     let c = usable(read(root, account));
     const generation = c.generation;
     const keep = (next: Credential) => { if (read(root, account)?.generation !== generation) throw Error(CHANGED); save(root, account, next); };
