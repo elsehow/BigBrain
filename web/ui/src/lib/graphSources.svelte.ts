@@ -1,8 +1,8 @@
 // Whether the field draws every source at rest, beside the entities they
-// mention. Off (the default), a source shows only while it's in hand.
+// mention. On by default; switched off, a source shows only while it's in hand.
 const KEY = "bigbrain.show-graph-sources";
 function stored(): boolean {
-  try { return localStorage.getItem(KEY) === "on"; } catch { return false; }
+  try { return localStorage.getItem(KEY) !== "off"; } catch { return true; }
 }
 
 export const graphSources = $state({ show: stored() });
