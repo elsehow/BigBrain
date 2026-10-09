@@ -25,5 +25,5 @@ if (new URLSearchParams(location.search).has('vaultScope')) {
 }
 watchSystemTheme();
 const graphTheme = new URLSearchParams(location.search).get('graphTheme');
-if (['default', 'dusk', 'phosphor'].includes(graphTheme ?? '')) setChoice(graphTheme as BuiltIn);
+if (['default', 'dusk'].includes(graphTheme ?? '')) setChoice(graphTheme as BuiltIn);
 mount(SidebarWorkbench, { target: document.getElementById('app')! });

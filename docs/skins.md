@@ -1,8 +1,11 @@
 # Skins
 
-The app ships nine themes: **Light**, **nurebairo**, **OG Web Blue**, **Phosphorus**,
-**Something's Gotta Give**, **yamabukiiro**, **moegiiro**, **adzukiiro**, and **asagiiro**. Follow the system switches between Light and nurebairo.
-Every theme defines just three colors: background, foreground, and activity.
+The app leads with two themes that follow the system's light or dark
+appearance: **Ink** (the default), white by day and a plum-black by night, and
+**Kind of Blue**, a pale paper by day and a deep blue by night. Single themes
+follow: **OG Web Blue**, **Something's Gotta Give**, **Spring**, **Fall**, and
+**Winter**.
+Every palette defines just three colors: background, foreground, and activity.
 Muted text, borders and surfaces derive from background and foreground.
 Selection inverts those two colors for regular and closed nodes. Active
 processes (currently Pilot sessions) use the accent for their indicator; a

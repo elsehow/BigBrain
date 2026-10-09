@@ -1,13 +1,18 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import { gmailTs, memoryCadence } from "../web/ui/src/lib/utils";
 import {
   DEFAULT_CHOICE,
   labelFor,
+  PAIR_IDS,
+  PAIRS,
+  PALETTES,
   setChoice,
   skins,
   storedChoice,
   themeFor,
   watchSystemTheme,
+  THEME_LABEL,
   THEMES,
 } from "../web/ui/src/lib/theme";
 
@@ -38,7 +43,7 @@ describe("gmailTs", () => {
 // emulator and did nothing on the hosted app), so there is nothing left to
 // rank against.
 describe("themeFor", () => {
-  test("no choice → the OS decides: dark desktop nurebairo, light desktop the bare default", () => {
+  test("no choice → Ink, which the OS decides: dark desktop its dark half, light desktop the bare default", () => {
     // for one day (2026-09-01) an unset record meant OG web blue on every
     // desktop; it is back to the OS's call, and the blue is a choice
     expect(DEFAULT_CHOICE).toBe("system");
@@ -51,14 +56,16 @@ describe("themeFor", () => {
     expect(themeFor(false, "system")).toBeNull();
   });
 
-  test("the picker leads with the two halves of the default: Light, then nurebairo", () => {
-    expect(THEMES[0]).toBe("default");
-    expect(THEMES[1]).toBe("dusk");
-    expect(THEMES).toContain(themeFor(true)); // the dark half is a palette the picker offers
+  test("Ink replaces its halves in the picker, but a record that names one still paints it", () => {
+    expect(THEMES).not.toContain("default");
+    expect(THEMES).not.toContain("dusk");
+    expect(PALETTES).toContain(themeFor(true)); // the dark half is a palette tokens.css paints
+    expect(themeFor(true, "dusk")).toBe("dusk");
+    expect(labelFor("dusk")).toBe("Ink, dark");
   });
 
   test("a choice outranks the OS, both ways", () => {
-    expect(themeFor(true, "phosphor")).toBe("phosphor");
+    expect(themeFor(true, "somethings-gotta-give")).toBe("somethings-gotta-give");
     expect(themeFor(false, "web")).toBe("web");
   });
 
@@ -71,6 +78,28 @@ describe("themeFor", () => {
 
   test("every palette the picker offers is one themeFor will hand back", () => {
     for (const t of THEMES) expect(themeFor(false, t)).toBe(t);
+  });
+
+  test("the picker leads with two pairs: Ink, then Kind of Blue", () => {
+    expect(PAIR_IDS).toEqual(["system", "kind-of-blue"]);
+    expect(labelFor("system")).toBe("Ink");
+    expect(labelFor("kind-of-blue")).toBe("Kind of Blue");
+  });
+
+  test("Kind of Blue follows the OS: pale paper in light, deep blue in dark", () => {
+    expect(themeFor(false, "kind-of-blue")).toBe("kind-of-blue-light");
+    expect(themeFor(true, "kind-of-blue")).toBe("kind-of-blue-dark");
+  });
+
+  test("the seasons keep their stored ids under their new names", () => {
+    expect([THEME_LABEL.moegiiro, THEME_LABEL.adzukiiro, THEME_LABEL.asagiiro]).toEqual(["Spring", "Fall", "Winter"]);
+  });
+
+  test("tokens.css paints every built-in palette and nothing else", () => {
+    const css = readFileSync(new URL("../web/ui/src/design/tokens.css", import.meta.url), "utf8");
+    const painted = [...css.matchAll(/^\[data-theme="([\w-]+)"\] \{/gm)].map((m) => m[1]);
+    expect(painted.toSorted()).toEqual([...PALETTES].sort());
+    for (const id of PAIR_IDS) expect(PALETTES).toEqual(expect.arrayContaining([PAIRS[id].light, PAIRS[id].dark]));
   });
 });
 
@@ -108,13 +137,15 @@ describe("the stored choice", () => {
     const map = stubStorage();
     map.set("bigbrain:theme", "web");
     expect(storedChoice()).toBe("web");
+    map.set("bigbrain:theme", "kind-of-blue");
+    expect(storedChoice()).toBe("kind-of-blue");
     map.set("bigbrain:theme", "ghostty");
     expect(storedChoice()).toBe("system");
   });
 
   test("removed palettes fall back to the system", () => {
     const map = stubStorage();
-    for (const removed of ["ultraviolet", "tangerine", "hivis", "zenburn"]) {
+    for (const removed of ["ultraviolet", "tangerine", "hivis", "zenburn", "yamabukiiro", "phosphor"]) {
       map.set("bigbrain:theme", removed);
       expect(storedChoice()).toBe("system");
     }
@@ -141,9 +172,9 @@ describe("the stored choice", () => {
         removeAttribute: (k: string) => attrs.delete(k),
       },
     };
-    setChoice("phosphor");
-    expect(map.get("bigbrain:theme")).toBe("phosphor");
-    expect(attrs.get("data-theme")).toBe("phosphor"); // and it painted
+    setChoice("somethings-gotta-give");
+    expect(map.get("bigbrain:theme")).toBe("somethings-gotta-give");
+    expect(attrs.get("data-theme")).toBe("somethings-gotta-give"); // and it painted
     setChoice("default");
     expect(map.get("bigbrain:theme")).toBe("default");
     expect(attrs.get("data-theme")).toBe("default");

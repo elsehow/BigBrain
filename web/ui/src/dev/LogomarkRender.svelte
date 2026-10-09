@@ -9,13 +9,13 @@
   //   ?c=logomark&s=render&theme=dusk&loop=flip&size=1024&wordmark=1&bg=1
   import Logomark from "../components/Logomark.svelte";
   import { FLIP, LOOPS, poseAt, SOLVED, TURN, type LoopName, type Pose } from "../lib/logomark";
-  import { THEME_LABEL, THEMES } from "../lib/theme";
+  import { PALETTES, THEME_LABEL } from "../lib/theme";
 
   const q = new URLSearchParams(location.search);
   // the theme by its id or by the name Settings › Theme shows for it
   const want = (q.get("theme") ?? "default").trim().toLowerCase();
-  const theme = THEMES.find((t) => t === want || THEME_LABEL[t].toLowerCase() === want) ?? "default";
-  const known = THEMES.some((t) => t === want || THEME_LABEL[t].toLowerCase() === want);
+  const theme = PALETTES.find((t) => t === want || THEME_LABEL[t].toLowerCase() === want) ?? "default";
+  const known = PALETTES.some((t) => t === want || THEME_LABEL[t].toLowerCase() === want);
   const loop = LOOPS[(q.get("loop") ?? "flip") as LoopName] ?? FLIP;
   const size = Math.max(16, Number(q.get("size")) || 1024);
   const wordmark = q.get("wordmark") === "1";
@@ -31,7 +31,7 @@
     };
     w.__logomarkFrame = (t: number) => { pose = poseAt(t, turn, loop); };
     w.__logomarkPeriod = period;
-    w.__logomarkThemes = THEMES.map((id) => ({ id, label: THEME_LABEL[id] }));
+    w.__logomarkThemes = PALETTES.map((id) => ({ id, label: THEME_LABEL[id] }));
     w.__logomarkTheme = known ? theme : null;
     // the page behind the stage goes clear, so a screenshot that omits
     // the document background gets true transparency around the mark
