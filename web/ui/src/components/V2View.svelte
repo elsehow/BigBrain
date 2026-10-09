@@ -1489,11 +1489,15 @@
     /* the chat as drawn: your width (or the default), kept left of the
        notification stack's column while a notice shows */
     --chat-at: min(var(--chat-w), 100vw - var(--notice-lane, 0px) - 3 * var(--app-gutter, 34px));
+    /* where what opens under the top bar starts: below the bar, or in a
+       narrow window below the notification stack (its --notice-band) */
+    --under-bar: max(62px, var(--notice-band, 0px));
     --font-app: "IBM Plex Sans", system-ui, sans-serif;
     --font-mono: "IBM Plex Mono", ui-monospace, monospace;
     --v2-muted: color-mix(in srgb, var(--fg) 65%, var(--bg));
     --v2-faint: color-mix(in srgb, var(--fg) 45%, var(--bg));
-    position: fixed; inset: 0; background: var(--bg);
+    /* the room below the strips over the top bar (FieldView) */
+    position: absolute; inset: 0; background: var(--bg);
     font-family: var(--font-app); color: var(--fg); overflow: hidden;
     /* the field is a picture, not a page: neither a drag across its names nor
        ⌘A may paint a selection over it. What's there to read — a chat, the
@@ -1544,6 +1548,8 @@
   .tok:hover, .new:hover { background: color-mix(in srgb, var(--fg) 7%, var(--bg)); }
   /* the × sits over the token's right end, shown on hover or keyboard focus */
   .tokwrap { position: relative; display: inline-flex; }
+  /* a narrow bar shortens the names rather than drawing them over + and Search */
+  .tokwrap > .tok { min-width: 0; }
   .tokx { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); width: 20px; height: 20px; padding: 0; border: 0; border-radius: 999px;
     background: color-mix(in srgb, var(--fg) 7%, var(--bg)); color: var(--v2-muted); font: 400 14px/1 var(--font-app); cursor: pointer; opacity: 0; transition: opacity .12s; }
   .tokx.on { background: var(--fg); color: color-mix(in srgb, var(--bg) 65%, var(--fg)); }
@@ -1554,15 +1560,15 @@
   .tok.on .k { color: color-mix(in srgb, var(--bg) 65%, var(--fg)); }
   .new { color: var(--v2-muted); }
   .find.lit { color: var(--fg); }
-  /* What sits under the strip leaves the notification stack its corner
-     (NotificationStack.svelte): --notice-band moves it below the stack in a
-     narrow window, --notice-lane keeps the chat (--chat-at) and the empty
-     state left of the stack's column, and --notice-foot starts a desktop's
-     views below the stack. The lane holds with Settings closed too, on
-     purpose: the field's own chat and empty state have controls there. */
+  /* What sits under the top bar leaves the notification stack its corner
+     (NotificationStack.svelte): it starts at --under-bar, --notice-lane keeps
+     the chat (--chat-at) and the empty state left of the stack's column, and
+     --notice-foot starts a desktop's views below the stack. The lane holds
+     with Settings closed too, on purpose: the field's own chat and empty
+     state have controls there. */
   /* the chat sits on the ground itself: opaque, fading into the field at its right edge */
   .chat { container-type: inline-size;
-    position: absolute; top: 0; bottom: 0; left: 0; width: calc(var(--chat-at) + var(--app-gutter, 34px)); padding: max(72px, var(--notice-band, 0px)) 0 26px var(--app-gutter, 34px); box-sizing: border-box;
+    position: absolute; top: 0; bottom: 0; left: 0; width: calc(var(--chat-at) + var(--app-gutter, 34px)); padding: calc(var(--under-bar) + 10px) 0 26px var(--app-gutter, 34px); box-sizing: border-box;
     display: flex; flex-direction: column; gap: 10px; background: var(--bg); z-index: 1; }
   .chat::after { content: ""; position: absolute; top: 0; bottom: 0; right: -96px; width: 96px; pointer-events: none;
     background: linear-gradient(to right, var(--bg), color-mix(in srgb, var(--bg) 0%, transparent)); }
@@ -1580,7 +1586,9 @@
   .agent:hover:not(:disabled) { color: var(--fg); }
   .agent:disabled { cursor: default; opacity: .6; }
   .scrim { position: absolute; inset: 0; z-index: 5; background: color-mix(in srgb, var(--bg) 40%, transparent); }
-  .picker { position: absolute; z-index: 6; top: max(110px, var(--notice-band, 0px)); left: var(--app-gutter, 34px); width: min(420px, calc(100% - 68px)); max-height: 70vh; overflow-y: auto; padding: 16px;
+  /* it scrolls within the field, above the field's 26px foot: below the
+     notices in a short window there is little room left */
+  .picker { position: absolute; z-index: 6; top: calc(var(--under-bar) + 48px); left: var(--app-gutter, 34px); width: min(420px, calc(100% - 68px)); max-height: min(70vh, calc(100% - var(--under-bar) - 74px)); overflow-y: auto; padding: 16px;
     border-radius: 12px; background: var(--bg); box-shadow: 0 0 0 1px var(--rule), 0 28px 70px -28px color-mix(in srgb, var(--fg) 45%, transparent); }
   .picker .eyebrow { margin: 0 0 10px; display: block; }
   .picker h3 { margin: 10px 0 4px; font: 600 12px/1.3 var(--font-app); color: var(--v2-muted); }
@@ -1643,10 +1651,10 @@
   .composer .row { display: flex; align-items: center; gap: 8px; }
   .composer .row .k { margin-right: auto; }
   /* the desktop's views take every pixel the chat doesn't */
-  .split { position: absolute; z-index: 2; top: max(62px, var(--notice-band, 0px)); bottom: 26px; left: calc(var(--chat-at) + 2 * var(--app-gutter, 34px)); width: 14px; transform: translateX(-50%); cursor: col-resize; touch-action: none; }
+  .split { position: absolute; z-index: 2; top: var(--under-bar); bottom: 26px; left: calc(var(--chat-at) + 2 * var(--app-gutter, 34px)); width: 14px; transform: translateX(-50%); cursor: col-resize; touch-action: none; }
   .split::after { content: ""; position: absolute; top: 0; bottom: 0; left: 6px; width: 2px; border-radius: 1px; background: var(--fg); opacity: 0; transition: opacity .15s; }
   .split:hover::after, .split:active::after { opacity: .35; }
-  .side { position: absolute; top: max(62px, var(--notice-foot, 0px)); bottom: 26px; right: var(--app-gutter, 34px); left: calc(var(--chat-at) + 3 * var(--app-gutter, 34px)); z-index: 1;
+  .side { position: absolute; top: max(var(--under-bar), var(--notice-foot, 0px)); bottom: 26px; right: var(--app-gutter, 34px); left: calc(var(--chat-at) + 3 * var(--app-gutter, 34px)); z-index: 1;
     display: flex; flex-direction: column; gap: 8px; }
   .side > .ws-split, .side > .view { flex: 1; min-height: 0; }
   .ws-split { display: flex; gap: 10px; min-width: 0; min-height: 0; }
@@ -1724,7 +1732,7 @@
   .gear { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; padding: 0; border: 0; border-radius: 999px; background: none; cursor: pointer; color: var(--v2-muted); }
   .gear:hover { color: var(--fg); background: color-mix(in srgb, var(--fg) 7%, var(--bg)); }
 
-  .hud { position: absolute; top: max(72px, var(--notice-band, 0px)); left: var(--app-gutter, 34px); width: min(460px, calc(100% - 32px)); display: flex; flex-direction: column; gap: 9px;
+  .hud { position: absolute; top: calc(var(--under-bar) + 10px); left: var(--app-gutter, 34px); width: min(460px, calc(100% - 32px)); display: flex; flex-direction: column; gap: 9px;
     pointer-events: none; text-shadow: 0 0 8px var(--bg), 0 0 18px var(--bg); }
   .eyebrow { font: 600 10px/1 var(--font-app); letter-spacing: 0.24em; text-transform: uppercase; color: var(--v2-muted); }
   h1 { margin: 0; font: 500 clamp(28px, 2.5vw, 36px)/1.05 var(--font-app); letter-spacing: -0.03em; }
@@ -1741,7 +1749,7 @@
   .acts button:hover { background: color-mix(in srgb, var(--fg) 6%, var(--bg)); }
   .same .busy { font: 400 12.5px/1.6 var(--font-app); color: var(--v2-muted); }
 
-  .search { position: absolute; top: max(62px, var(--notice-band, 0px)); left: calc(var(--app-gutter, 34px) - 8px); width: min(480px, calc(100% - 32px)); z-index: 2;
+  .search { position: absolute; top: var(--under-bar); left: calc(var(--app-gutter, 34px) - 8px); width: min(480px, calc(100% - 32px)); z-index: 2;
     border-radius: 11px; background: var(--bg); box-shadow: 0 0 0 1px var(--rule); overflow: hidden; animation: v2fade .14s ease-out; }
   @keyframes v2fade { from { opacity: 0; } }
   @media (prefers-reduced-motion: reduce) { .search { animation: none; } }
@@ -1792,7 +1800,7 @@
   .empty { position: absolute; top: calc(var(--notice-band, 0px) + (100% - var(--notice-band, 0px)) * .38); left: calc((100% - var(--notice-lane, 0px)) / 2); transform: translate(-50%, -50%); width: min(460px, calc(100% - 32px)); display: flex; flex-direction: column; align-items: flex-start; gap: 12px; }
   .empty p { margin: 0; font: 400 14.5px/1.5 var(--font-app); color: var(--v2-muted); }
   .empty .find { margin-left: 0; color: var(--fg); background: color-mix(in srgb, var(--fg) 7%, var(--bg)); }
-  .error { position: absolute; top: max(80px, var(--notice-band, 0px)); left: var(--app-gutter, 34px); font: 400 13px/1.5 var(--font-app); color: var(--v2-muted); }
+  .error { position: absolute; top: calc(var(--under-bar) + 18px); left: var(--app-gutter, 34px); font: 400 13px/1.5 var(--font-app); color: var(--v2-muted); }
   @media (max-width: 700px) {
     .row { grid-template-columns: 72px minmax(0, 1fr); } .row .w { display: none; }
 
