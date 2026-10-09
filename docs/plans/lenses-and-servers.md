@@ -142,10 +142,17 @@ targets that no screen uses. See D5.
 - **D6. Drop the Sources column and the Sources filter for now.** The app has no
   user-facing source field; "source" in the code means any item. Envelope `kind`
   and `source` exist if we want them later.
-- **D8. Notes too big to score** (about 4% of a real vault, almost all agent
-  chats). Options: leave them out of every lens and show that in Edit a lens;
-  or score a smaller stand-in, such as the gardener's summary. Scoring part of
-  the note is out: a matching fragment is never permission to share the whole.
+- **D8. Notes too big to score. Decided:** lenses only (not the forward rule
+  path or anything else) score a stand-in for notes over the limit: a Quick
+  summary of the whole note. One summary per note serves every lens. Cache it
+  keyed on the note's digest, the Quick model, and a summary-prompt version, so
+  a model change or a prompt change refreshes it and a rule change never does.
+  Summaries of the largest notes cost more than today's $0.05 cap per Quick
+  call, so they need their own cap, and retries (E1 saw 20 to 28% of Quick
+  calls fail). A note whose summary fails stays out. Edit a lens marks notes
+  that were judged from a summary. Scoring a fragment of a note stays out: a
+  matching fragment is never permission to share the whole. E1b measures what
+  the summary loses.
 - **D7. The suggested rule** (rewriting the rule to cover hand-added notes)
   needs a new model call. Ship it after 1e.
 
@@ -182,6 +189,11 @@ targets that no screen uses. See D5.
     about an hour at concurrency 3. Recommendation: exact lenses require a Jev
     key; revisit the fallback only if its failure rate is fixed.
 
+- **E1b. What a summary loses.** On notes just under the size limit, where Jev
+  can read the whole thing, compare Jev on the full note with Jev on its Quick
+  summary, for the same rules. Then summarize the notes over the limit and
+  record the one-time cost and the failure rate.
+
 - **E2. Read speed with servers.** Every request pages through all of every
   server's evidence and assertions, uncached (`lib/sharedReadUnion.ts:25`). Time
   search, graph and note with 0, 1, 2 and 5 servers of realistic size. This
@@ -200,7 +212,7 @@ the server (`docs/plans/shared-source-withdrawal.md`).
 
 ## Order
 
-1. 0a now (one PR). Then 0b. Run E2 and E3 alongside (E1 is done).
+1. 0a now (one PR). Then 0b. Run E1b, E2 and E3 alongside (E1 is done).
 2. Phase 1 in three PRs: store and migration (1a, 1b); exact edits and
    publishing (1c, 1d); screens (1e).
 3. Phase 2 in two PRs: invite page and links (2a, 2b); first run and the AI
