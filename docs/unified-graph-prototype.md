@@ -444,7 +444,7 @@ Raw local evidence: `/tmp/native-home-labels-full.json` and
 ## Optional visual effects (2026-09-23)
 
 The workbench now offers `graphEffects=none|glow|shadows|trails|breathing|all` and
-`graphTheme=default|dusk|phosphor`. The profiling panel exposes both selectors
+`graphTheme=default|dusk`. The profiling panel exposes both selectors
 and records them in its result. Effects default to `none`; this is an opt-in
 comparison, not a production renderer or default-style change.
 

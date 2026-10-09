@@ -16,8 +16,9 @@
   // palette is legible on some and lost on others.
   //
   // The choice is this machine's (localStorage, lib/theme.ts): a viewer
-  // preference, not vault content. FOLLOW THE SYSTEM is the default and
-  // leads — it is what an unset record means and what a first launch does.
+  // preference, not vault content. The pairs lead: each follows the OS, its
+  // card split between its light and dark halves. Ink is the default — what
+  // an unset record means and what a first launch does.
   //
   // Below the grid, the skins' own card: where the files go, two acts
   // (WRITE EXAMPLE SKIN drops a full palette to copy; OPEN FOLDER shows the
@@ -25,8 +26,11 @@
   // its reason — a skin that does not show up must say why.
   import { revealThemes, writeExampleSkin, type SkinsReport } from "../lib/skins";
   import {
+    isPair,
     labelFor,
     loadSkins,
+    PAIR_IDS,
+    PAIRS,
     setChoice,
     skins,
     storedChoice,
@@ -37,7 +41,7 @@
   } from "../lib/theme";
 
   let choice = $state<ThemeChoice>(storedChoice());
-  // what "follow the system" resolves to right now, named on its own card
+  // which half a pair resolves to right now, named in the tab's reading
   const systemIs = $derived(systemPrefersDark() ? "dark" : "light");
 
   // undefined = not asked yet; null = no door (a headless host's viewer)
@@ -66,7 +70,7 @@
   // the tab's reading: re-derived with the skins, so a skin's name is on it
   // as soon as the skin is known
   const reading = $derived(
-    choice === "system" ? `system · ${systemIs}` : (mine.find((s) => s.id === choice)?.label ?? labelFor(choice))
+    isPair(choice) ? `${labelFor(choice)} · ${systemIs}` : (mine.find((s) => s.id === choice)?.label ?? labelFor(choice))
   );
 
   function pick(next: ThemeChoice): void {
@@ -87,18 +91,21 @@
 <section class="themes" aria-label="Themes">
   <h2>Themes <span class="status">{reading}</span></h2>
   <div class="grid">
-    <button class="card" class:on={choice === "system"} onclick={() => pick("system")}
-      aria-pressed={choice === "system"}>
-      <!-- the two it chooses between, split down the middle -->
-      <div class="swatch split">
-        <div class="half" data-theme="default"><div class="line t"></div><div class="line"></div></div>
-        <div class="half" data-theme="dusk"><div class="line t"></div><div class="line"></div></div>
-      </div>
-      <span class="cap">
-        Follow the system
-        <span class="state">{choice === "system" ? "current" : systemIs}</span>
-      </span>
-    </button>
+    {#each PAIR_IDS as id (id)}
+      {@const pair = PAIRS[id]}
+      <button class="card" class:on={choice === id} onclick={() => pick(id)}
+        aria-pressed={choice === id}>
+        <!-- the two it chooses between, split down the middle -->
+        <div class="swatch split">
+          <div class="half" data-theme={pair.light}><div class="line t"></div><div class="line"></div></div>
+          <div class="half" data-theme={pair.dark}><div class="line t"></div><div class="line"></div></div>
+        </div>
+        <span class="cap">
+          {pair.label}
+          <span class="state">{choice === id ? "current" : "light + dark"}</span>
+        </span>
+      </button>
+    {/each}
 
     {#each [...THEMES.map((t) => ({ id: t, label: THEME_LABEL[t] })), ...mine] as t (t.id)}
       <button class="card" class:on={choice === t.id} onclick={() => pick(t.id)}

@@ -4,7 +4,7 @@
   let theme = $state('default');
   let status = $state('Pilot');
   let layout = $state('compact');
-  const themes = ['default','dusk','web','phosphor','somethings-gotta-give','yamabukiiro','moegiiro','adzukiiro','asagiiro'];
+  const themes = ['default','dusk','kind-of-blue-light','kind-of-blue-dark','web','somethings-gotta-give','moegiiro','adzukiiro','asagiiro'];
   function apply() {
     const root = frame?.contentDocument?.documentElement;
     if (root) {root.dataset.typeStudy = proposed ? 'proposed' : 'current';root.dataset.theme = theme;root.dataset.studyDock = layout === 'bottom' ? 'bottom' : 'side';}

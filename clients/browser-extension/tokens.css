@@ -61,13 +61,14 @@
 
 :root { color-scheme: light; }
 
-/* Keep the stored default/dusk ids so existing preferences survive renaming. */
+/* Stored ids outlive renames: default/dusk are Ink's light and dark halves,
+   and moegiiro/adzukiiro/asagiiro read as Spring/Fall/Winter. */
 [data-theme="default"] { --bg: #FFFFFF; --fg: #211A18; --activity: #CC4A3E; color-scheme: light; }
-[data-theme="dusk"] { --bg: #21191F; --fg: #DDE9F4; --activity: #CF717A; color-scheme: dark; }
+[data-theme="dusk"] { --bg: #21191F; --fg: #DDE9F4; --activity: #EF656B; color-scheme: dark; }
+[data-theme="kind-of-blue-light"] { --bg: #F2F5F3; --fg: #0D1C22; --activity: #8A5F14; color-scheme: light; }
+[data-theme="kind-of-blue-dark"] { --bg: #12303A; --fg: #E9EFEC; --activity: #D4A23F; color-scheme: dark; }
 [data-theme="web"] { --bg: #1e2bd6; --fg: #ffffff; --activity: #ffd23f; color-scheme: dark; }
-[data-theme="phosphor"] { --bg: #D3E0D5; --fg: #263C34; --activity: #62517A; color-scheme: light; }
 [data-theme="somethings-gotta-give"] { --bg: #f5ecdc; --fg: #365f70; --activity: #ad4934; color-scheme: light; }
-[data-theme="yamabukiiro"] { --bg: #E0AA24; --fg: #30261A; --activity: #64204F; color-scheme: light; }
 [data-theme="moegiiro"] { --bg: #286A3C; --fg: #F7EAF8; --activity: #FFDA52; color-scheme: dark; }
 [data-theme="adzukiiro"] { --bg: #803653; --fg: #F2D8F5; --activity: #BCC9DD; color-scheme: dark; }
 [data-theme="asagiiro"] { --bg: #355F7B; --fg: #FFF6EC; --activity: #FFD65A; color-scheme: dark; }

@@ -2,7 +2,7 @@
   import { untrack } from "svelte";
   import Logomark from "../components/Logomark.svelte";
   import { isSolved, LOOPS, movePose, poseAt, STILL, TURN, type LoopName, type Pose, type Wings } from "../lib/logomark";
-  import { THEMES, THEME_LABEL } from "../lib/theme";
+  import { PALETTES, THEME_LABEL } from "../lib/theme";
 
   const { scene = "turning" }: { scene?: string } = $props();
   const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -79,7 +79,7 @@
 
   <h2>Every theme</h2>
   <div class="themes">
-    {#each THEMES as id (id)}
+    {#each PALETTES as id (id)}
       <div class="tile" data-theme={id}>
         <Logomark size={96} {pose} {active} {wings} label="" />
         <div class="foot">

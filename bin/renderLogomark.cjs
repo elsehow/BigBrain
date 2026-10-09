@@ -13,11 +13,11 @@
  * (a dev dependency) drives it; PLAYWRIGHT_MODULE overrides the module.
  *
  *   bun run logomark:render -- --list
- *   bun run logomark:render -- --theme nurebairo --wordmark --out ~/Desktop/mark
+ *   bun run logomark:render -- --theme dusk --wordmark --out ~/Desktop/mark
  *
  * Options (all optional):
  *   --list           the themes, by the name Settings › Theme shows and by id
- *   --theme <name>   a theme, by that name or id; default "Light"
+ *   --theme <name>   a theme, by that name or id; default "default" (Ink, light)
  *   --loop <name>    flip | walk | column, default flip
  *   --size <px>      the mark's height, default 1024
  *   --fps <n>        default 60

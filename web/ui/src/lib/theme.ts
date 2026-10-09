@@ -1,35 +1,52 @@
-// Nine three-color palettes, plus this machine's YAML skins. The stored
-// default/dusk ids are stable; their display names are Light and nurebairo.
-// With no explicit choice, follow the OS appearance before the first paint.
+// Nine three-color palettes, plus this machine's YAML skins. The picker leads
+// with two light/dark pairs that follow the OS, Ink and Kind of Blue, then
+// offers five palettes on their own. Stored ids outlive renames; the picker's
+// names live in THEME_LABEL and PAIRS.
 import { normalizeSkinsCss, fetchSkins, type Skin, type SkinsReport } from "./skins";
 import { syncWindowBackground } from "./native";
 
-export const THEMES = ["default", "dusk", "web", "phosphor", "somethings-gotta-give", "yamabukiiro", "moegiiro", "adzukiiro", "asagiiro"] as const;
-export type BuiltIn = (typeof THEMES)[number];
+/** The palettes the picker offers one by one, after the pairs. */
+export const THEMES = ["web", "somethings-gotta-give", "moegiiro", "adzukiiro", "asagiiro"] as const;
+
+/** Every built-in palette tokens.css paints: the pairs' halves, then the
+ * singles. A half is offered only through its pair, but a record that names
+ * one (Ink's halves were once offered alone) still paints it. */
+export const PALETTES = ["default", "dusk", "kind-of-blue-light", "kind-of-blue-dark", ...THEMES] as const;
+export type BuiltIn = (typeof PALETTES)[number];
 
 /** A palette: one of the built-ins, or a skin of this machine's. */
 export type Theme = BuiltIn | Skin["id"];
 
-/** What a person can choose: a palette, or the OS preference. */
-export type ThemeChoice = Theme | "system";
+/** Light/dark pairs that follow the OS, in picker order. Ink keeps the id
+ * "system", which every record that followed the OS already holds. */
+export const PAIRS = {
+  system: { label: "Ink", light: "default", dark: "dusk" },
+  "kind-of-blue": { label: "Kind of Blue", light: "kind-of-blue-light", dark: "kind-of-blue-dark" },
+} as const satisfies Record<string, { label: string; light: BuiltIn; dark: BuiltIn }>;
+export type Pair = keyof typeof PAIRS;
+export const PAIR_IDS = Object.keys(PAIRS) as Pair[];
 
-/** What an unset record means: follow the OS. Light desktops get Light, which is what tokens.css's bare :root paints — so index.html
- * carries no attribute, and a light first frame is already right; dark
- * desktops get nurebairo, painted by main.ts before the mount. */
+/** What a person can choose: a palette, or a pair that follows the OS. */
+export type ThemeChoice = Theme | Pair;
+
+/** What an unset record means: Ink. Light desktops get its light half, which
+ * is what tokens.css's bare :root paints — so index.html carries no
+ * attribute, and a light first frame is already right; dark desktops get its
+ * dark half, painted by main.ts before the mount. */
 export const DEFAULT_CHOICE: ThemeChoice = "system";
 
-/** How each built-in reads in the picker — the comp's own names. A skin's
- * label is its file's `name:` (labelFor). */
+/** How each built-in reads in the picker. A skin's label is its file's
+ * `name:` (labelFor); a pair's is in PAIRS. */
 export const THEME_LABEL: Record<BuiltIn, string> = {
-  default: "Light",
-  dusk: "nurebairo",
+  default: "Ink, light",
+  dusk: "Ink, dark",
+  "kind-of-blue-light": "Kind of Blue, light",
+  "kind-of-blue-dark": "Kind of Blue, dark",
   web: "OG web blue",
-  phosphor: "Phosphorus",
   "somethings-gotta-give": "Something's Gotta Give",
-  yamabukiiro: "yamabukiiro",
-  moegiiro: "moegiiro",
-  adzukiiro: "adzukiiro",
-  asagiiro: "asagiiro",
+  moegiiro: "Spring",
+  adzukiiro: "Fall",
+  asagiiro: "Winter",
 };
 
 const KEY = "bigbrain:theme";
@@ -63,12 +80,14 @@ export function skins(): readonly Skin[] {
   return cache.skins;
 }
 
-const isBuiltIn = (v: unknown): v is BuiltIn => THEMES.includes(v as BuiltIn);
+export const isPair = (v: unknown): v is Pair => PAIR_IDS.includes(v as Pair);
+const isBuiltIn = (v: unknown): v is BuiltIn => PALETTES.includes(v as BuiltIn);
 const isSkin = (v: unknown): v is Skin["id"] => typeof v === "string" && cache.skins.some((s) => s.id === v);
 const isTheme = (v: unknown): v is Theme => isBuiltIn(v) || isSkin(v);
 
-/** The picker's caption for a palette. */
-export function labelFor(t: Theme): string {
+/** The picker's caption for a choice. */
+export function labelFor(t: ThemeChoice): string {
+  if (isPair(t)) return PAIRS[t].label;
   return isBuiltIn(t) ? THEME_LABEL[t] : (cache.skins.find((s) => s.id === t)?.label ?? t);
 }
 
@@ -80,32 +99,34 @@ export function systemPrefersDark(): boolean {
     : false;
 }
 
-/** THE decision, pure: what data-theme the root should carry. `system` is
- * the OS's answer — Light in light, nurebairo in dark — and Light is the one palette that needs no attribute, so it answers null
- * there. Every other answer names itself, "default" included: a card in the
- * picker wears its palette inside an app wearing another, and only an
- * attribute can win that. */
+/** THE decision, pure: what data-theme the root should carry. A pair is the
+ * OS's answer — Ink is "default" in light and "dusk" in dark — and "default"
+ * is the one palette that needs no attribute, so Ink answers null there. Every
+ * other answer names itself, "default" included: a card in the picker wears
+ * its palette inside an app wearing another, and only an attribute can win
+ * that. */
 export function themeFor(systemDark: boolean, choice: ThemeChoice = DEFAULT_CHOICE): Theme | null {
-  if (choice !== "system") return choice;
-  return systemDark ? "dusk" : null;
+  if (!isPair(choice)) return choice;
+  const half = PAIRS[choice][systemDark ? "dark" : "light"];
+  return half === "default" ? null : half;
 }
 
 /** The stored choice, or DEFAULT_CHOICE when none has been made (or storage
  * is unreadable — a private window, a webview with site data off). A value
  * that is no longer a palette reads as the default rather than throwing the
  * app onto a theme that does not exist — and the record itself is left
- * alone: a skin whose file is gone reads as "system" until the file is
- * back, then as itself again. */
+ * alone: a skin whose file is gone reads as Ink until the file is back,
+ * then as itself again. */
 export function storedChoice(): ThemeChoice {
   try {
     const v = localStorage.getItem(KEY);
-    return v === "system" || isTheme(v) ? v : DEFAULT_CHOICE;
+    return isPair(v) || isTheme(v) ? v : DEFAULT_CHOICE;
   } catch {
     return DEFAULT_CHOICE;
   }
 }
 
-/** Remember a choice and repaint. Every choice is STORED, "system"
+/** Remember a choice and repaint. Every choice is STORED, Ink
  * included: an absent record happens to mean the same thing today, but a
  * written one is the person's decision, and it survives whatever an unset
  * record comes to mean later (it meant the blue for a day). */
