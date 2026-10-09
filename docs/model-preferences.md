@@ -36,11 +36,11 @@ returns an actionable error without changing policy. Recommendations reset
 reasoning to the selected model's recommended level.
 
 `lib/model-defaults.yaml` owns recommendations. With both subscriptions, the
-current defaults are Astra/medium for Gardener and Pilot, Opus/default for Memory,
-and Haiku/default for Quick. With Claude alone, Gardener uses the newest Sonnet
-(Sonnet 5.5, bundled from Pi 0.99.2) and Pilot uses Opus. Gardener's provider
-preference and its Claude model come from comparative evaluations; the other
-rankings are product defaults.
+current defaults are Astra/medium for Gardener, the newest Opus (Opus 5.5) for
+Pilot, Opus/default for Memory, and Haiku/default for Quick. With Claude alone,
+Gardener uses the newest Sonnet (Sonnet 5.5, bundled from Pi 0.99.2) and Pilot
+uses the newest Opus. Gardener's provider preference and its Claude model come
+from comparative evaluations; the other rankings are product defaults.
 
 Claude Gardener evaluation, 2026-10-01: an offline replay re-filed about 500
 insertions per model through the production gardener (`runTend`, Pi, the tend/v3

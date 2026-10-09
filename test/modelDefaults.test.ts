@@ -19,7 +19,7 @@ test("gardener recommendation follows the shared provider order and falls back t
     .toEqual({ provider: "anthropic", ...MODEL_DEFAULTS.anthropic.gardener });
   expect(preferredDefaults({})).toEqual({});
   const both = preferredDefaults({ openai: MODEL_DEFAULTS.openai, anthropic: MODEL_DEFAULTS.anthropic });
-  expect(both.pilot?.provider).toBe("openai");
+  expect(both.pilot?.provider).toBe("anthropic");
   expect(both.memory?.provider).toBe("anthropic");
   expect(both.quick?.provider).toBe("anthropic");
 });
