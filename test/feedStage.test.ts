@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, spyOn, test } from "bun:test";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { appendAssertionEvent, createAssertionEvent, type AssertionEvent } from "../lib/assertionLog";
+import { appendAssertionEvent, assertionEntityId, createAssertionEvent, type AssertionEvent } from "../lib/assertionLog";
 import { chainHasWork } from "../lib/chain";
 import { feedConversationOf } from "../lib/feedConversation";
 import { addedAt, currentFeed, feedRecords, sortedAssertions } from "../lib/feedJournal";
@@ -10,6 +10,7 @@ import { appendSourceInsertionEvent, type SourceInsertion } from "../lib/inserti
 import { loadManifest } from "../lib/manifest";
 import type { ModelRunRequest } from "../lib/run/request";
 import { classicChain, runTend } from "../lib/tend";
+import { declareUserIdentity } from "../lib/userIdentity";
 import { holdElsewhere } from "./support/lockElsewhere";
 import { insertionSeq, nativeVault, NATIVE_YAML } from "./support/vault";
 
@@ -28,10 +29,11 @@ const vault = (yaml: string, ...insertions: SourceInsertion[]): string => {
 };
 
 let minute = 0;
-/** One claim, filed from `source`, at `day`. */
+/** One claim, filed from `source`, at `day`, about the entities it links. */
 function claim(root: string, source: SourceInsertion, text: string, day = "2026-08-20"): AssertionEvent {
+  const entities = [...text.matchAll(/\[\[(ent_[a-f0-9]{20})\|([^\]]+)\]\]/g)].map((m) => ({ id: m[1]!, label: m[2]! }));
   const event = createAssertionEvent({
-    text, entities: [], sources: [source.id],
+    text, entities, sources: [source.id],
     author: { kind: "model", id: "test", invocation_id: `run-${++minute}` },
     confidence: "direct",
     created_at: `${day}T12:${String(minute % 60).padStart(2, "0")}:00.000Z`,
@@ -58,6 +60,7 @@ function scripted(place: (title: string) => { section: string; expires?: string 
 const now = () => new Date("2026-08-25T00:00:00.000Z");
 /** A clock that moves a second per reading, so each call lands after the last. */
 const ticking = (from = "2026-08-25T00:00:00.000Z") => { let t = Date.parse(from); return () => new Date(t += 1000); };
+const who = (label: string) => `[[${assertionEntityId(label)}|${label}]]`;
 const feedNow = (root: string, today = "2026-08-25") => {
   const records = feedRecords(root);
   return currentFeed(records, today, feedConversationOf(root, records));
@@ -208,6 +211,36 @@ describe("the feed stage", () => {
     expect(recent(0)).toBe("none yet");
     expect(recent(1)).toBe("- headline for alpha");
     expect(recent(4)).toBe("- headline for delta\n- headline for gamma\n- headline for beta");
+  });
+
+  test("an open ask that shares an entity with the news is judged beside it, and the newer judgment settles it", async () => {
+    const [ask, done, other] = [insertion({ title: "ask" }), insertion({ title: "done" }), insertion({ title: "elsewhere" })];
+    const root = vault(FEED_YAML(), ask, done, other);
+    claim(root, ask, `${who("Kit Example")} asked you to add them to the garden chat.`);
+    await runFeed({ root, manifest: loadManifest(root), runner: scripted(() => ({ section: "needs-you" })).runner, now: ticking() });
+    claim(root, done, `You added ${who("Kit Example")} to the garden chat.`);
+    claim(root, other, `${who("Briar Example")} booked the venue.`);
+    const m = scripted((t) => t === "ask" ? { section: "skip" } : { section: "know" });
+    const result = await runFeed({ root, manifest: loadManifest(root), runner: m.runner, now: ticking("2026-08-25T02:00:00.000Z") });
+    expect([...m.calls[0]!.prompt.matchAll(/^title: (.*)$/gm)].map((t) => t[1])).toEqual(["done", "elsewhere", "ask"]);
+    expect(result.calls[0]!.sources).toBe(3);
+    expect(feedNow(root).map((e) => e.headline).sort()).toEqual(["headline for done", "headline for elsewhere"]);
+  });
+
+  test("at most three open asks ride along, most shared first, then newest; the owner relates nothing", async () => {
+    const asks = [
+      ["a1", ["Kit Example"]], ["a2", ["Briar Example"]], ["a3", ["Kit Example", "Briar Example"]],
+      ["a4", ["Kit Example"]], ["a5", ["Briar Example"]], ["a6", ["Robin Example", "Ada Example"]],
+    ].map(([title, about]) => ({ source: insertion({ title: title as string }), about: about as string[] }));
+    const news = insertion({ title: "news" });
+    const root = vault(FEED_YAML("  batch: 1\n"), ...asks.map((a) => a.source), news);
+    declareUserIdentity(root, { name: "Robin Example", email: "robin@example.com", now: new Date("2026-08-01T00:00:00.000Z") });
+    for (const { source, about } of asks) claim(root, source, `${about.map(who).join(" and ")} asked you for a reply.`);
+    await runFeed({ root, manifest: loadManifest(root), runner: scripted(() => ({ section: "needs-you" })).runner, now: ticking() });
+    claim(root, news, `${who("Robin Example")} met ${who("Kit Example")} and ${who("Briar Example")} for lunch.`);
+    const m = scripted();
+    await runFeed({ root, manifest: loadManifest(root), runner: m.runner, now: ticking("2026-08-25T02:00:00.000Z") });
+    expect([...m.calls[0]!.prompt.matchAll(/^title: (.*)$/gm)].map((t) => t[1])).toEqual(["news", "a3", "a5", "a4"]);
   });
 
   test("single-flight: a second run skips, naming the process that holds the lock, and runs once that one is killed", async () => {

@@ -7,7 +7,9 @@
  * section — needs the owner, an agent could do it, worth knowing, or skip —
  * with a one-line headline and, when there is a deadline, an expiry date.
  * Each call also sees the feed's three newest headlines, so it doesn't
- * announce again what the feed already says.
+ * announce again what the feed already says, and re-checks up to three open
+ * needs-you conversations that share an entity with what it judges, so an
+ * ask settled somewhere else can leave the feed.
  *
  * It reads only its own chain's output: the live assertions, the source
  * each assertion cites, and the working set (memory/MEMORY.md). It writes
@@ -79,8 +81,35 @@ const faceOf = (c: FeedConversation): FeedMessage => c.messages.at(-1)!;
  * message, a meeting's next revision — is judged again, whole. Oldest
  * first. */
 export function feedWork(root: string, cfg: FeedConfig, records: FeedRecord[] = feedRecords(root)): FeedConversation[] {
+  return waitingIn(feedConversations(root, cfg.since), records);
+}
+
+function waitingIn(conversations: FeedConversation[], records: FeedRecord[]): FeedConversation[] {
   const read = sortedAssertions(records);
-  return feedConversations(root, cfg.since).filter((c) => claimsOf(c).some((a) => !read.has(a.id)));
+  return conversations.filter((c) => claimsOf(c).some((a) => !read.has(a.id)));
+}
+
+/** The open needs-you conversations a call re-checks beside its batch
+ * (#178): those sharing an entity with it, most shared first, then the
+ * newest in the feed. Judged in the same call as the news, an ask that
+ * something else settled can be placed as resolved — the newest judgment
+ * of a conversation is its place in the feed. */
+export function recheckOpen(
+  records: FeedRecord[], today: string, conversationOf: (source: string) => string,
+  conversations: ReadonlyMap<string, FeedConversation>, batch: readonly FeedConversation[], n = 3,
+): FeedConversation[] {
+  const judging = new Set(batch.map((c) => c.key));
+  const about = new Set(batch.flatMap((c) => [...c.entities]));
+  const added = addedAt(records);
+  return currentFeed(records, today, conversationOf).filter((e) => e.section === "needs-you")
+    .flatMap((e) => {
+      const key = conversationOf(e.source);
+      const c = judging.has(key) ? undefined : conversations.get(key);
+      const shared = c ? [...c.entities].filter((id) => about.has(id)).length : 0;
+      return c && shared ? [{ c, shared, added: added.get(e.source) ?? "" }] : [];
+    })
+    .sort((a, b) => b.shared - a.shared || b.added.localeCompare(a.added))
+    .slice(0, n).map((r) => r.c);
 }
 
 /** Now, unless the last call failed: then one interval after it. */
@@ -195,11 +224,13 @@ export async function runFeed(opts: { root: string; manifest: Manifest; runner?:
   if (!lock) return { ran: false, reason: "another feed run holds the lock", calls: [] };
   try {
     const records = feedRecords(root);
-    const waiting = feedWork(root, cfg, records).slice(0, cfg.max);
+    const conversations = feedConversations(root, cfg.since);
+    const waiting = waitingIn(conversations, records).slice(0, cfg.max);
     if (!waiting.length) return { ran: true, calls: [] };
+    const byKey = new Map(conversations.map((c) => [c.key, c]));
+    const live = new Map(conversations.flatMap((c) => c.messages.map((m) => [m.id, c.key] as const)));
     const journaled = feedConversationOf(root, records);
-    const faces = new Map(waiting.map((c) => [faceOf(c).id, c.key]));
-    const conversationOf = (source: string) => faces.get(source) ?? journaled(source);
+    const conversationOf = (source: string) => live.get(source) ?? journaled(source);
     const instructions = render(template(), { OWNER: ownerLabelsFor(root)[0] ?? "the owner" });
     const memory = memoryRead(root);
     const workingSet = memory.status === 200 ? memory.text.trim() : "none yet";
@@ -209,11 +240,12 @@ export async function runFeed(opts: { root: string; manifest: Manifest; runner?:
       const runId = newRunId(now());
       const startedAt = now().toISOString();
       const today = now().toLocaleDateString("en-CA");
-      const recent = recentHeadlines(records, today, conversationOf, new Set(batch.map((c) => c.key)));
+      const judged = [...batch, ...recheckOpen(records, today, conversationOf, byKey, batch)];
+      const recent = recentHeadlines(records, today, conversationOf, new Set(judged.map((c) => c.key)));
       const prompt = [
         `TODAY ${today}`, "", "WORKING SET", workingSet, "",
         "Recent messages in the feed:", ...(recent.length ? recent.map((h) => `- ${h}`) : ["none yet"]), "",
-        ...batch.map((c, n) => `${renderFeedSource(n + 1, c)}\n`),
+        ...judged.map((c, n) => `${renderFeedSource(n + 1, c)}\n`),
       ].join("\n");
       const base = {
         format: "bigbrain-feed-run/v1" as const, invocation_id: runId, prompt_version: FEED_PROMPT_VERSION,
@@ -224,18 +256,18 @@ export async function runFeed(opts: { root: string; manifest: Manifest; runner?:
           root, role: "feed", auth: manifest.auth, target: cfg.target, capabilities: "none",
           instructions, prompt, output: { requireText: true, schema: ENTRIES_SCHEMA },
         });
-        const entries = parseEntries(run.text, batch);
+        const entries = parseEntries(run.text, judged);
         const record: FeedRecord = {
-          ...base, assertions: batch.flatMap((c) => claimsOf(c).map((a) => a.id)), entries,
+          ...base, assertions: judged.flatMap((c) => claimsOf(c).map((a) => a.id)), entries,
           completed_at: now().toISOString(), ...modelRunJournalFields(run) as { usage?: RunUsage },
         };
         journalFeed(root, record);
         records.push(record);
-        calls.push({ runId, sources: batch.length, entries: entries.length, ...(run.usage ? { usage: run.usage } : {}) });
+        calls.push({ runId, sources: judged.length, entries: entries.length, ...(run.usage ? { usage: run.usage } : {}) });
       } catch (e) {
         const message = (e instanceof Error ? e.message : String(e)).slice(0, 2_000);
         journalFeed(root, { ...base, assertions: [], entries: [], completed_at: now().toISOString(), error: { message } });
-        calls.push({ runId, sources: batch.length, entries: 0, error: message });
+        calls.push({ runId, sources: judged.length, entries: 0, error: message });
         break;
       }
     }
