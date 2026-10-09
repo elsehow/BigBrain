@@ -41,7 +41,7 @@ import { hold } from "../../lib/door";
 import { tryHold } from "../../lib/sqliteLock";
 import { emailConfig, passwordEnvKey, type EmailConfig, type Inbox } from "../../lib/emailConfig";
 import { readEmailState, writeEmailState, type EmailState } from "../../lib/emailState";
-import { emailItem, headLine, type EmailBody, type Head } from "../../lib/emailItem";
+import { emailItem, headLine, isDraft, type EmailBody, type Head } from "../../lib/emailItem";
 
 requireIntegrationEnabled("email", VAULT_ROOT);
 
@@ -237,14 +237,14 @@ async function pollInbox(
       if (wanted.length) {
         for await (const msg of client.fetch(
           wanted,
-          { uid: true, envelope: true, internalDate:true, size: true, labels:true, threadId: true, headers: HEADER_FIELDS },
+          { uid: true, envelope: true, internalDate:true, size: true, labels:true, flags: true, threadId: true, headers: HEADER_FIELDS },
           { uid: true }
         )) {
           const h = {...toHead(inbox.address, msg, known, now),uidvalidity:uidValidity,mailbox};
           if(!client.capabilities.has('X-GM-EXT-1'))delete h.emailId;
           if(inbox.provider==='gmail'&&!h.emailId){failed.set(h.uid,'Gmail message identity unavailable; retry pending.');continue;}
           const identity=emailItem(h,{text:'',to:[],cc:[],attachments:[]},now).id;
-          if ((st.since && msg.internalDate instanceof Date && msg.internalDate.toISOString()<st.since) || discovered(h,identity)) {skipped++;settled.add(h.uid);}
+          if ((st.since && msg.internalDate instanceof Date && msg.internalDate.toISOString()<st.since) || isDraft(msg.labels, msg.flags) || discovered(h,identity)) {skipped++;settled.add(h.uid);}
           else if(h.size>MAX_SOURCE_BYTES)failed.set(h.uid,'Message exceeds 25 MiB; not downloaded.');
           else heads.set(h.uid, h);
         }

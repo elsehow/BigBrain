@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { emailItem, gmailThreadUrl, headLine, trimQuotes, type Head } from "../lib/emailItem";
+import { emailItem, gmailThreadUrl, headLine, isDraft, trimQuotes, type Head } from "../lib/emailItem";
 
 // The pure half of the email integration (#744): no network, no vault. What
 // a message looks like as the head line the gardener sees first, which
@@ -102,5 +102,16 @@ describe("emailItem — one message, one item, whole", () => {
   test("gmailThreadUrl: decimal X-GM-THRID to the web client's hex; junk answers nothing", () => {
     expect(gmailThreadUrl("1841234567890123456")).toBe("https://mail.google.com/mail/u/0/#all/198d61158f42bac0");
     expect(gmailThreadUrl("not a number")).toBe("");
+  });
+});
+
+describe("drafts", () => {
+  test("a draft never lands: Gmail's label or IMAP's flag marks it; sent mail is not one", () => {
+    expect(isDraft(new Set(["\\Draft"]))).toBe(true);
+    expect(isDraft([], new Set(["\\Seen", "\\Draft"]))).toBe(true);
+    expect(isDraft(new Set(["\\Sent", "\\Important"]), new Set(["\\Seen"]))).toBe(false);
+    expect(isDraft(undefined, undefined)).toBe(false);
+    // a user label that happens to say so is not the system's mark
+    expect(isDraft(["Drafts to review"])).toBe(false);
   });
 });
