@@ -9,6 +9,7 @@ import { ConnectedClients, ConnectionExpired, authenticateClient } from "../lib/
 import { makeApiHandler } from "../lib/api";
 import { readableIntegrationAccounts } from "../lib/integrationAccess";
 import { readSourceInsertionLog } from "../lib/insertionLog";
+import { childEnv } from "./support/childEnv";
 
 const DAY = 86_400_000;
 const FIX = "This BigBrain connection expired after 30 days unused. Renew it in BigBrain → Settings → Connected clients.";
@@ -121,7 +122,7 @@ test("a lapsed MCP connection stays up and every tool answers with the fix until
   const setup = clients.create({ name: "Studio Codex", kind: "codex" });
   age(clients.store, setup.id, 31);
   const client = new Client({ name: "Studio Codex", version: "1" });
-  const transport = new StdioClientTransport({ command: process.execPath, args: [resolve("bin/mcp.ts"), "--client", setup.id], env: { PATH: process.env.PATH!, HOME: process.env.HOME!, BIGBRAIN_VAULT: root, BIGBRAIN_TOKENS: clients.store }, stderr: "pipe" });
+  const transport = new StdioClientTransport({ command: process.execPath, args: [resolve("bin/mcp.ts"), "--client", setup.id], env: childEnv({ BIGBRAIN_VAULT: root, BIGBRAIN_TOKENS: clients.store }), stderr: "pipe" });
   try {
     await client.connect(transport);
     const tools = (await client.listTools()).tools.map(t => t.name);
@@ -145,7 +146,7 @@ test("the MCP server no longer takes a credential from its environment", async (
   const { root, clients } = fixture();
   const setup = clients.create({ name: "Env client", kind: "generic" });
   const client = new Client({ name: "Env client", version: "1" });
-  const transport = new StdioClientTransport({ command: process.execPath, args: [resolve("bin/mcp.ts")], env: { PATH: process.env.PATH!, HOME: process.env.HOME!, BIGBRAIN_VAULT: root, BIGBRAIN_TOKENS: clients.store, BIGBRAIN_MCP_TOKEN: clients.token(setup.id) }, stderr: "pipe" });
+  const transport = new StdioClientTransport({ command: process.execPath, args: [resolve("bin/mcp.ts")], env: childEnv({ BIGBRAIN_VAULT: root, BIGBRAIN_TOKENS: clients.store, BIGBRAIN_MCP_TOKEN: clients.token(setup.id) }), stderr: "pipe" });
   try {
     await client.connect(transport).catch(() => {});
     await expect(client.listTools()).rejects.toThrow();

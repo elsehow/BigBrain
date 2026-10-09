@@ -5,7 +5,10 @@ anthropic:
   # in docs/model-preferences.md.
   gardener: { model: sonnet }
   memory: { model: opus }
-  quick: { model: haiku }
+  # Quick answers without thinking. Haiku 5.5 forces adaptive thinking (Pi
+  # clamps off to low): ~9s and 1.2k output tokens a call, against 2s and 80
+  # on Haiku 4.5, and briefings exhaust their 1,400-token cap before answering.
+  quick: { model: haiku, reasoning: "off" }
   pilot: { model: opus }
 openai:
   gardener: { model: gpt-6-astra, reasoning: medium }
