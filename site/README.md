@@ -9,7 +9,8 @@ email images. It must never build or publish a root homepage.
 On `bigbrain.exe.xyz`, nginx on port 8000 serves both public hostnames:
 
 - `/srv/website` (owner `bb-website`): homepage, website CSS/fonts and build metadata.
-- `/srv/releases` (owner `bb-releases`): `/download/`, `/install.sh`, `/latest.json`,
+- `/srv/releases` (owner `bb-releases`): `/download/`, `/install.sh`, the update
+  feeds (`/update.json`, and `/latest.json` frozen at the key-rotation bridge),
   `/plugins/`, and `/email/` via explicit nginx routes.
 - `/srv/site` is retired and is not served. Never deploy there.
 
@@ -23,16 +24,22 @@ website with the obsolete homepage. Do not restore a shared publish root.
 
 ## App release
 
-From the repository root:
+From the repository root, in a terminal you run yourself (signing is never an
+agent's; `desktop/README.md` explains why and holds the key-rotation steps):
 
 ```sh
-(cd desktop && TAURI_SIGNING_PRIVATE_KEY=~/.config/bigbrain/updater.key TAURI_SIGNING_PRIVATE_KEY_PASSWORD="" bunx tauri build --bundles app)
+read -rs TAURI_SIGNING_PRIVATE_KEY_PASSWORD && export TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+(cd desktop && TAURI_SIGNING_PRIVATE_KEY=~/.config/bigbrain/updater-v2.key bunx tauri build --bundles app)
 bun run site:build -- --app desktop/src-tauri/target/release/bundle/macos/BigBrain.app
 bun run site:deploy
 ```
 
+The key is `updater-v2.key`, encrypted, with its passphrase in the maintainer's
+password manager. The first key, `updater.key`, is retired: every app since the
+bridge release pins the v2 key and rejects an update the old key signs.
+
 The publisher rejects legacy builds containing `index.html`, uploads only release
-paths, retains old archives, and publishes `latest.json` last. It verifies that the
+paths, retains old archives, and publishes the update feed (`update.json`) last. It verifies that the
 website hashes stayed unchanged and that the public update feed matches the build.
 Never use a root-level `rsync --delete` for releases.
 
