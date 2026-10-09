@@ -20,4 +20,4 @@ preferences:
   gardener: [openai, anthropic]
   memory: [anthropic, openai]
   quick: [anthropic, openai]
-  pilot: [openai, anthropic]
+  pilot: [anthropic, openai]
