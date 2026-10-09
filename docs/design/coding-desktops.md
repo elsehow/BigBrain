@@ -49,7 +49,7 @@ directions. So:
 | **Agent** | What you talk to on a desktop: a pi session. BigBrain decides what it knows and can do; the package runs it. |
 | **Worktree** | A desktop's own `git worktree` of a project, at `desktops/<id>/<name>` on branch `desktop/<id>`, made by `start_work`. |
 | **Lease** | A desktop's claim on editing a project in place, so two don't edit one checkout at once. |
-| **Host tools** | Tools BigBrain hands an agent: vault search and read, `open_view`, `show_page`. |
+| **Host tools** | Tools BigBrain hands an agent: vault search and read, `web_search`, `open_view`, `show_page`. |
 
 ```
 ~/bigbrain/
@@ -89,10 +89,10 @@ session's first message (`preface`), each fenced as untrusted data with
 where it came from, and never in its instructions.
 
 A desktop whose agent has taken in untrusted material is **tainted**: a
-source it was started about, a live integration read, `read_note` on
-anything but a curated note (memory and dossiers, for now), or a project
-file another tainted desktop wrote that still says the same (tainted
-desktops' writes are ledgered by content). While tainted:
+source it was started about, a live integration read, a web search,
+`read_note` on anything but a curated note (memory and dossiers, for now),
+or a project file another tainted desktop wrote that still says the same
+(tainted desktops' writes are ledgered by content). While tainted:
 - its `bash` refuses without running, and the desktop keeps the refused
   command;
 - what it already runs is stopped when it turns tainted, since a server or
@@ -107,10 +107,25 @@ The view says why the shell is off, shows the refused command, and offers
 **Allow shell for this desktop**. Only the person can allow it; no tool the
 agent has reaches it. Allowed, its commands still write only its own
 worktrees, never a project in place, and use their own toolchain caches. What they allowed it despite is named by its content,
-so reading it again doesn't taint, but new mail or a changed note does. The
+so reading it again doesn't taint, but new mail or a changed note does,
+and so does a PDF the note links (`read_note` with `attachment`), named by its own bytes. The
 package asks its host before each command and write, and tells it what each
 file read or write held (`shell`, `write` and `file` in `open()`), so the
 rule is BigBrain's.
+
+`web_search` (lib/webSearch.ts) is one request to the desktop's own model
+with its provider's search switched on (Claude's or ChatGPT's), through the
+connection the agent already uses: no search service or key, and the engine
+fetches no page. Models on other providers don't get the tool. Pi extensions
+are never loaded: one would run outside the sandbox and this taint. The
+answer and its sources come back fenced as web material, and a search taints
+the desktop. Its description says so, as every live reader's does, so the
+agent runs the commands a task needs before it searches.
+
+A scanned PDF a note links has no text layer for `read_note` to extract, so
+the desktop lends it a reader (lib/scanReader.ts): the same kind of request,
+with the PDF attached as a document and a transcription asked for. Its text
+comes back as the attachment's, fenced and tainting the same way.
 
 ## Worktrees on request (*measured*)
 

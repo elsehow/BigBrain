@@ -8,7 +8,9 @@
  * The jail is design-principles §5: a reader may fetch the committed
  * canonical record and the raw sources it cites — nothing else. `.state`,
  * `.env`, `.git`, `.blobs`, `prompts/`, and any traversal are denied by
- * not being under an allowed tree. `memory/` stays out of READ_TREES —
+ * not being under an allowed tree; a PDF in `.blobs` is read only as the
+ * text of an attachment a readable note links (attachmentPayload).
+ * `memory/` stays out of READ_TREES —
  * widening it would hand the tree to `/v1/ls` and `/v1/file` too — and is
  * served here through its OWN one-tree jail instead, because the contract
  * this door owes its callers is: **any path the system itself prints must
@@ -41,6 +43,9 @@ import {
   sourceInsertionMarkdown,
 } from "./sourceFeed";
 import { walkMarkdown } from "./vaultRead";
+import { parseBlobRef, readBlob } from "./blobs";
+import type { PdfText } from "./pdfText";
+import type { ScanReader } from "./scanReader";
 
 /** The ONLY vault trees a reader may list or fetch: the committed
  * canonical record and the raw sources it cites (§5 read jail). */
@@ -381,6 +386,55 @@ export function notePayload(root: string, relRaw: string, window: NoteWindow = {
       ...windowedBody(v.body, window),
     },
   };
+}
+
+/** A file a note links as `[name](blob:<sha256>)` (lib/intake.ts blobLink);
+ * a name with a `]` in it still yields its target. */
+const BLOB_LINK = /(?:\[([^\]\n]*)\])?\(blob:([0-9a-f]{64})\)/g;
+
+export interface AttachmentNote extends NoteJson {
+  /** No name: it came from outside, and only the fenced text carries outside words. */
+  attachment: { sha256: string; pages: number; pages_read: number; thin: boolean; transcribed?: true };
+}
+
+export type AttachmentPayload =
+  | { status: 200; rel: string; note: AttachmentNote }
+  | { status: 403 | 404 | 422; error: string };
+
+/** A PDF a readable note links, read as its text layer (lib/pdfText.ts) in
+ * place of the note's body, under the note's path and title: it reaches the
+ * reader with the note's provenance and windowing. `.blobs` stays outside the
+ * jail; a note's own link is the only way in. `ref` is the link's name or its
+ * `blob:<sha256>`. Read each time, never stored: a PDF that landed as a stub
+ * (or arrived in mail) stays one in the record. A scan, with no text layer,
+ * is read by `readScan` when the host lends one (lib/scanReader.ts). */
+export async function attachmentPayload(root: string, relRaw: string, ref: string, window: NoteWindow = {}, readScan?: ScanReader): Promise<AttachmentPayload> {
+  const p = notePayload(root, relRaw);
+  if (p.status !== 200) return p;
+  const linked = [...p.note.markdown.matchAll(BLOB_LINK)].map(m => ({ name: m[1], sha256: m[2]! }));
+  const sha = parseBlobRef(ref);
+  const a = linked.find(l => l.sha256 === sha || l.name === ref);
+  if (!a) return { status: 404, error: linked.length
+    ? `${relRaw} links no attachment ${JSON.stringify(ref)}; it links ${[...new Set(linked.map(l => `blob:${l.sha256}`))].join(", ")}`
+    : `${relRaw} links no attachments` };
+  const bytes = readBlob(root, a.sha256);
+  if (!bytes) return { status: 404, error: `blob:${a.sha256} is no longer in the vault` };
+  // pdf.js loads only when a PDF is read, not with every reader door
+  const { extractPdfText, isPdf } = await import("./pdfText");
+  if (!isPdf(bytes)) return { status: 422, error: `blob:${a.sha256} is not a PDF; read_note reads only a PDF attachment's text` };
+  let ex: PdfText;
+  try { ex = await extractPdfText(bytes); }
+  catch (e) { return { status: 422, error: `blob:${a.sha256} could not be read as a PDF: ${e instanceof Error ? e.message : String(e)}` }; }
+  let text = ex.text, transcribed = false;
+  if (ex.thin && readScan) {
+    // extraction consumed the bytes it was given (pdf.js transfers them), so the reader gets its own
+    try { text = await readScan(readBlob(root, a.sha256)!); transcribed = true; }
+    catch (e) { return { status: 422, error: `blob:${a.sha256} is a scan, and the model could not read it: ${e instanceof Error ? e.message : String(e)}` }; }
+  } else if (ex.thin) text = "(A near-empty text layer: likely a scanned or image-only PDF, whose text BigBrain can't read.)";
+  const { path, title, mtime, category, date, source, tags } = p.note;
+  return { status: 200, rel: p.rel, note: { path, title, mtime, category, date, source, tags, sources: [], links: [],
+    attachment: { sha256: a.sha256, pages: ex.pages, pages_read: ex.pagesRead, thin: ex.thin, ...(transcribed ? { transcribed: true as const } : {}) },
+    ...windowedBody(text, window) } };
 }
 
 /** The same note as text/markdown — what `/v1/note?format=markdown` serves

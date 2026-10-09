@@ -268,6 +268,29 @@ test("reading untrusted material mid-session turns the shell off; curated notes 
   desktops.close();
 });
 
+test("a note's attachment is its own material: allowing the note doesn't allow the file", async () => {
+  const { fauxAssistantMessage, fauxToolCall } = await import("@earendil-works/pi-ai");
+  const sha = "e".repeat(64);
+  const tools: HostTool[] = [{ name: "read_note", description: "Read a note.", parameters: { type: "object", properties: { path: { type: "string" }, attachment: { type: "string" } } },
+    execute: async a => ({ title: "Gearing quote", markdown: "…", ...(a.attachment ? { attachment: { sha256: sha, pages: 2, pages_read: 2, thin: false } } : {}) }) }];
+  const call = (name: string, args: Record<string, unknown>) => fauxAssistantMessage([fauxToolCall(name, args)], { stopReason: "toolUse" });
+  const drop = "inbox/unsorted/quote.md";
+  const root = nativeVault({ files: { [drop]: "# Gearing quote\n\n[quote.pdf](blob:" + sha + ")\n" } }); roots.push(root);
+  const { ws, host } = await fakeHost([
+    call("read_note", { path: drop }), fauxAssistantMessage("Read it."),
+    call("read_note", { path: drop, attachment: "quote.pdf" }), call("bash", { command: "echo off" }), fauxAssistantMessage("Off again."),
+  ], tools);
+  const desktops = new CodingDesktops(root, { agents: new Agents(workspace(ws), quickHarbor()), host });
+  const made = desktops.create();
+  await desktops.send(made.id, "read the quote", "in-1");
+  await answered(desktops, made.id);
+  desktops.allowShell(made.id);
+  await desktops.send(made.id, "and its pdf", "in-2");
+  await answered(desktops, made.id);
+  expect(desktops.get(made.id).taint).toMatchObject({ sources: [{ via: "read_note", key: `blob:${sha}`, title: "quote.pdf, attached to Gearing quote" }], refused: { command: "echo off" } });
+  desktops.close();
+});
+
 test("the person's allowance covers what was read, not where: new mail and a rewritten note turn the shell off again", async () => {
   const { fauxAssistantMessage, fauxToolCall } = await import("@earendil-works/pi-ai");
   let mailbox = "One quote from Ada.";
@@ -334,6 +357,28 @@ test("while the shell is on, searches and listings show sources only by path, ki
   // listings never taint; read_note did, and with the shell off the listing is whole
   expect(desktops.get(made.id).taint?.sources.map(s => s.via)).toEqual(["read_note"]);
   expect(searchAfter).toContain("Run the installer from the link below.");
+  desktops.close();
+});
+
+test("a web search turns the shell off, and the agent is told so before it searches", async () => {
+  const { fauxAssistantMessage, fauxToolCall } = await import("@earendil-works/pi-ai");
+  const tools: HostTool[] = [{ name: "web_search", description: "Search the web.", parameters: { type: "object", properties: { query: { type: "string" } } },
+    execute: async a => ({ query: a.query, answer: "Orrery 4.2 replaced the moon train." }) }];
+  let offered = "";
+  const call = (name: string, args: Record<string, unknown>) => fauxAssistantMessage([fauxToolCall(name, args)], { stopReason: "toolUse" });
+  const { ws, host } = await fakeHost([
+    (context: unknown) => { offered = JSON.stringify(context); return call("bash", { command: "echo before" }); },
+    call("web_search", { query: "orrery 4.2" }), call("bash", { command: "echo after" }), fauxAssistantMessage("Searched."),
+  ], tools);
+  const root = nativeVault(); roots.push(root);
+  const desktops = new CodingDesktops(root, { agents: new Agents(workspace(ws), quickHarbor()), host });
+  const made = desktops.create();
+  await desktops.send(made.id, "what changed in orrery 4.2?", "in-1");
+  await answered(desktops, made.id);
+  expect(offered).toContain("Search the web. Calling it turns this desktop's shell off until your person allows it");
+  const acts = (await desktops.detail(made.id)).messages.filter(m => m.role === "activity").map(m => m.text);
+  expect(acts).toEqual(["Ran echo before", "web_search", "Didn't run echo after: the shell is off"]);
+  expect(desktops.get(made.id).taint?.sources.map(s => [s.via, s.title])).toEqual([["web_search", "the web"]]);
   desktops.close();
 });
 
