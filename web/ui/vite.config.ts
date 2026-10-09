@@ -11,6 +11,11 @@ export default defineConfig({
   // relative asset URLs resolve correctly at either depth.
   base: "./",
   plugins: [svelte(), devProvenance(), devGraphSnapshot(), devV2Live(), {
+    // BIGBRAIN_FIELD_TUNE=1: the app's page gets the Field look sliders (src/dev/fieldTune.ts)
+    name: "field-tune", apply: "serve",
+    transformIndexHtml: (html, ctx) => process.env["BIGBRAIN_FIELD_TUNE"] === "1" && /\/(index|v2)\.html$/.test(ctx.path)
+      ? html.replace("</body>", `<script type="module" src="/src/dev/fieldTune.ts"></script></body>`) : html,
+  }, {
     name: "read-only-live-preview", apply: "serve",
     configureServer(server) {
       if (process.env["BIGBRAIN_PREVIEW_READ_ONLY"] !== "1") return;

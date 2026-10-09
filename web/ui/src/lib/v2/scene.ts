@@ -13,9 +13,10 @@ import * as THREE from "three";
 import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 import { LineSegments2 } from "three/examples/jsm/lines/LineSegments2.js";
 import { LineSegmentsGeometry } from "three/examples/jsm/lines/LineSegmentsGeometry.js";
-import type { Field, FieldPilot } from "./model";
+import { hubOrder, type Field, type FieldPilot } from "./model";
 import { createWireCube, type WireCube } from "./wireCube";
 import { wireClock } from "./wireMotion";
+import { look } from "./look";
 
 export interface SceneHooks {
   /** Screen rects labels must stay out of (the view's panels). */
@@ -120,37 +121,70 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
   const aColor = new THREE.BufferAttribute(new Float32Array((N + SOURCES) * 3), 3);
   const aAlpha = new THREE.BufferAttribute(new Float32Array(N + SOURCES), 1);
   pGeo.setAttribute("aSize", aSize); pGeo.setAttribute("aColor", aColor); pGeo.setAttribute("aAlpha", aAlpha);
-  const pMat = new THREE.ShaderMaterial({
-    uniforms: { uFogNear: fog.near, uFogFar: fog.far, uPx: { value: 1 }, uRef: { value: 36 } },
-    vertexShader: /* glsl */`
-      attribute float aSize; attribute vec3 aColor; attribute float aAlpha;
-      uniform float uPx, uRef, uFogNear, uFogFar;
-      varying vec3 vC; varying float vA;
-      void main() {
-        vec4 mv = modelViewMatrix * vec4(position, 1.0);
-        gl_Position = projectionMatrix * mv;
-        float d = -mv.z;
-        gl_PointSize = max(1.5, aSize * uPx * uRef / d);
-        vC = aColor;
-        vA = aAlpha * (1.0 - smoothstep(uFogNear, uFogFar, d));
-      }`,
-    fragmentShader: /* glsl */`
-      varying vec3 vC; varying float vA;
-      void main() {
-        float d = length(gl_PointCoord - 0.5) * 2.0;
-        if (d > 1.0) discard;
-        float core = 1.0 - smoothstep(0.38, 0.55, d);
-        float halo = (1.0 - d) * (1.0 - d) * 0.22;
-        gl_FragColor = vec4(vC, vA * max(core, halo));
-        #include <colorspace_fragment>
-      }`,
-    transparent: true, depthWrite: false,
-  });
+  // A dot: a core, its edge soft (uSoft 1) or crisp over a pixel (0), and a
+  // faint halo. Sources draw the same dot and may shape it (the field look:
+  // a ring, a square, turned); an entity's stays round.
+  const uPx = { value: 1 }, uRef = { value: 36 };
+  const dotMaterial = () => {
+    const u = { uFogNear: fog.near, uFogFar: fog.far, uPx, uRef,
+      uSoft: { value: 1 }, uHalo: { value: 1 }, uHole: { value: 0 }, uSquare: { value: 0 }, uTurn: { value: 0 } };
+    const mat = new THREE.ShaderMaterial({
+      uniforms: u,
+      vertexShader: /* glsl */`
+        attribute float aSize; attribute vec3 aColor; attribute float aAlpha;
+        uniform float uPx, uRef, uFogNear, uFogFar;
+        varying vec3 vC; varying float vA; varying float vPx;
+        void main() {
+          vec4 mv = modelViewMatrix * vec4(position, 1.0);
+          gl_Position = projectionMatrix * mv;
+          float d = -mv.z;
+          gl_PointSize = max(1.5, aSize * uPx * uRef / d);
+          vPx = gl_PointSize;
+          vC = aColor;
+          vA = aAlpha * (1.0 - smoothstep(uFogNear, uFogFar, d));
+        }`,
+      fragmentShader: /* glsl */`
+        uniform float uSoft, uHalo, uHole, uSquare, uTurn;
+        varying vec3 vC; varying float vA; varying float vPx;
+        void main() {
+          vec2 c = (gl_PointCoord - 0.5) * 2.0;
+          float a = uTurn * 0.7853982;
+          c = mat2(cos(a), -sin(a), sin(a), cos(a)) * c;
+          float d = mix(length(c), max(abs(c.x), abs(c.y)), uSquare);
+          if (d > 1.0) discard;
+          float aa = mix(1.0 / vPx, 0.085, uSoft);
+          float core = 1.0 - smoothstep(0.465 - aa, 0.465 + aa, d);
+          float rIn = 0.4 * uHole;
+          if (uHole > 0.001) core *= smoothstep(rIn - max(aa, 0.04), rIn, d);
+          float halo = (1.0 - d) * (1.0 - d) * 0.22 * uHalo * (1.0 - uHole);
+          gl_FragColor = vec4(vC, vA * max(core, halo));
+          #include <colorspace_fragment>
+        }`,
+      transparent: true, depthWrite: false,
+    });
+    return { mat, u };
+  };
+  const { mat: pMat, u: entDot } = dotMaterial();
   const points = new THREE.Points(pGeo, pMat);
   points.renderOrder = 3;
   points.frustumCulled = false;
   scene.add(points);
-  const baseSize = field.nodes.map((n) => NODE_SCALE * (n.named ? 4.5 + 1.2 * Math.log1p(n.degree) : 1.8 + 0.75 * Math.log1p(n.degree)));
+  // hubs: the most-connected entities, named at rest and drawn larger. The
+  // field's own, until the field look asks for a different count.
+  const byDegree = hubOrder(field.nodes);
+  const hubs = new Set<number>(), isNamed: boolean[] = [], baseSize: number[] = [];
+  let hubCount = -1;
+  const rehub = () => {
+    if (look.hubCount === hubCount) return;
+    hubCount = look.hubCount;
+    hubs.clear();
+    for (const i of byDegree.slice(0, hubCount)) hubs.add(i);
+    for (const n of field.nodes) {
+      isNamed[n.i] = n.memory || hubs.has(n.i);
+      baseSize[n.i] = NODE_SCALE * (isNamed[n.i] ? 4.5 + 1.2 * Math.log1p(n.degree) : 1.8 + 0.75 * Math.log1p(n.degree));
+    }
+  };
+  rehub();
   const P = field.nodes.map((n) => new THREE.Vector3(...n.p));
 
   // ── sources: hidden at rest; the one in hand is a node like any other ────
@@ -185,11 +219,25 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
   const sColor = new THREE.BufferAttribute(new Float32Array(S * 3), 3);
   const sAlpha = new THREE.BufferAttribute(new Float32Array(S), 1);
   sGeo.setAttribute("aSize", sSize); sGeo.setAttribute("aColor", sColor); sGeo.setAttribute("aAlpha", sAlpha);
-  const restSources = new THREE.Points(sGeo, pMat);
+  const { mat: sMat, u: srcDot } = dotMaterial();
+  const restSources = new THREE.Points(sGeo, sMat);
   restSources.renderOrder = 3;
   restSources.frustumCulled = false;
   scene.add(restSources);
   const SP = field.sources.map((x) => new THREE.Vector3(...x.p));
+  // where the layout put each (field look: lift and flatten move them from here)
+  const SP0 = SP.map((p) => p.clone());
+  // sized by mentions (field look): a source by the entities it mentions, an
+  // entity by the sources that mention it; the median of each keeps its size
+  const byCount = (counts: number[]) => {
+    const f = (n: number) => 0.5 + Math.log1p(n);
+    const mid = f([...counts].sort((a, b) => a - b)[counts.length >> 1] ?? 1);
+    return counts.map((n) => f(n) / mid);
+  };
+  const tieScale = byCount(field.sources.map((x) => x.ties.length));
+  const mentionedBy = Array.from({ length: N }, () => 0);
+  for (const x of field.sources) for (const j of x.ties) mentionedBy[j]!++;
+  const entScale = byCount(mentionedBy);
   const sourceAt = new Map(field.sources.flatMap((x, k) => x.paths.map((p) => [p, SP[k]!] as const)));
   // a source drawn as an entity has no dot of its own: held, it sits on the
   // entity's, switch on or off
@@ -218,6 +266,25 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
     return l;
   };
   const strong = lineSet(field.strong.map(([a, b]) => [P[a]!, P[b]!]), 0.14);
+  // every source's ties at rest (field look): built the first time they're
+  // asked for, and rebuilt when the sources move
+  const srcTiePairs = () => field.sources.flatMap((x, k) => x.ties.map((j) => [SP[k]!, P[j]!] as [THREE.Vector3, THREE.Vector3]));
+  let restTies: LineSegments2 | null = null;
+  let placedAt = "0,0";
+  /** Lift and flatten (field look): sources move off the layout's heights. */
+  const placeSources = () => {
+    const key = `${look.srcLift},${look.srcFlat}`;
+    if (key === placedAt) return;
+    placedAt = key;
+    const pos = sGeo.getAttribute("position") as THREE.BufferAttribute;
+    SP.forEach((p, k) => {
+      p.set(SP0[k]!.x, THREE.MathUtils.lerp(SP0[k]!.y, 3, look.srcFlat) + look.srcLift, SP0[k]!.z);
+      pos.setXYZ(k, p.x, p.y, p.z);
+    });
+    pos.needsUpdate = true;
+    restTies?.geometry.setPositions(new Float32Array(srcTiePairs().flatMap(([a, b]) => [a.x, a.y, a.z, b.x, b.y, b.z])));
+    for (const s of sources) if (s.home && s.want) settle(s);
+  };
   const dynamic = (max: number) => {
     const pos = new Float32Array(max * 6), rgb = new Float32Array(max * 6);
     const g = new LineSegmentsGeometry().setPositions(pos).setColors(rgb);
@@ -301,11 +368,11 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
   // point's size is set in pixels at a reference distance (uRef), so in world
   // units its visible core depends only on the viewport's height.
   const hubSize = (() => {
-    const s = [...field.hubs].map((i) => baseSize[i]!).sort((a, b) => a - b);
+    const s = [...hubs].map((i) => baseSize[i]!).sort((a, b) => a - b);
     return s.length ? s[s.length >> 1]! : 6;
   })();
   const sizeMemory = () => {
-    const core = 0.47 * hubSize * pMat.uniforms["uRef"]!.value * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) / H;
+    const core = 0.47 * hubSize * uRef.value * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) / H;
     for (const g of memory) g.mesh.scale.setScalar(core);
     for (const m of lineMats) fit(m);
   };
@@ -419,7 +486,7 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
    * px across (pMat's shader); about 0.47 of that is the bright core. */
   const labelGap = (p: THREE.Vector3, size: number) => {
     const d = -v3.copy(p).applyMatrix4(camera.matrixWorldInverse).z;
-    return d > 0 ? Math.max(9, 0.235 * size * pMat.uniforms["uRef"]!.value / d + 6) : 9;
+    return d > 0 ? Math.max(9, 0.235 * size * uRef.value / d + 6) : 9;
   };
   const toScreen = (p: THREE.Vector3, out: { x: number; y: number; ok: boolean }) => {
     v3.copy(p).project(camera);
@@ -551,6 +618,7 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
     panel.geometry.dispose(); (panel.material as THREE.Material).dispose();
     for (const pl of pilots.values()) pl.line.color.copy(col.fg);
     strong.material.color.copy(col.fg);
+    restTies?.material.color.copy(col.fg);
     for (const g of memory) {
       // all but colourless: the faintest ink in it, so it reads as glass, not smoke
       g.mat.color.setRGB(1, 1, 1).lerp(col.fg, 0.02);
@@ -565,7 +633,7 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
 
   // ── frame ────────────────────────────────────────────────────────────────
   const clock = new THREE.Clock();
-  const c1 = new THREE.Color(), c2 = new THREE.Color(), dust = new THREE.Color();
+  const c1 = new THREE.Color(), c2 = new THREE.Color(), dust = new THREE.Color(), srcInk = new THREE.Color(), entInk = new THREE.Color();
   const tA = new THREE.Vector3(), tB = new THREE.Vector3();
   const s1 = { x: 0, y: 0, ok: false }, s2 = { x: 0, y: 0, ok: false };
   let raf = 0;
@@ -588,7 +656,7 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
     camera.setViewOffset(W, H, W < 700 ? 0 : -shiftNow, 0, W, H);
     camera.updateMatrixWorld();
     fog.near.value = d * 1.15; fog.far.value = d * 2.6;
-    pMat.uniforms["uPx"]!.value = renderer.getPixelRatio();
+    uPx.value = renderer.getPixelRatio();
 
     // what is in play
     const fp = focus ? pilots.get(focus) : undefined;
@@ -597,7 +665,9 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
     const k = ease(9);
     dim += ((inPlay ? 1 : 0) - dim) * k;
     searchDim += ((srch && srch.matches.size ? 0.12 : srch ? 0.5 : 1) - searchDim) * ease(10);
+    rehub();
     dust.copy(col.fg).lerp(col.bg, 0.42);
+    entInk.copy(dust).lerp(col.fg, look.entTone);
     srcShown += ((hooks.sources?.() ? 1 : 0) - srcShown) * ease(8);
     const pointedTies = underSrc != null && srcShown > 0.5 ? new Set(field.sources[underSrc]!.ties) : null;
     const sizes = aSize.array as Float32Array, colors = aColor.array as Float32Array, alphas = aAlpha.array as Float32Array;
@@ -611,10 +681,10 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
       if (n.memory) { alphas[i] = 0; continue; }
       const h = Math.max(heat[i]!, match[i]!);
       const r = rel[i]!;
-      sizes[i] = baseSize[i]! * (1 + 0.7 * h) * (1 + 0.45 * r * dim);
-      const rest = n.named ? 0.95 : 0.6;
-      alphas[i] = Math.max(h, THREE.MathUtils.lerp(rest, THREE.MathUtils.lerp(n.named ? 0.22 : 0.12, 1, r), dim)) * THREE.MathUtils.lerp(searchDim, 1, match[i]!);
-      c1.copy(n.named || r > 0.5 ? col.fg : dust).lerp(col.act, h * 0.9).toArray(colors, i * 3);
+      sizes[i] = baseSize[i]! * look.entSize * (isNamed[i] ? 1 : THREE.MathUtils.lerp(1, entScale[i]!, look.entByTies)) * (1 + 0.7 * h) * (1 + 0.45 * r * dim);
+      const rest = Math.min(1, (isNamed[i] ? 0.95 : 0.6) * look.entAlpha);
+      alphas[i] = Math.max(h, THREE.MathUtils.lerp(rest, THREE.MathUtils.lerp(isNamed[i] ? 0.22 : 0.12, 1, r), dim)) * THREE.MathUtils.lerp(searchDim, 1, match[i]!);
+      c1.copy(isNamed[i] || r > 0.5 ? col.fg : entInk).lerp(col.act, h * 0.9).toArray(colors, i * 3);
     }
     let srcHeld = 0;
     sources.forEach((s, k) => {
@@ -629,14 +699,24 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
     // sources at rest: faint, stepping back as the field does when something is in play
     {
       const sz = sSize.array as Float32Array, sc = sColor.array as Float32Array, sa = sAlpha.array as Float32Array;
-      const rest = 0.75 * THREE.MathUtils.lerp(1, 0.3, dim) * searchDim * (1 - 0.6 * srcHeld);
+      placeSources();
+      srcDot.uHole.value = look.srcHole; srcDot.uSquare.value = look.srcSquare; srcDot.uTurn.value = look.srcTurn;
+      srcDot.uSoft.value = look.srcSoft; srcDot.uHalo.value = look.srcHalo;
+      entDot.uSoft.value = look.entSoft; entDot.uHalo.value = look.entHalo;
+      const step = THREE.MathUtils.lerp(1, 0.3, dim) * searchDim * (1 - 0.6 * srcHeld);
+      const rest = look.srcAlpha * step;
+      srcInk.copy(dust).lerp(col.fg, look.srcTone).lerp(col.act, look.srcAccent);
+      c2.copy(col.fg).lerp(col.act, look.srcAccent);
       for (let k = 0; k < S; k++) {
         sPoint[k]! += ((k === underSrc ? 1 : 0) - sPoint[k]!) * ease(k === underSrc ? 18 : 10);
-        sz[k] = SRC_SIZE * (1 + 0.6 * sPoint[k]!);
+        sz[k] = SRC_SIZE * look.srcSize * THREE.MathUtils.lerp(1, tieScale[k]!, look.srcByTies) * (1 + 0.6 * sPoint[k]!);
         sa[k] = srcShown * Math.max(sPoint[k]!, rest);
-        c1.copy(dust).lerp(col.fg, sPoint[k]!).toArray(sc, k * 3);
+        c1.copy(srcInk).lerp(c2, sPoint[k]!).toArray(sc, k * 3);
       }
       sSize.needsUpdate = true; sColor.needsUpdate = true; sAlpha.needsUpdate = true;
+      const tied = look.srcTies * srcShown * THREE.MathUtils.lerp(1, 0.25, dim) * step;
+      if (tied > 0.002 && !restTies) { restTies = lineSet(srcTiePairs(), 0); fit(restTies.material); restTies.material.color.copy(col.fg); }
+      if (restTies) { restTies.material.opacity = tied; restTies.visible = tied > 0.002; }
     }
     // a source in hand: the field's own lines step back so its ties read
     strong.material.opacity = 0.14 * searchDim * (1 - 0.5 * dim) * (1 - 0.6 * srcHeld);
@@ -728,7 +808,7 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
       restName.firstElementChild!.textContent = srcName(field.sources[underSrc]!.label);
       restName.w = undefined;
     }
-    nameBeside(restName, srcNamed == null ? null : SP[srcNamed]!, SRC_SIZE * 1.6, namedVis());
+    nameBeside(restName, srcNamed == null ? null : SP[srcNamed]!, srcNamed == null ? 0 : (sSize.array as Float32Array)[srcNamed]!, namedVis());
     const cand: Cand[] = [];
     const inHand = srch ? srch.active : ent ? ent.i : null;
     const handText = srch ? srch.text : ent?.text;
@@ -737,7 +817,7 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
       const n = field.nodes[i]!;
       const related = rl?.j === i;
       const full = related || (i === inHand && handText !== undefined);
-      const restOp = n.named && (field.hubs.has(i) || n.memory) ? 1 : 0;
+      const restOp = isNamed[i] && (hubs.has(i) || n.memory) ? 1 : 0;
       let op = srch && srch.matches.size ? match[i]! : Math.max(heat[i]!, THREE.MathUtils.lerp(restOp, rel[i]!, dim)) * (srch ? searchDim : 1);
       if (i === inHand || related) op = 1;
       // the dot under the pointer always says its name
@@ -757,7 +837,7 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
       // the opened entity's caption is placed first and never moves; a
       // relation then finds room around its tie, ahead of every plain name
       const g = labelGap(P[i]!, (aSize.array as Float32Array)[i]!);
-      cand.push({ L: lab, x: s1.x + g, y: s1.y, g, op, full, pointed, pri: (related ? 9e3 : full ? 1e4 : pointed ? 8e3 : 0) + heat[i]! * 2e3 + match[i]! * 400 + Math.log1p(n.degree) * 5 + (n.named ? 20 : 0) });
+      cand.push({ L: lab, x: s1.x + g, y: s1.y, g, op, full, pointed, pri: (related ? 9e3 : full ? 1e4 : pointed ? 8e3 : 0) + heat[i]! * 2e3 + match[i]! * 400 + Math.log1p(n.degree) * 5 + (isNamed[i] ? 20 : 0) });
     }
     cand.sort((a, b) => b.pri - a.pri);
     const rect = (x: number, y: number, w: number, h: number) => [x - 4, y - h / 2 - 3, x + w + 4, y + h / 2 + 3];
