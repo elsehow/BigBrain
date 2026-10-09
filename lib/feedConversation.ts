@@ -18,6 +18,7 @@ import type { FeedRecord } from "./feedJournal";
 import type { SourceMetadata } from "./insertionLog";
 import { liveAssertionSql, liveSourceSql } from "./sourceSupersede";
 import { sourceTime } from "./sourceThreads";
+import { userIdentityDeclarations } from "./userIdentity";
 import { withVaultSnapshot } from "./vaultReadModel";
 
 /** One message: a source and the live claims filed from it. */
@@ -33,6 +34,9 @@ export interface FeedConversation {
   /** Oldest first. The newest is the conversation's face: the feed entry
    * names it as its `source`. */
   messages: FeedMessage[];
+  /** What its claims are about, aliases folded, the owner aside: the owner
+   * is in nearly everything, so naming them relates nothing. */
+  entities: Set<string>;
 }
 
 interface SourceRow { insertion_id: string; source_id: string; thread: string | null; live: number; header_json: string }
@@ -59,6 +63,10 @@ export function feedConversations(root: string, since: string): FeedConversation
       .all(since) as { event_json: string }[]).map((r) => JSON.parse(r.event_json) as AssertionEvent);
     const cited = claims.map((a) => assertionSourceReferences(a).map((r) => r.insertion_id));
     const sources = sourceRows(db, [...new Set(cited.flat())]);
+    const aliases = new Map((db.query("SELECT alias_id, entity_id FROM entity_aliases").all() as { alias_id: string; entity_id: string }[])
+      .map((r) => [r.alias_id, r.entity_id]));
+    const canonical = (id: string) => aliases.get(id) ?? id;
+    const owner = new Set(userIdentityDeclarations(root).map((d) => canonical(d.entity_id)));
     const conversations = new Map<string, Map<string, FeedMessage>>();
     claims.forEach((a, i) => {
       const refs = cited[i]!;
@@ -71,9 +79,12 @@ export function feedConversations(root: string, since: string): FeedConversation
       messages.set(id, message);
       message.claims.push(a);
     });
-    return [...conversations].map(([key, messages]) => ({
-      key, messages: [...messages.values()].sort((a, b) => moment(a) - moment(b) || a.id.localeCompare(b.id)),
-    }));
+    return [...conversations].map(([key, messages]) => {
+      const ordered = [...messages.values()].sort((a, b) => moment(a) - moment(b) || a.id.localeCompare(b.id));
+      const entities = new Set(ordered.flatMap((m) => m.claims.flatMap((a) => a.entities.map((e) => canonical(e.id)))));
+      for (const id of owner) entities.delete(id);
+      return { key, messages: ordered, entities };
+    });
   });
 }
 
