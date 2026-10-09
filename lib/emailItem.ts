@@ -39,6 +39,15 @@ export interface Head {
   known: boolean;
 }
 
+/** A draft is still being written, and never lands. Gmail keeps each save
+ * as a new message — a new UID, a new id — so filing drafts filed every
+ * save as its own source, each one asking you to send it, beside the sent
+ * message that said you had (#177). What you send is the discussable
+ * version. Gmail marks a draft with the label, IMAP with the flag. */
+export function isDraft(labels: Iterable<string> = [], flags: Iterable<string> = []): boolean {
+  return [...labels, ...flags].includes("\\Draft");
+}
+
 // ── the head line ────────────────────────────────────────────────────────────
 
 const kb = (n: number): string => (n < 1024 ? `${n}b` : n < 1024 * 1024 ? `${Math.round(n / 1024)}k` : `${(n / 1024 / 1024).toFixed(1)}M`);
