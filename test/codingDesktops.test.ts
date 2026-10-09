@@ -337,6 +337,28 @@ test("while the shell is on, searches and listings show sources only by path, ki
   desktops.close();
 });
 
+test("a web search turns the shell off, and the agent is told so before it searches", async () => {
+  const { fauxAssistantMessage, fauxToolCall } = await import("@earendil-works/pi-ai");
+  const tools: HostTool[] = [{ name: "web_search", description: "Search the web.", parameters: { type: "object", properties: { query: { type: "string" } } },
+    execute: async a => ({ query: a.query, answer: "Orrery 4.2 replaced the moon train." }) }];
+  let offered = "";
+  const call = (name: string, args: Record<string, unknown>) => fauxAssistantMessage([fauxToolCall(name, args)], { stopReason: "toolUse" });
+  const { ws, host } = await fakeHost([
+    (context: unknown) => { offered = JSON.stringify(context); return call("bash", { command: "echo before" }); },
+    call("web_search", { query: "orrery 4.2" }), call("bash", { command: "echo after" }), fauxAssistantMessage("Searched."),
+  ], tools);
+  const root = nativeVault(); roots.push(root);
+  const desktops = new CodingDesktops(root, { agents: new Agents(workspace(ws), quickHarbor()), host });
+  const made = desktops.create();
+  await desktops.send(made.id, "what changed in orrery 4.2?", "in-1");
+  await answered(desktops, made.id);
+  expect(offered).toContain("Search the web. Calling it turns this desktop's shell off until your person allows it");
+  const acts = (await desktops.detail(made.id)).messages.filter(m => m.role === "activity").map(m => m.text);
+  expect(acts).toEqual(["Ran echo before", "web_search", "Didn't run echo after: the shell is off"]);
+  expect(desktops.get(made.id).taint?.sources.map(s => [s.via, s.title])).toEqual([["web_search", "the web"]]);
+  desktops.close();
+});
+
 test("a desktop that turns tainted stops what it runs, and can't write files that run code on their own", async () => {
   const { fauxAssistantMessage, fauxToolCall } = await import("@earendil-works/pi-ai");
   const tools: HostTool[] = [{ name: "email_read", description: "Read an email.", parameters: { type: "object", properties: {} }, execute: async () => ({ body: "Hi" }) }];
