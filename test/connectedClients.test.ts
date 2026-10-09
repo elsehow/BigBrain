@@ -4,6 +4,7 @@ import { rmSync, statSync } from 'node:fs';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { nativeVault } from './support/vault';
+import { childEnv } from './support/childEnv';
 import { ConnectedClients, authenticateClient } from '../lib/connectedClients';
 import { readSourceInsertionLog } from '../lib/insertionLog';
 const roots:string[]=[];
@@ -20,7 +21,7 @@ test('named client setup is private, per credential, and does not grant live acc
 test('real stdio MCP authenticates all tools, attributes evidence, and revokes existing sessions',async()=>{
  const {root,clients}=fixture(),setup=clients.create({name:'Verified Codex',kind:'codex'});
  const client=new Client({name:'Spoofed name',version:'1'});
- const transport=new StdioClientTransport({command:process.execPath,args:[resolve('bin/mcp.ts'),'--client',setup.id],env:{PATH:process.env.PATH!,HOME:process.env.HOME!,BIGBRAIN_VAULT:root,BIGBRAIN_TOKENS:clients.store},stderr:'pipe'});
+ const transport=new StdioClientTransport({command:process.execPath,args:[resolve('bin/mcp.ts'),'--client',setup.id],env:childEnv({BIGBRAIN_VAULT:root,BIGBRAIN_TOKENS:clients.store}),stderr:'pipe'});
  try{await client.connect(transport);expect((await client.listTools()).tools.map(t=>t.name)).toEqual(['load_memory','search_vault','read_note','drop']);
  const result=await client.callTool({name:'drop',arguments:{title:'Decision',body:'The user chose blue.'}});expect(result.isError).not.toBe(true);
  expect(readSourceInsertionLog(root).at(-1)?.envelope.from).toBe('Verified Codex');expect(clients.list()[0]?.lastUsed).toBeTruthy();
@@ -66,7 +67,7 @@ test('MCP handshake alone confirms a replacement and retires its legacy connecti
  const {root,clients}=fixture();
  const old=clients.create({name:'Old plugin',kind:'codex',managedBy:'codex-plugin'});
  const setup=clients.replace(old.id), client=new Client({name:'Handshake only',version:'1'});
- const transport=new StdioClientTransport({command:process.execPath,args:[resolve('bin/mcp.ts'),'--client',setup.id],env:{PATH:process.env.PATH!,HOME:process.env.HOME!,BIGBRAIN_VAULT:root,BIGBRAIN_TOKENS:clients.store},stderr:'pipe'});
+ const transport=new StdioClientTransport({command:process.execPath,args:[resolve('bin/mcp.ts'),'--client',setup.id],env:childEnv({BIGBRAIN_VAULT:root,BIGBRAIN_TOKENS:clients.store}),stderr:'pipe'});
  try {
   await client.connect(transport);
   // Ping follows initialized on the same transport without discovering/calling tools.
