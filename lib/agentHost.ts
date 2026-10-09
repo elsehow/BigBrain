@@ -3,7 +3,8 @@
  *
  * The package runs the agent and its folder; BigBrain decides who it is and
  * what it may reach beyond that folder: the instructions, the vault tools,
- * and the model, built from the vault's model connections. Credentials stay
+ * web search through its own provider (lib/webSearch.ts), and the model,
+ * built from the vault's model connections. Credentials stay
  * here: `wrapStream` attaches them to each request, so the package never
  * holds them.
  */
@@ -17,6 +18,7 @@ import { pilotToolCall, pilotTools } from "./pilot";
 import { createCatalogRuntime, exactCatalogModel } from "./run/modelCatalogRefresh";
 import { configureVaultModelAuth } from "./run/piModelRuntime";
 import { exactModel, loadPi } from "./run/piSession";
+import { webSearchTools } from "./webSearch";
 
 export const AGENT_INSTRUCTIONS = `You are an agent on your person's BigBrain desktop, working on their code with them.
 Be direct and concise. Read before you change things, run the project's own tests after changing it, and say plainly what you did and what you didn't verify.
@@ -66,18 +68,21 @@ export async function agentHost(root: string, modelName?: string): Promise<OpenO
   const model = await exactCatalogModel(runtime, provider, id, signal);
   if (!model) throw new Error(`No model ${provider}/${id}. Choose one in Settings › Models, or pass --model <provider>/<model>.`);
   const subscription = runtime.isUsingSubscription(provider);
+  /** A model request with the vault's credentials: the agent's turns, and its web searches. */
+  const authorized = (stream: StreamFn) => (async (m, context, options) => {
+    await configureVaultModelAuth(runtime, root);
+    if (m.provider === "anthropic" && (await runtime.checkAuth("anthropic", { signal: options?.signal }))?.type !== "oauth")
+      throw new Error("Connect your Claude subscription in Settings › Models. API billing is not used for this connection.");
+    let token: string | undefined;
+    if (subscription && ["openai-codex", "anthropic"].includes(m.provider))
+      token = (await runtime.getAuth(m, { signal: options?.signal, apiKey: options?.apiKey }))?.auth.apiKey;
+    return stream(exactModel(m), context, { ...options, ...(token ? { apiKey: token } : {}) });
+  }) as StreamFn;
   return {
-    modelRuntime: runtime, model, instructions: AGENT_INSTRUCTIONS, tools: vaultTools(root), elsewhere: vaultElsewhere(root),
+    modelRuntime: runtime, model, instructions: AGENT_INSTRUCTIONS, elsewhere: vaultElsewhere(root),
+    tools: [...vaultTools(root), ...webSearchTools(model, authorized((m, context, options) => runtime.streamSimple(m, context, options)))],
     // the saved reasoning belongs to the saved model; another model keeps the default
     thinkingLevel: ((provider === saved.provider && id === saved.model ? saved.reasoning : undefined) ?? "low") as OpenOptions["thinkingLevel"],
-    wrapStream: (stream: StreamFn) => (async (m, context, options) => {
-      await configureVaultModelAuth(runtime, root);
-      if (m.provider === "anthropic" && (await runtime.checkAuth("anthropic", { signal: options?.signal }))?.type !== "oauth")
-        throw new Error("Connect your Claude subscription in Settings › Models. API billing is not used for this connection.");
-      let token: string | undefined;
-      if (subscription && ["openai-codex", "anthropic"].includes(m.provider))
-        token = (await runtime.getAuth(m, { signal: options?.signal, apiKey: options?.apiKey }))?.auth.apiKey;
-      return stream(exactModel(m), context, { ...options, ...(token ? { apiKey: token } : {}) });
-    }) as StreamFn,
+    wrapStream: authorized,
   };
 }
