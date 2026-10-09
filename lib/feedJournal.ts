@@ -4,8 +4,8 @@
  *
  * The journal is the stage's whole state. Its checkpoint is the union of the
  * assertions closed records read; its schedule is the last attempt plus the
- * interval; the feed itself is each source's newest entry. Delete `.state/`
- * and nothing is lost. */
+ * interval; the feed itself is each conversation's newest entry. Delete
+ * `.state/` and nothing is lost. */
 
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -74,10 +74,12 @@ export function addedAt(records: FeedRecord[]): Map<string, string> {
   return out;
 }
 
-/** The feed as it stands: each source's newest entry, without skips and
- * without entries whose date has passed. `today` is a local YYYY-MM-DD. */
-export function currentFeed(records: FeedRecord[], today: string): FeedEntry[] {
+/** The feed as it stands: each conversation's newest entry, without skips
+ * and without entries whose date has passed. `today` is a local YYYY-MM-DD;
+ * `conversationOf` names an entry's conversation (lib/feedConversation.ts),
+ * each source its own when not given. */
+export function currentFeed(records: FeedRecord[], today: string, conversationOf: (source: string) => string = (s) => s): FeedEntry[] {
   const latest = new Map<string, FeedEntry>();
-  for (const r of records) if (!r.error) for (const e of r.entries) latest.set(e.source, e);
+  for (const r of records) if (!r.error) for (const e of r.entries) latest.set(conversationOf(e.source), e);
   return [...latest.values()].filter((e) => e.section !== "skip" && !(e.expires && e.expires < today));
 }

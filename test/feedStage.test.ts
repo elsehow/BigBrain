@@ -3,9 +3,10 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { appendAssertionEvent, createAssertionEvent, type AssertionEvent } from "../lib/assertionLog";
 import { chainHasWork } from "../lib/chain";
+import { feedConversationOf } from "../lib/feedConversation";
 import { addedAt, currentFeed, feedRecords, sortedAssertions } from "../lib/feedJournal";
 import { feedDue, feedLockFile, feedWork, runFeed } from "../lib/feedStage";
-import type { SourceInsertion } from "../lib/insertionLog";
+import { appendSourceInsertionEvent, type SourceInsertion } from "../lib/insertionLog";
 import { loadManifest } from "../lib/manifest";
 import type { ModelRunRequest } from "../lib/run/request";
 import { classicChain, runTend } from "../lib/tend";
@@ -55,6 +56,17 @@ function scripted(place: (title: string) => { section: string; expires?: string 
 }
 
 const now = () => new Date("2026-08-25T00:00:00.000Z");
+/** A clock that moves a second per reading, so each call lands after the last. */
+const ticking = (from = "2026-08-25T00:00:00.000Z") => { let t = Date.parse(from); return () => new Date(t += 1000); };
+const feedNow = (root: string, today = "2026-08-25") => {
+  const records = feedRecords(root);
+  return currentFeed(records, today, feedConversationOf(root, records));
+};
+/** One email of a thread: the subject is long enough to join on its own. */
+const mail = (title: string, at: string, over: Partial<SourceInsertion> = {}) => {
+  const event = insertion({ title, received_at: at, ...over });
+  return { ...event, envelope: { id: event.source_id, source: "email", kind: "email", ...over.envelope } };
+};
 
 describe("vault.yaml feed:", () => {
   test("absent is off; since is required; defaults are Sonnet, hourly, 10 a call, 100 a run", () => {
@@ -81,7 +93,7 @@ describe("the feed stage", () => {
     claim(root, a, "An old claim about the garden.", "2026-08-01");
     claim(root, b, "A new claim about the garden.");
     const cfg = loadManifest(root).feed!;
-    expect(feedWork(root, cfg).map(([key]) => key)).toEqual([b.id]);
+    expect(feedWork(root, cfg).map((c) => c.messages.at(-1)!.id)).toEqual([b.id]);
     expect(chainHasWork(classicChain.due(root, { now: now() }))).toBe(true);
   });
 
@@ -137,6 +149,65 @@ describe("the feed stage", () => {
     const records = feedRecords(root);
     expect(addedAt(records).get(a.id)).toBe(records[0]!.completed_at);
     expect(records[1]!.completed_at).not.toBe(records[0]!.completed_at);
+  });
+
+  test("every landing of one source is one conversation: the revision's claims stand in for the last landing's", async () => {
+    const first = insertion({ source_id: "src-standup", title: "standup" });
+    const root = vault(FEED_YAML(), first);
+    claim(root, first, "Kit proposed a call.");
+    await runFeed({ root, manifest: loadManifest(root), runner: scripted(() => ({ section: "needs-you" })).runner, now: ticking() });
+    const revised = insertion({ source_id: "src-standup", title: "standup", envelope: { id: "src-standup", kind: "meeting", supersedes: first.id } });
+    appendSourceInsertionEvent(root, revised);
+    claim(root, revised, "Kit proposed a call on Monday.");
+    const work = feedWork(root, loadManifest(root).feed!);
+    expect(work.map((c) => c.messages.map((m) => m.id))).toEqual([[revised.id]]);
+    const second = scripted(() => ({ section: "know" }));
+    await runFeed({ root, manifest: loadManifest(root), runner: second.runner, now: ticking("2026-08-25T02:00:00.000Z") });
+    expect(second.calls[0]!.prompt).toContain("- Kit proposed a call on Monday.");
+    expect(second.calls[0]!.prompt).not.toContain("- Kit proposed a call.");
+    // one place in the feed, the revision's; read by arrival, it was two
+    expect(feedNow(root).map((e) => [e.source, e.section])).toEqual([[revised.id, "know"]]);
+    expect(currentFeed(feedRecords(root), "2026-08-25")).toHaveLength(2);
+  });
+
+  test("a thread is one conversation, judged whole and oldest first: their mail, your draft, what you sent", async () => {
+    const subject = "The cello lesson schedule for autumn";
+    const ask = mail(subject, "2026-08-20T09:00:00.000Z");
+    const draft = mail(`Re: ${subject}`, "2026-08-20T11:00:00.000Z", { envelope: { labels: ["\\Draft"] } });
+    const sent = mail(`Re: ${subject}`, "2026-08-20T11:05:00.000Z", { envelope: { labels: ["\\Sent"] } });
+    const root = vault(FEED_YAML(), ask, draft, sent);
+    claim(root, ask, "Kit asked whether Tuesday works for the cello lesson.");
+    await runFeed({ root, manifest: loadManifest(root), runner: scripted(() => ({ section: "needs-you" })).runner, now: ticking() });
+    expect(feedNow(root).map((e) => e.section)).toEqual(["needs-you"]);
+
+    claim(root, sent, "You told Kit Tuesday works.");
+    claim(root, draft, "Your draft to Kit says Tuesday works.");
+    const second = scripted(() => ({ section: "skip" }));
+    await runFeed({ root, manifest: loadManifest(root), runner: second.runner, now: ticking("2026-08-25T02:00:00.000Z") });
+    const prompt = second.calls[0]!.prompt;
+    expect([...prompt.matchAll(/^SOURCE \d+$/gm)]).toHaveLength(1);
+    expect(prompt).toContain([
+      "[2026-08-20 09:00] The cello lesson schedule for autumn", "- Kit asked whether Tuesday works for the cello lesson.",
+      `[2026-08-20 11:00] Re: ${subject}`, "- Your draft to Kit says Tuesday works.",
+      `[2026-08-20 11:05] Re: ${subject}`, "- You told Kit Tuesday works.",
+    ].join("\n"));
+    // its own last headline is about to be replaced: not "recent" to the call judging it
+    expect(prompt).toContain("Recent messages in the feed:\nnone yet\n");
+    expect(feedRecords(root).at(-1)!.entries.map((e) => e.source)).toEqual([sent.id]);
+    // what you sent settles it: the thread leaves the feed, its ask with it
+    expect(feedNow(root)).toEqual([]);
+  });
+
+  test("each call sees the feed's three newest headlines, the last call's included", async () => {
+    const items = ["alpha", "beta", "gamma", "delta", "epsilon"].map((title) => insertion({ title }));
+    const root = vault(FEED_YAML("  batch: 1\n"), ...items);
+    for (const item of items) claim(root, item, `Something about ${item.title}.`);
+    const m = scripted();
+    await runFeed({ root, manifest: loadManifest(root), runner: m.runner, now: ticking() });
+    const recent = (i: number) => m.calls[i]!.prompt.split("Recent messages in the feed:\n")[1]!.split("\n\n")[0];
+    expect(recent(0)).toBe("none yet");
+    expect(recent(1)).toBe("- headline for alpha");
+    expect(recent(4)).toBe("- headline for delta\n- headline for gamma\n- headline for beta");
   });
 
   test("single-flight: a second run skips, naming the process that holds the lock, and runs once that one is killed", async () => {
