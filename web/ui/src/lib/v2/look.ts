@@ -11,6 +11,8 @@ export interface FieldLook {
   srcByTies: number;
   /** A resting source's opacity. */
   srcAlpha: number;
+  /** 0: every source at that opacity; 1: by how many entities it mentions (fewest a tenth of it, most all of it). */
+  srcAlphaByTies: number;
   /** Its colour: 0 the field's dust (an unnamed entity's), 1 full ink. */
   srcTone: number;
   /** Toward the theme's activity colour. */
@@ -31,6 +33,8 @@ export interface FieldLook {
   entSize: number;
   /** An entity's opacity, times its shipped opacity. */
   entAlpha: number;
+  /** 0: every unnamed entity at that opacity; 1: by how many sources mention it (fewest a tenth of it, most all of it). */
+  entAlphaByTies: number;
   /** An unnamed entity's colour: 0 the field's dust, 1 full ink (a named one is always ink). */
   entTone: number;
   /** 0 the shipped size; 1 also sized by how many sources mention it (hubs keep theirs). */
@@ -45,11 +49,12 @@ export interface FieldLook {
   srcHalo: number;
 }
 
-// Tuned live on a real vault (2026-10-08): crisp dots; entities in full ink, a
-// little larger the more sources mention them; sources stay dust.
+// Tuned live on a real vault (2026-10-08, 2026-10-09): crisp dots; entities in
+// full ink, sources in dust; both fade by how few mentions they have, so the
+// well-connected stand out and the rest steps back.
 export const LOOK_DEFAULTS: Readonly<FieldLook> = Object.freeze({
-  srcSize: 1, srcByTies: 0, srcAlpha: 0.75, srcTone: 0, srcAccent: 0, srcHole: 0, srcSquare: 0, srcTurn: 0,
-  srcLift: 0, srcFlat: 0, srcTies: 0, entSize: 1, entAlpha: 1.6, entTone: 1, entByTies: 0.1, entSoft: 0, srcSoft: 0, entHalo: 1, srcHalo: 1, hubCount: HUBS,
+  srcSize: 1, srcByTies: 0, srcAlpha: 0.75, srcAlphaByTies: 1, srcTone: 0, srcAccent: 0, srcHole: 0, srcSquare: 0, srcTurn: 0,
+  srcLift: 0, srcFlat: 0, srcTies: 0, entSize: 1, entAlpha: 1.6, entAlphaByTies: 1, entTone: 1, entByTies: 0, entSoft: 0, srcSoft: 0, entHalo: 1, srcHalo: 1, hubCount: HUBS,
 });
 
 export const look: FieldLook = { ...LOOK_DEFAULTS };

@@ -238,6 +238,16 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
   const mentionedBy = Array.from({ length: N }, () => 0);
   for (const x of field.sources) for (const j of x.ties) mentionedBy[j]!++;
   const entScale = byCount(mentionedBy);
+  // faded by mentions (field look): where each sits from fewest (0) to most (1)
+  const byRank = (counts: number[]) => {
+    const f = counts.map((n) => Math.log1p(n));
+    const lo = f.reduce((a, b) => Math.min(a, b), Infinity), hi = f.reduce((a, b) => Math.max(a, b), -Infinity);
+    return f.map((x) => (hi > lo ? (x - lo) / (hi - lo) : 1));
+  };
+  // opacity by mentions: at `by` 1 the fewest keep a tenth of it, the most all of it
+  const byMentions = (rank: number, by: number) => THREE.MathUtils.lerp(1, 0.1 + 0.9 * rank, by);
+  const tieRank = byRank(field.sources.map((x) => x.ties.length));
+  const entRank = byRank(mentionedBy);
   const sourceAt = new Map(field.sources.flatMap((x, k) => x.paths.map((p) => [p, SP[k]!] as const)));
   // a source drawn as an entity has no dot of its own: held, it sits on the
   // entity's, switch on or off
@@ -522,7 +532,9 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
       const d = (sp.x - x) ** 2 + (sp.y - y) ** 2;
       if (sp.ok && d < bestD) { bestD = d; best = hit; }
     };
-    for (let i = 0; i < N; i++) if (!field.nodes[i]!.memory && alphas[i]! >= 0.15) consider(P[i]!, i);
+    // anything drawn can be pointed at, an entity as a source: one a selection
+    // or a search steps back is still there to hover
+    for (let i = 0; i < N; i++) if (!field.nodes[i]!.memory && alphas[i]! > 0.02) consider(P[i]!, i);
     if (srcShown > 0.5) for (let k = 0; k < S; k++) consider(SP[k]!, `src:${k}`);
     return best;
   };
@@ -682,7 +694,7 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
       const h = Math.max(heat[i]!, match[i]!);
       const r = rel[i]!;
       sizes[i] = baseSize[i]! * look.entSize * (isNamed[i] ? 1 : THREE.MathUtils.lerp(1, entScale[i]!, look.entByTies)) * (1 + 0.7 * h) * (1 + 0.45 * r * dim);
-      const rest = Math.min(1, (isNamed[i] ? 0.95 : 0.6) * look.entAlpha);
+      const rest = Math.min(1, (isNamed[i] ? 0.95 : 0.6) * look.entAlpha) * (isNamed[i] ? 1 : byMentions(entRank[i]!, look.entAlphaByTies));
       alphas[i] = Math.max(h, THREE.MathUtils.lerp(rest, THREE.MathUtils.lerp(isNamed[i] ? 0.22 : 0.12, 1, r), dim)) * THREE.MathUtils.lerp(searchDim, 1, match[i]!);
       c1.copy(isNamed[i] || r > 0.5 ? col.fg : entInk).lerp(col.act, h * 0.9).toArray(colors, i * 3);
     }
@@ -710,7 +722,7 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
       for (let k = 0; k < S; k++) {
         sPoint[k]! += ((k === underSrc ? 1 : 0) - sPoint[k]!) * ease(k === underSrc ? 18 : 10);
         sz[k] = SRC_SIZE * look.srcSize * THREE.MathUtils.lerp(1, tieScale[k]!, look.srcByTies) * (1 + 0.6 * sPoint[k]!);
-        sa[k] = srcShown * Math.max(sPoint[k]!, rest);
+        sa[k] = srcShown * Math.max(sPoint[k]!, rest * byMentions(tieRank[k]!, look.srcAlphaByTies));
         c1.copy(srcInk).lerp(c2, sPoint[k]!).toArray(sc, k * 3);
       }
       sSize.needsUpdate = true; sColor.needsUpdate = true; sAlpha.needsUpdate = true;
