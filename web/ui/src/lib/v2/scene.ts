@@ -522,7 +522,9 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
       const d = (sp.x - x) ** 2 + (sp.y - y) ** 2;
       if (sp.ok && d < bestD) { bestD = d; best = hit; }
     };
-    for (let i = 0; i < N; i++) if (!field.nodes[i]!.memory && alphas[i]! >= 0.15) consider(P[i]!, i);
+    // anything drawn can be pointed at, an entity as a source: one a selection
+    // or a search steps back is still there to hover
+    for (let i = 0; i < N; i++) if (!field.nodes[i]!.memory && alphas[i]! > 0.02) consider(P[i]!, i);
     if (srcShown > 0.5) for (let k = 0; k < S; k++) consider(SP[k]!, `src:${k}`);
     return best;
   };
