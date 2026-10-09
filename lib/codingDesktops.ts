@@ -492,8 +492,11 @@ export class CodingDesktops {
       const path = typeof args.path === "string" ? args.path : "";
       if (live) await this.taint(id, { key: `${t.name}#${hashOf(out)}`, via: t.name, title: live });
       else if (untrustedNote(path)) {
-        const title = (out as { title?: unknown } | null)?.title;
-        await this.taint(id, { key: noteKey(this.root, path), via: t.name, title: typeof title === "string" ? title.slice(0, 120) : path });
+        const { title, attachment } = (out ?? {}) as { title?: unknown; attachment?: { sha256: string } };
+        const named = (typeof title === "string" ? title : path).slice(0, 120);
+        // an attachment is keyed by its own content: allowing the note didn't allow the file
+        const key = attachment ? `blob:${attachment.sha256}` : noteKey(this.root, path);
+        await this.taint(id, { key, via: t.name, title: attachment ? `${String(args.attachment).slice(0, 120)}, attached to ${named}` : named });
       }
       return out;
     } };
