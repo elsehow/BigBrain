@@ -122,6 +122,11 @@ answer and its sources come back fenced as web material, and a search taints
 the desktop. Its description says so, as every live reader's does, so the
 agent runs the commands a task needs before it searches.
 
+A scanned PDF a note links has no text layer for `read_note` to extract, so
+the desktop lends it a reader (lib/scanReader.ts): the same kind of request,
+with the PDF attached as a document and a transcription asked for. Its text
+comes back as the attachment's, fenced and tainting the same way.
+
 ## Worktrees on request (*measured*)
 
 `start_work(project)` runs `git worktree add desktops/<id>/<name> -b

@@ -21,6 +21,7 @@ import { modelDescriptor } from "./modelRegistry";
 import { rowsForAgent } from "./agentReads";
 import { pilotModels } from "./modelCatalog";
 import type { PilotState } from "./pilotTypes";
+import type { ScanReader } from "./scanReader";
 import { noteCreditsOk, noteOutOfCredits, outOfCredits } from "./providerCredits";
 
 /** The env var the key lives under — `.env.example` documents it. */
@@ -223,13 +224,13 @@ export function pilotTools(): PilotTool[] {
  * PilotError) are FOR THE MODEL — the door answers them 400 with the
  * message, and the page hands that back as the call's output so the pilot
  * can say what would work. */
-export async function pilotToolCall(root: string, name: unknown, args: unknown, options: IntegrationCallOptions = {}): Promise<unknown> {
+export async function pilotToolCall(root: string, name: unknown, args: unknown, options: IntegrationCallOptions & { readScan?: ScanReader } = {}): Promise<unknown> {
   const tool = str(name);
   const a = args && typeof args === "object" && !Array.isArray(args) ? (args as Record<string, unknown>) : {};
   try {
     if (INTEGRATION_TOOLS.some(t => t.name === tool)) return await integrationToolCall(root, { kind: "pilot" }, tool, a, options);
     if ((READER_TOOLS as readonly string[]).includes(tool)) {
-      const ctx: VaultToolContext = { root, via: "web", clientName: "pilot" };
+      const ctx: VaultToolContext = { root, via: "web", clientName: "pilot", readScan: options.readScan };
       return await handleVaultTool(ctx, tool, a);
     }
     const own = OWN_TOOLS.find((t) => t.name === tool);

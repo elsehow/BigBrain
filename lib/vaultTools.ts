@@ -3,6 +3,7 @@ import { parseNoteWindow, NoteWindowError, ENTITY_WINDOW_CAP, SLACK_CAP, type No
 import { landDrop } from "./landItem";
 import { attachmentPayload, memoryRead, notePayload, type AttachmentPayload, type NotePayload } from "./noteRead";
 import { recordUse, type RetrievalVia } from "./retrieval";
+import type { ScanReader } from "./scanReader";
 import { clampLimit, scanSurface, type SearchFilters } from "./searchCore";
 import { fmBody, fmRaw, fmSerialize } from "./wire";
 import { openStaged } from "./stage";
@@ -23,6 +24,8 @@ export interface VaultToolContext {
   clientName?: string;
   /** Host-selected provenance; never accepted from tool arguments. */
   source?: "mcp" | "pilot";
+  /** Host-lent: reads a scanned PDF attachment with the host's model (lib/scanReader.ts). */
+  readScan?: ScanReader;
 }
 
 /** One tool: MCP wire fields plus the handler. Schemas are hand-written
@@ -92,7 +95,7 @@ function readNoteTool(ctx: VaultToolContext, args: Record<string, unknown>): unk
   }
   const path = str(args["path"]), attachment = str(args["attachment"]).trim();
   // A promise for an attachment: its PDF's text is extracted as it is read.
-  if (attachment) return attachmentPayload(ctx.root, path, attachment, window).then(p => served(ctx, p, args));
+  if (attachment) return attachmentPayload(ctx.root, path, attachment, window, ctx.readScan).then(p => served(ctx, p, args));
   return served(ctx, notePayload(ctx.root, path, window), args);
 }
 

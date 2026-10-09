@@ -3,7 +3,8 @@
  *
  * The package runs the agent and its folder; BigBrain decides who it is and
  * what it may reach beyond that folder: the instructions, the vault tools,
- * web search through its own provider (lib/webSearch.ts), and the model,
+ * web search and scanned-PDF reading through its own provider
+ * (lib/webSearch.ts, lib/scanReader.ts), and the model,
  * built from the vault's model connections. Credentials stay
  * here: `wrapStream` attaches them to each request, so the package never
  * holds them.
@@ -18,6 +19,7 @@ import { pilotToolCall, pilotTools } from "./pilot";
 import { createCatalogRuntime, exactCatalogModel } from "./run/modelCatalogRefresh";
 import { configureVaultModelAuth } from "./run/piModelRuntime";
 import { exactModel, loadPi } from "./run/piSession";
+import { scanReader, type ScanReader } from "./scanReader";
 import { webSearchTools } from "./webSearch";
 
 export const AGENT_INSTRUCTIONS = `You are an agent on your person's BigBrain desktop, working on their code with them.
@@ -27,10 +29,10 @@ You can also read your person's BigBrain vault, their memory and notes: load_mem
 /** The vault's read-only tools, exactly as Pilot reads them. */
 const VAULT_READERS = ["load_memory", "search_vault", "read_note"];
 
-export function vaultTools(root: string): HostTool[] {
+export function vaultTools(root: string, readScan?: ScanReader): HostTool[] {
   return pilotTools().filter(t => VAULT_READERS.includes(t.name)).map(t => ({
     name: t.name, description: t.description, parameters: t.parameters as Record<string, unknown>,
-    execute: (args, signal) => pilotToolCall(root, t.name, args, { signal }),
+    execute: (args, signal) => pilotToolCall(root, t.name, args, { signal, readScan: readScan && (pdf => readScan(pdf, signal)) }),
     label: (args: Record<string, unknown>) => t.name === "search_vault" ? `Searched your vault for ${[args.query, ...(Array.isArray(args.queries) ? args.queries : [])].filter(Boolean).map(String).join(", ") || "notes"}`
       : t.name === "load_memory" ? "Read your memory" : `Read ${String(args.path ?? "a note")}`,
   }));
@@ -78,9 +80,11 @@ export async function agentHost(root: string, modelName?: string): Promise<OpenO
       token = (await runtime.getAuth(m, { signal: options?.signal, apiKey: options?.apiKey }))?.auth.apiKey;
     return stream(exactModel(m), context, { ...options, ...(token ? { apiKey: token } : {}) });
   }) as StreamFn;
+  /** One request of the host tools' own, beside the agent's turns: a web search, a scan read. */
+  const ask = authorized((m, context, options) => runtime.streamSimple(m, context, options));
   return {
     modelRuntime: runtime, model, instructions: AGENT_INSTRUCTIONS, elsewhere: vaultElsewhere(root),
-    tools: [...vaultTools(root), ...webSearchTools(model, authorized((m, context, options) => runtime.streamSimple(m, context, options)))],
+    tools: [...vaultTools(root, scanReader(model, ask)), ...webSearchTools(model, ask)],
     // the saved reasoning belongs to the saved model; another model keeps the default
     thinkingLevel: ((provider === saved.provider && id === saved.model ? saved.reasoning : undefined) ?? "low") as OpenOptions["thinkingLevel"],
     wrapStream: authorized,

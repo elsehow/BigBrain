@@ -12,10 +12,10 @@
  * as web material (lib/agentReads.ts), and a coding desktop that searches
  * turns tainted (lib/codingDesktops.ts).
  */
-import type { HostTool, OpenOptions } from "../packages/agents/src";
+import type { HostTool } from "../packages/agents/src";
 import { fencedDataForAgent } from "./agentReads";
+import { askModel, type Model, type StreamFn } from "./askModel";
 
-type StreamFn = Parameters<NonNullable<OpenOptions["wrapStream"]>>[0];
 type Payload = { tools?: unknown[]; include?: unknown[] } & Record<string, unknown>;
 interface Source { url: string; title?: string }
 
@@ -50,7 +50,7 @@ const source = (v: unknown): Source[] => {
 };
 
 /** The web_search tool for a model whose provider searches, sending through `send` (credentials attached); none for any other model. */
-export function webSearchTools(model: Parameters<StreamFn>[0], send: StreamFn): HostTool[] {
+export function webSearchTools(model: Model, send: StreamFn): HostTool[] {
   const search = SEARCH[model.api];
   if (!search) return [];
   return [{
@@ -64,14 +64,9 @@ export function webSearchTools(model: Parameters<StreamFn>[0], send: StreamFn): 
       const query = typeof args.query === "string" ? args.query.trim() : "";
       if (!query || query.length > MAX_QUERY) throw new Error(`Give a query of at most ${MAX_QUERY} characters.`);
       const found = new Map<string, Source>();
-      const { normalizeContext } = await import("@earendil-works/pi-ai");
-      const context = normalizeContext({ systemPrompt: INSTRUCTIONS, messages: [{ role: "user", content: query, timestamp: Date.now() }] });
-      const stream = await send(model, context, { signal, reasoning: "low",
+      const answer = await askModel(send, model, { system: INSTRUCTIONS, user: query, signal,
         onPayload: p => search.payload(p as Payload),
         onProviderStreamEvent: e => { for (const s of search.sources(e)) if (found.size < MAX_SOURCES && !found.has(s.url)) found.set(s.url, s); } });
-      const message = await stream.result();
-      if (message.stopReason === "error" || message.stopReason === "aborted") throw new Error(message.errorMessage ?? "The search did not finish.");
-      const answer = message.content.flatMap(b => b.type === "text" ? [b.text] : []).join("").trim();
       if (!answer && !found.size) throw new Error("The search came back empty. Try a more specific question.");
       return { query, ...fencedDataForAgent("web", { answer, sources: [...found.values()] }) as object };
     },

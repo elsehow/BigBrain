@@ -11,7 +11,7 @@ const roots: string[] = [];
 afterAll(() => roots.forEach(r => rmSync(r, { recursive: true, force: true })));
 
 const PAGE = Array.from({ length: 8 }, (_, i) => `Line ${i + 1}: the orrery moon train runs a 3:1 reduction.`).join("\n");
-type Read = { title: string; markdown: string; attachment: { sha256: string; pages: number; pages_read: number; thin: boolean }; provenance: { trusted: boolean } };
+type Read = { title: string; markdown: string; attachment: { sha256: string; pages: number; pages_read: number; thin: boolean; transcribed?: true }; provenance: { trusted: boolean } };
 
 /** A vault with one clipped PDF that landed as a stub, linking `other` files too. */
 function clipped(other: Record<string, Buffer> = {}) {
@@ -23,7 +23,8 @@ function clipped(other: Record<string, Buffer> = {}) {
   for (const bytes of Object.values(files)) putBlob(root, bytes);
   return { root, path: insertionEventRel(clip), pdf: sha256hex(files["Orrery gearing.pdf"]!) };
 }
-const read = (root: string, args: Record<string, unknown>, via: "cli" | "gardener" = "cli") => handleVaultTool({ root, via }, "read_note", args) as Promise<Read>;
+const read = (root: string, args: Record<string, unknown>, via: "cli" | "gardener" = "cli", readScan?: (pdf: Uint8Array) => Promise<string>) =>
+  handleVaultTool({ root, via, ...(readScan ? { readScan } : {}) }, "read_note", args) as Promise<Read>;
 
 test("read_note reads a PDF the note links as its text, under the note's title, fenced as the note's outside material", async () => {
   const { root, path, pdf } = clipped();
@@ -56,4 +57,20 @@ test("only a PDF the note links is read, and a refusal names what it links witho
   expect(scan.attachment.thin).toBe(true);
   expect(scan.markdown).toContain("likely a scanned or image-only PDF");
   await expect(read(root, { path: "references/missing.md", attachment: "x.pdf" })).rejects.toThrow();
+});
+
+test("a scan is read by the model its host lends, and comes back fenced like any attachment text", async () => {
+  const { root, path } = clipped({ "scan.pdf": tinyPdf(["x", "y"]) });
+  const given: string[] = [];
+  const transcribe = async (pdf: Uint8Array) => { given.push(Buffer.from(pdf).subarray(0, 5).toString("latin1")); return "MEMORANDUM: the moon train runs 3:1.\n---\nPage two."; };
+  const scan = await read(root, { path, attachment: "scan.pdf" }, "cli", transcribe);
+  expect(given).toEqual(["%PDF-"]);
+  expect(scan.attachment).toMatchObject({ pages: 2, thin: true, transcribed: true });
+  expect(scan.markdown).toStartWith("<untrusted-data");
+  expect(scan.markdown).toContain("MEMORANDUM: the moon train runs 3:1.");
+  // a PDF with a text layer is never sent to the model
+  expect((await read(root, { path, attachment: "Orrery gearing.pdf" }, "cli", transcribe)).attachment.transcribed).toBeUndefined();
+  expect(given).toHaveLength(1);
+  const failing = async () => { throw new Error("Rate limited."); };
+  await expect(read(root, { path, attachment: "scan.pdf" }, "cli", failing)).rejects.toThrow(/is a scan, and the model could not read it: Rate limited\./);
 });
