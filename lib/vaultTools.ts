@@ -1,7 +1,7 @@
 /** Shared vault tool schemas and operations. Transports and runtime adapters select capabilities. */
 import { parseNoteWindow, NoteWindowError, ENTITY_WINDOW_CAP, SLACK_CAP, type NoteWindow } from "./noteWindow";
 import { landDrop } from "./landItem";
-import { memoryRead, notePayload } from "./noteRead";
+import { attachmentPayload, memoryRead, notePayload, type AttachmentPayload, type NotePayload } from "./noteRead";
 import { recordUse, type RetrievalVia } from "./retrieval";
 import { clampLimit, scanSurface, type SearchFilters } from "./searchCore";
 import { fmBody, fmRaw, fmSerialize } from "./wire";
@@ -90,7 +90,14 @@ function readNoteTool(ctx: VaultToolContext, args: Record<string, unknown>): unk
     if (error instanceof NoteWindowError) throw new VaultToolError(error.message);
     throw error;
   }
-  const p = notePayload(ctx.root, str(args["path"]), window);
+  const path = str(args["path"]), attachment = str(args["attachment"]).trim();
+  // A promise for an attachment: its PDF's text is extracted as it is read.
+  if (attachment) return attachmentPayload(ctx.root, path, attachment, window).then(p => served(ctx, p, args));
+  return served(ctx, notePayload(ctx.root, path, window), args);
+}
+
+/** A read as its caller receives it: recorded, sliced, and for agents fenced by provenance. */
+function served(ctx: VaultToolContext, p: NotePayload | AttachmentPayload, args: Record<string, unknown>): unknown {
   if (p.status !== 200) throw new VaultToolError(p.error);
   recordUse(ctx.root, p.rel, ctx.via);
   if (ctx.via === "gardener") return sliceNote(p.note, args);
@@ -228,6 +235,7 @@ export const VAULT_TOOLS: VaultToolDef[] = [
         n: { type: "integer", minimum: 1, maximum: ENTITY_WINDOW_CAP, description: "entity only: keep the newest n" },
         order: { type: "string", enum: ["asc", "desc"], description: "entity only: desc = newest first" },
         toc: { type: "boolean", description: "entity only: date-bucketed contents, not the assertions" },
+        attachment: { type: "string", description: "a PDF the note links: its name or blob:<sha256>; reads its text instead" },
       },
       required: ["path"],
     },

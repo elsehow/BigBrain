@@ -107,7 +107,8 @@ The view says why the shell is off, shows the refused command, and offers
 **Allow shell for this desktop**. Only the person can allow it; no tool the
 agent has reaches it. Allowed, its commands still write only its own
 worktrees, never a project in place, and use their own toolchain caches. What they allowed it despite is named by its content,
-so reading it again doesn't taint, but new mail or a changed note does. The
+so reading it again doesn't taint, but new mail or a changed note does,
+and so does a PDF the note links (`read_note` with `attachment`), named by its own bytes. The
 package asks its host before each command and write, and tells it what each
 file read or write held (`shell`, `write` and `file` in `open()`), so the
 rule is BigBrain's.
