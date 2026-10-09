@@ -34,7 +34,10 @@ export function availableDefaults(provider: DefaultProvider, models: readonly { 
     // Claude Code accepts family aliases; Pi requires the native model ID.
     const family = provider === "anthropic" ? models.filter(m => new RegExp(`^claude-${desired.model}-\\d`).test(m.id))
       .sort((a, b) => b.id.replace(/-\d{8}$/, "").localeCompare(a.id.replace(/-\d{8}$/, ""), undefined, { numeric: true }) || a.id.length - b.id.length) : [];
-    const model = models.find(m => m.id === desired.model) ?? family[0] ?? fallback;
+    // The newest member that honours the role's reasoning, else the newest: Quick's
+    // `off` skips a Haiku that forces adaptive thinking.
+    const model = models.find(m => m.id === desired.model)
+      ?? family.find(m => desired.reasoning && m.reasoning?.includes(desired.reasoning)) ?? family[0] ?? fallback;
     return [role, { model: model.id, ...(desired.reasoning && model.reasoning?.includes(desired.reasoning) ? { reasoning: desired.reasoning } : {}) }];
   })) as ProviderDefaults;
 }
