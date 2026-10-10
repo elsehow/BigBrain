@@ -124,4 +124,4 @@ export async function addBackfill(b:Backfill,send:typeof sendSources=sendSources
 }
 
 /** Whether the connection can take contributions: a read-only member is refused before any scoring. */
-export async function assertCanContribute(c:SharedConnection){const who=await sharedRequest<{permissions:string[]}>(c,'/v1/whoami');if(!who.permissions.includes('write'))throw Error('This shared vault is read-only.');}
+export async function assertCanContribute(c:SharedConnection){const who=await sharedRequest<{permissions:string[]}>(c,'/v1/whoami');if(!who.permissions.includes('write'))throw Error('This server is read-only.');}

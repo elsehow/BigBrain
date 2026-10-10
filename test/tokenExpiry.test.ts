@@ -12,7 +12,7 @@ import { readSourceInsertionLog } from "../lib/insertionLog";
 import { childEnv } from "./support/childEnv";
 
 const DAY = 86_400_000;
-const FIX = "This BigBrain connection expired after 30 days unused. Renew it in BigBrain → Settings → Connected clients.";
+const FIX = "This BigBrain connection expired after 30 days unused. Renew it in BigBrain → Settings → Connected agents.";
 const roots: string[] = [];
 afterEach(() => roots.splice(0).forEach(root => rmSync(root, { recursive: true, force: true })));
 function fixture() {
@@ -174,7 +174,7 @@ test("the bearer API refuses a lapsed credential with where to renew it, and not
   expect((await get(reader.token)).status).toBe(200);
 });
 
-test("the legacy local Claude Code credential lapses too, and is listed, noticed and renewed in Connected clients", async () => {
+test("the legacy local Claude Code credential lapses too, and is listed, noticed and renewed in Connected agents", async () => {
   const { root, clients } = fixture();
   const legacy = mintToken(clients.store, root, "claude code on studio", ["inbox:write", "vault:read"], { kind: "agent", via: "connect" });
   mintToken(clients.store, root, "codex on studio", ["inbox:write", "vault:read"], { kind: "agent", via: "connect" });

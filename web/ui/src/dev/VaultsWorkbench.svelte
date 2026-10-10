@@ -29,7 +29,7 @@
   function chooseVault(id: number) { selected=id; editing=false; draft=''; adding=false; tab='rule'; preview=false; allTime=true; since='2026-09-01'; checked=[]; inspect=null; notice=''; }
   const sidebarItems = $derived([
     ...vaults.map(v=>({label:v.name,selected:selected===v.id,onselect:()=>chooseVault(v.id)})),
-    {label:'+ Connect vault',selected:false,onselect:()=>{adding=true;inviteLink='';notice='';}}
+    {label:'+ Connect a server',selected:false,onselect:()=>{adding=true;inviteLink='';notice='';}}
   ]);
   const viewerId = 'member-you';
   function withdraw(v: Vault, s: Source) {
@@ -70,7 +70,7 @@
 <div class="workbench-bar"><span>Vaults settings · interactive study</span><div><label>Theme <select bind:value={theme}><option value="default">Light</option><option value="web">Web blue</option><option value="dusk">Dusk</option></select></label><button onclick={()=>location.reload()}>Reset</button></div></div>
 <main>
 <SettingsPage active="vaultSettings" title={vaults.find(v=>v.id===selected)?.name.toUpperCase()??'VAULT'} notice={notice?{ok:true,text:notice}:null}
-  extraSection={{label:'SHARED VAULTS',active:true,items:sidebarItems}}>
+  extraSection={{label:'SERVERS',active:true,items:sidebarItems}}>
   <section class="settings-list" aria-label="Vaults">
     {#each vaults.filter(v=>v.id===selected) as v (v.id)}
     <section class="settings-card" aria-label={`${v.name} vault`}>
@@ -148,7 +148,7 @@
 {#if adding}
   <dialog class="invite-dialog" use:openInvite onclose={()=>adding=false} onclick={e=>{if(e.target===e.currentTarget){const r=e.currentTarget.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)e.currentTarget.close();}}}>
     <form class="connect" onsubmit={addVault}>
-      <h2>Connect a shared vault</h2>
+      <h2>Connect a server</h2>
       <label>Invite link<input type="url" required bind:value={inviteLink} placeholder="https://vault.example.org/invite/…" autocomplete="off"/></label>
       <div class="edit-actions"><button class="settings-add" type="submit">Connect</button><button class="text-button" type="button" onclick={()=>adding=false}>Cancel</button></div>
     </form>

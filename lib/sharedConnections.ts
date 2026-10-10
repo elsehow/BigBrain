@@ -27,10 +27,10 @@ export async function sharedRequest<T>(connection: SharedConnection, path: strin
   try { response = await fetch(connection.endpoint + path, { method: body === undefined ? 'GET' : 'POST', redirect: 'error',
     headers: { Authorization: `Bearer ${connection.token}`, 'Content-Type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(15000) }); }
-  catch { throw new SharedConnectionError(503, 'The shared vault is unavailable.'); }
+  catch { throw new SharedConnectionError(503, 'The server is unavailable.'); }
   if (!response.ok) {
     const data = await response.json().catch(() => ({})) as { error?: string };
-    throw new SharedConnectionError(response.status, typeof data.error === 'string' ? data.error.replaceAll(connection.token, '[redacted]').slice(0, 500) : 'The shared vault refused this request.');
+    throw new SharedConnectionError(response.status, typeof data.error === 'string' ? data.error.replaceAll(connection.token, '[redacted]').slice(0, 500) : 'The server refused this request.');
   }
   return await response.json() as T;
 }

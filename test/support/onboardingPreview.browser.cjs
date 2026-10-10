@@ -21,7 +21,7 @@ const assert = require('node:assert/strict');
   await page.getByRole('button', { name: 'Next →', exact: true }).click();
   await page.getByRole('region', { name: 'Claude provider' }).getByRole('button', { name: 'Connect Claude', exact: true }).click();
   await page.getByRole('button', { name: 'Next →', exact: true }).click();
-  await page.getByRole('heading', { name: 'Connect clients', exact: true }).waitFor();
+  await page.getByRole('heading', { name: 'Connect agents', exact: true }).waitFor();
   await page.getByRole('button', { name: 'Skip', exact: true }).click();
   await page.getByRole('heading', { name: 'Connect integrations', exact: true }).waitFor();
   await page.getByRole('button', { name: 'Skip', exact: true }).click();

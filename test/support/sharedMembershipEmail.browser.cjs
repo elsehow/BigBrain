@@ -17,7 +17,7 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
  browser=await chromium.launch({channel:process.env.PLAYWRIGHT_CHANNEL||'chrome',headless:true});const page=await browser.newPage({viewport:{width:1440,height:1000}});await page.goto(fixture.base+'/api/session?k='+fixture.secret);const pageErrors=[];page.on('pageerror',e=>pageErrors.push(e.message));
  await page.goto(fixture.base+'/#sharedVaultSettings');
  // The join link pasted into the app is refused with directions, before any request.
- await page.getByRole('button',{name:'+ Connect vault',exact:true}).click();await page.getByLabel('Invite link',{exact:true}).fill(fixture.endpoint+'/join');await page.getByRole('dialog').getByRole('button',{name:'Connect',exact:true}).click();
+ await page.getByRole('button',{name:'+ Connect a server',exact:true}).click();await page.getByLabel('Invite link',{exact:true}).fill(fixture.endpoint+'/join');await page.getByRole('dialog').getByRole('button',{name:'Connect',exact:true}).click();
  await page.getByRole('dialog').getByRole('alert').filter({hasText:'open it in your browser'}).waitFor();
  await page.getByLabel('Invite link',{exact:true}).fill(fixture.invite);await page.getByRole('dialog').getByRole('button',{name:'Connect',exact:true}).click();await page.getByRole('dialog').waitFor({state:'detached'});await page.goto(fixture.base+'/#sharedVaultSettings');await page.getByRole('button',{name:'Example team',exact:true}).last().click();
  await page.getByRole('button',{name:'Members',exact:true}).click();await page.getByRole('button',{name:'Invite someone',exact:true}).click();

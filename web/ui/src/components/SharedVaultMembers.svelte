@@ -54,7 +54,7 @@
       {:else}
       <p class="muted">{created.access} · One use · Expires {new Date(created.expires).toLocaleString()}</p>
       <label>Invite link<input readonly value={created.link} onclick={e=>e.currentTarget.select()}/></label>
-      <p>Send this link to {created.name}. They can paste it into “Connect a shared vault” in BigBrain.</p>
+      <p>Send this link to {created.name}. They can paste it into “Connect a server” in BigBrain.</p>
       {/if}
       <div class="footer"><button onclick={()=>inviting=false}>Done</button><button class="primary" onclick={()=>copy(created!.link)}>{copied===created.link?'Copied':'Copy link'}</button></div>
     {:else}
@@ -63,7 +63,7 @@
         {#if emailInvites}<label>Email<input required type="email" bind:value={name} placeholder="Their email address" autocomplete="off"/></label>
         {:else}<label>Name<input required bind:value={name} placeholder="Their name" autocomplete="off"/></label>{/if}
         <label>Access<select bind:value={access}><option>Can contribute</option><option>Read only</option></select></label>
-        <p class="muted">{access==='Can contribute'?'Can read and contribute sources and assertions.':'Can read everything in this vault.'}</p>
+        <p class="muted">{access==='Can contribute'?'Can read and contribute sources and assertions.':'Can read everything on this server.'}</p>
         <div class="footer"><button type="button" onclick={()=>inviting=false}>Cancel</button><button class="primary" disabled={busy||!name.trim()}>{busy?'Creating…':'Create invite link'}</button></div>
       </form>
     {/if}
@@ -73,7 +73,7 @@
 {#if canManage&&removing}
   <dialog use:open onclose={()=>removing=null} aria-labelledby="remove-title">
     <h2 id="remove-title">Remove {removing.name}?</h2>
-    <p>They’ll lose access to this vault on all their devices. Their past contributions and attribution will stay.</p>
+    <p>They’ll lose access to this server on all their devices. Their past contributions and attribution will stay.</p>
     {#if error}<p role="alert">{error}</p>{/if}
     <div class="footer"><button disabled={busy} onclick={()=>removing=null}>Cancel</button><button disabled={busy} class="primary" onclick={()=>act(async()=>{await request('member-remove',{id:removing!.id});removing=null;await load();})}>Remove member</button></div>
   </dialog>

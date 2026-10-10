@@ -2,7 +2,7 @@
   import { tick } from 'svelte';
   import VaultPicker from '../components/VaultPicker.svelte';
   import logo from '../assets/logo.svg';
-  const steps = ['Vault', 'Providers', 'Clients', 'Integrations'];
+  const steps = ['Vault', 'Providers', 'Agents', 'Integrations'];
   const providers = [{ id: 'claude', name: 'Claude' }, { id: 'chatgpt', name: 'ChatGPT' }];
   const clients = [{ id: 'claude', name: 'Claude Code' }, { id: 'chatgpt', name: 'Codex' }];
   const library = [
@@ -74,7 +74,7 @@
     </section>
   {:else}
     <header><div class="eyebrow">Step {step+1} of 4</div>
-      <h1 bind:this={heading} tabindex="-1">{['Where should your vault live?', 'Connect providers', 'Connect clients', 'Connect integrations'][step]}</h1>
+      <h1 bind:this={heading} tabindex="-1">{['Where should your vault live?', 'Connect providers', 'Connect agents', 'Connect integrations'][step]}</h1>
       <p class="intro">{['Pick an empty folder, or one that already holds a BigBrain vault.', 'BigBrain will use your subscriptions to maintain your vault.', 'Let your agents to access BigBrain. (This is where the magic happens!).', 'Integrations help BigBrain pull the stuff that matters to you.'][step]}</p>
     </header>
     <div class="body">

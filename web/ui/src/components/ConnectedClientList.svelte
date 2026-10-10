@@ -40,7 +40,7 @@
   onMount(()=>{const refresh=()=>{if(!busy)void load().catch(e=>error=e.message);};refresh();loadLastRead();const timer=setInterval(refresh,5000);return()=>clearInterval(timer);});
 </script>
 
-  <section class="settings-list" aria-label="Connected Clients">
+  <section class="settings-list" aria-label="Connected Agents">
     {#if !runner}
     <button class="settings-add" onclick={() => adding = !adding} aria-expanded={adding}>{adding ? 'Cancel' : 'New connection +'}</button>
     {#if adding}
