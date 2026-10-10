@@ -43,6 +43,7 @@ import { modelRunJournalFields, newRunId } from "./run/journal";
 import type { RunUsage } from "./run/model";
 import { tryHold } from "./sqliteLock";
 import { plainText } from "./v2Feed";
+import { projectJournal } from "./assertionProjection";
 
 export const FEED_PROMPT_VERSION = "feed/v3";
 const OFF = "off (no feed: block in vault.yaml)";
@@ -164,7 +165,9 @@ function parseEntries(text: string, batch: FeedConversation[]): FeedEntry[] {
 function journalFeed(root: string, record: FeedRecord): void {
   const month = record.started_at.slice(0, 7);
   ensureDir(join(root, FEED_JOURNAL_DIR, month));
-  writeAtomic(join(root, FEED_JOURNAL_DIR, month, `${record.invocation_id}.json`), `${JSON.stringify(record, null, 1)}\n`);
+  const rel = `${FEED_JOURNAL_DIR}/${month}/${record.invocation_id}.json`;
+  writeAtomic(join(root, rel), `${JSON.stringify(record, null, 1)}\n`);
+  projectJournal(root, rel); // the sorted feed is these
 }
 
 // ── the run ────────────────────────────────────────────────────────────────

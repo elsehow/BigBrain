@@ -31,6 +31,8 @@ export interface SceneHooks {
   onPickSource?(k: number): void;
   /** Whether every source is drawn at rest (Settings → Graph). */
   sources?(): boolean;
+  /** The pointer let go of the field: what waited on the drag can run. */
+  onDragEnd?(): void;
 }
 type Rig = { az: number; el: number; dist: number; tx: number; ty: number; tz: number };
 type View = { az: number; el: number; dist: number; target: THREE.Vector3 };
@@ -564,7 +566,9 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
       if (k != null) hooks.onPickSource?.(k);
       else if (typeof hit === "string") hooks.onPickPilot(hit.slice(6)); else hooks.onPick(hit);
     }
+    const ended = drag != null;
     drag = null;
+    if (ended) hooks.onDragEnd?.();
   };
   // labels are clickable too: they name the thing
   const onLabel = (e: MouseEvent) => {

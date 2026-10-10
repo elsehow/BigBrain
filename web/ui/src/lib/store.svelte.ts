@@ -7,6 +7,7 @@ import { openConversationAlias } from "./noteNavigation";
 import { usageAction } from "./telemetry";
 import { swr } from "./api";
 import { RETRY_MIN_MS, nextRetryMs, retryDelayMs } from "./live";
+import { recordMoved, type ViewStamps } from "./viewStamps";
 import type { VaultInfo } from "./types";
 import { isPilotChatId } from "../../../../lib/pilotChatTypes";
 import { isNotePath } from "./noteRoute";
@@ -32,8 +33,11 @@ export type View =
 export const app = $state({
   view: "home" as View,
   vault: null as VaultInfo | null,
-  // live wiring: rev bumps on every server change ping (views re-fetch on it);
-  // live reflects whether the SSE stream is currently connected.
+  // live wiring: `views` is the engine's latest stamp per view (`event:
+  // views`); a view with a stamp fetches when its stamp moves. rev bumps when
+  // the record or a watched file moved, for the views without one (settings,
+  // setup). live reflects whether the SSE stream is currently connected.
+  views: null as ViewStamps | null,
   rev: 0,
   usageRev: 0,
   /** Bumps when a provider runs out of usage credits or has them again. */
@@ -231,6 +235,13 @@ function connect(): void {
   es = new EventSource(workspaceURL("/api/events"));
   es.addEventListener("unavailable", sharedUnavailable);
   es.addEventListener("vault", e => { observeVault(JSON.parse(e.data)); });
+  es.addEventListener("views", e => {
+    let next: ViewStamps;
+    try { next = JSON.parse(e.data); } catch { return; }
+    const moved = recordMoved(app.views, next);
+    app.views = next;
+    if (moved) { app.rev++; void refreshVault(); }
+  });
   es.addEventListener("usage", () => { app.usageRev++; });
   es.addEventListener("credits", () => { app.creditsRev++; });
   es.addEventListener("application", e => {
@@ -242,10 +253,10 @@ function connect(): void {
   es.onopen = () => {
     app.gardener = null;
     // Back after an outage (the engine restarted under us — a vault switch,
-    // the first-run handover): every view re-reads. Without this the dot
-    // went green while the feed kept saying the engine wasn't answering
-    // (2026-08-27) — onmessage bumps rev only on a change ping, and a fresh
-    // engine has nothing to ping about.
+    // the first-run handover): every view without a stamp re-reads. Without
+    // this the dot went green while the feed kept saying the engine wasn't
+    // answering (2026-08-27): a restart that changed nothing moves no stamp.
+    // Views with stamps compare the ones the connection opens with.
     const wasDown = !app.live;
     app.live = true;
     retryMs = RETRY_MIN_MS; // a good connection earns the next failure a fast retry
@@ -257,15 +268,6 @@ function connect(): void {
     app.live = false;
     es?.close(); // it will not retry an HTTP-status error itself; don't leave it half-open
     scheduleReconnect();
-  };
-  es.onmessage = (e) => {
-    try {
-      JSON.parse(e.data);
-    } catch {
-      /* unrecognized — treat as a change ping */
-    }
-    app.rev++;
-    void refreshVault();
   };
 }
 
@@ -302,7 +304,7 @@ export function init(): void {
   initialized = true;
   addEventListener("hashchange", () => applyHash());
   void refreshVault();
-  // The server pings /api/events whenever the vault changes on disk.
+  // The engine pushes each view's stamp on /api/events when the vault changes.
   connect();
   addEventListener("online", reconnectNow);
   addEventListener("visibilitychange", () => {

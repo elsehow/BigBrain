@@ -7,7 +7,7 @@
   // one the pilot names itself, \ shows or hides the desktop's views, Esc back out.
   // Pilots are the real agents: /api/pilot/chat sessions, placed over their
   // context, and their chat opens here as a flat column over the field.
-  import { onMount, tick } from "svelte";
+  import { onMount, tick, untrack } from "svelte";
   import { api } from "../lib/api";
   import { app, goto } from "../lib/store.svelte";
   import type { CopyWhy, FoldGroup, GraphData, NoteResult, SourceOrigin } from "../lib/types";
@@ -30,6 +30,8 @@
   import { graphSources } from "../lib/graphSources.svelte";
   import { serializeMentions, type MentionItem } from "../../../../lib/pilotMentions";
   import { mentionRecents, mentionSearch } from "../lib/mentionSources";
+  import { viewsBehind, type Rendered } from "../lib/viewStamps";
+  import { applicationCursor, subscribeApplication, updatePump } from "../lib/applicationUpdates";
 
   /** The workbench hands in fabricated data; the app fetches the vault's.
    * `paused`: the base's settings panel is over the field, and has the keys. */
@@ -701,15 +703,27 @@
     return null;
   });
 
+  /** The stamps of the graph and the feed this view holds (lib/viewStamps.ts). */
+  const fetched: Rendered = { graph: "", joined: "", feed: "" };
+  /** A graph response's stamp: its ETag, else the pushed stamps it was fetched under. */
+  function fetchedGraph(etag: string, pushed: { graph: string; joined: string } | undefined): void {
+    fetched.graph = etag || (pushed?.graph ?? ""); fetched.joined = pushed?.joined ?? "";
+  }
+  let loaded = false;
   async function load(): Promise<void> {
     try {
-      const [graph, sq] = data ? [data.graph, data.v2] : await Promise.all([api.graph(), api.v2()]);
-      writing = sq;
+      const pushed = app.views?.views;
+      const [g, sq] = data ? [{ data: data.graph, stamp: "" }, { data: data.v2, stamp: "" }] : await Promise.all([api.graph(), api.v2()]);
+      fetchedGraph(g.stamp, pushed); fetched.feed = sq.stamp;
+      writing = sq.data;
       refreshSorted();
       if (!data) void loadFolds();
-      await drawField(graph);
+      await drawField(g.data);
     } catch (e) {
       error = errText(e);
+    } finally {
+      loaded = true;
+      void syncViews(); // stamps pushed while it loaded
     }
   }
   let graphHash = "";
@@ -728,26 +742,53 @@
       onHover: relateTie,
       onPickSource,
       sources: () => graphSources.show,
+      onDragEnd: redrawIfIdle,
     }, camera);
     scene.setPilots(placePilots(field, bar));
     sceneRev++;
   }
-  /** The vault changed (the engine's /api/events ping, as the app's views
-   * hear it): the feed and the record re-read at once; a changed graph is
+  /** A view's stamp moved (`event: views`, as the base hears it): fetch only
+   * the views behind it, one pass at a time, and one more pass for stamps
+   * that arrive meanwhile. The feed re-reads at once; a changed graph is
    * redrawn when nothing is open and no drag is under way, from the camera
    * where you left it, so nothing moves under a hand. */
   let graphStale = false;
-  async function onVaultChange(): Promise<void> {
-    relations.clear();
-    refreshSorted();
-    void api.v2().then((v) => { writing = v; }).catch(() => {});
+  let syncing = false, again = false;
+  async function syncViews(): Promise<void> {
+    if (data || !loaded) return;
+    if (syncing) { again = true; return; }
+    syncing = true;
+    try {
+      do {
+        again = false;
+        const stamps = app.views;
+        if (!stamps) break;
+        const behind = viewsBehind(fetched, stamps);
+        if (behind.graph || behind.feed) relations.clear();
+        await Promise.all([behind.graph && refreshGraph(stamps.views), behind.feed && refreshFeed(stamps.views.feed)]);
+      } while (again);
+    } finally { syncing = false; }
+  }
+  $effect(() => { void app.views; untrack(() => void syncViews()); });
+  async function refreshGraph(stamps: { graph: string; joined: string }): Promise<void> {
     try {
       const g = await api.graph();
-      if (g.hash !== graphHash) { graphStale = true; heldGraph = g; }
-    } catch { /* the next ping tries again */ }
+      fetchedGraph(g.stamp, stamps);
+      if (g.data.hash !== graphHash) { graphStale = true; heldGraph = g.data; }
+    } catch { return; /* the next push tries again */ }
     redrawIfIdle();
   }
+  async function refreshFeed(stamp: string): Promise<void> {
+    refreshSorted();
+    try {
+      const v = await api.v2();
+      writing = v.data;
+      fetched.feed = v.stamp || stamp;
+    } catch { /* the next push tries again */ }
+  }
   let heldGraph: GraphData | null = null;
+  // a held graph is drawn once you are back at the overview
+  $effect(() => { void ent; void src; void claim; void searching; void openPilot; untrack(redrawIfIdle); });
   function redrawIfIdle(): void {
     if (!graphStale || !heldGraph || ent != null || src || claim || searching || openPilot || scene?.dragging()) return;
     graphStale = false;
@@ -787,26 +828,19 @@
       }
     })();
   }
-  // pushed, not polled: the base's live stream bumps app.rev when the vault changes
-  let pending: ReturnType<typeof setTimeout> | undefined;
-  let seenRev = app.rev;
-  $effect(() => {
-    const rev = app.rev;
-    if (data || rev === seenRev) return;
-    seenRev = rev;
-    clearTimeout(pending); pending = setTimeout(() => void onVaultChange(), 300);
-  });
   onMount(() => {
     void load();
-    void refreshPilots();
-    let tickN = 0;
-    const timer = setInterval(() => {
-      tickN++;
-      if (openPilot && (detail?.phase === "working" || tickN % 3 === 0)) void loadDetail();
-      if (tickN % 4 === 0) void refreshPilots();
-      redrawIfIdle(); // a held graph, once you are back at the overview
-    }, 1200);
-    return () => { clearInterval(timer); clearTimeout(pending); scene?.dispose(); };
+    // Pilots and desktops re-read when the engine says one changed (`event:
+    // application`), never on a clock; a connection's snapshot, and a
+    // reconnect's, re-read both. A working Pilot saves as it streams, so its
+    // text arrives the same way.
+    if (!applicationCursor.connected) void refreshPilots();
+    const pump = updatePump(async ({ snapshot, entities }) => {
+      if (snapshot || entities.some((e) => e.kind === "pilot" || e.kind === "desktop")) await refreshPilots();
+      if (openPilot && (snapshot || entities.some((e) => e.id === openPilot))) await loadDetail();
+    });
+    const unsubscribe = subscribeApplication((update) => void pump.push(update));
+    return () => { unsubscribe(); pump.stop(); scene?.dispose(); };
   });
 
   /** A click in the field: open what's under it; empty space backs out. */
@@ -987,9 +1021,11 @@
     try {
       const done = await act;
       await loadFolds();
-      const graph = await api.graph();
-      ent = null; entRows = null;
-      await drawField(graph);
+      const pushed = app.views?.views;
+      const g = await api.graph(true); // the view with the fold in it
+      fetchedGraph(g.stamp, pushed);
+      ent = null; entRows = null; graphStale = false; heldGraph = null;
+      await drawField(g.data);
       // back on the page you were on, unless it was the one folded away
       const i = field?.byId.get(land ?? done.canonical.id) ?? field?.byId.get(done.canonical.id);
       if (i != null) void openEntity(i);
