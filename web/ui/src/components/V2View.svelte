@@ -875,7 +875,7 @@
     claim = { row: r, rows: shown };
     const lit = feedEntities(r);
     scene?.hover(null);
-    scene?.search({ matches: lit, active: null, move: lit.length ? "frame" : "none" });
+    scene?.search({ matches: lit, active: null, move: lit.length ? "frame" : "none", ties: true });
     scene?.shift(shiftFor());
   }
   // The feed unmounts while a desktop or an entity is open; where you left it

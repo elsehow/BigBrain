@@ -50,8 +50,9 @@ export interface V2Scene {
   openEntity(i: number | null, ties?: number[], text?: string, caption?: string): void;
   /** Search state: null closes it; matches light up; `active` is in hand.
    * `move`: frame every match (a new query), glide to the active one (an
-   * arrow key), or hold the camera (its text arriving). */
-  search(state: { matches: number[]; active: number | null; text?: string; caption?: string; move: "frame" | "glide" | "none" } | null): void;
+   * arrow key), or hold the camera (its text arriving). `ties`: the field's
+   * own edges between matches are drawn (a selection, not a query). */
+  search(state: { matches: number[]; active: number | null; text?: string; caption?: string; move: "frame" | "glide" | "none"; ties?: boolean } | null): void;
   /** A hovered feed row: what it mentions. */
   hover(entities: number[] | null): void;
   /** The feed row in hand, as a node of its own: over what it mentions, tied
@@ -393,7 +394,7 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
 
   // ── state ────────────────────────────────────────────────────────────────
   let ent: { i: number; ties: number[]; text?: string; caption?: string } | null = null;
-  let srch: { matches: Set<number>; active: number | null; text?: string; caption?: string } | null = null;
+  let srch: { matches: Set<number>; active: number | null; text?: string; caption?: string; ties: Field["edges"] } | null = null;
   let hot: Set<number> | null = null;
   let rl: { j: number; text: string } | null = null;
   let shiftGoal = 0, shiftNow = 0;
@@ -758,6 +759,8 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
     const tieAll = (from: THREE.Vector3, to: number[], v = 1) => { for (const j of to) ties.add(from, P[j]!, c1.copy(col.bg).lerp(col.fg, 0.55 * v), c2.copy(col.bg).lerp(col.fg, 0.4 * v)); };
     for (const s of sources) if (s.vis > 0.01) tieAll(s.at, s.ties, s.vis);
     if (ent) tieAll(P[ent.i]!, ent.ties);
+    // a selection's own edges, coming in as its members light
+    for (const [a, b] of srch?.ties ?? []) ties.add(P[a]!, P[b]!, c1.copy(col.bg).lerp(col.fg, 0.5 * Math.min(match[a]!, match[b]!)), c1);
     const named = namedVis();
     if (named > 0.01) tieAll(SP[srcNamed!]!, field.sources[srcNamed!]!.ties, named);
     for (const pl of pilots.values()) {
@@ -911,7 +914,9 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
     },
     search(state) {
       if (!state) { srch = null; return; }
-      srch = { matches: new Set(state.matches), active: state.active, text: state.text, caption: state.caption };
+      const matches = new Set(state.matches);
+      srch = { matches, active: state.active, text: state.text, caption: state.caption,
+        ties: state.ties ? field.edges.filter(([a, b]) => matches.has(a) && matches.has(b)) : [] };
       const lab = state.active != null ? labels.get(state.active) : undefined;
       if (lab) lab.full = undefined;
       if (state.move === "glide" && state.active != null) glide(P[state.active]!);
