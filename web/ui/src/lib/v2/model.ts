@@ -3,6 +3,7 @@
 // (V2View.svelte) reads it, and neither reshapes it.
 
 import type { V2Feed, V2FeedRow } from "../../../../../lib/v2Feed";
+import type { MentionItem } from "../../../../../lib/pilotMentions";
 import type { GraphData, GraphNode } from "../types";
 
 export type { V2Feed, V2FeedRow };
@@ -26,7 +27,8 @@ export interface FieldNode {
   opens?: string[];
 }
 /** A source: the graph's own source node, on the entities' floor plan. Kept
- * apart from `nodes`, so search, ties, folds and Desktops read entities alone. */
+ * apart from `nodes`, so ties, folds and Desktops read entities alone; the
+ * search finds it by title after the names (`searchFound`). */
 export interface FieldSource {
   id: string;
   label: string;
@@ -212,10 +214,11 @@ export function twinsOf(field: Field): Map<number, number[]> {
   return out;
 }
 
-export function searchNames(field: Field, raw: string): number[] {
+/** How well a name answers the query, best first: the name itself, its
+ * start, a word's start, anywhere, anywhere once spacing and punctuation go. */
+function nameScorer(raw: string): (name: string) => number {
   const q = raw.trim().toLowerCase(), qn = normName(q);
-  if (!q) return [];
-  const scoreName = (name: string): number => {
+  return (name) => {
     const low = name.toLowerCase(), norm = normName(name);
     if (low === q || norm === qn) return 0;
     if (low.startsWith(q)) return 1;
@@ -224,10 +227,42 @@ export function searchNames(field: Field, raw: string): number[] {
     if (qn.length >= 3 && norm.includes(qn)) return 4;
     return Infinity;
   };
+}
+
+export function searchNames(field: Field, raw: string): number[] {
+  if (!raw.trim()) return [];
+  const scoreName = nameScorer(raw);
   // an entity answers to any of its names (aliases folded into it): its best one scores it
   const score = (n: FieldNode): number => Math.min(...[n.label, ...n.aliases].map(scoreName));
   return field.nodes.map((n) => [score(n), n] as const).filter(([s]) => s < Infinity)
     .sort((a, b) => a[0] - b[0] || b[1].degree - a[1].degree).map(([, n]) => n.i);
+}
+
+/** The field's sources as the search lists them: by their note path, as a recent is. */
+export const sourceItems = (field: Field): MentionItem[] =>
+  field.sources.flatMap((s) => (s.paths[0] ? [{ id: s.paths[0], title: s.label, tag: "SOURCE" as const }] : []));
+
+/** What a typed search lists after the field's names (`named`): whatever
+ * answers by title — `local` (what's in hand: the field's sources, the
+ * recents) at once, the vault's search `hits` as they come — best title
+ * first, then the rest of `hits` (a match in the text) in the order the vault
+ * ranked them. One row per path, a dated one over an undated one, and none
+ * that `named` already lists. */
+export function searchFound(field: Field, raw: string, named: readonly number[],
+  local: readonly MentionItem[], hits: readonly MentionItem[]): MentionItem[] {
+  if (!raw.trim()) return [];
+  const scoreName = nameScorer(raw);
+  const listed = new Set(named.map((i) => field.nodes[i]?.path));
+  const out = new Map<string, MentionItem>();
+  const add = (m: MentionItem) => {
+    if (listed.has(m.id)) return;
+    const had = out.get(m.id);
+    if (!had || (!had.date && m.date)) out.set(m.id, m);
+  };
+  hits.forEach(add);
+  local.filter((m) => scoreName(m.title) < Infinity).forEach(add);
+  return [...out.values()].map((m, k) => [Math.min(scoreName(m.title), 5), k, m] as const)
+    .sort((a, b) => a[0] - b[0] || a[1] - b[1]).map(([, , m]) => m);
 }
 
 // ── pilots: the real agents ────────────────────────────────────────────────

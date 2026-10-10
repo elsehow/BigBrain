@@ -1,7 +1,7 @@
 // Field on the base (web/ui/field-workbench.html, a fabricated vault): the
 // feed walks with j/k and opens a source; settings open as a panel over the
 // field and give the keys back; Settings offers no Classic; a new vault says
-// what to do.
+// what to do. Search finds sources by title, not only entities by name.
 const { chromium } = require('./browserHarness.cjs');
 const assert = require('node:assert/strict');
 (async () => {
@@ -75,6 +75,28 @@ const assert = require('node:assert/strict');
     assert.equal(await page.getByRole('button', { name: 'CLASSIC', exact: true }).count(), 0);
     await page.keyboard.press('Escape');
 
+    // search finds a source by its title, not only an entity by its name: one
+    // the field draws at once, an older one when the vault's search answers
+    await page.keyboard.press('/');
+    const find = page.getByRole('textbox', { name: 'Find by name' });
+    await find.waitFor();
+    const results = page.locator('.search [role=option]');
+    await find.fill('invoice');
+    await results.filter({ hasText: 'Quill press invoice' }).waitFor();
+    assert.match(await results.first().innerText(), /Quill press invoice\s+Source/);
+    await find.fill('lighthouse');
+    await results.filter({ hasText: "Lighthouse keeper's log" }).waitFor();
+    assert.equal(await page.getByText(/Nothing in your vault is called/).count(), 0);
+    await find.fill('zzqx');
+    await page.getByText('Nothing in your vault is called “zzqx”.').waitFor();
+    // Enter opens the found source, as the feed's row does
+    await find.fill('invoice');
+    await results.filter({ hasText: 'Quill press invoice' }).waitFor();
+    await page.keyboard.press('Enter');
+    await draft.waitFor();
+    await page.keyboard.press('Escape');
+    await draft.waitFor({ state: 'detached' });
+
     // a new vault
     await page.goto(`${base}/field-workbench.html?view=field&empty`);
     await page.getByText('Nothing here yet').waitFor();
@@ -106,6 +128,6 @@ const assert = require('node:assert/strict');
     await page.locator('.credits').waitFor({ state: 'detached' });
 
     assert.deepEqual(errors, []);
-    console.log('PASS: Field walks and opens the feed, ⌘O opens the original, settings sit over it and return its keys, Settings offers no Classic, a new vault says what to do, an assertion clicked is selected and titled, and running out of credits is said once.');
+    console.log('PASS: Field walks and opens the feed, ⌘O opens the original, settings sit over it and return its keys, Settings offers no Classic, search finds sources by title, a new vault says what to do, an assertion clicked is selected and titled, and running out of credits is said once.');
   } finally { await browser.close(); }
 })().catch(e => { console.error(e); process.exit(1); });

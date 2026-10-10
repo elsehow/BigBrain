@@ -11,7 +11,7 @@
   import { api } from "../lib/api";
   import { app, goto } from "../lib/store.svelte";
   import type { FoldGroup, GraphData } from "../lib/types";
-  import { barPilots, buildField, foldOffer, latestPerFamily, neighbours, placePilots, searchNames, twinsOf, type Field, type PilotSummary, type V2Feed, type V2FeedRow } from "../lib/v2/model";
+  import { barPilots, buildField, foldOffer, latestPerFamily, neighbours, placePilots, searchFound, searchNames, sourceItems, twinsOf, type Field, type PilotSummary, type V2Feed, type V2FeedRow } from "../lib/v2/model";
   import { md, sanitizeHtml } from "../lib/markdown";
   import { Readability } from "@mozilla/readability";
   import { openExternal } from "../lib/native";
@@ -358,7 +358,7 @@
       mentionRecentItems = more ? [...mentionRecentItems, ...items.filter((m) => !seen.has(m.id))] : items;
       mentionRecentNext = next;
       // the search, open and empty, lists them too: the first is in hand
-      if (!more && searching && !query.trim()) { active = 0; showRecent(); sayActive(); }
+      if (!more && searching && !query.trim()) { active = 0; showActive(); sayActive(); }
     })
       .catch(() => { mentionRecentError = true; }).finally(() => { mentionRecentLoading = false; });
   }
@@ -1047,38 +1047,73 @@
    * source as a walked feed row is, over what it mentions. A source the feed
    * doesn't hold mentions nothing here: it sits where you are. */
   const recentShown = $derived(searching && !query.trim() ? mentionRecentItems : []);
+  /** Typed, the field's names come first (nine at most), then `found`: what
+   * answers by title — the field's sources and the recents in hand at once —
+   * and the vault's own search (/api/search, as the @ menu has it: older
+   * sources, a joined vault's, a match in the text) once it answers. A
+   * source isn't an entity, so the names alone never find one. */
+  const named = $derived(matches.slice(0, 9));
+  const fieldSources = $derived(field ? sourceItems(field) : []);
+  /** The vault search's last answer, and the query it answered. */
+  let vaultHits: { q: string; items: MentionItem[] } = $state({ q: "", items: [] });
+  /** The vault's search is out for the query: "nothing" waits for it. */
+  let finding = $state(false);
+  let findTimer: ReturnType<typeof setTimeout> | undefined;
+  let findAbort: AbortController | undefined;
+  const found = $derived.by(() => {
+    const q = query.trim();
+    if (!searching || !field || !q) return [];
+    // an answer to an earlier query keeps what still answers by title, so the list doesn't blink as you type
+    const fresh = vaultHits.q === q;
+    return searchFound(field, q, matches, [...fieldSources, ...mentionRecentItems, ...(fresh ? [] : vaultHits.items)], fresh ? vaultHits.items : []);
+  });
+  /** What's listed below the names: the recents, or what the typed search found. */
+  const items = (): MentionItem[] => (query.trim() ? found : recentShown);
+  const itemAt = (k: number): MentionItem | undefined => (k < named.length ? undefined : items()[k - named.length]);
+  const rowCount = () => named.length + items().length;
   const nodeAt = $derived.by(() => {
     const at = new Map<string, number>();
     for (const n of (field as Field | null)?.nodes ?? []) if (n.path) at.set(n.path, n.i);
     return at;
   });
-  /** The recent source in hand, drawn in the field as the walk's row is. */
+  /** The source in hand (a recent, or one found), drawn in the field as the walk's row is. */
   let recentRow: V2SortedRow | null = $state(null);
   const rowFor = (m: MentionItem): V2SortedRow => sorted.find((r) => r.path === m.id)
-    ?? { source: m.id, section: "know", headline: m.title, due: null, added: "", entities: [], title: m.title, path: m.id };
-  /** What the search lights: its matches, or, empty, the recents that are things in the field. */
-  const lit = (): number[] => (query.trim() ? matches : recentShown.flatMap((m) => { const i = nodeAt.get(m.id); return i == null ? [] : [i]; }));
-  const activeNode = (): number | null => {
-    if (query.trim()) return matches[active] ?? null;
-    const m = recentShown[active];
+    ?? { source: m.id, section: "know", headline: m.title, due: null, added: "", title: m.title, path: m.id,
+      // one the field draws mentions what its ties are
+      entities: field?.sources.find((s) => s.paths.includes(m.id))?.ties.map((i) => field!.nodes[i]!.id) ?? [] };
+  /** What the search lights: its matches, and the items listed that are things in the field. */
+  const lit = (): number[] => [...matches, ...items().flatMap((m) => { const i = nodeAt.get(m.id); return i == null ? [] : [i]; })];
+  /** Row `k` as a thing in the field: a name, or an item the field draws. */
+  const nodeOf = (k: number): number | null => {
+    if (k < named.length) return named[k]!;
+    const m = itemAt(k);
     return m ? nodeAt.get(m.id) ?? null : null;
   };
-  function showRecent(): void {
-    const m = recentShown[active], i = activeNode();
+  const activeNode = () => nodeOf(active);
+  /** The row in hand, in the field: a thing there is glided to, a source drawn as a walked feed row is. */
+  function showActive(): void {
+    const m = itemAt(active), i = activeNode();
     recentRow = m && i == null ? rowFor(m) : null;
     if (i != null) scene?.search({ matches: lit(), active: i, move: "glide" });
     else scene?.search({ matches: recentRow ? feedEntities(recentRow) : [], active: null, move: "none" });
   }
   function openSearch(): void {
-    searching = true; query = ""; matches = []; active = 0; recentRow = null; claim = null;
+    searching = true; query = ""; matches = []; active = 0; recentRow = null; claim = null; vaultHits = { q: "", items: [] };
     if (!data) loadMentionRecents();
-    showRecent();
+    showActive();
     sayActive();
     scene?.shift(shiftFor());
     void tick().then(() => qEl?.focus());
   }
+  function stopFind(): void {
+    clearTimeout(findTimer);
+    findAbort?.abort();
+    finding = false;
+  }
   function closeSearch(): void {
     searching = false; recentRow = null;
+    stopFind();
     clearTimeout(sayTimer);
     scene?.search(null);
     scene?.shift(shiftFor());
@@ -1087,27 +1122,41 @@
   function runQuery(): void {
     if (!field) return;
     active = 0;
-    if (!query.trim()) { matches = []; showRecent(); sayActive(); return; }
+    stopFind();
+    const q = query.trim();
+    if (!q) { matches = []; showActive(); sayActive(); return; }
     recentRow = null;
     matches = searchNames(field, query);
-    scene?.search({ matches, active: matches[0] ?? null, move: "frame" });
+    if (matches.length || !found.length) scene?.search({ matches: lit(), active: matches[0] ?? null, move: "frame" });
+    else showActive();
     sayActive();
+    if (!data) find(q);
+  }
+  /** The vault's search for `q` once the keys settle; what it finds joins the list below the names. */
+  function find(q: string): void {
+    finding = true;
+    const ctl = (findAbort = new AbortController());
+    findTimer = setTimeout(async () => {
+      // a search that fails finds nothing
+      const items = await mentionSearch(q, ctl.signal).catch((): MentionItem[] => []);
+      if (ctl.signal.aborted || !searching || query.trim() !== q) return;
+      vaultHits = { q, items };
+      finding = false;
+      // the rows below the names are new: the one in hand is shown again
+      if (active >= named.length) { active = Math.min(active, Math.max(0, rowCount() - 1)); showActive(); sayActive(); }
+    }, 120);
   }
   function setActive(k: number): void {
-    if (query.trim()) {
-      const n = Math.min(matches.length, 9);
-      if (!n) return;
-      active = (k + n) % n;
-      scene?.search({ matches, active: matches[active]!, move: "glide" });
-    } else {
+    const n = rowCount();
+    if (!n) return;
+    if (query.trim()) active = (k + n) % n;
+    else {
       // the recents run on: no wrapping round, and near their end the next page comes
-      const n = recentShown.length;
-      if (!n) return;
       active = Math.max(0, Math.min(n - 1, k));
       if (active >= n - 3) loadMentionRecents(true);
-      showRecent();
-      void tick().then(() => searchEl?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: "nearest" }));
     }
+    showActive();
+    void tick().then(() => searchEl?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: "nearest" }));
     sayActive();
   }
   let sayTimer: ReturnType<typeof setTimeout> | undefined;
@@ -1125,20 +1174,12 @@
     sayTimer = setTimeout(() => void briefing(path, show).then((ok) => { if (!ok) show(); }), 350);
   }
   function commit(k = active): void {
-    if (!query.trim()) {
-      const m = recentShown[k];
-      if (!m) return;
-      const i = nodeAt.get(m.id);
-      searching = false; recentRow = null;
-      scene?.search(null);
-      if (i != null) openNode(i); else openSource(rowFor(m));
-      return;
-    }
-    const i = matches[k];
-    if (i == null) return;
-    searching = false;
+    const m = itemAt(k), i = nodeOf(k);
+    if (i == null && !m) return;
+    searching = false; recentRow = null;
+    stopFind();
     scene?.search(null);
-    openNode(i);
+    if (i != null) openNode(i); else openSource(rowFor(m!));
   }
   const metaOf = (i: number) => {
     const n = field!.nodes[i]!;
@@ -1312,10 +1353,19 @@
         <input bind:this={qEl} bind:value={query} oninput={() => runQuery()} placeholder="Find anything by name…" aria-label="Find by name" autocomplete="off" spellcheck="false" />
         <span class="k keyboard-hint">{keyText("search-close")}</span>
       </div>
+      {#snippet itemRow(m: MentionItem, k: number)}
+        {@const i = nodeAt.get(m.id)}
+        {@const parts = marked(m.title)}
+        <li role="option" aria-selected={k === active} onpointermove={() => { if (k !== active) setActive(k); }} onclick={() => commit(k)} onkeydown={() => {}}>
+          <span class="dot" class:src={i == null} style:--r={`${2.2 + Math.min(3.6, Math.log1p(i == null ? 0 : field!.nodes[i]!.degree) * 0.62)}px`}></span>
+          <span class="ttl">{parts[0]}<mark>{parts[1]}</mark>{parts[2]}</span>
+          <span class="meta">{[m.tag[0] + m.tag.slice(1).toLowerCase(), m.date].filter(Boolean).join(" · ")}</span>
+        </li>
+      {/snippet}
       {#if query.trim()}
-        {#if !matches.length}<p class="none">Nothing in your vault is called “{query.trim()}”.</p>{/if}
+        {#if !named.length && !found.length && !finding}<p class="none">Nothing in your vault is called “{query.trim()}”.</p>{/if}
         <ul role="listbox" aria-label="Matches">
-          {#each matches.slice(0, 9) as i, k (i)}
+          {#each named as i, k (i)}
             {@const parts = marked(field.nodes[i]!.label)}
             <li role="option" aria-selected={k === active} onmouseenter={() => setActive(k)} onclick={() => commit(k)} onkeydown={() => {}}>
               <span class="dot" style:--r={`${2.2 + Math.min(3.6, Math.log1p(field.nodes[i]!.degree) * 0.62)}px`}></span>
@@ -1323,18 +1373,12 @@
               <span class="meta">{metaOf(i)}</span>
             </li>
           {/each}
+          {#each found as m, k (m.id)}{@render itemRow(m, named.length + k)}{/each}
         </ul>
       {:else}
         {#if recentShown.length}
           <ul role="listbox" aria-label="Recently added" onscroll={(e) => { const el = e.currentTarget; if (el.scrollHeight - el.scrollTop - el.clientHeight < 80) loadMentionRecents(true); }}>
-            {#each recentShown as m, k (m.id)}
-              {@const i = nodeAt.get(m.id)}
-              <li role="option" aria-selected={k === active} onpointermove={() => { if (k !== active) setActive(k); }} onclick={() => commit(k)} onkeydown={() => {}}>
-                <span class="dot" class:src={i == null} style:--r={`${2.2 + Math.min(3.6, Math.log1p(i == null ? 0 : field.nodes[i]!.degree) * 0.62)}px`}></span>
-                <span class="ttl">{m.title}</span>
-                <span class="meta">{[m.tag[0] + m.tag.slice(1).toLowerCase(), m.date].filter(Boolean).join(" · ")}</span>
-              </li>
-            {/each}
+            {#each recentShown as m, k (m.id)}{@render itemRow(m, k)}{/each}
           </ul>
         {:else}
           <!-- nothing while they load: the box is the search until they come -->
