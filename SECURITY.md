@@ -22,7 +22,9 @@ report suspected vulnerabilities even if an update is not possible.
   and first-run server bind to loopback and require a session secret the app
   creates at each launch, in an owner-only file under `~/.config/bigbrain/`;
   the app's window and `bigbrain open` give it to a browser as a cookie.
-  Pilot's tools are denied that folder. Other local programs that can read
+  Pilot's tools are denied that folder, and so are coding desktops'
+  commands. The same folder holds arrivals the intake firewall has not
+  screened yet (`deploy/firewall/README.md`). Other local programs that can read
   your account's files can read the secret, so they remain trusted. Do not
   expose these servers through a public reverse proxy or share their
   forwarded ports with untrusted users.

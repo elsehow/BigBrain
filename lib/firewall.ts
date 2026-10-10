@@ -1,5 +1,6 @@
 /** The intake firewall. Every arrival is put to Jev (TypeSafe's SystemOne
- * API, lib/sharedJev.ts) BEFORE anything persists it. One yes/no question:
+ * API, lib/sharedJev.ts) BEFORE anything lands or stages it; until then it
+ * waits in the sealed arrivals queue (lib/arrivals.ts). One yes/no question:
  * does it carry a credential? If that clears its threshold the item is
  * WITHHELD: not landed, not staged, never read by an agent. The one trace it
  * leaves is a metadata line (source, sender, date, reason, scores — never the
@@ -9,8 +10,8 @@
  * The threat this exists for is a password-reset email: an agent that can
  * request a reset and then read the link out of the record owns the
  * account. So the gate fails CLOSED — an unreachable endpoint withholds
- * nothing and admits nothing; the caller retries (a poller leaves the item
- * at its source) or refuses (a drop says so).
+ * nothing and admits nothing; the arrival stays queued, and lands once the
+ * endpoint answers (lib/door.ts).
  *
  * On whenever a Jev key is set (the one key store, lib/jevSettings.ts),
  * unless the owner turned it off (`security.firewall: false`); with no key it

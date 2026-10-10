@@ -44,7 +44,7 @@ import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { expiredMessage, hasScope, noteExpiredUse, touchLastUsed, verifyToken, type TokenRecord } from "./auth";
 import { ensureDir, writeAtomic } from "./fsx";
-import { dropErrorStatus, FirewallUnavailable } from "./door";
+import { dropErrorStatus, Queued } from "./door";
 import { IntakeError } from "./intake";
 import { landDirective, landDrop } from "./landItem";
 import { jailMemoryPath, noteMarkdownText, notePayload } from "./noteRead";
@@ -549,7 +549,9 @@ async function dropHandler({
       attachments,
     });
   } catch (e) {
-    if (e instanceof IntakeError || e instanceof FirewallUnavailable) return json(dropErrorStatus(e), { error: e.message });
+    // accepted: it waits for the firewall, and lands once it answers
+    if (e instanceof Queued) return json(202, { queued: true, id: e.id });
+    if (e instanceof IntakeError) return json(dropErrorStatus(e), { error: e.message });
     throw e;
   }
 

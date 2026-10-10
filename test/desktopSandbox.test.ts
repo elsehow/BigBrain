@@ -5,6 +5,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { canonical, confinement, DEFAULT_HOSTS, Harbor, scopeOf, workspace } from "../packages/agents/src";
 import { hostAgents } from "../lib/agentHost";
+import { arrivalsBase } from "../lib/arrivals";
 import { CodingDesktops } from "../lib/codingDesktops";
 import { desktopHosts, enginePorts, hostEntry, sandboxPolicy, saveDesktopHosts, savedDesktopHosts } from "../lib/desktopNetwork";
 import { nativeVault } from "./support/vault";
@@ -49,7 +50,8 @@ describe("what desktops' commands are kept from", () => {
     const root = vault(), ws = scratch();
     const denied = sandboxPolicy(root, ws).deny!();
     for (const p of [canonical(root), join(canonical(root), ".env"), join(canonical(root), ".spool"), join(canonical(root), ".state"),
-      join(homedir(), ".ssh"), join(homedir(), ".config", "gh"), join(homedir(), ".config", "bigbrain", "viewer-session-4747"), join(homedir(), "Library", "Mail"), join(homedir(), "Library", "Application Support", "Google", "Chrome")])
+      join(homedir(), ".ssh"), join(homedir(), ".config", "gh"), join(homedir(), ".config", "bigbrain", "viewer-session-4747"),
+      join(homedir(), ".config", "bigbrain", "arrivals", "0123456789ab", "queue"), join(arrivalsBase(), "0123456789ab", "queue"), join(homedir(), "Library", "Mail"), join(homedir(), "Library", "Application Support", "Google", "Chrome")])
       expect({ p, covered: [...denied].map(canonical).some(d => canonical(p) === d || canonical(p).startsWith(`${d}/`)) }).toEqual({ p, covered: true });
     const inside = join(root, "agents");
     mkdirSync(inside);
@@ -69,6 +71,16 @@ describe("what desktops' commands are kept from", () => {
     const r = await h.run("desk-home", [...secrets, ".config/orrery/settings.toml"].map(f => `cat "$HOME/${f}" >/dev/null 2>&1 && echo "read ${f}" || echo "refused ${f}"`).join("; "),
       ws.root, undefined, confinement(ws, "desk-home", false));
     expect(r.output.trim().split("\n")).toEqual([...secrets.map(f => `refused ${f}`), "read .config/orrery/settings.toml"]);
+  });
+
+  test.if(mac)("in the real sandbox: arrivals waiting for the firewall are unreadable", async () => {
+    const root = vault(), ws = workspace(scratch());
+    const waiting = join(arrivalsBase(), "0123456789ab", "queue", "invented.json");
+    mkdirSync(join(waiting, ".."), { recursive: true });
+    writeFileSync(join(waiting), "invented\n");
+    const h = new Harbor({ env: { PATH: process.env.PATH, HOME: homedir() }, scope: scopeOf(ws.root), policy: sandboxPolicy(root, ws.root) });
+    const r = await h.run("desk-arrivals", `cat '${waiting}' >/dev/null 2>&1 && echo read || echo refused`, ws.root, undefined, confinement(ws, "desk-arrivals", false));
+    expect(r.output.trim()).toBe("refused");
   });
 
   test.if(mac)("a host's desktop can't read the vault or reach the engine; a local port the person adds it can", async () => {

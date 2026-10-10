@@ -102,13 +102,28 @@ export interface IntakeReceipt {
   deduped: boolean;
 }
 
+const cleanName = (name: string): string => (name || "attachment").replace(/[/\\]/g, "_").replace(/^\.+/, "_");
+const withLinks = (text: string, links: string[]): string =>
+  links.length ? `${text.replace(/\n+$/, "")}\n\n${links.join("\n\n")}\n` : text;
+const empty = (): IntakeError => new IntakeError("empty", "empty item — nothing landed");
+const tooLarge = (): IntakeError => new IntakeError("too-large", `item exceeds ${MAX_BYTES} bytes — refused`);
+
+/** What `receive` would refuse, asked before anything is kept: an empty
+ * item, or item text over the cap once its attachment links are added. The
+ * door asks first, so a refusal never waits in the arrivals queue. */
+export function checkItem(content: string, attachments: readonly Attachment[] = []): void {
+  if (!content.trim()) throw empty();
+  const links = attachments.map((a) => blobLink(cleanName(a.name), sha256hex(Buffer.from(a.b64, "base64"))));
+  if (Buffer.byteLength(withLinks(content, links)) > MAX_BYTES) throw tooLarge();
+}
+
 /** Land one item. The insertion event is the durable side effect (#496 — no
  * references/ projection); a dedup hit (#136) suppresses it. */
 export function receive(opts: ReceiveItemOpts): IntakeReceipt {
   const { root, attachments = [] } = opts;
   let content = opts.content;
   let raw = opts.raw ?? opts.content;
-  if (!content.trim()) throw new IntakeError("empty", "empty item — nothing landed");
+  if (!content.trim()) throw empty();
 
   // Attachments first, so the item text can link them. They land in the
   // CAS keyed by their own sha256; the body links `blob:<sha256>` and the
@@ -120,23 +135,19 @@ export function receive(opts: ReceiveItemOpts): IntakeReceipt {
   // record. Only the item TEXT below is capped: that lands in
   // the insertion log and rides git forever.
   const attRefs: AttachmentRef[] = [];
-  if (attachments.length) {
-    const links: string[] = [];
-    for (const att of attachments) {
-      const clean = (att.name || "attachment").replace(/[/\\]/g, "_").replace(/^\.+/, "_");
-      const buf = Buffer.from(att.b64, "base64");
-      const put = putBlob(root, buf);
-      attRefs.push({ name: clean, sha256: put.sha256, bytes: put.bytes, mime: mimeFor(clean) });
-      links.push(blobLink(clean, put.sha256));
-    }
-    content = `${content.replace(/\n+$/, "")}\n\n${links.join("\n\n")}\n`;
-    // the dedup identity sees the same links: same text + different
-    // attachments must hash differently
-    raw = `${raw.replace(/\n+$/, "")}\n\n${links.join("\n\n")}\n`;
+  const links: string[] = [];
+  for (const att of attachments) {
+    const clean = cleanName(att.name);
+    const put = putBlob(root, Buffer.from(att.b64, "base64"));
+    attRefs.push({ name: clean, sha256: put.sha256, bytes: put.bytes, mime: mimeFor(clean) });
+    links.push(blobLink(clean, put.sha256));
   }
+  content = withLinks(content, links);
+  // the dedup identity sees the same links: same text + different
+  // attachments must hash differently
+  raw = withLinks(raw, links);
 
-  if (Buffer.byteLength(content) > MAX_BYTES)
-    throw new IntakeError("too-large", `item exceeds ${MAX_BYTES} bytes — refused`);
+  if (Buffer.byteLength(content) > MAX_BYTES) throw tooLarge();
 
   const landing = landReference(root, content, { attachments: attRefs, sha256: sha256hex(raw) });
   if (!landing.deduped) commitLanding(root, landing);

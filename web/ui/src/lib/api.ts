@@ -265,7 +265,7 @@ export const api = {
     content: string,
     attachments?: DropAttachment[],
     onProgress?: (leg: "encode" | "upload", done: number, total: number) => void
-  ): Promise<{ path: string; via: string; id?: string; ref_path?: string }> => {
+  ): Promise<{ path: string; via: string; id?: string; ref_path?: string; queued?: boolean }> => {
     const body = await dropBody(
       name,
       content,
@@ -286,7 +286,7 @@ export const api = {
         xhr.send(body);
       }
     );
-    let j: { path?: string; via?: string; id?: string; ref_path?: string; error?: string } = {};
+    let j: { path?: string; via?: string; id?: string; ref_path?: string; queued?: boolean; error?: string } = {};
     try {
       j = JSON.parse(text);
     } catch {
@@ -295,7 +295,10 @@ export const api = {
     if (status < 200 || status >= 300)
       throw new Error(j.error ?? `${status}: ${text.slice(0, 120) || "drop failed"}`);
     // `ref_path` is the landed insertion event's own vault path — the note
-    // the picture opens on the arrival (DropZone, 2026-09-06)
+    // the picture opens on the arrival (DropZone, 2026-09-06). A queued drop
+    // (202) has none yet: it waits for the firewall, and its id is the
+    // arrival's, not a reference's.
+    if (j.queued) return { path: "", via: j.via ?? "", queued: true };
     return { path: j.path ?? "", via: j.via ?? "", ...(j.id ? { id: j.id } : {}), ...(j.ref_path ? { ref_path: j.ref_path } : {}) };
   },
   /** Enqueue a DIRECTIVE — prose about refs, addressed to the editor. This

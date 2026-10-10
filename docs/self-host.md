@@ -232,8 +232,9 @@ a consistent recovery copy or rebuilding caches. Preserve `.spool/` unchanged:
 receipts prevent duplicate effects, and interrupted actions may remain uncertain.
 Restoring history is not permission to replay them. Pi credentials live separately
 in `~/.pi/agent/auth.json` (or `PI_CODING_AGENT_DIR`); reconnect subscriptions if
-restoring onto a new machine. Machine settings and the vault pointer are outside
-the vault too. See [action recovery](application-actions.md).
+restoring onto a new machine. Machine settings, the vault pointer and
+`~/.config/bigbrain/arrivals/` (arrivals waiting for the intake firewall) are
+outside the vault too. See [action recovery](application-actions.md).
 
 `.state/` holds rebuildable indexes and ephemeral process state. Memory's
 schedule and observed-event checkpoint recover from `journal/memory/`.
@@ -250,7 +251,7 @@ Quit the app and drag `BigBrain.app` to the trash, then:
 
 ```sh
 rm -f ~/.local/bin/bigbrain ~/.config/bigbrain/vault ~/.config/bigbrain/telemetry.json
-rm -rf ~/.config/bigbrain/tokens ~/.config/bigbrain/client-tokens.json ~/.config/bigbrain/reads
+rm -rf ~/.config/bigbrain/tokens ~/.config/bigbrain/client-tokens.json ~/.config/bigbrain/reads ~/.config/bigbrain/arrivals
 claude plugin uninstall bigbrain@bigbrain
 ```
 

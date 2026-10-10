@@ -28,6 +28,10 @@ delete process.env["TYPESAFE_API_KEY"];
 // calls must never land in the developer's.
 process.env["BIGBRAIN_READ_LOG"] = mkdtempSync(join(tmpdir(), "bb-test-reads-"));
 
+// So does the arrivals queue (lib/arrivals.ts): a test's arrivals must never
+// wait in the developer's.
+process.env["BIGBRAIN_ARRIVALS"] = mkdtempSync(join(tmpdir(), "bb-test-arrivals-"));
+
 // Catalog refresh is automatic in production; tests must explicitly inject a
 // fabricated transport before opting into model metadata network behavior.
 process.env.PI_OFFLINE = "1";

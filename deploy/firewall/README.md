@@ -1,21 +1,32 @@
 # The intake firewall
 
-Every arrival — a drop, a clip, an email, a meeting — is screened by Jev
-(TypeSafe's SystemOne API) before anything stores it (`lib/door.ts`,
-`lib/firewall.ts`). One yes/no question: does it carry a **credential** — a
+Every arrival — a drop, a clip, an email, a meeting — is queued, then
+screened by Jev (TypeSafe's SystemOne API) before anything lands or stages it
+(`lib/door.ts`, `lib/firewall.ts`). One yes/no question: does it carry a **credential** — a
 password, key, token, one-time or verification code, recovery codes, or a
 password-reset, magic sign-in or verification link?
 
-Over the threshold and the item is **withheld**: not landed, not staged
-for the gardener, never read by any agent. One line goes to
+Over the threshold and the item is **withheld**: deleted from the queue, not
+landed, not staged for the gardener, never read by any agent. One line goes to
 `.spool/firewall/withheld.jsonl` — source, sender, date, reason, scores; never
 the subject or body — so a false positive is visible.
 
 The threat it exists for: an agent that can request a password reset and then
 read the link out of the vault owns the account. So it fails **closed**: if
-Jev cannot answer (unreachable, an error, out of credits), nothing gets in — a
-drop is refused (HTTP 503), a poller leaves the item at its source and retries
-next tick.
+Jev cannot answer (unreachable, an error, out of credits), nothing gets in.
+The arrival waits in the queue instead, whatever it came from: a drop is
+answered "queued" (HTTP 202), a poller moves on, and the supervisor's arrivals
+job (`bin/arrivals.ts`) tries again every minute, landing it once Jev answers.
+
+## The arrivals queue
+
+Every arrival is queued first (`lib/arrivals.ts`), so an unscreened item
+does sit on disk until Jev answers. The queue is kept where no agent can read
+it: outside the vault, in owner-only files under
+`~/.config/bigbrain/arrivals/`, which Pilot and coding desktops are denied
+like a credential store. An arrival leaves the queue once it is screened. What
+became of it (landed, staged, withheld), never its content, is kept for a
+week, so a sender can be told and a resend is not screened twice.
 
 ## On and off
 

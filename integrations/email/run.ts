@@ -37,7 +37,7 @@ import { requireIntegrationEnabled } from "../../lib/integrationPoll";
 import { loadManifest } from "../../lib/manifest";
 import { ownerLabelsFor } from "../../lib/assertionAgent";
 import { friendlyImapError as friendly } from "../../lib/imapProbe";
-import { hold } from "../../lib/door";
+import { queueFind, settle } from "../../lib/door";
 import { tryHold } from "../../lib/sqliteLock";
 import { emailConfig, passwordEnvKey, type EmailConfig, type Inbox } from "../../lib/emailConfig";
 import { readEmailState, writeEmailState, type EmailState } from "../../lib/emailState";
@@ -167,14 +167,15 @@ async function pickMailbox(client: ImapFlow): Promise<string> {
 }
 
 interface PollResult {
-  staged: number;
+  /** Found bodies, each in the arrivals queue (lib/door.ts). */
+  queued: string[];
   skipped: number;
   unfetched: number;
   note?: string;
 }
 
 /** One inbox, one connection: new UIDs past the cursor become heads, a
- * rule drops what it covers, the rest are fetched whole and staged. A body
+ * rule drops what it covers, the rest are fetched whole and queued. A body
  * the server would not give or the parser would not read is remembered
  * and retried on later polls, with durable failure status until resolved. */
 async function pollInbox(
@@ -186,7 +187,7 @@ async function pollInbox(
   now: Date,
   since: string | undefined
 ): Promise<PollResult> {
-  if (!integrationActive(root,"email",inbox.address)) return {staged:0,skipped:0,unfetched:0,note:"Not connected."};
+  if (!integrationActive(root,"email",inbox.address)) return {queued:[],skipped:0,unfetched:0,note:"Not connected."};
   const st = state.inboxes[inbox.address] ?? (state.inboxes[inbox.address] = {});
   const client = connect(inbox, pass);
   await client.connect();
@@ -249,7 +250,7 @@ async function pollInbox(
           else heads.set(h.uid, h);
         }
       }
-      let staged = 0;
+      const queued: string[] = [];
       const owed: { uid: number; tries: number }[] = (st.retry??[]).slice(HEADS_PER_POLL);
       const pending = [...heads.keys()];
       for (let i = 0; i < pending.length; i += BODIES_PER_FETCH) {
@@ -266,19 +267,16 @@ async function pollInbox(
             if (!integrationActive(root, "email", inbox.address)) throw new Error("Email integration became inactive.");
             const item = emailItem(h, toBody(parsed), now);
             if(discovered(h,item.id,item.content)){got.add(msg.uid);settled.add(msg.uid);skipped++;continue;}
-            if (
-              await hold(root, {
-                id: item.id,
-                source: "email",
-                account: inbox.address,
-                at: h.date,
-                line: headLine(h, cfg.inboxes.length),
-                name: item.name,
-                content: item.content,
-                attachments: inbox.provider!=="gmail" || policy.email?.attachments === true ? attachmentsOf(parsed) : [],
-              })
-            )
-              staged++;
+            queued.push(queueFind(root, {
+              id: item.id,
+              source: "email",
+              account: inbox.address,
+              at: h.date,
+              line: headLine(h, cfg.inboxes.length),
+              name: item.name,
+              content: item.content,
+              attachments: inbox.provider!=="gmail" || policy.email?.attachments === true ? attachmentsOf(parsed) : [],
+            }));
             got.add(msg.uid);settled.add(msg.uid);failed.delete(msg.uid);
           } catch (e) {
             log(`${inbox.address} uid ${h.uid}: body not parsed — ${friendly(e)}`);
@@ -301,7 +299,7 @@ async function pollInbox(
         retry: [...new Map(owed.filter(r=>!settled.has(r.uid)).map(r=>[r.uid,r])).values()],
       });
       return {
-        staged, skipped, unfetched: st.retry!.length,
+        queued, skipped, unfetched: st.retry!.length,
         ...(uids.length > batch.length ? { note: `${uids.length - batch.length} more wait for the next poll` } : {}),
       };
     } finally {
@@ -397,9 +395,20 @@ async function main(): Promise<void> {
       try {
         const r = await pollInbox(inbox, pass, state, cfg, known, now, since);
         st.last = { at: now.toISOString(), ok: r.unfetched===0, ...(r.unfetched?{error:`${r.unfetched} messages pending retry`}:{}) };
-        if (r.staged || r.skipped || r.note)
+        // Screened once the mailbox is closed. One the firewall cannot answer
+        // for stops the rest: they wait in the queue for the sweep.
+        let staged = 0, settled = 0;
+        for (const id of r.queued) {
+          const o = await settle(root, id);
+          if (o.state === "waiting") break;
+          settled++;
+          if (o.state === "staged" && o.fresh) staged++;
+        }
+        const waiting = r.queued.length - settled;
+        if (r.queued.length || r.skipped || r.note)
           log(
-            `${inbox.address}: ${r.staged} staged, ${r.skipped} already seen` +
+            `${inbox.address}: ${staged} staged, ${r.skipped} already seen` +
+              (waiting ? `, ${waiting} waiting for the firewall` : "") +
               (r.unfetched ? `, ${r.unfetched} body(ies) owed` : "") +
               (r.note ? ` — ${r.note}` : "")
           );
