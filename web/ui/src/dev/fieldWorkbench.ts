@@ -110,6 +110,8 @@ if (!empty) {
   graph = { ...graph, nodes: [...graph.nodes, ...nodes],
     edges: [...graph.edges, ...all.flatMap((src) => src.entities.map((target) => ({ source: `source:${src.id}`, target, weight: 1 })))] };
 }
+// in the vault, but neither drawn nor recent: only its search finds it
+const ARCHIVE = [{ path: "log/insertions/2026-03/ins_lighthouse.json", title: "Lighthouse keeper's log", text: "Fog all week; the lamp was relit twice.", at: "2026-03-14T10:00:00Z" }];
 const started = Date.now();
 const READ_MS = 2500;
 const CONTEXT: Record<string, () => string[]> = {
@@ -130,6 +132,14 @@ const fake = window.fetch;
       .sort((a, b) => b.modified - a.modified);
     const offset = Number(url.searchParams.get("offset") ?? 0), limit = Number(url.searchParams.get("limit") ?? 40);
     return json({ recent: rows.slice(offset, offset + limit), total: rows.length, nextOffset: offset + limit < rows.length ? offset + limit : null });
+  }
+  // the vault's search, for what neither the field nor the recents hold: an
+  // older source, found by its title or its text
+  if (url.pathname === "/api/search") {
+    const q = (url.searchParams.get("q") ?? "").toLowerCase();
+    const hits = (empty ? [] : ARCHIVE).filter((a) => `${a.title} ${a.text}`.toLowerCase().includes(q))
+      .map((a) => ({ dir: "log/insertions", note: { path: a.path, name: a.path.split("/").at(-1)!, modified: Date.parse(a.at), size: 0 }, title: a.title, snippet: a.text }));
+    return json({ query: q, hits, nextOffset: null });
   }
   if (twinScene && url.pathname === "/api/entity/folds") return json({ proposedAt: "2026-10-05T09:00:00.000Z", model: "claude-x", groups: proposals, rejected: apart });
   if (twinScene && url.pathname === "/api/entity/folds/reject") {
