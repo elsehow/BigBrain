@@ -703,11 +703,16 @@
 
   async function load(): Promise<void> {
     try {
+      // The renderer is on the first frame's path: fetch it alongside the
+      // data, not after it. drawField's own import reports a failure.
+      import("../lib/v2/scene").catch(() => {});
       const [graph, sq] = data ? [data.graph, data.v2] : await Promise.all([api.graph(), api.v2()]);
       writing = sq;
       refreshSorted();
-      if (!data) void loadFolds();
       await drawField(graph);
+      // Fold proposals run a census on the server; asked before the frame,
+      // they held the renderer's download behind it.
+      if (!data) void loadFolds();
     } catch (e) {
       error = errText(e);
     }
