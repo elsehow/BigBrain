@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createLive, recoverInBackground, type LiveClient, type LiveWatchFn, WATCHED } from "../lib/liveEvents";
-import { assertionProjectionStats, syncAssertionProjection } from "../lib/assertionProjection";
+import { assertionProjectionStats, projectSourceInsertion, syncAssertionProjection } from "../lib/assertionProjection";
 import { appendSourceInsertionEvent } from "../lib/insertionLog";
 import { insertion, mdVault } from "./support/vault";
 
@@ -269,6 +269,28 @@ describe("createLive — lifecycle", () => {
     const live = createLive({ root, refresh: () => {}, heartbeatMs: 60_000 });
     live.start();
     live.stop(); // no leaked watcher/interval — bun test hangs if this fails
+  });
+});
+
+describe("createLive — what a log change costs", () => {
+  test("an engine write is one lookup; only a file nothing projected recovers", async () => {
+    const root = mdVault();
+    let recoveries = 0;
+    const live = createLive({ root, watch: () => ({ close() {} }), refresh: () => {}, warmLayout: () => {},
+      recover: async () => { recoveries++; return false; }, debounceMs: 5, heartbeatMs: 60_000 });
+    try {
+      appendSourceInsertionEvent(root, insertion({ id: `ins_${"a".repeat(24)}`, source_id: "a" }));
+      synced(root);
+      live.start(); await sleep(10);
+      expect(recoveries).toBe(1); // boot
+      const landed = insertion({ id: `ins_${"b".repeat(24)}`, source_id: "b" });
+      const b = appendSourceInsertionEvent(root, landed); projectSourceInsertion(root, landed);
+      live.handleChange(b.path); await sleep(30);
+      expect(recoveries).toBe(1); // projected as written: no census
+      const c = appendSourceInsertionEvent(root, insertion({ id: `ins_${"c".repeat(24)}`, source_id: "c" }));
+      live.handleChange(c.path); await sleep(30);
+      expect(recoveries).toBe(2); // nothing projected it
+    } finally { live.stop(); rmSync(root, { recursive: true, force: true }); }
   });
 });
 

@@ -22,7 +22,7 @@ import { isAbsolute, relative, sep } from "node:path";
 import { BROWSE_ROOTS } from "./browsePaths";
 import { isLedgerPath } from "./retrieval";
 import { invalidateGraphCaches, warmGraphLayoutAsync } from "./graphCache";
-import { claimProjectionRecovery, syncAssertionProjection } from "./assertionProjection";
+import { claimProjectionRecovery, projectionHolds, syncAssertionProjection } from "./assertionProjection";
 import { background } from "./readModelBackground";
 import { readModelRevision } from "./vaultReadModel";
 
@@ -100,6 +100,9 @@ export interface LiveOptions {
    * like `refresh`: a fan-out test must not spawn a worker. Resolves whether
    * it changed the projection. */
   recover?: (root: string) => Promise<boolean>;
+  /** Whether the projection holds the log files a change named;
+   * projectionHolds by default. Recovery runs only when it does not. */
+  holds?: (root: string, rels: Iterable<string>) => boolean;
   /** A pull touches many files at once — one ping covers them. */
   debounceMs?: number;
   /** Comment-only heartbeat so idle connections aren't reaped by timeouts. */
@@ -126,6 +129,7 @@ export function createLive(opts: LiveOptions): Live {
     refresh = syncAssertionProjection,
     warmLayout = warmGraphLayoutAsync,
     recover = recoverInBackground,
+    holds = projectionHolds,
     debounceMs = 300,
     heartbeatMs = 30_000,
     log = (msg) => console.error(msg),
@@ -141,7 +145,8 @@ export function createLive(opts: LiveOptions): Live {
   let watchGeneration = 0;
 
   let revision = 0;
-  let logsTouched = false;
+  const changedLogs = new Set<string>();
+  let watcherLost = false;
   let stopped = false;
   let usageTimer: ReturnType<typeof setTimeout> | null = null;
   let progressTimer: ReturnType<typeof setTimeout> | null = null;
@@ -182,7 +187,7 @@ export function createLive(opts: LiveOptions): Live {
     // the search index twice a second for as long as the tab stays open
     // (#247/#248).
     if (isLedgerPath(rel) || stopped) return;
-    if (first === "log") logsTouched = true;
+    if (first === "log") changedLogs.add(rel);
     announce();
   }
 
@@ -194,11 +199,14 @@ export function createLive(opts: LiveOptions): Live {
     pingTimer = setTimeout(async () => {
       pingTimer = null;
       const current = revision;
-      // Engine writes have projected themselves already; a log file that
-      // did not (written by hand, or by a process that died mid-landing)
-      // heals here, in a worker, before the graph is rebuilt.
-      if (logsTouched) {
-        logsTouched = false;
+      // Engine writes have projected themselves already: each changed log
+      // file is one indexed lookup. Only one that did not (written by hand,
+      // or by a process that died mid-landing), or a lost watcher, costs the
+      // census — in a worker, before the graph is rebuilt.
+      const lost = watcherLost, logs = [...changedLogs];
+      watcherLost = false;
+      changedLogs.clear();
+      if (lost || (logs.length && !holds(root, logs))) {
         try {
           await recover(root);
         } catch {
@@ -253,7 +261,10 @@ export function createLive(opts: LiveOptions): Live {
       const path = (err as NodeJS.ErrnoException & { path?: string }).path;
       if (path) {
         const rel = relative(root, path);
-        if (!isAbsolute(rel) && rel !== ".." && !rel.startsWith(`..${sep}`)) handleChange(rel);
+        if (!isAbsolute(rel) && rel !== ".." && !rel.startsWith(`..${sep}`)) {
+          watcherLost = true; // what it missed meanwhile, no event will name
+          handleChange(rel);
+        }
       }
       watchGeneration++;
       watcher?.close();
