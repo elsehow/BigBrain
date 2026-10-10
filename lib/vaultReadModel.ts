@@ -14,6 +14,9 @@ import { withProjectionWrite } from "./projectionWriteLock";
 import type { RecentEntry } from "./viewTypes";
 import { threadsByInsertion, type SourceThread } from "./sourceThreads";
 import { supersededInsertionIds, liveAssertionSql, liveSourceSql } from "./sourceSupersede";
+import { copyCandidates, copyCutoff, foldCopyEvents, PROPOSE_FLOOR, sourceCopies, type CopyWhy, type SourceCopies } from "./sourceCopies";
+import { copyPairKey, type SourceCopyEvent } from "./sourceCopyLog";
+import { proseChars, STUB_CHARS } from "./text";
 import { aboutIds, VOICE_KINDS } from "./voiceFacts";
 import { markVaultChanged, vaultChangeVersion } from "./vaultChanges";
 import { Database } from "bun:sqlite";
@@ -36,6 +39,8 @@ export interface VaultRecord extends SourceRecord {
   /** The latest entity↔source declaration per pair (lib/entitySourceLog.ts),
    * oldest first; `bound: false` ones are unbindings. */
   entitySources: EntitySourceEvent[];
+  /** Copies of one document (lib/sourceCopies.ts), by insertion id. */
+  copies: Map<string, SourceCopies<SourceSummary>>;
   revoked: Map<string, RevocationEvent>;
 }
 const reconciled = new Map<string, { change: number; at: number }>();
@@ -43,6 +48,7 @@ interface DecodedRevision {
   revision: string;
   record?: VaultRecord;
   sources?: SourceRecord;
+  copies?: CopiesRecord;
   catalog?: { sources: SourceMetadata[]; threads: SourceThread<SourceMetadata>[] };
   memory?: { inss: SourceMetadata[]; asserted: AssertionEvent[]; voice: SourceInsertion[];
     revocations: RevocationEvent[]; aliases: EntityAliasEvent[] };
@@ -158,8 +164,81 @@ export function vaultRecord(root: string, reconcile = false): VaultRecord {
     const documents = (db.query("SELECT header_json AS document_json FROM markdown_documents ORDER BY path").all() as { document_json: string }[]).map(r => JSON.parse(r.document_json) as MarkdownIdentity);
     const documentLinks = new Map((db.query("SELECT path, links_json, citations_json FROM document_links").all() as { path: string; links_json: string; citations_json: string }[])
       .map(r => [r.path, { links: JSON.parse(r.links_json), citations: JSON.parse(r.citations_json) } as ParsedDocumentLinks]));
-    return held.record = { ...sources, documents, documentLinks, rows, aliases, entitySources, revoked };
+    return held.record = { ...sources, documents, documentLinks, rows, aliases, entitySources, copies: sourceCopiesRecord(root), revoked };
   });
+}
+
+/** A pair that might be one document, still to settle: asked of a person,
+ * with the model's score once it has one. */
+export interface CopyProposal { a: string; b: string; score?: number }
+
+interface CopiesRecord {
+  groups: Map<string, SourceCopies<SourceSummary>>;
+  /** By insertion id: the proposals its document is part of. */
+  proposals: Map<string, CopyProposal[]>;
+  /** Candidates no model has scored and no person has settled. */
+  unjudged: [string, string][];
+}
+
+/** Copies of one document (lib/sourceCopies.ts) over live arrivals outside
+ * mail threads. Exact keys, an entity binding (a superseded landing followed
+ * to its live one, as the graph does), a person's "same" and a judgment at or
+ * above the cut-off link a pair; a person's "not the same" cuts it. */
+function copiesRecord(root: string): CopiesRecord {
+  return withVaultSnapshot(root, (db, revision) => {
+    const held = decodedRevision(root, revision);
+    if (held.copies) return held.copies;
+    const { sources, superseded, threadByInsertion } = sourceRecord(root);
+    const aliases = aliasesIn(db);
+    const live = new Map<string, string>();
+    for (const source of sources.values()) if (!superseded.has(source.id)) live.set(source.source_id, source.id);
+    const joins = new Map<string, string[]>();
+    for (const binding of entitySourcesIn(db)) {
+      const landed = binding.bound ? sources.get(binding.insertion_id) : undefined;
+      const id = landed && (superseded.has(landed.id) ? live.get(landed.source_id) : landed.id);
+      if (id) joins.set(id, [...(joins.get(id) ?? []), `entity:${(aliases.canonical.get(binding.entity.id) ?? binding.entity).id}`]);
+    }
+    const said = foldCopyEvents(decoded<SourceCopyEvent>(db, "SELECT event_json FROM source_copy_events"));
+    const cutoff = copyCutoff(said);
+    const pair = (key: string): [string, string] => key.split("|") as [string, string];
+    const pairs: [string, string, CopyWhy][] = [];
+    for (const [key, same] of said.declared) if (same) pairs.push([...pair(key), "you"]);
+    for (const [key, j] of said.judged) if (j.score >= cutoff && !said.declared.has(key)) pairs.push([...pair(key), "judged"]);
+    const body = db.query("SELECT body FROM sources WHERE insertion_id = ?");
+    const works = [...sources.values()].filter((s) => !superseded.has(s.id) && !threadByInsertion.has(s.id));
+    const groups = sourceCopies(works, {
+      joins, pairs, apart: (a, b) => said.declared.get(copyPairKey(a, b)) === false,
+      stub: (source) => proseChars((body.get(source.id) as { body: string } | null)?.body ?? "") < STUB_CHARS,
+    });
+    const proposals = new Map<string, CopyProposal[]>(), unjudged: [string, string][] = [];
+    const members = (id: string): string[] => groups.get(id)?.members.map((m) => m.id) ?? [id];
+    for (const [a, b] of copyCandidates(works)) {
+      const key = copyPairKey(a, b), group = groups.get(a), judged = said.judged.get(key);
+      if (said.declared.has(key) || (group && group === groups.get(b))) continue;
+      if (!judged) unjudged.push([a, b]);
+      else if (judged.score < PROPOSE_FLOOR) continue;
+      const proposal: CopyProposal = { a, b, ...(judged ? { score: judged.score } : {}) };
+      for (const id of [...members(a), ...members(b)]) {
+        const held = proposals.get(id);
+        if (held) held.push(proposal); else proposals.set(id, [proposal]);
+      }
+    }
+    return held.copies = { groups, proposals, unjudged };
+  });
+}
+
+/** Copies of one document (lib/sourceCopies.ts), by insertion id. */
+export const sourceCopiesRecord = (root: string): Map<string, SourceCopies<SourceSummary>> => copiesRecord(root).groups;
+
+/** The pairs still to settle that a source's document is part of. */
+export const copyProposals = (root: string, insertionId: string): CopyProposal[] => copiesRecord(root).proposals.get(insertionId) ?? [];
+
+/** Candidates for the judging pass (lib/sourceCopyJudge.ts). */
+export const unjudgedCopies = (root: string): [string, string][] => copiesRecord(root).unjudged;
+
+/** A source's other copies, best first; none when it has none. */
+export function otherCopies(root: string, insertionId: string): SourceSummary[] {
+  return (sourceCopiesRecord(root).get(insertionId)?.members ?? []).filter((copy) => copy.id !== insertionId);
 }
 
 /** Publish derived rows only for the revision from which they were prepared.
@@ -244,7 +323,10 @@ export function entityReadModel(root: string, asked: string) {
       ORDER BY a.created_at, a.id`, JSON.stringify(ids));
     const declarations = identityAssertions(db);
     const sources = sourcesFor(db, [...rows, ...declarations]);
-    return { revision, id, aliases, rows, sources, bound: boundSources(db, ids), owner: userIdentityDeclarationsFromEvents(declarations, sources).at(-1) };
+    const bound = boundSources(db, ids);
+    // the copies the bound sources belong to, best first, an unbound copy included
+    const documents = bound.map((source) => sourceCopiesRecord(root).get(source.id)).find((c) => c)?.members ?? bound;
+    return { revision, id, aliases, rows, sources, bound: documents, owner: userIdentityDeclarationsFromEvents(declarations, sources).at(-1) };
   });
 }
 /** The sources an entity IS (lib/entitySourceLog.ts), bound under any of its

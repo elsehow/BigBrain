@@ -64,6 +64,9 @@ export interface ProjectedSourceEntity {
 
 /** ProjectedEntityAssertion's twin for the source note: the meta is the
  * entities, since the grounding source is the page itself. */
+/** lib/sourceCopies.ts's CopyWhy, verbatim. */
+export type CopyWhy = "you" | "file" | "paper" | "address" | "entity" | "judged";
+
 /** lib/sourceOrigin.ts's SourceOrigin, verbatim. */
 export type SourceOrigin =
   | { kind: "url"; url: string }
@@ -94,6 +97,14 @@ export interface NoteResult {
    * page it was clipped from, the original file a drop carried. Present
    * on every source insertion, null when it has none; absent elsewhere. */
   origin?: SourceOrigin | null;
+  /** Every original the same document's copies hold (lib/sourceCopies.ts),
+   * this source's first, each with the copy that opens it. Present on every
+   * source insertion. */
+  origins?: (SourceOrigin & { path: string })[];
+  /** The same document's other copies, each with why when linked directly
+   * (lib/sourceCopyReview.ts), and documents it might also be. */
+  copies?: { path: string; title: string; why?: CopyWhy }[];
+  proposals?: { path: string; title: string; score?: number }[];
   /** An agent wrote this source (lib/sourceFeed.ts agentWritten). Present on
    * every source insertion; the viewer loads remote images unasked only
    * where it is false. */

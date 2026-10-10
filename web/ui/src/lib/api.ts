@@ -203,8 +203,10 @@ export const api = {
   graph: () => get<GraphData>(U.graph()),
   /** The v2 view's who and what (lib/v2Feed.ts): agents and the latest assertions. */
   v2: () => get<import("./v2/model").V2Feed>("/api/v2"),
-  /** The sorted feed (lib/feedStage.ts); empty when the vault has no feed. */
-  v2Sorted: () => get<{ rows: import("../../../../lib/v2Feed").V2SortedRow[] }>("/api/v2/sorted"),
+  /** A page of the sorted feed (lib/feedStage.ts), newest first; empty when
+   * the vault has no feed. `before` is the `next` of the page before. */
+  v2Sorted: (limit: number, before?: string | null) =>
+    get<import("../../../../lib/v2Feed").SortedPage>(`/api/v2/sorted?limit=${limit}${before ? `&before=${encodeURIComponent(before)}` : ""}`),
   /** One entity's latest assertions, dated by when each claim was first recorded. */
   v2Entity: (id: string) => get<{ rows: import("./v2/model").V2FeedRow[] }>(`/api/v2/entity?id=${encodeURIComponent(id)}`),
   folds: () => get<FoldsView>(U.folds()),
@@ -216,7 +218,9 @@ export const api = {
     post<{ member: { id: string; label: string }; against: { id: string; label: string }[] }>("/api/entity/folds/reject", { member, others }),
   /** OPEN a source's origin on this machine — the desktop door for a file
    * origin (lib/sourceOpen.ts); a URL origin the viewer opens itself. */
-  openSource: (path: string) => post<{ ok: true; opened: string }>("/api/source/open", { path }),
+  /** A person's word on two sources: one document, or not (lib/sourceCopyReview.ts). */
+  sourceCopies: (a: string, b: string, same: boolean) => post<unknown>("/api/source/copies", { a, b, same }),
+  openSource: (path: string, sha256?: string) => post<{ ok: true; opened: string }>("/api/source/open", { path, ...(sha256 ? { sha256 } : {}) }),
   config: () => get<ConfigInfo>("/api/config"),
   /** The pilot (#770, lib/pilot.ts): is a key set; save one ("" removes);
    * mint one session's client secret; run one tool call (a 400 is the
