@@ -9,6 +9,8 @@ import {serializeMentions,type MentionPart} from './pilotMentions';
 import {searchRuleEntities} from './sharedRuleMentions';
 import {contributions,getRule,setRule,startTest,testView,importTest} from './sharedRules';
 import {tickPublishing} from './sharedAssertionPublish';
+import {pages} from './sharedReadUnion';
+import type {SourceInsertion} from './insertionLog';
 export async function sharedSettingsApi(req:IncomingMessage,res:ServerResponse,root:string) {
  const url=new URL(req.url??'/','http://localhost');if(!url.pathname.startsWith('/api/shared-settings'))return false;
  if(!allowVaultRequest(req,res,vaultIdentity(root)))return true;
@@ -21,10 +23,21 @@ export async function sharedSettingsApi(req:IncomingMessage,res:ServerResponse,r
   if(url.pathname==='/api/shared-settings/entities'&&req.method==='GET'){json(res,200,{items:searchRuleEntities(root,url.searchParams.get('q')??'')});return true;}
   const c=readConnections(store).find(c=>c.id===url.searchParams.get('connection'));if(!c){json(res,404,{error:'Shared connection not found'});return true;}
   const action=url.pathname.split('/').at(-1);
+  // A server note opens as your own when it came from your vault.
+  const local=()=>new Map(readSourceInsertionLog(root,{strict:true}).map(s=>['origin:'+sourceKey(s),insertionEventRel(s)]));
   if(req.method==='GET'&&action==='vault'){
-   const local=new Map(readSourceInsertionLog(root,{strict:true}).map(s=>['origin:'+sourceKey(s),insertionEventRel(s)]));
-   const items=(await contributions(c)).map(item=>({...item,path:local.get(item.source_id)??`shared/${c.id}/${item.insertion_id}.md`}));
+   const mine=local();
+   const items=(await contributions(c)).map(item=>({...item,path:mine.get(item.source_id)??`shared/${c.id}/${item.insertion_id}.md`}));
    json(res,200,{...publicConnection(c),identity:await sharedRequest(c,'/v1/whoami'),rule:getRule(store,c.id),evaluator:jevSettingsStatus(store).evaluator,items});
+  }
+  else if(req.method==='GET'&&action==='notes'){
+   const mine=local();
+   const notes=(await pages<SourceInsertion&{submitted_at?:string}>(c,'evidence')).map(e=>({id:e.id,title:e.title,by:typeof e.envelope.submitted_by==='string'?e.envelope.submitted_by:null,at:e.submitted_at??e.received_at??'',path:mine.get(e.source_id)??`shared/${c.id}/${e.id}.md`}));
+   json(res,200,{notes:notes.sort((a,b)=>b.at.localeCompare(a.at)||a.id.localeCompare(b.id))});
+  }
+  else if(req.method==='GET'&&action==='search'){
+   const {hits}=await sharedRequest<{hits:{kind:string;id:string}[]}>(c,`/v1/search?limit=50&q=${encodeURIComponent(url.searchParams.get('q')??'')}`);
+   json(res,200,{ids:hits.filter(h=>h.kind==='evidence').map(h=>h.id)});
   }
   else if(req.method==='GET'&&action==='members'){json(res,200,await sharedRequest(c,'/v1/members'));}
   else if(req.method==='GET'&&action==='test'){const result=testView(url.searchParams.get('id')??'',c.id);json(res,result?200:404,result??{error:'Test expired'});}

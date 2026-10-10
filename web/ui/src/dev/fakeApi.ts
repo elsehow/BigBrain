@@ -1191,8 +1191,40 @@ const servePair = (p: PairState | null | undefined): Response => {
   return json({ ...s, pending: { ...s.pending, created: new Date(t - 60_000).toISOString(), expires: new Date(t + 9 * 60_000).toISOString() } });
 };
 
+/** `?servers`: one joined server, Garden club, with a full roster and more
+ * notes than one page shows, for the server page (SharedVaultSettings). */
+const GARDEN = (() => {
+  const people = ["Ines Park", "Theo Grant", "Mila Ortiz", "Ravi Shah", "June Abbott", "Kofi Mensah", "Lena Fischer", "Omar Haddad", "Priya Rao", "Sam Wilde", "Tess Moreau", "Yuki Sato", "Ada Brooks", "Noor Aziz"]
+    .map((display, i) => ({ id: `mem_${String(i).padStart(8, "0")}`, handle: display.split(" ")[0]!.toLowerCase(), display, role: i === 1 ? "owner" : "member", permissions: ["read", "write"] }));
+  const topics = ["Seed swap sign-up", "Tomato bed rotation", "Compost bin repair", "Spring planting plan", "Water barrel order", "Tool shed inventory", "Plot assignments", "Pollinator strip notes", "Frost dates", "Volunteer rota", "Soil test results", "Greenhouse heater quote"];
+  const notes = Array.from({ length: 38 }, (_, i) => ({
+    id: `ins_${i.toString(16).padStart(24, "0")}`, title: `${topics[i % topics.length]}${i >= topics.length ? ` ${Math.floor(i / topics.length) + 1}` : ""}`,
+    by: people[(i * 5) % people.length]!.handle, at: new Date(Date.UTC(2026, 9, 9) - i * 86_400_000 * 1.7).toISOString(), path: `shared/garden/ins_${i}.md`,
+  }));
+  return { people, notes, me: people[0]!.handle };
+})();
+function serveServers(path: string, search?: URLSearchParams): Response | null {
+  if (!new URLSearchParams(location.search).has("servers") || !path.startsWith("/api/shared-settings")) return null;
+  if (path === "/api/shared-settings") return json({ connections: [{ id: "garden", name: "Garden club" }] });
+  const mine = GARDEN.notes.filter((n) => n.by === GARDEN.me);
+  if (path.endsWith("/vault")) return json({
+    name: "Garden club", endpoint: "https://garden.example.org", evaluator: "jev", rule: null,
+    identity: { handle: GARDEN.me, display: GARDEN.people[0]!.display, role: "member", permissions: ["read", "write"], vault: {} },
+    items: mine.map((n, i) => ({ id: `sc_${i.toString(16).padStart(24, "0")}`, source_id: n.id, member_id: GARDEN.people[0]!.id, title: n.title, insertion_id: n.id, added_at: n.at, status: "active", version: 0, other_contributors: [], path: n.path })),
+  });
+  if (path.endsWith("/notes")) return json({ notes: GARDEN.notes });
+  if (path.endsWith("/members")) return json({ members: GARDEN.people, can_manage: false, invites: [] });
+  if (path.endsWith("/search")) {
+    const q = (search?.get("q") ?? "").toLowerCase();
+    return json({ ids: GARDEN.notes.filter((n) => n.title.toLowerCase().includes(q)).map((n) => n.id) });
+  }
+  return json({ error: "Not found" }, 404);
+}
+
 let creditsCleared = false;
 function route(path: string, method: string, body?: string, search?: URLSearchParams): Response {
+  const server = serveServers(path, search);
+  if (server) return server;
   // Sample-vault previews never transmit feedback. The workbench can simulate
   // success/failure explicitly; otherwise match an unconfigured build.
   if (path === "/api/feedback" && method === "POST") {
