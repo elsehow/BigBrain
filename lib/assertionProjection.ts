@@ -6,7 +6,7 @@ import { Database } from "bun:sqlite";
 import { searchMatch as matchQuery, searchAlternatives, searchTerms as matchTerms } from "./searchQuery";
 import { searchNames } from "./searchNames";
 import { existsSync, mkdirSync } from "node:fs";
-import { dirname, join, resolve, sep } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { parseEventFile, type EventFile } from "./eventLog";
 import { sha256hex } from "./hash";
 import { proseChars } from "./text";
@@ -16,7 +16,6 @@ import {
   appendAssertionEvent,
   assertionSourceReferences,
   listAssertionEventFiles,
-  ASSERTION_LOG_DIR,
   validateAssertionEvent,
   validateAssertionEvidence,
   type AssertionEntity,
@@ -25,7 +24,6 @@ import {
 } from "./assertionLog";
 import {
   listSourceInsertionEventFiles,
-  INSERTION_LOG_DIR,
   validateSourceInsertion,
   type SourceInsertion,
 } from "./insertionLog";
@@ -33,7 +31,6 @@ import { liveAssertionSql, liveSourceSql, supersedesOf } from "./sourceSupersede
 import {
   appendDeclineEvent,
   listDeclineEventFiles,
-  DECLINE_LOG_DIR,
   validateDeclineEvent,
   type DeclineEvent,
 } from "./declineLog";
@@ -41,21 +38,18 @@ import {
   appendEntityAliasEvent,
   entityAliasResolution,
   listEntityAliasEventFiles,
-  ENTITY_ALIAS_LOG_DIR,
   validateEntityAliasEvent,
   type EntityAliasEvent,
 } from "./entityAliasLog";
 import {
   appendEntitySourceEvent,
   listEntitySourceEventFiles,
-  ENTITY_SOURCE_LOG_DIR,
   validateEntitySourceEvent,
   type EntitySourceEvent,
 } from "./entitySourceLog";
 import {
   appendSourceCopyEvent,
   listSourceCopyEventFiles,
-  SOURCE_COPY_LOG_DIR,
   validateSourceCopyEvent,
   type SourceCopyEvent,
 } from "./sourceCopyLog";
@@ -64,7 +58,6 @@ import { assertionDb } from "./env";
 import {
   appendRevocationEvent,
   listRevocationEventFiles,
-  REVOCATION_LOG_DIR,
   validateRevocationEvent,
   type RevocationEvent,
 } from "./revocationLog";
@@ -712,26 +705,18 @@ export function projectedEntityAliases(root: string, id: string, db?: Database):
  * decline's insertions before the decline, and a revocation's assertion —
  * with its successor, when it supersedes — before the revocation. */
 interface ProjectionKind {
-  /** The log directory, whose files are named by event id. */
-  dir: string;
   held: string;
-  /** Whether the projection holds one id: an indexed lookup. */
-  holds: string;
   listFiles: (root: string) => EventFile[];
   project: (db: Database, file: EventFile) => void;
 }
 
 const projectionKind = <T extends { id: string }>(spec: {
-  dir: string;
   held: string;
-  holds: string;
   listFiles: (root: string) => EventFile[];
   validate: (event: T) => void;
   insert: (db: Database, event: T) => boolean;
 }): ProjectionKind => ({
-  dir: spec.dir,
   held: spec.held,
-  holds: spec.holds,
   listFiles: spec.listFiles,
   project: (db, file) => {
     let event: T;
@@ -746,88 +731,49 @@ const projectionKind = <T extends { id: string }>(spec: {
 
 const KINDS: readonly ProjectionKind[] = [
   projectionKind<SourceInsertion>({
-    dir: INSERTION_LOG_DIR,
     held: "SELECT insertion_id AS id FROM sources",
-    holds: "SELECT 1 FROM sources WHERE insertion_id = ? AND present = 1",
     listFiles: listSourceInsertionEventFiles,
     validate: validateSourceInsertion,
     insert: insertSourceRow,
   }),
   projectionKind<AssertionEvent>({
-    dir: ASSERTION_LOG_DIR,
     held: "SELECT id FROM assertions",
-    holds: "SELECT 1 FROM assertions WHERE id = ?",
     listFiles: listAssertionEventFiles,
     validate: validateAssertionEvent,
     insert: insertAssertionRow,
   }),
   projectionKind<DeclineEvent>({
     // A decline holds one row per insertion it settles, so its id repeats.
-    dir: DECLINE_LOG_DIR,
     held: "SELECT DISTINCT decline_id AS id FROM declines",
-    holds: "SELECT 1 FROM declines WHERE decline_id = ? LIMIT 1",
     listFiles: listDeclineEventFiles,
     validate: validateDeclineEvent,
     insert: insertDeclineRow,
   }),
   projectionKind<EntityAliasEvent>({
-    dir: ENTITY_ALIAS_LOG_DIR,
     held: "SELECT id FROM entity_alias_events",
-    holds: "SELECT 1 FROM entity_alias_events WHERE id = ?",
     listFiles: listEntityAliasEventFiles,
     validate: validateEntityAliasEvent,
     insert: insertEntityAliasRow,
   }),
   projectionKind<EntitySourceEvent>({
-    dir: ENTITY_SOURCE_LOG_DIR,
     held: "SELECT id FROM entity_source_events",
-    holds: "SELECT 1 FROM entity_source_events WHERE id = ?",
     listFiles: listEntitySourceEventFiles,
     validate: validateEntitySourceEvent,
     insert: insertEntitySourceRow,
   }),
   projectionKind<SourceCopyEvent>({
-    dir: SOURCE_COPY_LOG_DIR,
     held: "SELECT id FROM source_copy_events",
-    holds: "SELECT 1 FROM source_copy_events WHERE id = ?",
     listFiles: listSourceCopyEventFiles,
     validate: validateSourceCopyEvent,
     insert: insertSourceCopyRow,
   }),
   projectionKind<RevocationEvent>({
-    dir: REVOCATION_LOG_DIR,
     held: "SELECT id FROM revocations",
-    holds: "SELECT 1 FROM revocations WHERE id = ?",
     listFiles: listRevocationEventFiles,
     validate: validateRevocationEvent,
     insert: insertRevocationRow,
   }),
 ];
-
-/** Whether the projection already holds every event file a watcher named
- * (vault-relative paths). A projected log names each file by its event id,
- * so this is one indexed lookup per path, never a census. A file that is gone
- * (retracted by hand), or an id the projection lacks, answers false: that is
- * recovery's to heal. An atomic write's temp file is skipped — its rename
- * names the event — and paths outside the projected logs are not ours. */
-export function projectionHolds(root: string, rels: Iterable<string>): boolean {
-  let db: Database | undefined;
-  try {
-    for (const rel of rels) {
-      const path = rel.split(sep).join("/");
-      const kind = KINDS.find((k) => path.startsWith(`${k.dir}/`));
-      if (!kind) continue;
-      const name = path.slice(path.lastIndexOf("/") + 1);
-      if (name.startsWith(".")) continue;
-      if (!name.endsWith(".json") || !existsSync(join(root, path))) return false;
-      db ??= openReadonly(root);
-      if (!db.query(kind.holds).get(name.slice(0, -".json".length))) return false;
-    }
-    return true;
-  } catch {
-    return false;
-  } finally { db?.close(); }
-}
 
 const heldIds = (db: Database, sql: string): Set<string> =>
   new Set((db.query(sql).all() as { id: string }[]).map((row) => row.id));

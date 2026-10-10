@@ -1,11 +1,15 @@
 /**
  * liveEvents.ts — the viewer's live stream, extracted from web/server.ts
- * (#291, the SSE half of #260's seam list): one watcher over the vault,
- * fanned out to SSE clients. Open tabs hold /api/events; any change under
- * the watched trees (a pull landing, triage filing, deep work curating, a
- * vault.yaml edit) becomes one debounced `event: views` carrying each view's
- * stamp (lib/viewStamps.ts), and each tab fetches only the views whose stamp
- * moved. A connection opens with the current stamps.
+ * (#291, the SSE half of #260's seam list), fanned out to SSE clients. Open
+ * tabs hold /api/events, and two signals feed it. A commit to the projection
+ * — every engine write, from any process — is heard through `PRAGMA
+ * data_version` (lib/projectionWake.ts), asked whenever the WAL changes and
+ * every few seconds besides. A change to the files people edit outside the
+ * engine (notes, vault.yaml) or engine state outside the projection (the
+ * queue, journals) comes from one watcher over the vault. Either becomes one
+ * debounced `event: views` carrying each view's stamp (lib/viewStamps.ts), and
+ * each tab fetches only the views whose stamp moved. A connection opens with
+ * the current stamps.
  *
  * The old server started all of this as live side effects inside
  * startLive(); here it is a value with a lifecycle — createLive() only
@@ -25,13 +29,17 @@ import { isLedgerPath } from "./retrieval";
 import { invalidateGraphCaches } from "./graphCache";
 import { maintainGraphView, onGraphView } from "./maintainedGraph";
 import { viewStamps, type ViewStamps } from "./viewStamps";
-import { claimProjectionRecovery, projectionHolds, syncAssertionProjection } from "./assertionProjection";
+import { assertionDbPath, claimProjectionRecovery, syncAssertionProjection } from "./assertionProjection";
+import { projectionWake, type ProjectionWake } from "./projectionWake";
 import { background } from "./readModelBackground";
 import { readModelRevision } from "./vaultReadModel";
 
 // The watched trees. `queue` earns its place: a message's whole lifecycle
 // (enqueued → claimed → done) happens under it, and without the watch a
 // fresh arrival sat invisible until some OTHER tree happened to change.
+// `log/` is not one: every engine write to it commits to the projection,
+// which the wake hears, and a file put there by hand is recovered by the next
+// process to start, or by `bigbrain recover`.
 export const WATCHED: ReadonlySet<string> = new Set([
   ...BROWSE_ROOTS,
   "journal",
@@ -39,7 +47,6 @@ export const WATCHED: ReadonlySet<string> = new Set([
   "vault.yaml",
   "prompts",
   "observations",
-  "log",
 ]);
 
 /** What the fan-out needs from a client — ServerResponse satisfies it, and
@@ -99,14 +106,14 @@ export interface LiveOptions {
    * revision moved. A seam for the same reason `refresh` is one: a fan-out
    * test must not run a force simulation. */
   warmLayout?: (root: string) => void | Promise<void>;
-  /** The log census that heals what the write path could not, run at start
-   * and after a change under `log/`; recoverInBackground by default. A seam
-   * like `refresh`: a fan-out test must not spawn a worker. Resolves whether
-   * it changed the projection. */
-  recover?: (root: string) => Promise<boolean>;
-  /** Whether the projection holds the log files a change named;
-   * projectionHolds by default. Recovery runs only when it does not. */
-  holds?: (root: string, rels: Iterable<string>) => boolean;
+  /** The log census that heals what the write path could not, run once at
+   * start; recoverInBackground by default. A seam like `refresh`: a fan-out
+   * test must not spawn a worker. What it heals commits, so the wake hears it. */
+  recover?: (root: string) => Promise<unknown>;
+  /** How commits to the projection are heard; projectionWake by default. */
+  wake?: (root: string) => ProjectionWake;
+  /** The check that covers a missed WAL wake-up. */
+  backstopMs?: number;
   /** Each view's stamp, given the stamp of the watched files outside the
    * projection; viewStamps by default. */
   stamps?: (root: string, files: string) => ViewStamps;
@@ -139,7 +146,8 @@ export function createLive(opts: LiveOptions): Live {
     refresh = syncAssertionProjection,
     warmLayout = maintainGraphView,
     recover = recoverInBackground,
-    holds = projectionHolds,
+    wake = projectionWake,
+    backstopMs = 5_000,
     stamps = viewStamps,
     debounceMs = 300,
     heartbeatMs = 30_000,
@@ -157,9 +165,16 @@ export function createLive(opts: LiveOptions): Live {
   let watchGeneration = 0;
 
   let revision = 0;
-  const changedLogs = new Set<string>();
-  let watcherLost = false;
+  /** Notes changed since the last settle: reconcile them before it. */
+  let notesDirty = false;
   let stopped = false;
+  let commits: ProjectionWake | null = null;
+  let backstop: ReturnType<typeof setInterval> | null = null;
+  const walRel = relative(root, `${assertionDbPath(root)}-wal`);
+  /** Whether another connection committed: then the views may have moved. */
+  function checkCommits(): void {
+    if (!stopped && commits?.moved()) announce();
+  }
   let usageTimer: ReturnType<typeof setTimeout> | null = null;
   let progressTimer: ReturnType<typeof setTimeout> | null = null;
   let lastProgress = "null";
@@ -199,6 +214,8 @@ export function createLive(opts: LiveOptions): Live {
       if (!stopped) for (const c of clients) c.write('event: credits\ndata: {"changed":true}\n\n');
       return;
     }
+    // A commit: data_version says whether it was another connection's.
+    if (rel === walRel) { checkCommits(); return; }
     // Model accounting changes usage, never the vault's content or topology.
     if (rel === `journal${sep}model-runs` || rel.startsWith(`journal${sep}model-runs${sep}`)) {
       if (!stopped && !usageTimer) usageTimer = setTimeout(() => {
@@ -216,39 +233,35 @@ export function createLive(opts: LiveOptions): Live {
     // the search index twice a second for as long as the tab stays open
     // (#247/#248).
     if (isLedgerPath(rel) || stopped) return;
-    if (first === "log") changedLogs.add(rel);
-    else if (!BROWSE_ROOTS.has(first)) files++;
+    if (BROWSE_ROOTS.has(first)) notesChanged();
+    else files++;
     announce();
   }
 
-  /** A vault change: drop the graph now, push the stamps once it has settled again. */
+  /** A note changed, or a lost watcher may have missed one: the next read
+   * reconciles Markdown, and so does the next settle. */
+  function notesChanged(): void {
+    notesDirty = true;
+    invalidateGraphCaches(root);
+  }
+
+  /** A vault change: push the stamps once it has settled. */
   function announce(): void {
     revision++;
-    invalidateGraphCaches(root);
     if (pingTimer) return; // debounce: a pull touches many files at once
     pingTimer = setTimeout(async () => {
       pingTimer = null;
       const current = revision;
-      // Engine writes have projected themselves already: each changed log
-      // file is one indexed lookup. Only one that did not (written by hand,
-      // or by a process that died mid-landing), or a lost watcher, costs the
-      // census — in a worker, before the graph is rebuilt.
-      const lost = watcherLost, logs = [...changedLogs];
-      watcherLost = false;
-      changedLogs.clear();
-      if (lost || (logs.length && !holds(root, logs))) {
-        try {
-          await recover(root);
-        } catch {
-          /* the next process to start recovers */
-        }
-      }
       // Reconcile edited Markdown off the same signal, so the first search
-      // after an edit is instant instead of paying the catch-up.
-      try {
-        refresh(root);
-      } catch {
-        /* index is best-effort; search rebuilds lazily anyway */
+      // after an edit is instant instead of paying the catch-up. Its commit
+      // is heard like any other.
+      if (notesDirty) {
+        notesDirty = false;
+        try {
+          refresh(root);
+        } catch {
+          /* index is best-effort; search rebuilds lazily anyway */
+        }
       }
       // Rebuild and settle off-thread before pinging. Requests for the same
       // revision share this work, while HTTP and heartbeat traffic keep moving.
@@ -292,7 +305,7 @@ export function createLive(opts: LiveOptions): Live {
       if (path) {
         const rel = relative(root, path);
         if (!isAbsolute(rel) && rel !== ".." && !rel.startsWith(`..${sep}`)) {
-          watcherLost = true; // what it missed meanwhile, no event will name
+          notesChanged(); // what it missed meanwhile, no event will name
           handleChange(rel);
         }
       }
@@ -322,14 +335,19 @@ export function createLive(opts: LiveOptions): Live {
       unlanded = onGraphView(landed => { if (landed === root) publishViews(); });
       watchRetryMs = 100;
       openWatcher();
+      commits?.close();
+      commits = wake(root);
+      commits.moved(); // the baseline
+      backstop = setInterval(checkCommits, backstopMs);
+      backstop.unref?.();
       heartbeat = setInterval(() => {
         publishProgress(); // also clears a dead lock holder after a crash
         for (const c of clients) c.write(": ping\n\n");
       }, heartbeatMs);
       // Recover once at boot, in a worker: the viewer serves the projection
       // as it stands meanwhile, since every engine write projected itself.
-      // A heal that changed it pings like any other change.
-      void recover(root).then((changed) => { if (changed && !stopped) announce(); }, () => {});
+      // A heal commits, and is pushed like any other commit.
+      void recover(root).catch(() => {});
     },
     stop(): void {
       stopped = true;
@@ -347,6 +365,10 @@ export function createLive(opts: LiveOptions): Live {
       watcher = null;
       if (heartbeat) clearInterval(heartbeat);
       heartbeat = null;
+      if (backstop) clearInterval(backstop);
+      backstop = null;
+      commits?.close();
+      commits = null;
       if (pingTimer) clearTimeout(pingTimer);
       pingTimer = null;
     },
