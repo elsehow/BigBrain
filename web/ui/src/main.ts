@@ -3,6 +3,7 @@ import Base from "./components/Base.svelte";
 import faviconPngUrl from "./assets/favicon-128.png";
 import faviconUrl from "./assets/favicon.svg";
 import { watchSystemTheme } from "./lib/theme";
+import { acceptInviteLinks } from "./lib/sharedSettings.svelte";
 import "./design/tokens.css";
 import "./app.css";
 
@@ -28,6 +29,7 @@ for (const [rel, type, href] of [
 // Before the mount, so the first paint is already the right palette on a
 // dark desktop rather than a cream flash that corrects itself.
 watchSystemTheme();
+acceptInviteLinks();
 
 const app = mount(Base, { target: document.getElementById("app")! });
 

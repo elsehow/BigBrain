@@ -956,21 +956,22 @@ describe("the join link and the personal page", () => {
     expect(await (await req(w, "GET", "/join", { cookie: session })).text()).toBe(html);
   });
 
-  test("an invite or app link opened in a browser explains how to use it, naming nothing", async () => {
-    for (const google of [true, false]) {
-      const res = await req(world({ google }), "GET", "/invite");
+  test("every server's invite link opens in BigBrain, naming nothing; the Claude steps only where Claude signs in with it", async () => {
+    for (const opts of [{ google: true }, { google: false }, { connector: false }]) {
+      const res = await req(world(opts), "GET", "/invite");
       expect(res.status).toBe(200);
       const html = await res.text();
-      expect(html).toContain("To join in the BigBrain app");
-      expect(html).toContain('data-href');
-      expect(html).not.toContain('class="eyebrow"');
-      // the Claude steps (paste the link on Claude's sign-in page) only without Google
-      expect(html.includes("To join in Claude desktop")).toBe(!google);
-      expect(html.includes(`${PUBLIC}/mcp`)).toBe(!google);
+      expect(html).toContain("Open in BigBrain");
+      expect(html).toContain("data-open");
+      expect(html).toContain("Get it for Mac");
+      expect(html).toContain("data-href");
+      const claude = opts.connector !== false && !opts.google;
+      expect(html.includes("Claude desktop")).toBe(!!claude);
+      expect(html.includes(`${PUBLIC}/mcp`)).toBe(!!claude);
       for (const secret of [VAULT, "Ada", "The Owner", "ada@example.com"]) expect([secret, html.includes(secret)]).toEqual([secret, false]);
       expect(res.headers.get("set-cookie")).toBeNull();
+      expect(res.headers.get("content-security-policy")).toContain("script-src 'sha256-");
     }
-    expect((await req(world({ connector: false }), "GET", "/invite")).status).toBe(401);
   });
 
   test("/invite/check names the vault to a live link's holder, consumes nothing, and is one 404 otherwise", async () => {
@@ -985,7 +986,9 @@ describe("the join link and the personal page", () => {
       const res = await check(s);
       expect([s, res.status, await res.text()]).toEqual([s, 404, '{"error":"not found"}\n']);
     }
-    expect((await req(world({ connector: false }), "POST", "/invite/check", { headers: { Authorization: `Bearer ${secret}` } })).status).toBe(401);
+    // every server answers it, connector or not
+    const plain = world({ connector: false }), live = createMemberInvite(plain.store, "Lin", "read", plain.now());
+    expect((await req(plain, "POST", "/invite/check", { headers: { Authorization: `Bearer ${live.secret}` } })).status).toBe(200);
   });
 
   test("Google sign-in from /join opens a session on /me with the connector URL and app links", async () => {
@@ -1115,7 +1118,7 @@ describe("the join link and the personal page", () => {
     expect(html).toContain('value="approve"');
   });
 
-  test("join, me and Google exist only with the connector AND Google; the font only with the connector", async () => {
+  test("join, me and Google exist only with the connector AND Google; the font on every server", async () => {
     const paths: [string, string][] = [["GET", "/join"], ["GET", "/join/google"], ["GET", "/me"], ["POST", "/me/app-link"], ["POST", "/me/signout"], ["GET", "/oauth/google"], ["GET", "/oauth/google/callback"]];
     for (const opts of [{ google: false }, { connector: false }]) {
       const w = world(opts);
@@ -1123,7 +1126,8 @@ describe("the join link and the personal page", () => {
       expect((await (await req(w, "GET", "/v1/members", { token: w.owner })).json()).email_invites).toBeUndefined();
     }
     const off = world({ connector: false });
-    for (const path of FONT_PATHS) expect((await req(off, "GET", path)).status).toBe(401);
+    // the invite page is on every server, and so is its font
+    for (const path of FONT_PATHS) expect((await req(off, "GET", path)).status).toBe(200);
     for (const w of [world(), world({ google: false })]) {
       const font = await req(w, "GET", "/assets/hanken-grotesk-latin.woff2");
       expect(font.status).toBe(200);

@@ -47,7 +47,7 @@
   {:else if !selectedWorkspace}
     <span class="rail-eyebrow">SERVERS</span>
     {#each sharedSettings.connections as c}<button class="rail-row" class:on={active==='sharedVaultSettings'&&sharedSettings.selected===c.id} onclick={()=>selectSharedSettings(c.id)}>{c.name}</button>{/each}
-    <button class="rail-row" onclick={openSharedInvite}>+ Connect a server</button>
+    <button class="rail-row" onclick={() => openSharedInvite()}>+ Connect a server</button>
   {/if}
 {/snippet}
 
