@@ -2,7 +2,7 @@
  * the D3 review when a change nobody made grows a shared lens, the move from
  * server rules, and keeping a real shared door on a loopback port in step.
  * Every name and note is invented. */
-import {describe,expect,test} from 'bun:test';
+import {describe,expect,setSystemTime,test} from 'bun:test';
 import {mkdirSync,mkdtempSync,writeFileSync,existsSync,readFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -101,7 +101,9 @@ describe('passLens',()=>{
  test('what one pass shares from a lens is one feed row',async()=>{
   const v=await shared();
   v.note('ex-3','Plot plan',.8);v.note('ex-4','Rain barrels',.85);
-  await passLens(v.root,v.store,readLens(v.root,v.store,v.lens.id)!,lensNotes(v.root),{factory:scorer()});
+  // a pass is a tick apart from the last, not the same millisecond
+  setSystemTime(Date.now()+60_000);
+  try{await passLens(v.root,v.store,readLens(v.root,v.store,v.lens.id)!,lensNotes(v.root),{factory:scorer()});}finally{setSystemTime();}
   expect(feedLensEvents(v.root,v.store).map(r=>lensEventHeadline(r.event,r.count))).toEqual(['Seed swap is shared with Garden club','2 items are shared with Garden club']);
  });
  test('Conservative: a model upgrade that adds notes holds every addition until reviewed, and still drops leavers',async()=>{
