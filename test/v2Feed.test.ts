@@ -2,7 +2,11 @@ import { describe, expect, test } from "bun:test";
 import type { AssertionEvent } from "../lib/assertionLog";
 import { assertionEntityId } from "../lib/assertionLog";
 import { entityAliasResolution } from "../lib/entityAliasLog";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { authorName, authorOf, buildEntityFeed, buildSortedFeed, buildV2Feed, firstRecordedAt, plainText, type ChainLink, type V2Source } from "../lib/v2Feed";
+import { gardenerModels } from "../lib/v2Read";
 
 const ent = (label: string) => ({ id: assertionEntityId(label), label });
 const ada = ent("Ada Lovelace"), atlas = ent("Atlas"), orrery = ent("Orrery");
@@ -68,6 +72,32 @@ describe("v2 feed", () => {
     ])).feed;
     expect(own).toMatchObject({ author: "gardener", by: "model-a", model: true });
     expect(client).toMatchObject({ author: "pi", by: "pi", model: false });
+  });
+
+  test("the gardener writing through its agent is named by the model its run journal names", () => {
+    const filed = row({ kind: "model", id: "pi", invocation_id: "mcp" }, "bigbrain-mcp", [ada], day(2));
+    const client = row({ kind: "model", id: "pi", invocation_id: "mcp" }, "bigbrain-mcp", [atlas], day(3));
+    const out = buildV2Feed({ ...source([filed, client]), models: new Map([[filed.id, "model-z"]]) });
+    expect(out.feed).toMatchObject([{ author: "gardener", by: "model-z", model: true }, { author: "pi", by: "pi", model: false }]);
+    expect(out.authors.map((a) => [a.id, a.count])).toEqual([["pi", 1], ["gardener", 1]]);
+  });
+
+  test("a gardener row's model is the one its run was on: the run it was written during", () => {
+    const root = mkdtempSync(join(tmpdir(), "v2-models-"));
+    try {
+      const journal = (id: string, model: string, start: string, end: string) => {
+        mkdirSync(join(root, "journal/tend", end.slice(0, 7)), { recursive: true });
+        writeFileSync(join(root, "journal/tend", end.slice(0, 7), `${id}.json`), JSON.stringify({ format: "bigbrain-tend-run/v1", invocation_id: id, insertion_ids: [], model, started_at: start, completed_at: end }));
+      };
+      journal("run-a", "model-a", day(2, 10), day(2, 11));
+      journal("run-b", "model-b", day(5, 10), day(5, 11));
+      const pi = { kind: "model", id: "pi", invocation_id: "mcp" } as const;
+      const inA = row(pi, "bigbrain-mcp", [ada], "2026-08-02T10:30:00.000Z");
+      const inB = row({ kind: "model", id: "claude", invocation_id: "mcp" }, "bigbrain-mcp", [ada], "2026-08-05T10:59:59.000Z");
+      const between = row(pi, "bigbrain-mcp", [ada], day(3));
+      const stranger = row({ kind: "model", id: "codex", invocation_id: "mcp" }, "bigbrain-mcp", [ada], "2026-08-02T10:30:00.000Z");
+      expect(gardenerModels(root, [inA, inB, between, stranger])).toEqual(new Map([[inA.id, "model-a"], [inB.id, "model-b"]]));
+    } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
   test("a rewrite keeps the date its claim was first recorded", () => {

@@ -81,6 +81,23 @@ const assert = require('node:assert/strict');
     await page.getByRole('button', { name: 'Connect an integration' }).click();
     await page.locator('aside.panel .settings').first().waitFor();
 
+    // the latest assertions: a click selects what one mentions and makes the
+    // claim the title; the gardener's rows are named by their model
+    await page.goto(`${base}/field-workbench.html?view=field&claims`);
+    const claims = page.locator('.feed .row');
+    await claims.nth(5).waitFor();
+    assert.equal(await claims.nth(1).locator('.a').innerText(), 'gpt-6-astra');
+    await claims.nth(5).click();
+    assert.match(await page.locator('.hud h1').innerText(), /^On October 4, 2026, Briar Lowe confirmed/);
+    assert.match(await page.locator('.hud .eyebrow').innerText(), /claude-sonnet-5-5/i);
+    assert.equal(await page.locator('.feed .row.open').count(), 1);
+    await claims.nth(5).click();
+    await page.locator('.hud').waitFor({ state: 'detached' });
+    await claims.nth(2).click();
+    assert.match(await page.locator('.hud h1').innerText(), /^Harbor lab's Lantern grant/);
+    await page.keyboard.press('Escape');
+    await page.locator('.hud').waitFor({ state: 'detached' });
+
     // out of usage credits: the base says so over the view, and Retry clears it
     await page.goto(`${base}/field-workbench.html?view=field&credits`);
     await page.getByText('Out of usage credits with Anthropic.').waitFor();
@@ -89,6 +106,6 @@ const assert = require('node:assert/strict');
     await page.locator('.credits').waitFor({ state: 'detached' });
 
     assert.deepEqual(errors, []);
-    console.log('PASS: Field walks and opens the feed, ⌘O opens the original, settings sit over it and return its keys, Settings offers no Classic, a new vault says what to do, and running out of credits is said once.');
+    console.log('PASS: Field walks and opens the feed, ⌘O opens the original, settings sit over it and return its keys, Settings offers no Classic, a new vault says what to do, an assertion clicked is selected and titled, and running out of credits is said once.');
   } finally { await browser.close(); }
 })().catch(e => { console.error(e); process.exit(1); });

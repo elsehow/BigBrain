@@ -8,7 +8,9 @@
  *
  * An author is named only from what the record says: a model or agent author
  * by its id, and the vault's own assertion passes (procedures named
- * *-assertion-agent) as the gardener, whatever model ran them. Nothing here
+ * *-assertion-agent) as the gardener, whatever model ran them. The gardener
+ * that writes through its agent as a client is named the same way, its model
+ * read from the journal of the run it wrote in (lib/v2Read.ts). Nothing here
  * guesses at tasks or presents an author as a running agent.
  *
  * Pure, and safe for the browser bundle (the view imports plainText): the
@@ -37,7 +39,8 @@ export interface V2FeedRow {
   /** V2Author.id, or null for a user or the engine's own bookkeeping. */
   author: string | null;
   /** Exactly who the record says wrote it: the model id when the record
-   * names one (the vault's own passes), else the client or user id. */
+   * names one (the vault's own passes, or the gardener's run journal), else
+   * the client or user id. */
   by: string;
   /** Whether `by` is a model. Connected clients write over MCP under their
    * own name (lib/vaultTools.ts, invocation "mcp"): their model isn't recorded. */
@@ -58,6 +61,10 @@ export interface V2Source {
   rows: AssertionEvent[];
   aliases: EntityAliasResolution;
   firstAt: ReadonlyMap<string, string>;
+  /** The model behind each row the gardener wrote through its agent, by
+   * assertion id: the record names only the agent, and the run's journal
+   * names the model (lib/v2Read.ts gardenerModels). */
+  models?: ReadonlyMap<string, string>;
 }
 
 export interface ChainLink { id: string; created_at: string; supersedes: string | null }
@@ -84,9 +91,10 @@ const GARDENER = "gardener";
 const NAMES: Record<string, string> = { "claude-code": "Claude Code", codex: "Codex", pi: "Pi", claude: "Claude", [GARDENER]: "Gardener" };
 const FEED = 60;
 
-export function authorOf(row: Pick<AssertionEvent, "author" | "produced_by">): string | null {
+/** `gardener`: the row is known, from a run journal, to be the gardener's. */
+export function authorOf(row: Pick<AssertionEvent, "author" | "produced_by">, gardener = false): string | null {
   if (row.author.kind !== "model" && row.author.kind !== "agent") return null;
-  if (row.produced_by.procedure.endsWith("-assertion-agent")) return GARDENER;
+  if (gardener || row.produced_by.procedure.endsWith("-assertion-agent")) return GARDENER;
   return row.author.id;
 }
 
@@ -107,9 +115,10 @@ export function plainText(text: string): string {
 
 const feedRow = (src: V2Source, row: AssertionEvent): V2FeedRow => {
   const at = src.firstAt.get(row.id) ?? row.created_at;
+  const ran = src.models?.get(row.id);
   return {
     id: row.id, at, ...(at !== row.created_at ? { writtenAt: row.created_at } : {}),
-    author: authorOf(row), by: row.author.id, model: namesModel(row.author), text: plainText(row.text),
+    author: authorOf(row, !!ran), by: ran ?? row.author.id, model: !!ran || namesModel(row.author), text: plainText(row.text),
     entities: [...new Set(row.entities.map((e) => src.aliases.canonical.get(e.id)?.id ?? e.id))],
   };
 };
@@ -119,7 +128,7 @@ export function buildV2Feed(src: V2Source): V2Feed {
   const live = [...src.rows].sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id));
   const authors = new Map<string, V2Author>();
   for (const row of live) {
-    const id = authorOf(row);
+    const id = authorOf(row, src.models?.has(row.id));
     if (!id) continue;
     const a = authors.get(id) ?? { id, name: authorName(id), count: 0, lastAt: row.created_at };
     a.count++;
