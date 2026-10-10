@@ -159,6 +159,9 @@ relaxed. See D5.
   warning for good and, in Conservative, resumes the lens. "Edit rule" opens
   the rule editor, and the warning stays until a new rule is saved. E4 tells us
   how often this happens.
+  The move from server rules to lenses is treated the same way, and always
+  held whatever the mode: "A BigBrain update would cause you to share new
+  items with [server]. Lens is paused until you review."
 - **D4. Invite page always on. Decided:** every server serves `/invite` and
   `/invite/check`, whether or not it runs the Claude connector. Servers still
   support the connector; when it's on, the invite page says so at the bottom.
@@ -273,6 +276,15 @@ relaxed. See D5.
 - **E5. Claims that outlive a withdrawal.** On a few real servers, count other members' assertions that cite a member's evidence.
   Withdrawal hides evidence but those claims stay (`lib/sharedVault.ts:716-723`).
   If the count is high, decide whether to flag them.
+
+  **Result (2026-10-10).** Two real servers, about 570 live claims in all:
+  every one was posted by a member's agent and cites only that member's own
+  notes. None cites another member's note, and none cites a note no longer
+  visible. The app's publisher only posts a claim while every source it cites
+  is the member's own active contribution, and retracts it when one is
+  withdrawn (`lib/sharedAssertionPublish.ts`), so nothing to flag today. A
+  client posting claims directly with a write credential could still cite
+  anyone's notes; revisit if that becomes a real path.
 
 Settled: withdrawal hides a note from what people see; it does not wipe it from
 the server (`docs/plans/shared-source-withdrawal.md`).
