@@ -25,7 +25,7 @@ import {connectionStorePath,readConnections,sharedRequest} from './sharedConnect
 import {inclusionPath,readInclusionPolicy,sourceDigest,type InclusionLabel} from './inclusionPolicy';
 import {rmSync} from 'node:fs';
 import {resolveRuleMentions} from './sharedRuleMentions';
-import {fitThreshold,lensScope,listLenses,membership,newLens,readLens,removeLens,setSharingMode,sharingMode,updateLens,writeLens,type Lens} from './lenses';
+import {fitThreshold,lensScope,previewThreshold,listLenses,membership,newLens,readLens,removeLens,setSharingMode,sharingMode,updateLens,writeLens,type Lens} from './lenses';
 import {lensNotes,scorePass,type LensPass} from './lensScoring';
 import {insertionEventRel} from './insertionLog';
 import {readLensEvents,tickLenses} from './lensSync';
@@ -56,14 +56,14 @@ function startPreview(root:string,store:string,id:string,text:unknown):ReturnTyp
  if(typeof text!=='string'||!text.trim()||text.length>8000)throw Error('Write a rule first.');
  resolveRuleMentions(root,text);
  for(const [key,p] of previews)if(p.lens===id||Date.now()-p.at>3600000)previews.delete(key);
- const labels=readInclusionPolicy(root,store,lensScope(id))?.labels??readLens(root,store,id)?.labels??[];
+ const lens=readLens(root,store,id),labels=readInclusionPolicy(root,store,lensScope(id))?.labels??lens?.labels??[];
  const notes=lensNotes(root);
  const p:Preview={id:randomUUID(),root,lens:id,text:text.trim(),labels,busy:true,done:0,total:notes.length,at:Date.now()};previews.set(p.id,p);
  void (async()=>{try{
   const pass=await scorePass(root,store,{text:p.text,labels},notes,{fresh:true,summaries:0,current:()=>previews.has(p.id),progress:done=>{p.done=done;}});
   if(pass.outOfCredits)throw Error('Out of usage credits. (You need credits to see what this rule includes.)');
   const digests=new Map(notes.map(n=>[n.digest,n.source_id]));
-  p.threshold=fitThreshold(labels.flatMap(l=>{const sid=digests.get(sourceDigest(l.source));const score=sid?pass.scores.get(sid):undefined;return score===undefined?[]:[{include:l.include,score}];}));
+  p.threshold=previewThreshold(lens,p.text,labels,()=>fitThreshold(labels.flatMap(l=>{const sid=digests.get(sourceDigest(l.source));const score=sid?pass.scores.get(sid):undefined;return score===undefined?[]:[{include:l.include,score}];})));
   p.pass=pass;
  }catch(e){p.error=e instanceof Error?e.message:String(e);}finally{p.busy=false;}})();
  return previewView(p);

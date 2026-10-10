@@ -72,6 +72,12 @@ export function lensEventHeadline(e:LensEvent):string{
  const cause=CAUSE[e.reason??'model'];
  return e.kind==='paused'?`${cause} would cause you to share new items with ${servers}. Lens is paused until you review.`:`${cause} has caused you to share new items with ${servers}.`;
 }
+/** Which events still belong in the feed: what a lens shared stays, a review
+ * only until it is cleared (Looks OK, or a new rule saved). */
+export function openLensEvents(root:string,store:string):(e:LensEvent)=>boolean{
+ const open=new Set(listLenses(root,store).flatMap(l=>l.review?.at?[`${l.id} ${l.review.at}`]:[]));
+ return e=>e.kind==='shared'||open.has(`${e.lens} ${e.at}`);
+}
 export function readLensEvents(root:string,store:string,limit=200):LensEvent[]{
  const path=lensEventsPath(root,store);if(!existsSync(path))return [];
  return readFileSync(path,'utf8').trim().split('\n').filter(Boolean).slice(-limit).map(l=>JSON.parse(l) as LensEvent);

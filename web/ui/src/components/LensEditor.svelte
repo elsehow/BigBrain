@@ -10,7 +10,8 @@
   import ConfirmByName from "./ConfirmByName.svelte";
   import RuleText from "./RuleText.svelte";
   import { app, gotoLens, gotoNote } from "../lib/store.svelte";
-  import { lensDraft, lensRequest, shareWords, type LensDetail, type LensNoteRow, type Preview, type PreviewRow, type ServerRef } from "../lib/lenses.svelte";
+  import LensWarning from "./LensWarning.svelte";
+  import { lensDraft, lensOpening, lensRequest, shareWords, type LensDetail, type LensNoteRow, type Preview, type PreviewRow, type ServerRef } from "../lib/lenses.svelte";
 
   let { id }: { id: string } = $props();
   const PAGE = 10;
@@ -34,8 +35,13 @@
       id === "new" ? Promise.resolve(null) : lensRequest<LensDetail>("lens?id=" + encodeURIComponent(id)),
     ]);
     servers = all.servers;
-    if (lens) { detail = lens; lensId = lens.id; name = lens.name; text = lens.text; pins = [...lens.pins]; exclusions = [...lens.exclusions]; void startPreview(); }
+    if (lens) {
+      detail = lens; lensId = lens.id; name = lens.name; text = lens.text; pins = [...lens.pins]; exclusions = [...lens.exclusions]; void startPreview();
+      if (lens.review && lensOpening.panel === "changes") changesOpen = true;
+      if (lensOpening.panel === "rule") ruleOpen = true;
+    }
     else { lensId = (await lensRequest<{ id: string }>("new", {})).id; text = lensDraft.text; lensDraft.text = ""; ruleOpen = true; }
+    lensOpening.panel = "";
   }
   let generation = 0;
   async function startPreview() {
@@ -131,7 +137,6 @@
     catch (e) { dialogError = (e as Error).message; }
     finally { busy = false; }
   }
-  const cause = (reason: "model" | "vault" | "update") => reason === "model" ? "A model upgrade" : reason === "vault" ? "A vault change" : "A BigBrain update";
   const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
   function openDialog(d: HTMLDialogElement) { d.showModal(); }
 </script>
@@ -141,14 +146,7 @@
     <button class="back" onclick={() => gotoLens(null)}>← Lenses</button>
 
     {#if detail?.review}
-      <section class="warning" aria-label="Review">
-        <p>{`${cause(detail.review.reason)} ${detail.review.hold ? "would cause you to share new items with" : "has caused you to share new items with"} ${names(sharedWith)}.${detail.review.hold ? " Lens is paused until you review." : ""}`}</p>
-        <div class="warning-actions">
-          <button class="text-button" onclick={() => (changesOpen = true)}>What changed</button>
-          <button class="text-button" disabled={busy} onclick={() => (ruleOpen = true)}>Edit rule</button>
-          <button class="primary" disabled={busy} onclick={looksOk}>Looks OK</button>
-        </div>
-      </section>
+      <LensWarning review={detail.review} servers={sharedWith} {busy} onchanges={() => (changesOpen = true)} onedit={() => (ruleOpen = true)} onok={looksOk} />
     {/if}
 
     <label class="field">Name<input bind:value={name} autocomplete="off" placeholder="Name this lens" /></label>
@@ -262,9 +260,7 @@
   .chip { font: var(--type-body); padding: 8px 14px; border: 1px solid var(--rule); background: none; color: var(--text-muted); cursor: pointer; }
   .chip.on { border-color: var(--text-strong); color: var(--text-strong); }
   .chip:disabled { opacity: .45; cursor: default; }
-  .warning { display: grid; gap: 14px; padding: 18px 20px; border: 1px solid var(--text-strong); }
-  .warning p { margin: 0; font: var(--type-body); line-height: 1.6; color: var(--text-strong); }
-  .warning-actions, .save { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 12px 24px; }
+  .save { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 12px 24px; }
   .text-button { border: 0; background: none; padding: 0; font: var(--type-meta); color: var(--text); cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
   .text-button:disabled { opacity: .45; cursor: default; }
   .primary { font: var(--type-body); padding: 10px 18px; border: 1px solid var(--text-strong); background: var(--text-strong); color: var(--bg); cursor: pointer; }

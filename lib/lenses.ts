@@ -97,6 +97,15 @@ export function fitThreshold(rated:{include:boolean;score:number}[]):number{
  return best;
 }
 
+/** The cut-off a preview draws at. An unchanged lens (same rule, same
+ * ratings) keeps its own: a migrated lens's came from its server rule, and
+ * refitting it from the ratings alone would show notes joining that never
+ * will. A new rule or new ratings fit afresh. */
+export function previewThreshold(lens:Pick<Lens,'text'|'labels'|'calibration'>|undefined,text:string,labels:InclusionLabel[],fit:()=>number):number{
+ const key=(ls:InclusionLabel[])=>JSON.stringify(ls.map(l=>[sourceDigest(l.source),l.include]));
+ return lens&&lens.text===text&&key(lens.labels)===key(labels)?lens.calibration.threshold:fit();
+}
+
 /** A personal note as lenses see it: its latest text and that text's digest (`sourceDigest`). */
 export interface LensNote {source_id:string;digest:string;title:string;body:string}
 /** The lens's members for these notes. `scores` has a score for each note that could be scored. */

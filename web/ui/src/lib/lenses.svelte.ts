@@ -25,6 +25,16 @@ export async function lensRequest<T>(action: string, body?: unknown): Promise<T>
   return data as T;
 }
 
+/** The warning on a lens a change grew while shared (D3), as the feed says it. */
+export function reviewWords(review: Pick<LensReviewSummary, "reason" | "hold">, servers: ServerRef[]) {
+  const cause = review.reason === "model" ? "A model upgrade" : review.reason === "vault" ? "A vault change" : "A BigBrain update";
+  const to = servers.map((s) => s.name).join(", ");
+  return review.hold ? `${cause} would cause you to share new items with ${to}. Lens is paused until you review.` : `${cause} has caused you to share new items with ${to}.`;
+}
+
+/** What Edit a lens opens with, when the warning in Settings › lenses sent the person there. */
+export const lensOpening = $state({ panel: "" as "" | "changes" | "rule" });
+
 /** A rule to start a new lens from (a server's suggestion), handed from the server page to Edit a lens. */
 export const lensDraft = $state({ text: "" });
 
