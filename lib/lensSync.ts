@@ -27,7 +27,7 @@ import {dirname,join} from 'node:path';
 import {randomUUID} from 'node:crypto';
 import {writeAtomic} from './fsx';
 import {sha256hex} from './hash';
-import {readConnections,sharedRequest,SharedConnectionError,type SharedConnection} from './sharedConnections';
+import {readConnections,sharedRequest,updateConnection,SharedConnectionError,type SharedConnection} from './sharedConnections';
 import {contributions,dropRule,getRule,sendSources,sourceKey,type Contribution} from './sharedRules';
 import {inclusionPath,readInclusionPolicy,sharedRuleScope} from './inclusionPolicy';
 import {listLenses,membership,newLens,readLens,sharingMode,writeLens,type Lens,type LensReview} from './lenses';
@@ -94,6 +94,7 @@ export async function migrateRules(root:string,store:string,contributionsOf:(c:S
    // The first pass fills this in, holding anything new for review, or drops it if nothing is.
    review:{reason:'update',hold:true,joins:[],leaves:[],at:''}}));
   recordShares(store,c.id,pins.map(originOf));
+  updateConnection(store,c.id,{root});
   dropRule(store,c.id);
   for(const draft of [false,true])rmSync(inclusionPath(root,store,scope,draft),{force:true});
  }
@@ -164,6 +165,15 @@ async function transition(c:SharedConnection,x:Contribution,action:'withdraw'|'r
 
 // ── the tick ────────────────────────────────────────────────────────────────
 const locks=new Set<string>();
+/** The vault a server is shared from: the one whose rule it migrated from, or
+ * whose lens first shared with it. Only that vault's lenses decide what is on
+ * it, so opening another vault (a scratch one, a second one) never reads as
+ * "nothing is shared any more" and withdraws everything. */
+export function vaultOf(store:string,c:SharedConnection,root:string,lenses:Lens[]):string|undefined{
+ if(!c.root&&lenses.some(l=>l.servers.includes(c.id))){updateConnection(store,c.id,{root});return root;}
+ return c.root;
+}
+
 export async function tickLenses(root:string,store:string){
  if(locks.has(store))return;locks.add(store);
  try{
@@ -174,6 +184,7 @@ export async function tickLenses(root:string,store:string){
   const lenses=listLenses(root,store);
   for(const c of readConnections(store)){
    if(getRule(store,c.id)?.root===root)continue; // not migrated yet: its lens doesn't exist to say what belongs
+   if(vaultOf(store,c,root,lenses)!==root)continue; // another vault's, or no vault's yet: these lenses don't speak for it
    await syncServer(store,c,lenses,notes).catch(()=>{/* unavailable or refused: the next tick retries */});
   }
  }finally{locks.delete(store);}

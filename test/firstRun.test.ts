@@ -17,6 +17,7 @@ import type { ServerResponse } from "node:http";
 import { PassThrough } from "node:stream";
 import { dispatch, type Route } from "../lib/httpx";
 import { latestUserIdentity } from "../lib/userIdentity";
+import { readPointer } from "../lib/engine";
 import { nativeVault } from "./support/vault";
 
 const tmp = (): string => mkdtempSync(join(tmpdir(), "bb-firstrun-"));
@@ -287,7 +288,7 @@ describe("joining a server from first run", () => {
     return { code, body: answer! };
   };
   test("with no vault: a bad link makes nothing; a good one makes a vault quietly, connects, and lands as a reader", async () => {
-    const home = tmp(), saved = { HOME: process.env.HOME, store: process.env.BIGBRAIN_SHARED_CONNECTIONS };
+    const home = tmp(), saved = process.env.BIGBRAIN_SHARED_CONNECTIONS;
     const { SharedVault } = await import("../lib/sharedVault");
     const { makeSharedApiHandler } = await import("../lib/sharedVaultApi");
     const { initMemberStore } = await import("../lib/sharedMembers");
@@ -300,7 +301,6 @@ describe("joining a server from first run", () => {
     initMemberStore(members, shared, { handle: "owner", display: "Example Owner" });
     const handler = makeSharedApiHandler({ root: shared, storePath: members, vault: new SharedVault(shared), log: () => {} });
     const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: (r) => handler(r) });
-    process.env.HOME = home;
     process.env.BIGBRAIN_SHARED_CONNECTIONS = join(home, "connections.json");
     try {
       const vault = join(home, "vault"), endpoint = `http://127.0.0.1:${server.port}`;
@@ -314,6 +314,7 @@ describe("joining a server from first run", () => {
       expect(ok.code).toBe(200);
       expect(ok.body.joined).toMatchObject({ name: "Garden club" });
       expect(opened).toBe(vault);
+      expect(readPointer()).toBe(vault);
       expect(existsSync(join(vault, "vault.yaml"))).toBe(true);
       expect(setupProgress(vault)).toBe("reader");
       expect(readConnections(join(home, "connections.json")).map((c) => c.name)).toEqual(["Garden club"]);
@@ -321,8 +322,7 @@ describe("joining a server from first run", () => {
       expect(vaultSetupDone(ok.body as unknown as SetupState)).toBe(false);
     } finally {
       server.stop(true);
-      process.env.HOME = saved.HOME;
-      if (saved.store === undefined) delete process.env.BIGBRAIN_SHARED_CONNECTIONS; else process.env.BIGBRAIN_SHARED_CONNECTIONS = saved.store;
+      process.env.BIGBRAIN_SHARED_CONNECTIONS = saved;
     }
   });
 });
