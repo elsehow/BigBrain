@@ -7,7 +7,9 @@ import { writeAtomic } from './fsx';
 import { sharedConnectionsStore } from './env';
 export interface SharedConnection { id: string; name: string; endpoint: string; token: string; memberId?: string;
   /** The member's agent delegate, minted on first publish (lib/sharedAssertionPublish.ts). */
-  agentToken?: string }
+  agentToken?: string;
+  /** The vault whose lenses share with this server (lib/lensSync.ts vaultOf). No other vault's tick syncs or publishes to it. */
+  root?: string }
 export interface SharedIdentity { vault?: {id:string;name:string}; handle: string; display: string; role: string; permissions: string[]; member_id: string; credential: { id: string; name: string } }
 export class SharedConnectionError extends Error { constructor(public status: number, message: string) { super(message); } }
 export function connectionStorePath(): string { return sharedConnectionsStore() ?? join(homedir(), '.config/bigbrain/shared-connections.json'); }

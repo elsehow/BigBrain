@@ -20,7 +20,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { supervisorPid } from "./parentWatch";
-import { vaultOverride } from "./env";
+import { vaultOverride, vaultPointerOverride } from "./env";
 
 /** The engine checkout's root — lib/ sits one level below it. */
 export const ENGINE_ROOT = resolve(import.meta.dir, "..");
@@ -56,7 +56,7 @@ export function configDir(): string {
 
 /** The machine's default-vault pointer: one line, an absolute path. */
 export function vaultPointer(): string {
-  return join(configDir(), "vault");
+  return vaultPointerOverride() ?? join(configDir(), "vault");
 }
 
 /** The machine's default-vault pointer's contents: an absolute path, or

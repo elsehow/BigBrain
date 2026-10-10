@@ -15,7 +15,8 @@ import {readConnections,saveConnection,type SharedConnection} from '../lib/share
 import {contributions,getRule,sendSources} from '../lib/sharedRules';
 import {fitThreshold,listLenses,membership,newLens,readLens,setSharingMode,writeLens,type Lens} from '../lib/lenses';
 import {lensNotes,scorePass,READ_LIMIT} from '../lib/lensScoring';
-import {migrateRules,originOf,passLens,readLensEvents,syncServer} from '../lib/lensSync';
+import {migrateRules,originOf,passLens,readLensEvents,syncServer,tickLenses} from '../lib/lensSync';
+import {publishedPath,tickPublishing} from '../lib/sharedAssertionPublish';
 import type {inclusionEvaluator} from '../lib/inclusionEvaluation';
 
 /** Scores are the last word of a note's body; `model` stands in for the evaluator's model. */
@@ -132,10 +133,10 @@ function door(){
  initMemberStore(members,shared,{handle:'owner'});addMember(members,{handle:'ines',display:'Ines Example',permissions:['read','write']});
  const ines=mintCredential(members,'ines',{name:'laptop'}),vaultDoor=new SharedVault(shared);
  const handler=makeSharedApiHandler({root:shared,storePath:members,vault:vaultDoor,log:()=>{}});
- const server=Bun.serve({hostname:'127.0.0.1',port:0,fetch:req=>handler(req)});
+ const asked:string[]=[],server=Bun.serve({hostname:'127.0.0.1',port:0,fetch:req=>{asked.push(`${req.method} ${new URL(req.url).pathname}`);return handler(req);}});
  const endpoint=`http://127.0.0.1:${server.port}`;
  const connect=async():Promise<SharedConnection>=>{const saved=await saveConnection(v.store,{name:'Garden club',endpoint,token:ines.token});return readConnections(v.store).find(x=>x.id===saved.id)!;};
- return {...v,server,endpoint,token:ines.token,connect};
+ return {...v,server,endpoint,token:ines.token,connect,asked};
 }
 
 describe('the move from server rules',()=>{
@@ -178,6 +179,29 @@ describe('syncServer',()=>{
    expect(await active()).toEqual(['Compost','Seed swap','Shared by hand']);
    await syncServer(d.store,c,[{...lens,servers:[]}],lensNotes(d.root));
    expect(await active()).toEqual(['Shared by hand']);
+  }finally{d.server.stop(true);}
+ });
+});
+
+describe('a server and its vault',()=>{
+ test('only the vault that shares with a server syncs or publishes to it: opening a copy withdraws and retracts nothing',async()=>{
+  const d=door();try{
+   const c=await d.connect(),seed=d.note('ex-a','Seed swap',.9);
+   writeLens(d.root,d.store,newLens({name:'Garden',text:'Include everything',servers:[c.id]}));
+   await tickLenses(d.root,d.store);
+   expect(readConnections(d.store)[0]!.root).toBe(d.root);
+   const active=async()=>(await contributions(c)).filter(x=>x.status==='active').map(x=>x.title);
+   expect(await active()).toEqual(['Seed swap']);
+   const claim={connection:c.id,personal_assertion_id:'ast_00000000000000000001',shared_assertion_id:'ast_00000000000000000002',status:'published',at:'2026-10-01T00:00:00.000Z'};
+   writeFileSync(publishedPath(d.store),JSON.stringify({[`${c.id}:${claim.personal_assertion_id}`]:claim}));
+   // A copy of the vault (a scratch one made from it): same notes, none of its lenses.
+   const other=join(d.dir,'scratch');mkdirSync(other);writeFileSync(join(other,'vault.yaml'),'integrations: {}\n');appendSourceInsertionEvent(other,seed);
+   const before=d.asked.length;
+   await tickLenses(other,d.store);await tickPublishing(other,d.store);
+   expect(d.asked.slice(before).filter(r=>r.startsWith('POST'))).toEqual([]);
+   expect(await active()).toEqual(['Seed swap']);
+   expect(JSON.parse(readFileSync(publishedPath(d.store),'utf8'))[`${c.id}:${claim.personal_assertion_id}`].status).toBe('published');
+   expect(readConnections(d.store)[0]!.root).toBe(d.root);
   }finally{d.server.stop(true);}
  });
 });

@@ -96,7 +96,10 @@ async function share(root:string,store:string,body:{id?:unknown;server?:unknown;
  const id=checkId(body.id),lens=readLens(root,store,id);if(!lens)throw Error('Save the lens first.');
  const c=readConnections(store).find(x=>x.id===body.server);if(!c)throw Error('Server unavailable.');
  if(!confirmed(lens,body.confirm))throw Error('Type the lens’s name to confirm.');
- if(body.on===true){const who=await sharedRequest<{permissions:string[]}>(c,'/v1/whoami');if(!who.permissions.includes('write'))throw Error('This server is read-only.');}
+ if(body.on===true){
+  if(c.root&&c.root!==root)throw Error('This server is shared from another vault.');
+  const who=await sharedRequest<{permissions:string[]}>(c,'/v1/whoami');if(!who.permissions.includes('write'))throw Error('This server is read-only.');
+ }
  const updated=updateLens(root,store,id,l=>{l.servers=body.on===true?[...new Set([...l.servers,c.id])]:l.servers.filter(s=>s!==c.id);});
  void tickLenses(root,store);
  return updated;

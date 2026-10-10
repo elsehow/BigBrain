@@ -110,6 +110,7 @@ const locks=new Set<string>();
 /** One pass over every connection (or one), beside the contribution tick. */
 export async function tickPublishing(root:string,store:string,only?:string) {
   if(locks.has(store))return;locks.add(store);
-  try{for(const c of readConnections(store)){if(only&&c.id!==only)continue;try{await publishAssertions(root,store,c,await contributions(c));}catch{/* unavailable or refused: the next tick retries */}}}
+  // Only a server's own vault (lib/lensSync.ts vaultOf) publishes to it: another vault holds none of its claims, and would retract them all.
+  try{for(const c of readConnections(store)){if((only&&c.id!==only)||c.root!==root)continue;try{await publishAssertions(root,store,c,await contributions(c));}catch{/* unavailable or refused: the next tick retries */}}}
   finally{locks.delete(store);}
 }
