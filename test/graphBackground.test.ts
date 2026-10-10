@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { assertionGraphEvidenceAsync, invalidateGraphCaches, primaryGraphAsync, primaryGraphWithLayoutAsync, readLayoutCache } from "../lib/graphCache";
 import { buildAssertionGraph } from "../lib/assertionGraph";
 import { appendSourceInsertionEvent, insertionEventRel } from "../lib/insertionLog";
+import { projectSourceInsertion } from "../lib/assertionProjection";
 import { sourceInsertionCached } from "../lib/assertionEntityView";
 import { insertion } from "./support/vault";
 import { withVaultSnapshot } from "../lib/vaultReadModel";
@@ -38,7 +39,7 @@ test("an invalidation during a worker build cannot publish an obsolete snapshot"
   const root = fresh();
   appendSourceInsertionEvent(root, source("1"));
   const first = primaryGraphAsync(root);
-  appendSourceInsertionEvent(root, source("2"));
+  appendSourceInsertionEvent(root, source("2")); projectSourceInsertion(root, source("2"));
   invalidateGraphCaches(root);
   const second = primaryGraphAsync(root);
   const [a, b] = await Promise.all([first, second]);
@@ -61,7 +62,7 @@ test("layout requests stay fresh when invalidated while the worker is running", 
   await primaryGraphAsync(root);
   const pending = primaryGraphWithLayoutAsync(root);
   await Promise.resolve();
-  appendSourceInsertionEvent(root, source("2"));
+  appendSourceInsertionEvent(root, source("2")); projectSourceInsertion(root, source("2"));
   invalidateGraphCaches(root);
   const latest = await primaryGraphWithLayoutAsync(root);
   const earlier = await pending;

@@ -78,10 +78,10 @@ test("progress events update SSE without warming or invalidating graph content",
 
 test("a vanished progress temp file reconciles the status without treating it as vault content", async () => {
   const { root } = fixture();
-  let refreshes = 0, warms = 0;
+  let refreshes = 0, recoveries = 0, warms = 0;
   let fail!: Parameters<LiveWatchFn>[2];
   const writes: string[] = [];
-  const live = createLive({ root, refresh: () => { refreshes++; }, warmLayout: () => { warms++; }, heartbeatMs: 60_000,
+  const live = createLive({ root, refresh: () => { refreshes++; }, recover: async () => { recoveries++; return false; }, warmLayout: () => { warms++; }, heartbeatMs: 60_000,
     watch: (_root, _change, onError) => { fail = onError; return { close() {} }; } });
   live.addClient({ write: text => writes.push(text) }); live.start();
   try {
@@ -93,18 +93,18 @@ test("a vanished progress temp file reconciles the status without treating it as
     fail(Object.assign(new Error("progress removed"), { code: "ENOENT", path: join(root, GARDENER_PROGRESS_PATH) }));
     await Bun.sleep(130);
     expect(writes.at(-1)).toBe("event: gardener\ndata: null\n\n");
-    expect([refreshes, warms]).toEqual([1, 0]);
+    expect([recoveries, refreshes, warms]).toEqual([1, 0, 0]);
     expect(writes.some(text => text.includes('"changed":true'))).toBe(false);
   } finally { live.stop(); }
 });
 
 test("the real filesystem watcher forwards atomic progress changes independently of vault changes", async () => {
   const { root } = fixture();
-  let refreshes = 0, warms = 0;
+  let refreshes = 0, recoveries = 0, warms = 0;
   const paths: string[] = [], errors: string[] = [];
   let subscriptions = 0;
   const started = performance.now();
-  const live = createLive({ root, refresh: () => { refreshes++; }, warmLayout: () => { warms++; }, heartbeatMs: 60000,
+  const live = createLive({ root, refresh: () => { refreshes++; }, recover: async () => { recoveries++; return false; }, warmLayout: () => { warms++; }, heartbeatMs: 60000,
     watch: (root, onChange, onError) => {
       subscriptions++;
       try {
@@ -129,7 +129,7 @@ test("the real filesystem watcher forwards atomic progress changes independently
       publications, subscriptions, paths: paths.slice(-40), errors, status: readGardenerProgress(root), writes,
     })}`)), 2000); })]);
     expect(paths.length).toBeGreaterThan(0); // Recovery hints alone cannot pass.
-    expect(refreshes).toBe(1); expect(warms).toBe(0);
+    expect([recoveries, refreshes, warms]).toEqual([1, 0, 0]);
     expect(writes.some(text => text.includes('"changed":true'))).toBe(false);
     if (errors.length) console.info("Native progress watcher recovered:", JSON.stringify({
       subscriptions, errors, publications, nativeEvents: paths.length, deliveryMs: performance.now() - started,

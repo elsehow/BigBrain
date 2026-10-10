@@ -11,7 +11,8 @@ import { join, sep } from "node:path";
 const server = await import("../web/server");
 const { dispatch } = await import("../lib/httpx");
 const { appendSourceInsertionEvent, insertionEventRel } = await import("../lib/insertionLog");
-const { appendAssertionEvent, assertionEntityId, createAssertionEvent } = await import("../lib/assertionLog");
+const { assertionEntityId, createAssertionEvent } = await import("../lib/assertionLog");
+const { appendAndProjectAssertion, projectSourceInsertion, recoverAssertionProjection } = await import("../lib/assertionProjection");
 const { invalidateAssertionRecord } = await import("../lib/assertionEntityView");
 const { insertion } = await import("./support/vault");
 
@@ -97,12 +98,13 @@ describe("the route table", () => {
       body: "Kit asked for the estimate.", received_at: "2026-08-22T10:00:00.000Z", content_sha256: "sha-web-feed",
     });
     appendSourceInsertionEvent(root, cited);
+    projectSourceInsertion(root, cited);
     const claim = createAssertionEvent({
       text: "Kit asked for the estimate.", entities: [], sources: [cited.id],
       author: { kind: "model", id: "test", invocation_id: "run-1" }, confidence: "direct",
       created_at: "2026-08-22T11:00:00.000Z", produced_by: { procedure: "test", version: "v1" },
     }, new Map([[cited.id, cited]]));
-    appendAssertionEvent(root, claim);
+    appendAndProjectAssertion(root, claim);
     invalidateAssertionRecord(root);
     // five calls, one item each, the cited source's the oldest
     const sources = [cited.id, ...[1, 2, 3, 4].map((n) => `ins_5a1e0000000000000000003${n}`)];
@@ -127,6 +129,7 @@ describe("the route table", () => {
       writeFileSync(yaml, found);
       rmSync(join(root, "journal"), { recursive: true, force: true });
       rmSync(join(root, "log"), { recursive: true, force: true });
+      recoverAssertionProjection(root); // a read no longer censuses log/: heal the removal here
       invalidateAssertionRecord(root);
     }
   });
@@ -303,11 +306,12 @@ describe("a source note carries the assertions grounded in it", () => {
       envelope: { id: "src-web-rail-c", source: "mcp", from: "desk-agent", from_kind: "agent", kind: "note" },
       body: "![](https://img.example.com/a.png)", received_at: "2026-08-22T10:10:00.000Z", content_sha256: "sha-web-rail-c",
     });
-    appendSourceInsertionEvent(root, cited);
-    appendSourceInsertionEvent(root, bare);
-    appendSourceInsertionEvent(root, dropped);
+    for (const event of [cited, bare, dropped]) {
+      appendSourceInsertionEvent(root, event);
+      projectSourceInsertion(root, event);
+    }
     const ada = { id: assertionEntityId("Ada Lovelace"), label: "Ada Lovelace" };
-    appendAssertionEvent(root, createAssertionEvent(
+    appendAndProjectAssertion(root, createAssertionEvent(
       {
         text: `[[${ada.id}|Ada]] runs Atlas.`, entities: [ada], sources: [cited.id],
         author: { kind: "model", id: "test", invocation_id: "run-1" }, confidence: "direct",
@@ -338,6 +342,7 @@ describe("a source note carries the assertions grounded in it", () => {
     } finally {
       // the preloaded scratch vault is every file's; leave it as found
       rmSync(join(root, "log"), { recursive: true, force: true });
+      recoverAssertionProjection(root); // a read no longer censuses log/: heal the removal here
       invalidateAssertionRecord(root);
     }
   });
@@ -361,7 +366,7 @@ test("search keeps grouped thread rows fresh across the live invalidation path",
   }));
   const live = createLive({ root, debounceMs: 1, watch: () => ({ close() {} }), warmLayout: primaryGraphCached });
   try {
-    for (const row of rows.slice(0, 2)) appendSourceInsertionEvent(root, row);
+    for (const row of rows.slice(0, 2)) { appendSourceInsertionEvent(root, row); projectSourceInsertion(root, row); }
     syncAssertionProjection(root); invalidateGraphCaches(root); invalidateAssertionRecord(root);
     const first = await search();
     expect(first.hits).toHaveLength(1);
@@ -380,6 +385,7 @@ test("search keeps grouped thread rows fresh across the live invalidation path",
   } finally {
     live.stop();
     rows.forEach(row => rmSync(join(root, insertionEventRel(row)), { force: true }));
+    recoverAssertionProjection(root); // a read no longer censuses log/: heal the removal here
     invalidateGraphCaches(root); invalidateAssertionRecord(root);
   }
 });

@@ -3,6 +3,7 @@ import type { Graph } from "./graph";
 import type { Positions } from "./graphLayout";
 export type ReadModelWorkerRequest = { kind: "graph"; root: string; knownRevision?: string }
   | { kind: "feed"; root: string }
+  | { kind: "recover"; root: string }
   | { kind: "layout"; graph: Graph; previous?: Positions };
 
 export function background<T>(request: ReadModelWorkerRequest): Promise<T> {

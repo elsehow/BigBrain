@@ -8,7 +8,8 @@
  * mail reaches it at once. */
 import { afterAll, describe, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
-import { appendAssertionEvent, assertionEntityId, createAssertionEvent } from "../lib/assertionLog";
+import { assertionEntityId, createAssertionEvent } from "../lib/assertionLog";
+import { appendAndProjectAssertion, projectSourceInsertion } from "../lib/assertionProjection";
 import { FRESH_MAIL_MS } from "../lib/agentReads";
 import { liveForAgent } from "../lib/integrations";
 import { insertionEventRel, type SourceInsertion } from "../lib/insertionLog";
@@ -48,13 +49,14 @@ function vault(): string {
     "memory/MEMORY.md": "# Memory\n- The orrery keeps its 3:1 gearing.\n",
     "references/curated.md": "---\ntitle: Curated note\n---\nA legacy reference.\n",
   } });
+  for (const event of [mail, mine, clip]) projectSourceInsertion(root, event); // as a landing does
   roots.push(root);
   return root;
 }
 
 const claim = (root: string, label: string, text: string, sources: SourceInsertion[]) => {
   const e = { id: assertionEntityId(label), label };
-  appendAssertionEvent(root, createAssertionEvent({
+  appendAndProjectAssertion(root, createAssertionEvent({
     text: `[[${e.id}|${label}]] ${text}`, entities: [e], sources: sources.map(s => s.id),
     author: { kind: "model", id: "test", invocation_id: "run-1" }, confidence: "direct",
     created_at: "2026-10-04T10:00:00.000Z", produced_by: { procedure: "test", version: "v1" },

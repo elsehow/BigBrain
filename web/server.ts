@@ -888,12 +888,12 @@ export function start(): void {
   live.start();
   // Pilot's live reads are dispatched in this process.
   logIntegrationCalls(ROOT);
-  // Cold projection recovery happens HERE, off the request path (#456): a
-  // fresh process against a native vault syncs once at boot, so the first
-  // interactive search never carries the catch-up. Sync is incremental —
-  // current projection, ~milliseconds — and best-effort: a damaged event
-  // file must not keep the whole viewer down, and search's own freshen
-  // will surface the error in its bounded failure posture instead.
+  // The projection is warmed HERE, before the port opens, so the first
+  // interactive search never carries the catch-up: edited Markdown, or a
+  // whole build when there is no current projection. The log census already
+  // runs in a worker (live.start). Best-effort: a damaged event file must not
+  // keep the whole viewer down, and search's own freshen will surface the
+  // error in its bounded failure posture instead.
   if (hasAssertionEvents(ROOT)) {
     try {
       const t0 = performance.now();

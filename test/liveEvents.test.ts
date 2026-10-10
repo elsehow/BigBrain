@@ -1,8 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createLive, type LiveClient, type LiveWatchFn, WATCHED } from "../lib/liveEvents";
+import { createLive, recoverInBackground, type LiveClient, type LiveWatchFn, WATCHED } from "../lib/liveEvents";
+import { assertionProjectionStats, syncAssertionProjection } from "../lib/assertionProjection";
+import { appendSourceInsertionEvent } from "../lib/insertionLog";
+import { insertion, mdVault } from "./support/vault";
+
+/** Sync as a read does, then count what the projection holds. */
+const synced = (root: string) => { syncAssertionProjection(root); return assertionProjectionStats(root); };
 
 // The SSE fan-out, driven end to end with no filesystem watcher (#291): a
 // fake client registers, a change event goes in, the debounced ping comes
@@ -23,6 +29,7 @@ function harness(opts: { watchThrows?: boolean } = {}) {
   const client = fakeClient();
   const logged: string[] = [];
   let refreshes = 0;
+  let recoveries = 0;
   let warms = 0;
   let warmThrows = false;
   let closed = 0;
@@ -40,6 +47,7 @@ function harness(opts: { watchThrows?: boolean } = {}) {
     root: "/nonexistent-vault",
     watch,
     refresh: () => refreshes++,
+    recover: async () => { recoveries++; return false; },
     warmLayout: () => {
       warms++;
       if (warmThrows) throw new Error("layout unavailable");
@@ -54,6 +62,7 @@ function harness(opts: { watchThrows?: boolean } = {}) {
     client,
     logged,
     refreshes: () => refreshes,
+    recoveries: () => recoveries,
     warms: () => warms,
     breakWarm: () => { warmThrows = true; },
     closed: () => closed,
@@ -157,10 +166,11 @@ describe("createLive — the debounced change fan-out", () => {
 });
 
 describe("createLive — lifecycle", () => {
-  test("start warms the index once and opens the watcher; stop closes it and halts the heartbeat", async () => {
+  test("start recovers once and opens the watcher; stop closes it and halts the heartbeat", async () => {
     const h = harness();
     h.live.start();
-    expect(h.refreshes()).toBe(1); // the boot warm
+    expect(h.recoveries()).toBe(1); // the boot census, off the request path
+    expect(h.refreshes()).toBe(0); // the server warms Markdown itself
     await sleep(25);
     expect(h.client.writes.filter((w) => w === ": ping\n\n").length).toBeGreaterThanOrEqual(1);
     h.live.stop();
@@ -245,11 +255,12 @@ describe("createLive — lifecycle", () => {
     h.fireError(Object.assign(new Error("gone"), { code: "ENOENT", path: "/nonexistent-vault/log/insertions/.tmp-file" }));
     await sleep(20);
     expect(h.client.writes).toContain(PING);
-    expect(h.refreshes()).toBe(2); expect(h.warms()).toBe(1);
+    // a log path heals before the refresh: boot recovery, then this one
+    expect(h.recoveries()).toBe(2); expect(h.refreshes()).toBe(1); expect(h.warms()).toBe(1);
     await sleep(110);
     h.fireError(Object.assign(new Error("outside"), { code: "ENOENT", path: "/elsewhere/log/insertions/.tmp-file" }));
     await sleep(20);
-    expect(h.refreshes()).toBe(2); expect(h.warms()).toBe(1);
+    expect(h.recoveries()).toBe(2); expect(h.refreshes()).toBe(1); expect(h.warms()).toBe(1);
     h.live.stop();
   });
 
@@ -258,5 +269,20 @@ describe("createLive — lifecycle", () => {
     const live = createLive({ root, refresh: () => {}, heartbeatMs: 60_000 });
     live.start();
     live.stop(); // no leaked watcher/interval — bun test hangs if this fails
+  });
+});
+
+describe("recoverInBackground", () => {
+  test("heals a hand-written log file in a worker and says the projection moved", async () => {
+    const root = mdVault();
+    try {
+      appendSourceInsertionEvent(root, insertion({ id: `ins_${"a".repeat(24)}`, source_id: "a" }));
+      expect(synced(root).sources).toBe(1);
+      appendSourceInsertionEvent(root, insertion({ id: `ins_${"b".repeat(24)}`, source_id: "b" }));
+      expect(synced(root).sources).toBe(1); // no read takes the census
+      expect(await recoverInBackground(root)).toBe(true);
+      expect(synced(root).sources).toBe(2);
+      expect(await recoverInBackground(root)).toBe(false); // nothing left to heal
+    } finally { rmSync(root, { recursive: true, force: true }); }
   });
 });

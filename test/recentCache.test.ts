@@ -6,6 +6,7 @@ import { sourceExcerpt, recentSourcePage } from "../lib/sourceFeed";
 import { invalidateVaultReadModel } from "../lib/vaultReadModel";
 import { createLive } from "../lib/liveEvents";
 import { appendSourceInsertionEvent } from "../lib/insertionLog";
+import { projectSourceInsertion } from "../lib/assertionProjection";
 import { insertion } from "./support/vault";
 
 test("bounded excerpts preserve whitespace and truncation semantics", () => {
@@ -22,7 +23,8 @@ test("recent pages share a feed and watcher events invalidate it before the live
     const first = recentSourcePage(root, 0, 12);
     expect(first).toEqual(recentSourcePage(root, 0, 12));
     expect(recentSourcePage(root, 0, 3).recent[0]).toEqual(first.recent[0]);
-    appendSourceInsertionEvent(root, insertion({ id: `ins_${"b".repeat(24)}`, title: "New arrival", received_at: "2026-01-02T00:00:00Z" }));
+    const arrival = insertion({ id: `ins_${"b".repeat(24)}`, title: "New arrival", received_at: "2026-01-02T00:00:00Z" });
+    appendSourceInsertionEvent(root, arrival); projectSourceInsertion(root, arrival);
     live.handleChange("log/insertions/2026-01/new.json");
     const refreshed = recentSourcePage(root, 0, 1);
     expect(refreshed.recent[0].title).toBe("New arrival");

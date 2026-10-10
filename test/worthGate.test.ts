@@ -1,8 +1,9 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { appendAssertionEvent, createAssertionEvent } from "../lib/assertionLog";
-import { appendDeclineEvent, createDeclineEvent } from "../lib/declineLog";
+import { createAssertionEvent } from "../lib/assertionLog";
+import { appendAndProjectAssertion, appendAndProjectDecline } from "../lib/assertionProjection";
+import { createDeclineEvent } from "../lib/declineLog";
 import { tickIntegrationAdmission } from "../lib/integrationAdmission";
 import { accountFingerprint, accountPolicy, writeAccountPolicy } from "../lib/integrationAccess";
 import { readSourceInsertionLog } from "../lib/insertionLog";
@@ -74,8 +75,8 @@ describe("the gate in front of the gardener", () => {
       const sources = new Map(readSourceInsertionLog(root).map((s) => [s.id, s]));
       const idOf = (id: string) => gateDecisions(root).find((d) => d.id === id)!.insertion_id!;
       const meta = { author: { kind: "model" as const, id: "test", invocation_id: "run-1" }, created_at: "2026-08-21T00:00:00.000Z", produced_by: { procedure: "test", version: "v1" } };
-      appendAssertionEvent(root, createAssertionEvent({ ...meta, text: "Briar confirmed the orrery repair budget.", entities: [], sources: [idOf("keep-1")], confidence: "direct" }, sources));
-      appendDeclineEvent(root, createDeclineEvent({ ...meta, insertion_ids: [idOf("noise-1")], reason: "A promotion." }, sources));
+      appendAndProjectAssertion(root, createAssertionEvent({ ...meta, text: "Briar confirmed the orrery repair budget.", entities: [], sources: [idOf("keep-1")], confidence: "direct" }, sources));
+      appendAndProjectDecline(root, createDeclineEvent({ ...meta, insertion_ids: [idOf("noise-1")], reason: "A promotion." }, sources));
 
       // now the cut-off has risen to what the gardener kept; noise is passed, not admitted
       Math.random = () => 0.99;
