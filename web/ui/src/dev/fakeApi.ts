@@ -1485,13 +1485,18 @@ export function installFakeApi(): void {
   class FakeEventSource {
     onopen: ((e: Event) => void) | null = null;
     onerror: ((e: Event) => void) | null = null;
-    onmessage: ((e: MessageEvent) => void) | null = null;
     constructor() {
       setTimeout(() => this.onopen?.(new Event("open")), 0);
       window.addEventListener("workbench-change", this.ping);
     }
-    /** A vault change ping, as the engine sends when something is filed. */
-    private ping = () => this.onmessage?.(new MessageEvent("message", { data: "{}" }));
+    /** A vault change, as the engine pushes it when something is filed:
+     * every view's stamp moves (a workbench graph names its own hash). */
+    private changes = 0;
+    private ping = (event: Event) => {
+      const n = String(++this.changes), graph = (event as CustomEvent<{ graph?: string } | null>).detail?.graph ?? n;
+      const data = JSON.stringify({ generation: "workbench", revision: n, views: { graph, joined: "", feed: n, files: n } });
+      for (const fn of this.listeners.get("views") ?? []) fn(new MessageEvent("views", { data }));
+    };
     private listeners = new Map<string, Set<(event: MessageEvent) => void>>();
     private receive = (event: Event) => { for (const fn of this.listeners.get("application") ?? []) fn(new MessageEvent("application", { data: JSON.stringify((event as CustomEvent).detail) })); };
     close(): void { window.removeEventListener("workbench-application", this.receive); window.removeEventListener("workbench-change", this.ping); }

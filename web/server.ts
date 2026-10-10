@@ -5,7 +5,7 @@ import {logIntegrationCalls} from '../lib/readLog';
 import {inclusionReviewApi} from '../lib/inclusionReviewApi';
 import {inclusionBackfillApi} from '../lib/inclusionBackfillApi';
 import {tickIntegrationAdmission} from '../lib/integrationAdmission';
-import { unionGraph, unionRecent, unionSearch, unionNote, vaultFilter, includesPersonal, sharedEntityClaims } from '../lib/sharedReadUnion';
+import { unionGraph, unionRecent, unionSearch, unionNote, vaultFilter, includesPersonal, personalOnly, sharedEntityClaims } from '../lib/sharedReadUnion';
 import { jevSettingsApi } from '../lib/jevSettingsApi';
 import { optionalJevKey } from '../lib/jevSettings';
 import { sharedSettingsApi } from '../lib/sharedSettingsApi';
@@ -58,11 +58,12 @@ import { serveStatic } from "../lib/staticServe";
 import { walkMarkdown } from "../lib/vaultRead";
 import { parseBlobRef, readBlob } from "../lib/blobs";
 import { recentSourcePageAsync } from "../lib/sourceFeed";
-import { currentGraph, maintainGraphView } from "../lib/maintainedGraph";
+import { currentGraph, currentGraphView, maintainGraphView } from "../lib/maintainedGraph";
+import { feedStamp, STAMP_HEADER } from "../lib/viewStamps";
+import type { ProjectionView } from "../lib/assertionProjection";
 import { buildEntityFeed, buildSortedFeed, buildV2Feed, pageSortedFeed, SORTED_PAGE, type V2Source } from "../lib/v2Feed";
 import { dueOf, feedItems, feedRecords } from "../lib/feedJournal";
 import { readV2Source } from "../lib/v2Read";
-import { tendJournalFiles } from "../lib/tend";
 import { otherCopies, withVaultSnapshot } from "../lib/vaultReadModel";
 import { frozenMessagesForRefs, sortFrozenDesc } from "../lib/frozenQueue";
 import { queueHead } from "../lib/queueHead";
@@ -78,7 +79,7 @@ import { foldsRoutes } from "../lib/entityFolds";
 import { copyReview, sourceCopyRoutes } from "../lib/sourceCopyReview";
 import { createNoteBriefingService, noteBriefingRoutes, readNoteBriefingInput } from "../lib/noteBriefing";
 import { noteRelationRoutes } from "../lib/noteRelation";
-import { sourceReadStateRoutes, graphWithReadState } from "../lib/sourceReadStateApi";
+import { sourceReadStateRoutes } from "../lib/sourceReadStateApi";
 import { sourceOrigin, sourceOrigins, type SourceOrigin } from "../lib/sourceOrigin";
 import { setupRoutes, setupState } from "../lib/firstRun";
 import { listTokens, revokeToken, tokenStorePath } from "../lib/auth";
@@ -544,17 +545,22 @@ function search({ req, res, url }: Ctx): void {
 // The v2 view's read (lib/v2Feed.ts): the agents writing this vault,
 // what each centres on lately, and the latest assertions as a feed. The
 // graph itself comes from /api/graph; this adds only who and what.
-let v2Held: { revision: string; src: V2Source } | undefined;
-const v2Source = (): V2Source => withVaultSnapshot(ROOT, (db, revision) => {
-  // a gardener run's journal, which names the model its rows don't, lands
-  // after them: read again when one does
-  const key = `${revision}:${tendJournalFiles(ROOT).length}`;
-  if (v2Held?.revision !== key) v2Held = { revision: key, src: readV2Source(db, ROOT) };
-  return v2Held.src;
+// A gardener run's journal, which names the model its rows don't, lands
+// after them and logs a change row (lib/tend.ts): the revision covers it.
+let v2Held: { revision: string; src: V2Source; stamp: string } | undefined;
+const v2Source = (): { src: V2Source; stamp: string } => withVaultSnapshot(ROOT, (db, revision) => {
+  if (v2Held?.revision !== revision) v2Held = { revision, src: readV2Source(db, ROOT), stamp: feedStamp(ROOT, db) };
+  return v2Held;
 });
+/** JSON read from the feed's snapshot, reporting the stamp it was read at. */
+function feedJson(res: ServerResponse, stamp: string, value: unknown): void {
+  res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store", [STAMP_HEADER]: stamp });
+  res.end(JSON.stringify(value));
+}
 function v2({ res }: Ctx): void {
   try {
-    json(res, 200, buildV2Feed(v2Source()));
+    const { src, stamp } = v2Source();
+    feedJson(res, stamp, buildV2Feed(src));
   } catch (error) {
     json(res, 500, { error: errText(error) });
   }
@@ -564,7 +570,7 @@ function v2Entity({ res, url }: Ctx): void {
   const id = url.searchParams.get("id") ?? "";
   if (!id) return json(res, 400, { error: "Which entity? Pass ?id=." });
   try {
-    json(res, 200, { rows: buildEntityFeed(v2Source(), id) });
+    json(res, 200, { rows: buildEntityFeed(v2Source().src, id) });
   } catch (error) {
     json(res, 500, { error: errText(error) });
   }
@@ -579,10 +585,11 @@ function v2Sorted({ res, url }: Ctx): void {
   try {
     const records = loadManifest(ROOT).feed ? feedRecords(ROOT) : [];
     const limit = Math.min(SORTED_MAX, Math.max(1, Math.trunc(Number(url.searchParams.get("limit"))) || SORTED_PAGE));
-    const { rows, next } = pageSortedFeed(buildSortedFeed(v2Source(), feedItems(records).map((e) => ({ ...e, due: dueOf(e) }))),
+    const { src, stamp } = v2Source();
+    const { rows, next } = pageSortedFeed(buildSortedFeed(src, feedItems(records).map((e) => ({ ...e, due: dueOf(e) }))),
       limit, url.searchParams.get("before") ?? undefined);
     const heads = projectedSourceHeads(ROOT, rows.map((r) => r.source));
-    json(res, 200, { next, rows: rows.map((r) => {
+    feedJson(res, stamp, { next, rows: rows.map((r) => {
       const h = heads.get(r.source);
       return h ? { ...r, title: h.title, path: insertionEventRel(h), ...(h.source ? { via: h.source } : {}) } : r;
     }) });
@@ -600,13 +607,28 @@ function v2Sorted({ res, url }: Ctx): void {
 // assertion, the graph is the ontology-free projection over assertions and
 // cited source insertions. An assertion-empty legacy vault tolerantly keeps
 // its link graph until that additive substrate exists.
-async function graph({ req, res }: Ctx): Promise<void> {
+//
+// Your vault's graph is the maintained view's bytes (lib/maintainedGraph.ts),
+// revalidated by its hash: the ETag is the stamp `event: views` pushes, and an
+// unchanged view answers 304. `?current` waits until the view reflects the
+// projection as this request found it: a client reading its own write.
+// Joined shared vaults are merged per request.
+async function graph({ req, res, url }: Ctx): Promise<void> {
   try {
-    const personal=graphWithReadState(ROOT, await currentGraph(ROOT));
-    json(res, 200, req.headers?.["x-bigbrain-vault-filter"]==="personal"?personal:await unionGraph(ROOT,personal,vaultFilter(req.headers?.["x-bigbrain-vault-filter"])));
+    if (url.searchParams.has("current")) await maintainGraphView(ROOT);
+    const filter = vaultFilter(req.headers?.["x-bigbrain-vault-filter"]);
+    if (personalOnly(filter)) return sendView(req, res, await currentGraphView(ROOT));
+    json(res, 200, await unionGraph(ROOT, await currentGraph(ROOT), filter));
   } catch (error) {
     json(res, 500, { error: errText(error) });
   }
+}
+function sendView(req: IncomingMessage, res: ServerResponse, view: ProjectionView): void {
+  const etag = `"${view.hash}"`;
+  const headers = { "content-type": "application/json", "cache-control": "no-cache", etag, vary: "x-bigbrain-vault-filter" };
+  if (req.headers?.["if-none-match"] === etag) { res.writeHead(304, headers); res.end(); return; }
+  res.writeHead(200, headers);
+  res.end(view.body);
 }
 
 // A note's "touched by" record (phase 4 item 3): frontmatter provenance +
@@ -924,8 +946,10 @@ export function start(): void {
     if (await inclusionReviewApi(req,res,ROOT)) return;
     if (await inclusionBackfillApi(req,res,ROOT)) return;
     if (await jevSettingsApi(req,res,ROOT)) return;
-    if (await sharedSettingsApi(req,res,ROOT)) return;
-    if (await sharedWorkspace(req, res)) return;
+    // Joining a shared vault changes the Field's graph: a write here pushes its stamp.
+    const joined = () => { if (req.method !== "GET") live.refreshViews(); };
+    if (await sharedSettingsApi(req,res,ROOT)) return joined();
+    if (await sharedWorkspace(req, res)) return joined();
     if (!allowVaultRequest(req, res, vaultIdentity(ROOT))) return;
     const path = (req.url ?? "").split("?")[0] ?? "";
     const reads: Partial<Record<string, Operation>> = { "/api/search": "search", "/api/graph": "graph", "/api/note": "note" };

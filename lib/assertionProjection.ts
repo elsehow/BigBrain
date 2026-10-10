@@ -353,8 +353,9 @@ function openReadonly(root: string): Database {
 const encoded = (value: unknown): string => JSON.stringify(value);
 
 /** What a revision changed: an event projected (`add`), a source retracted or
- * restored by hand (`remove`/`add`), a note created, edited or deleted. */
-export type ChangeKind = "source" | "assertion" | "decline" | "revocation" | "alias" | "entity_source" | "copy" | "markdown";
+ * restored by hand (`remove`/`add`), a note created, edited or deleted, or a
+ * run journal written (projectJournal). */
+export type ChangeKind = "source" | "assertion" | "decline" | "revocation" | "alias" | "entity_source" | "copy" | "markdown" | "journal";
 export interface ProjectionChange { revision: number; kind: ChangeKind; id: string; op: "add" | "edit" | "remove" }
 
 /** Advance the revision and log what advanced it, in the caller's
@@ -1057,6 +1058,35 @@ export function projectionChangesSince(root: string, since: string, db?: Databas
   });
 }
 
+/** A journal file the viewer reads (tend's runs, the feed stage's items) was
+ * written: log it, so a view built from journals moves with the record. The
+ * file is the truth and was written first; a row lost to a crash costs that
+ * view its freshness until the next commit, never data. */
+export function projectJournal(root: string, rel: string): void {
+  try {
+    withProjectionWrite(root, () => {
+      const db = open(root);
+      try { db.transaction(() => commitChanges(db, [{ kind: "journal", id: rel, op: "add" }]))(); }
+      finally { db.close(); }
+    });
+  } catch { /* the next commit carries the view forward */ }
+}
+
+/** The projection's coordinate, with the coordinate of its last commit that
+ * logged a row outside `except`: what a view that ignores those kinds last
+ * depended on. One snapshot; undefined without a projection. */
+export function lastChangeExcept(root: string, except: readonly ChangeKind[], db?: Database): { at: string; last: string } | undefined {
+  return reading(root, db, (handle) => handle.transaction(() => {
+    const at = projectionRevision(root, handle);
+    if (!at) return undefined;
+    const row = handle.query(`SELECT revision FROM changes WHERE kind NOT IN (${except.map(() => "?").join(", ")})
+      ORDER BY revision DESC LIMIT 1`).get(...except) as { revision: number } | null;
+    return { at, last: `${at.split(":")[0]}:${row?.revision ?? 0}` };
+  })());
+}
+
+/** A saved view: the revision it reflects, a hash of its body (its stamp and
+ * ETag), and the body as served. */
 export interface ProjectionView { revision: string; hash: string; body: string }
 
 /** A saved view, as its maintainer last saved it; its revision says how

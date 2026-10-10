@@ -1,5 +1,5 @@
 /** Ephemeral invalidations, never an alternative durable application store. */
-export interface ApplicationEntityChange { kind: "pilot" | "work"; id: string; revision: number }
+export interface ApplicationEntityChange { kind: "pilot" | "work" | "desktop"; id: string; revision: number }
 export interface ApplicationChange { epoch: string; revision: number; snapshot?: boolean; entities: ApplicationEntityChange[] }
 export class ApplicationChanges {
   readonly epoch = crypto.randomUUID();

@@ -22,6 +22,9 @@ const remotePath=(c:SharedConnection,id:string)=>`shared/${c.id}/${id}.md`;
 async function pages<T>(c:SharedConnection,kind:string):Promise<T[]>{const rows:T[]=[];let cursor:string|null=null;do{const p:{items:T[];next_cursor:string|null}=await sharedRequest(c,`/v1/${kind}?limit=200${cursor?'&cursor='+encodeURIComponent(cursor):''}`);rows.push(...p.items);cursor=p.next_cursor;}while(cursor);return rows;}
 export function vaultFilter(header: string | string[] | undefined): string[] { return typeof header === "string" ? [...new Set(header.split(",").filter(Boolean))] : []; }
 export const includesPersonal = (filter: string[]) => !filter.length || filter.includes("personal");
+/** Whether a read under `filter` is your vault's alone: nothing joined to merge. */
+export const personalOnly = (filter: string[]) =>
+  (filter.length === 1 && filter[0] === "personal") || (includesPersonal(filter) && !readConnections(connectionStorePath()).length);
 async function views(filter: string[] = []){const results=await Promise.allSettled(readConnections(connectionStorePath()).filter(c => !filter.length || filter.includes(c.id)).map(async c=>({c,view:sharedProjection(await pages<SourceInsertion>(c,'evidence'),await pages<AssertionView>(c,'assertions'))})));return results.flatMap(r=>r.status==='fulfilled'?[r.value]:[]);}
 function localSources(root:string){return new Map(readSourceInsertionLog(root,{strict:true}).map(s=>['origin:'+sourceKey(s),s]));}
 /** Each memory topic's citations of joined vaults' claims, by path. */
@@ -34,7 +37,7 @@ export async function unionGraph(root:string,graph:Graph,filter:string[] = []):P
  if(filter.length===1&&filter[0]==="personal")return graph;
  if(!readConnections(connectionStorePath()).length)return graph;
  const local=localSources(root),cites=sharedCitations(root),citing=new Set<string>(),drawn=new Set<string>(),paths=new Map(graph.nodes.flatMap(n=>[n.path,...(n.memberPaths??[])].filter((p):p is string=>!!p).map(p=>[p,n])));
- const nodes=graph.nodes.map(n=>({...n,vaults:['personal']})),byId=new Map(nodes.map(n=>[n.id,n])),edges=[...graph.edges];
+ const nodes=graph.nodes.map(n=>({...n,vaults:['personal']})),byId=new Map(nodes.map(n=>[n.id,n])),edges=graph.edges.map(e=>({...e}));
  // One entity across vaults: keyed by the id it resolves to here, it is your
  // node when you have one, else the first joined vault's, and every other
  // vault's mentions land on it. A node's degree counts each tie once, however

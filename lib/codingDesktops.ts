@@ -165,6 +165,9 @@ export class CodingDesktopError extends Error {
 
 type HostFn = (root: string, model?: string) => Promise<OpenOptions>;
 
+/** Agent events that change a desktop's place in the list (phase, activity). */
+const SUMMARY_EVENTS = new Set(["input", "status", "tool.start", "tool.end", "message.done", "error"]);
+
 export class CodingDesktops {
   readonly agents: Agents;
   private dir: string;
@@ -173,7 +176,11 @@ export class CodingDesktops {
   private streams = new Map<string, Set<ServerResponse>>();
   private naming = new Map<string, number>();
 
-  constructor(private root: string, private options: { agents?: Agents; host?: HostFn; nameTask?: TaskNamer; themeUrl?: string } = {}) {
+  /** Bumped per change pushed to the viewer's `event: application`. */
+  private revision = 0;
+
+  constructor(private root: string, private options: { agents?: Agents; host?: HostFn; nameTask?: TaskNamer; themeUrl?: string;
+    changes?: import("./applicationChanges").ApplicationChanges } = {}) {
     this.agents = options.agents ?? hostAgents(root);
     this.dir = join(spoolDir(root), "coding-desktops");
     mkdirSync(this.dir, { recursive: true });
@@ -622,9 +629,12 @@ export class CodingDesktops {
   }
   private broadcast(id: string, e: Stamped): void {
     for (const res of this.streams.get(id) ?? []) res.write(`data: ${JSON.stringify(e)}\n\n`);
+    // The list's summary moves with these; streamed text does not.
+    if (SUMMARY_EVENTS.has(e.type)) this.options.changes?.changed("desktop", id, ++this.revision);
   }
   private notify(id: string): void {
     for (const res of this.streams.get(id) ?? []) res.write(`event: record\ndata: {}\n\n`);
+    this.options.changes?.changed("desktop", id, ++this.revision);
   }
 
   close(): void {

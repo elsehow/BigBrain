@@ -12,8 +12,6 @@
  */
 
 export interface GraphNode {
-  /** Current provider state, independent of filing and agent activity. */
-  readState?: import("./sourceReadStateTypes").SourceReadState;
   /** Original message paths represented by a source-thread node. */
   memberPaths?: string[];
   id: string;

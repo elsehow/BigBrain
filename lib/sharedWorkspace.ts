@@ -76,7 +76,7 @@ export async function sharedWorkspace(req: IncomingMessage, res: ServerResponse,
       let head = -1, busy = false;
       const poll = async () => {
         if (busy || res.destroyed) return; busy = true;
-        try { const feed = await sharedRequest<{ head: number }>(connection, '/v1/feed?limit=1'); if (feed.head !== head) { head = feed.head; res.write('data: {}\n\n'); } }
+        try { const feed = await sharedRequest<{ head: number }>(connection, '/v1/feed?limit=1'); if (feed.head !== head) { head = feed.head; res.write(`event: views\ndata: ${JSON.stringify(sharedStamps(identity, head))}\n\n`); } }
         catch { res.write('event: unavailable\ndata: {}\n\n'); res.end(); }
         finally { busy = false; }
       };
@@ -134,4 +134,10 @@ export async function sharedWorkspace(req: IncomingMessage, res: ServerResponse,
     else res.end();
   }
   return true;
+}
+
+/** A joined vault's views move together, with its feed head (lib/viewStamps.ts). */
+function sharedStamps(identity: string, head: number): import('./viewStamps').ViewStamps {
+  const at = String(head);
+  return { generation: identity, revision: at, views: { graph: at, joined: '', feed: at, files: at } };
 }

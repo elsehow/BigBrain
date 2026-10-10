@@ -146,8 +146,6 @@ export interface GraphNode {
   relevance?: number;
   selectionPath?: string[];
   agentState?: import("./agentAppearance").AgentVisualState;
-  /** Current provider state, independent of filing and agent activity. */
-  readState?: import("../../../../lib/sourceReadStateTypes").SourceReadState;
   /** Transient overlays are placed relative to settled base nodes. */
   layoutAnchors?: string[];
   layoutOffset?: { x: number; y: number };

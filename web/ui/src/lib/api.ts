@@ -32,7 +32,7 @@ const U = {
 };
 
 // ── stale-while-revalidate cache ────────────────────────────────────────────
-// Views re-fetch on every live ping (app.rev) AND on every view switch — and
+// Views re-fetch when the record moves (app.rev) AND on every view switch — and
 // the switch's round-trip is what made tab changes feel slow. Every GET
 // lands in this cache (memory first, sessionStorage across reloads); swrGet
 // hands a view whatever the last fetch returned so it paints instantly,
@@ -85,6 +85,18 @@ async function get<T>(url: string, signal?: AbortSignal): Promise<T> {
   return data;
 }
 
+/** A read model and the stamp it was served at (lib/viewStamps.ts): the
+ * graph's ETag, or the feed's x-bigbrain-stamp. Not cached here: the stamp
+ * says when to read again, and the browser revalidates the graph's bytes. */
+async function stamped<T>(url: string, header: "etag" | "x-bigbrain-stamp"): Promise<{ data: T; stamp: string }> {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`${url} → ${r.status}`);
+  const data = (await r.json()) as T;
+  assertVaultCurrent();
+  const stamp = r.headers.get(header) ?? "";
+  return { data, stamp: header === "etag" ? stamp.replace(/^"|"$/g, "") : stamp };
+}
+
 /** Drop response caches for this vault, preserving drafts and delivery IDs. */
 export function clearSwrCache(): void {
   mem.clear();
@@ -117,7 +129,6 @@ export const swr = {
   vault: () => swrGet<VaultInfo>(U.vault()),
   recent: (limit = 40, offset = 0) => swrGet<RecentPage>(U.recent(limit, offset)),
   notes: (dir: string) => swrGet<{ dir: string; notes: NoteMeta[] }>(U.notes(dir)),
-  graph: () => swrGet<GraphData>(U.graph()),
   note: (path: string, assertions?: number) => swrGet<NoteResult>(U.note(path, assertions)),
   /** the memory pass's fold proposals (#728) — home's triage block */
   folds: () => swrGet<FoldsView>(U.folds()),
@@ -200,9 +211,12 @@ export const api = {
   searchPage: (q: string, offset: number, limit: number, signal?: AbortSignal, mention = false) =>
     get<{ hits: import("./omnibox.svelte").SearchHit[]; nextOffset: number | null }>(
       `/api/search?q=${encodeURIComponent(q)}&limit=${limit}&offset=${offset}${mention ? "&purpose=mention" : ""}`, signal),
-  graph: () => get<GraphData>(U.graph()),
-  /** The v2 view's who and what (lib/v2Feed.ts): agents and the latest assertions. */
-  v2: () => get<import("./v2/model").V2Feed>("/api/v2"),
+  /** The Field's graph and its stamp. `current`: wait for the view to reflect
+   * a write this client just made (the engine otherwise serves the last view
+   * while it builds the next). */
+  graph: (current = false) => stamped<GraphData>(`${U.graph()}${current ? "?current" : ""}`, "etag"),
+  /** The v2 view's who and what (lib/v2Feed.ts): agents and the latest assertions, and the feed's stamp. */
+  v2: () => stamped<import("./v2/model").V2Feed>("/api/v2", "x-bigbrain-stamp"),
   /** A page of the sorted feed (lib/feedStage.ts), newest first; empty when
    * the vault has no feed. `before` is the `next` of the page before. */
   v2Sorted: (limit: number, before?: string | null) =>

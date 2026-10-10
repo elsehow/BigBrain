@@ -11,8 +11,8 @@ import { insertion, mdVault } from "./support/vault";
 const synced = (root: string) => { syncAssertionProjection(root); return assertionProjectionStats(root); };
 
 // The SSE fan-out, driven end to end with no filesystem watcher (#291): a
-// fake client registers, a change event goes in, the debounced ping comes
-// out — and the retrieval-ledger guard stays silent, which is the pin on
+// fake client registers, a change event goes in, the debounced `event: views`
+// comes out — and the retrieval-ledger guard stays silent, which is the pin on
 // #247/#248 (the ledger is the read path's own exhaust; echoing it gave
 // every open note view a read → ping → refetch → read loop).
 
@@ -24,7 +24,9 @@ function fakeClient(): LiveClient & { writes: string[] } {
 }
 
 /** A live instance wired for tests: injected watch (never fs.watch), tight
- * timers, a counting refresh, a captured log. */
+ * timers, a counting refresh, a captured log, and stamps that move on every
+ * settle. The client's connection stamps are dropped: each test hears only
+ * what its changes push. */
 function harness(opts: { watchThrows?: boolean } = {}) {
   const client = fakeClient();
   const logged: string[] = [];
@@ -34,6 +36,7 @@ function harness(opts: { watchThrows?: boolean } = {}) {
   let warmThrows = false;
   let closed = 0;
   let opened = 0;
+  let stamped = 0;
   const failures: Array<(err: NodeJS.ErrnoException) => void> = [];
   let onError: ((err: NodeJS.ErrnoException) => void) | undefined;
   const watch: LiveWatchFn = (_root, _onChange, onErr) => {
@@ -52,11 +55,13 @@ function harness(opts: { watchThrows?: boolean } = {}) {
       warms++;
       if (warmThrows) throw new Error("layout unavailable");
     },
+    stamps: () => ({ generation: "g", revision: String(++stamped), views: { graph: "", joined: "", feed: "", files: "" } }),
     debounceMs: 5,
     heartbeatMs: 10,
     log: (msg) => logged.push(msg),
   });
   live.addClient(client);
+  client.writes.length = 0;
   return {
     live,
     client,
@@ -72,7 +77,8 @@ function harness(opts: { watchThrows?: boolean } = {}) {
   };
 }
 
-const PING = `data: {"changed":true}\n\n`;
+const PING = expect.stringMatching(/^event: views\ndata: \{"generation":"g",.*\}\n\n$/);
+const pinged = (writes: string[]) => writes.some((w) => w.startsWith("event: views\n"));
 
 describe("createLive — the debounced change fan-out", () => {
   test("a change under a watched tree becomes one ping, after the debounce", async () => {
@@ -120,7 +126,7 @@ describe("createLive — the debounced change fan-out", () => {
     h.breakWarm();
     h.live.handleChange("inbox/a.md");
     await sleep(20);
-    expect(h.client.writes).toContain(PING);
+    expect(pinged(h.client.writes)).toBe(true);
     h.live.stop();
   });
 
@@ -156,6 +162,8 @@ describe("createLive — the debounced change fan-out", () => {
     const h = harness();
     const second = fakeClient();
     h.live.addClient(second);
+    expect(second.writes).toEqual([PING]); // a connection opens with the stamps
+    second.writes.length = 0;
     h.live.removeClient(h.client);
     h.live.handleChange("entities/x.md");
     await sleep(20);
@@ -212,7 +220,7 @@ describe("createLive — lifecycle", () => {
     // the stream survives the error: a change still pings
     h.live.handleChange("entities/x.md");
     await sleep(20);
-    expect(h.client.writes).toContain(PING);
+    expect(pinged(h.client.writes)).toBe(true);
     h.live.stop();
   });
 
@@ -254,7 +262,7 @@ describe("createLive — lifecycle", () => {
     const h = harness(); h.live.start();
     h.fireError(Object.assign(new Error("gone"), { code: "ENOENT", path: "/nonexistent-vault/log/insertions/.tmp-file" }));
     await sleep(20);
-    expect(h.client.writes).toContain(PING);
+    expect(pinged(h.client.writes)).toBe(true);
     // a log path heals before the refresh: boot recovery, then this one
     expect(h.recoveries()).toBe(2); expect(h.refreshes()).toBe(1); expect(h.warms()).toBe(1);
     await sleep(110);

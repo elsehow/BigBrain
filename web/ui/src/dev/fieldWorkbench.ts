@@ -57,7 +57,7 @@ let graph = { hash: empty ? "empty" : "field", nodes: [...entities, ...TWINS, ..
     ...TWINS.map((t, i) => ({ source: t.id, target: `ent_${i + 1}`, weight: 1 }))] };
 if (new URLSearchParams(location.search).has("churn")) {
   let n = 0;
-  setInterval(() => { graph = { ...graph, hash: `${graph.hash.split("~")[0]}~${++n}` }; window.dispatchEvent(new Event("workbench-change")); }, 4000);
+  setInterval(() => { graph = { ...graph, hash: `${graph.hash.split("~")[0]}~${++n}` }; window.dispatchEvent(new CustomEvent("workbench-change", { detail: { graph: graph.hash } })); }, 4000);
 }
 const at = (min: number) => new Date(Date.UTC(2026, 9, 5, 9, min)).toISOString();
 const hostScene = new URLSearchParams(location.search).has("hostRequest");

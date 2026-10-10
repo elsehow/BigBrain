@@ -514,3 +514,23 @@ test("a new desktop starts on the Pilot model chosen in Settings, not the engine
   // a model named at creation (the draft's picker) still wins
   expect(desktops.create({ model: "openai-codex/gpt-5.6-terra" }).model).toBe("openai-codex/gpt-5.6-terra");
 });
+
+test("a desktop's changes reach the viewer's push, so the Field's list needs no clock", async () => {
+  const { fauxAssistantMessage } = await import("@earendil-works/pi-ai");
+  const { ApplicationChanges } = await import("../lib/applicationChanges");
+  const { ws, host } = await fakeHost([fauxAssistantMessage("Done.")]);
+  const root = nativeVault(); roots.push(root);
+  const changes = new ApplicationChanges();
+  const pushed: string[] = [];
+  changes.subscribe(event => pushed.push(...event.entities.map(e => `${e.kind}:${e.id}`)));
+  const desktops = new CodingDesktops(root, { agents: new Agents(workspace(ws), new Harbor()), host, changes });
+  const made = desktops.create();
+  changes.flush();
+  expect(pushed).toEqual([`desktop:${made.id}`]); // its record
+  pushed.length = 0;
+  await desktops.send(made.id, "say done", "in-1");
+  await answered(desktops, made.id);
+  changes.flush();
+  expect(new Set(pushed)).toEqual(new Set([`desktop:${made.id}`])); // its turn moved the list
+  desktops.close();
+});
