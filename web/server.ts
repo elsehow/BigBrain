@@ -9,7 +9,7 @@ import { unionGraph, unionRecent, unionSearch, unionNote, vaultFilter, includesP
 import { jevSettingsApi } from '../lib/jevSettingsApi';
 import { optionalJevKey } from '../lib/jevSettings';
 import { sharedSettingsApi } from '../lib/sharedSettingsApi';
-import { lensEventHeadline, readLensEvents, tickLenses } from '../lib/lensSync';
+import { lensEventHeadline, openLensEvents, readLensEvents, tickLenses } from '../lib/lensSync';
 import { tickPublishing } from '../lib/sharedAssertionPublish';
 import { connectionStorePath } from '../lib/sharedConnections';
 import { sharedWorkspace } from "../lib/sharedWorkspace";
@@ -580,9 +580,10 @@ function v2Sorted({ res, url }: Ctx): void {
     const feedOn = !!loadManifest(ROOT).feed, records = feedOn ? feedRecords(ROOT) : [];
     const limit = Math.min(SORTED_MAX, Math.max(1, Math.trunc(Number(url.searchParams.get("limit"))) || SORTED_PAGE));
     // What lenses shared, and changes that grew a shared lens (D2, D3), among what arrived.
-    const sharing = feedOn ? readLensEvents(ROOT, connectionStorePath()).map((e, i): V2SortedRow => ({
+    const store = connectionStorePath(), open = feedOn ? openLensEvents(ROOT, store) : () => false;
+    const sharing = feedOn ? readLensEvents(ROOT, store).flatMap((e, i): V2SortedRow[] => open(e) ? [{
       source: `lens:${e.at}:${i}`, section: e.kind === "shared" ? "know" : "needs-you", headline: lensEventHeadline(e), due: null, added: e.at, entities: [], lens: e.lens,
-    })) : [];
+    }] : []) : [];
     const sorted = [...buildSortedFeed(v2Source(), feedItems(records).map((e) => ({ ...e, due: dueOf(e) }))), ...sharing].sort(newestFirst);
     const { rows, next } = pageSortedFeed(sorted, limit, url.searchParams.get("before") ?? undefined);
     const heads = projectedSourceHeads(ROOT, rows.map((r) => r.source));

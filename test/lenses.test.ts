@@ -13,9 +13,9 @@ import {SharedVault} from '../lib/sharedVault';
 import {makeSharedApiHandler} from '../lib/sharedVaultApi';
 import {readConnections,saveConnection,type SharedConnection} from '../lib/sharedConnections';
 import {contributions,getRule,sendSources} from '../lib/sharedRules';
-import {fitThreshold,listLenses,membership,newLens,readLens,setSharingMode,writeLens,type Lens} from '../lib/lenses';
+import {fitThreshold,listLenses,previewThreshold,membership,newLens,readLens,setSharingMode,updateLens,writeLens,type Lens} from '../lib/lenses';
 import {lensNotes,scorePass,READ_LIMIT} from '../lib/lensScoring';
-import {migrateRules,originOf,passLens,readLensEvents,syncServer,tickLenses} from '../lib/lensSync';
+import {migrateRules,openLensEvents,originOf,passLens,readLensEvents,syncServer,tickLenses} from '../lib/lensSync';
 import {publishedPath,tickPublishing} from '../lib/sharedAssertionPublish';
 import type {inclusionEvaluator} from '../lib/inclusionEvaluation';
 
@@ -39,6 +39,14 @@ describe('membership',()=>{
   notes[2]!.digest=sourceDigest({title:'c',body:'c'});
   const scores=new Map([['a',.9],['b',.1],['c',.9],['d',.7],['e',.5]]);
   expect([...membership(lens,notes,scores)].sort()).toEqual(['b','d','f']);
+ });
+ test("a preview of an unchanged lens draws at the lens's own cut-off; a changed rule or new ratings refit",()=>{
+  const label={source:{id:'a',title:'a',body:'a',origin:''},include:true};
+  const lens={text:'Garden things',labels:[label],calibration:{identity:'x',model:'m',threshold:.8}};
+  expect(previewThreshold(lens,'Garden things',[label],()=>.6)).toBe(.8);
+  expect(previewThreshold(lens,'Garden and kitchen things',[label],()=>.6)).toBe(.6);
+  expect(previewThreshold(lens,'Garden things',[label,{...label,include:false}],()=>.6)).toBe(.6);
+  expect(previewThreshold(undefined,'Garden things',[],()=>.6)).toBe(.6);
  });
  test('the cut-off fits the ratings, and falls back to 0.6',()=>{
   expect(fitThreshold([])).toBe(.6);
@@ -104,6 +112,10 @@ describe('passLens',()=>{
   v.note('ex-5','Water barrels',.9);
   const later=(await passLens(v.root,v.store,after,lensNotes(v.root),{factory:upgraded}))!;
   expect(later.members).toEqual([]);expect(later.review!.joins).toContain(idOf(v.root,'Water barrels'));
+  // the feed keeps the pause only until it is reviewed
+  const paused=readLensEvents(v.root,v.store).at(-1)!;expect(openLensEvents(v.root,v.store)(paused)).toBe(true);
+  updateLens(v.root,v.store,v.lens.id,l=>{l.review=undefined;});
+  expect(openLensEvents(v.root,v.store)(paused)).toBe(false);
  });
  test('Yee-haw: the notes join and the review stays as a warning',async()=>{
   const v=await shared('yeehaw');
