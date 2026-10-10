@@ -103,6 +103,19 @@ describe("openSourceOrigin", () => {
     expect(r).toMatchObject({ ok: true, opened: join(base, sha256, "paper.pdf") });
     expect(mark).toMatch(/^0081;[0-9a-f]+;BigBrain;$/);
   });
+  test("a page clipped with its PDF opens either: the page by default, the file it names by sha256, never one it doesn't", () => {
+    const root = tmp();
+    const base = join(tmp(), "open");
+    const bytes = new TextEncoder().encode("%PDF-1.4 both");
+    const { sha256 } = putBlob(root, bytes);
+    const path = land(root, { url: "https://x.example/paper", attachments: [{ name: "paper.pdf", sha256, bytes: bytes.length, mime: "application/pdf" }] });
+    const opened: string[] = [];
+    const opener = (t: string): boolean => { opened.push(t); return true; };
+    expect(openSourceOrigin(root, path, opener, base).ok).toBe(true);
+    expect(openSourceOrigin(root, path, opener, base, undefined, sha256).ok).toBe(true);
+    expect(opened).toEqual(["https://x.example/paper", join(base, sha256, "paper.pdf")]);
+    expect(openSourceOrigin(root, path, opener, base, undefined, "cd".repeat(32))).toMatchObject({ ok: false, error: "this source names no such file" });
+  });
   test("a url origin goes to the opener as it is", () => {
     const root = tmp();
     const path = land(root, { source: "granola", url: "https://notes.granola.ai/d/1" });

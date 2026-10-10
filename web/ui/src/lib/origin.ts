@@ -11,8 +11,8 @@ import type { SourceOrigin } from "./types";
 export interface OriginOpeners {
   /** native.ts's openExternal */
   external: (url: string) => void;
-  /** api.ts's openSource */
-  engine: (path: string) => Promise<unknown>;
+  /** api.ts's openSource: a file by its sha256, else the source's own origin */
+  engine: (path: string, sha256?: string) => Promise<unknown>;
 }
 
 /** The chip's title: what will open, so the hover says where ⌘O goes. */
@@ -20,6 +20,12 @@ export function originHint(origin: SourceOrigin): string {
   if (origin.kind === "url") return `Open the page this came from in your browser:\n${origin.url}`;
   if (origin.kind === "note") return `Open this note (${origin.name}) in the app your system uses for Markdown`;
   return `Open the original (${origin.name}) in the app your system uses for it`;
+}
+
+/** A short name for one of several originals: the page's site, or the file's name. */
+export function originLabel(origin: SourceOrigin): string {
+  if (origin.kind !== "url") return origin.name;
+  try { return new URL(origin.url).hostname.replace(/^www\./, ""); } catch { return origin.url; }
 }
 
 /** Where the chip goes when clicked — a URL out of the app, a file through
@@ -30,5 +36,5 @@ export function openOrigin(origin: SourceOrigin, path: string, deps: OriginOpene
     deps.external(origin.url);
     return Promise.resolve();
   }
-  return deps.engine(path).then(() => undefined);
+  return deps.engine(path, origin.kind === "file" ? origin.sha256 : undefined).then(() => undefined);
 }

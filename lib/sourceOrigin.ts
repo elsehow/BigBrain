@@ -66,13 +66,17 @@ const original: Rule = (envelope) => {
  * page saved with its PDF) is still a clip of the page. */
 const RULES: readonly Rule[] = [page, original];
 
+/** Every original the envelope names, in the rules' order: its page, then
+ * its file. Copies of one document pool theirs (lib/sourceCopies.ts). */
+export function sourceOrigins(envelope: Record<string, unknown>): SourceOrigin[] {
+  return RULES.flatMap((rule) => rule(envelope) ?? []);
+}
+
 /** Prefer the external original; otherwise offer the stored body as
  * Markdown when the caller supplies the source. Empty sources have no target. */
 export function sourceOrigin(envelope: Record<string, unknown>, note?: { title: string; body: string }): SourceOrigin | null {
-  for (const rule of RULES) {
-    const hit = rule(envelope);
-    if (hit) return hit;
-  }
+  const [hit] = sourceOrigins(envelope);
+  if (hit) return hit;
   if (note?.body.trim()) return { kind: "note", name: `${note.title.replace(/\.md$/i, "").slice(0, 60) || "Note"}.md` };
   return null;
 }
