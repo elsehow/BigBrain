@@ -246,6 +246,25 @@ relaxed. See D5.
   server's evidence and assertions, uncached (`lib/sharedReadUnion.ts:25`). Time
   search, graph and note with 0, 1, 2 and 5 servers of realistic size. This
   decides whether 0c needs a cache first.
+
+  **Result (2026-10-10).** A synthetic personal vault (2,000 notes, 6,000
+  claims) and loopback servers of 800 notes and 2,400 claims each, read
+  through the real web server; medians of five reads.
+
+  | servers | graph | recent | search |
+  |---|---|---|---|
+  | 0 | 6 ms | 1 ms | 130 ms |
+  | 1 | 116 ms | 71 ms | 192 ms |
+  | 5 | 162 ms | 97 ms | 220 ms |
+  | 1, 60 ms a request | 431 ms | 389 ms | 582 ms |
+  | 5, 60 ms a request | 483 ms | 432 ms | 931 ms |
+
+  Servers are read in parallel, so five cost little more than one; but every
+  read pages through each server's whole history again, so a remote server
+  adds about half a second to every graph, recent and search. 0c needs a
+  cache first: keep each server's projection and refetch only when its change
+  feed has moved.
+
 - **E3. Links on macOS.** In a dev build, check that `bigbrain://` reaches the
   running app (not a second copy) from Safari, Chrome and Mail, and what each
   browser shows first.
@@ -260,7 +279,7 @@ the server (`docs/plans/shared-source-withdrawal.md`).
 
 ## Order
 
-1. 0a now (one PR). Then 0b. Run E2 and E3 alongside (E1 and E1b are done).
+1. 0a now (one PR). Then 0b. Run E3 alongside (E1, E1b and E2 are done).
 2. Phase 1 in three PRs: store and migration (1a, 1b); exact edits and
    publishing (1c, 1d); screens (1e).
 3. Phase 2 in two PRs: invite page and links (2a, 2b); first run and the AI
