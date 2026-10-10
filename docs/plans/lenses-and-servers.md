@@ -90,8 +90,8 @@ for the server page's Yours tab.
 **1e. Screens.** Settings › lenses; Edit a lens (reuses
 `InclusionRuleEditor`, `InclusionRuleReview` and its note picker; table with
 Everything, Joining, Leaving, Removed); the type-the-name dialog; "Lenses you
-are sharing" on the server page; the feed items from D2 and D3, and D3's
-warning and what-changed popup on the lens.
+are sharing" on the server page; the feed items from D2 and D3, D3's
+warning and what-changed popup on the lens, and the Sharing setting.
 
 ## Phase 2: joining
 
@@ -131,13 +131,31 @@ targets that no screen uses. See D5.
   responsible. Feed rows are assertions today (`lib/v2Feed.ts`); this is a new
   row kind, read from the local share receipts (1d).
 - **D3. When scores shift without an edit** (the model is upgraded, or an
-  entity's aliases change). **Decided:** leaves apply automatically, joins wait
-  for review. Shrinking what's shared is always safe; growing it needs a look.
-  A feed item, "A [model upgrade/vault change] expanded what you share with
-  [server]", opens the lens. The lens shows a warning, and a popup lists what
-  changed since the last upgrade. "Looks OK" dismisses the warning for good.
-  "Edit rule" opens the rule editor, and the warning stays until a new rule is
-  saved. E4 tells us how often this happens.
+  entity's aliases change). **Decided:** leaves always apply automatically.
+  When a change makes a shared lens include notes it didn't before, a setting
+  at the bottom of Settings › general picks what happens:
+
+  > # Sharing
+  >
+  > Sometimes, a model upgrade or vault change will cause a Lens to include
+  > items that weren't included before. If you've shared that Lens to a Server,
+  > old items may be suddenly shared. When this happens, **Conservative** mode
+  > pauses all new additions to Lens until you review the changes. In
+  > **Yee-haw** mode, the lens will keep adding items (but alert you, so you
+  > can review the change).
+  >
+  > Yee-haw [toggle] Conservative
+
+  Conservative pauses every addition to the lens, new notes included, so a
+  rule that has become too liberal can't keep sharing while the review waits.
+  This is today's behaviour, per lens instead of per connection
+  (`lib/inclusionEvaluation.ts:23`). Yee-haw shares the new matches and adds a
+  feed item, "A [model upgrade/vault change] expanded what you share with
+  [server]", that opens the lens. In both modes the lens shows a warning, and a
+  popup lists what changed since the last upgrade. "Looks OK" dismisses the
+  warning for good and, in Conservative, resumes the lens. "Edit rule" opens
+  the rule editor, and the warning stays until a new rule is saved. E4 tells us
+  how often this happens.
 - **D4. Invite page always on. Decided:** every server serves `/invite` and
   `/invite/check`, whether or not it runs the Claude connector. Servers still
   support the connector; when it's on, the invite page says so at the bottom.
