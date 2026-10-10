@@ -58,7 +58,7 @@ import { serveStatic } from "../lib/staticServe";
 import { walkMarkdown } from "../lib/vaultRead";
 import { parseBlobRef, readBlob } from "../lib/blobs";
 import { recentSourcePageAsync } from "../lib/sourceFeed";
-import { primaryGraphWithLayoutAsync, primaryGraphAsync } from "../lib/graphCache";
+import { currentGraph, maintainGraphView } from "../lib/maintainedGraph";
 import { buildEntityFeed, buildSortedFeed, buildV2Feed, pageSortedFeed, SORTED_PAGE, type V2Source } from "../lib/v2Feed";
 import { dueOf, feedItems, feedRecords } from "../lib/feedJournal";
 import { readV2Source } from "../lib/v2Read";
@@ -473,7 +473,7 @@ function search({ req, res, url }: Ctx): void {
   setImmediate(async () => {
     if (req.destroyed) return;
     try {
-      const graph = await primaryGraphAsync(ROOT);
+      const graph = await currentGraph(ROOT);
       if (req.destroyed) return;
       const r = scanSurface(ROOT, q, SEARCH_CAP, "web");
       if (!r.ok) {
@@ -602,7 +602,7 @@ function v2Sorted({ res, url }: Ctx): void {
 // its link graph until that additive substrate exists.
 async function graph({ req, res }: Ctx): Promise<void> {
   try {
-    const personal=graphWithReadState(ROOT, await primaryGraphWithLayoutAsync(ROOT));
+    const personal=graphWithReadState(ROOT, await currentGraph(ROOT));
     json(res, 200, req.headers?.["x-bigbrain-vault-filter"]==="personal"?personal:await unionGraph(ROOT,personal,vaultFilter(req.headers?.["x-bigbrain-vault-filter"])));
   } catch (error) {
     json(res, 500, { error: errText(error) });
@@ -949,6 +949,9 @@ export function start(): void {
   // so it must not be reachable from the network.
   server.listen(PORT, "127.0.0.1", () => {
     if (!supervised) writeViewerSession(PORT, secret);
+    // The graph view saved last session serves the first request; bring it
+    // up to the projection now, off the request path, if anything moved.
+    void maintainGraphView(ROOT).catch(() => {});
     console.error(`BigBrain web on http://localhost:${PORT} (vault: ${ROOT})`);
   });
 }

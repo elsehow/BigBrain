@@ -4,16 +4,17 @@ import type { ReadModelWorkerRequest } from "./readModelBackground";
 import { assertionGraphEvidenceCached } from "./graphCache";
 import { withVaultSnapshot } from "./vaultReadModel";
 import { recentSourcePage } from "./sourceFeed";
-import { computeLayout } from "./graphLayout";
 import { claimProjectionRecovery, recoverAssertionProjection } from "./assertionProjection";
+import { buildGraphView } from "./maintainedGraph";
 
 declare const self: Worker;
 self.onmessage = ({ data: request }: MessageEvent<ReadModelWorkerRequest>) => {
   try {
-    if (request.kind === "layout") {
-      postMessage({ value: computeLayout(request.graph, request.previous) });
-    } else if (request.kind === "recover") {
+    if (request.kind === "recover") {
       postMessage({ value: recoverAssertionProjection(request.root) });
+    } else if (request.kind === "graph-view") {
+      claimProjectionRecovery(request.root);
+      postMessage({ value: buildGraphView(request.root) });
     } else {
       // The process that spawned this owns recovery (the viewer runs it as
       // its own "recover" job); a worker must not repeat the log census

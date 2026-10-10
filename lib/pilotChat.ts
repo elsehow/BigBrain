@@ -108,7 +108,7 @@ type Options = {
   now?: () => number;
   backend?: PilotBackendFactory;
   land?: (content: string) => Promise<IntakeReceipt>;
-  graph?: () => readonly GraphIdentity[];
+  graph?: () => readonly GraphIdentity[] | undefined;
   tool?: (name: string, args: Record<string, unknown>, signal: AbortSignal) => Promise<unknown>;
   /** Names sessions as tasks (lib/pilotTaskName.ts's nameTask). Opt-in: the
    * app passes it; tests and tools that don't stay off the Quick model. */

@@ -1,10 +1,8 @@
-/** One-shot background preparation shared by graph, layout, and feed reads. */
-import type { Graph } from "./graph";
-import type { Positions } from "./graphLayout";
+/** One-shot background jobs: the graph view, briefing evidence, the feed, recovery. */
 export type ReadModelWorkerRequest = { kind: "graph"; root: string; knownRevision?: string }
   | { kind: "feed"; root: string }
   | { kind: "recover"; root: string }
-  | { kind: "layout"; graph: Graph; previous?: Positions };
+  | { kind: "graph-view"; root: string };
 
 export function background<T>(request: ReadModelWorkerRequest): Promise<T> {
   return new Promise((resolve, reject) => {

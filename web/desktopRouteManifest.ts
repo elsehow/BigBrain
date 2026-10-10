@@ -5,7 +5,7 @@ import { workspace } from "../packages/agents/src";
 import { hostAgents } from "../lib/agentHost";
 import { resolve } from "node:path";
 import { codingDesktopRoutes } from "../lib/codingDesktopRoutes";
-import { primaryGraphAsync } from "../lib/graphCache";
+import { currentGraph, savedGraph } from "../lib/maintainedGraph";
 import { ApplicationActions, actionReceiptView, actionHistoryQuery } from "../lib/applicationActions";
 import { json, THEME_SHEET } from "../lib/httpx";
 import { IntegrationAccounts } from "../lib/integrationAccounts";
@@ -34,7 +34,7 @@ import { WorkHistory } from "../lib/workHistory";
 export function desktopRouteManifest(root: string, options: { includeSupport?: boolean; actions?: ApplicationActions; changes?: import("../lib/applicationChanges").ApplicationChanges } = {}): Route[] {
   const actions = options.actions ?? new ApplicationActions(root);
   const work = new WorkHistory(root);
-  const chats = new PilotChats(root, { work, actions, changes: options.changes, nameTask });
+  const chats = new PilotChats(root, { work, actions, changes: options.changes, nameTask, graph: () => savedGraph(root)?.nodes });
   process.once("exit", () => chats.close());
   // Dev only: a scripted agent instead of the vault's model (lib/env.ts, agentScript).
   const script = agentScript();
@@ -42,7 +42,7 @@ export function desktopRouteManifest(root: string, options: { includeSupport?: b
     ...(script ? { host: async () => (await import(resolve(script))).default() } : {}) });
   process.once("exit", () => desktops.close());
   // the lists serve each context source with the entities it concerns
-  const graph = () => primaryGraphAsync(root);
+  const graph = () => currentGraph(root);
   // Finish only already-spooled legacy speech; no endpoint accepts new turns.
   void sweepPilotSpool(root, new Date(), 0).catch(error => console.error("Legacy speech recovery:", error));
   const support = options.includeSupport === false ? [] : [
