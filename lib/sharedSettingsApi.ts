@@ -7,7 +7,10 @@ import {allowVaultRequest,vaultIdentity} from './vaultBoundary';
 import {SharedConnectionError,connectionStorePath,readConnections,publicConnection,refreshConnectionNames,connectInvite,sharedRequest} from './sharedConnections';
 import {serializeMentions,type MentionPart} from './pilotMentions';
 import {searchRuleEntities} from './sharedRuleMentions';
-import {contributions,getRule,setRule,startTest,testView,importTest} from './sharedRules';
+import {contributions} from './sharedRules';
+import {listLenses,updateLens} from './lenses';
+import {lensNotes} from './lensScoring';
+import {originOf} from './lensSync';
 import {tickPublishing} from './sharedAssertionPublish';
 import {pages} from './sharedReadUnion';
 import type {SourceInsertion} from './insertionLog';
@@ -28,7 +31,7 @@ export async function sharedSettingsApi(req:IncomingMessage,res:ServerResponse,r
   if(req.method==='GET'&&action==='vault'){
    const mine=local();
    const items=(await contributions(c)).map(item=>({...item,path:mine.get(item.source_id)??`shared/${c.id}/${item.insertion_id}.md`}));
-   json(res,200,{...publicConnection(c),identity:await sharedRequest(c,'/v1/whoami'),rule:getRule(store,c.id),evaluator:jevSettingsStatus(store).evaluator,items});
+   json(res,200,{...publicConnection(c),identity:await sharedRequest(c,'/v1/whoami'),evaluator:jevSettingsStatus(store).evaluator,items});
   }
   else if(req.method==='GET'&&action==='notes'){
    const mine=local();
@@ -40,7 +43,6 @@ export async function sharedSettingsApi(req:IncomingMessage,res:ServerResponse,r
    json(res,200,{ids:hits.filter(h=>h.kind==='evidence').map(h=>h.id)});
   }
   else if(req.method==='GET'&&action==='members'){json(res,200,await sharedRequest(c,'/v1/members'));}
-  else if(req.method==='GET'&&action==='test'){const result=testView(url.searchParams.get('id')??'',c.id);json(res,result?200:404,result??{error:'Test expired'});}
   else if(req.method==='POST') {
    const body=JSON.parse(await readBody(req,100000));
    if(action==='member-invite')json(res,201,await sharedRequest(c,'/v1/invites',{name:body.name,permission:body.permission}));
@@ -57,12 +59,12 @@ export async function sharedSettingsApi(req:IncomingMessage,res:ServerResponse,r
     for(const label of recommendation.mentions){const hits=searchRuleEntities(root,label).filter(e=>e.title.toLowerCase()===label.toLowerCase());if(hits.length!==1)throw Error(`Select @${label} from your vault before using this suggestion.`);text=text.replaceAll('@'+label,serializeMentions([{mention:hits[0]!}] as MentionPart[]));}
     json(res,200,{text});
    }
-   else if(action==='rule')json(res,200,{rule:setRule(store,c.id,body.text,root)});
-   else if(action==='test')json(res,202,startTest(root,store,c,body.text,body.since??''));
-   else if(action==='import')json(res,200,await importTest(root,store,c,body.test,body.ids));
-   else if(action==='withdraw'||action==='restore') {
+   else if(action==='withdraw') {
     if(typeof body.id!=='string'||!/^sc_[a-f0-9]{24}$/.test(body.id))throw Error('Invalid contribution');
-    json(res,200,await sharedRequest(c,`/v1/contributions/${body.id}/${action}`,{request_id:body.request_id,version:body.version}));
+    // Withdrawn here means removed from every lens that shares it with this server, or the next tick puts it back.
+    const x=(await contributions(c)).find(x=>x.id===body.id),note=x&&lensNotes(root).find(n=>originOf(n.source_id)===x.source_id);
+    if(note)for(const lens of listLenses(root,store))if(lens.servers.includes(c.id)&&lens.members.includes(note.source_id))updateLens(root,store,lens.id,l=>{l.exclusions=[...new Set([...l.exclusions,note.source_id])];l.pins=l.pins.filter(p=>p!==note.source_id);l.members=l.members.filter(m=>m!==note.source_id);});
+    json(res,200,await sharedRequest(c,`/v1/contributions/${body.id}/withdraw`,{request_id:body.request_id,version:body.version}));
     void tickPublishing(root,store,c.id); // retract claims that cited a withdrawn source now, not on the next tick
    }else json(res,404,{error:'Not found'});
   }else json(res,405,{error:'Method not allowed'});
