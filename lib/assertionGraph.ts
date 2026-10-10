@@ -1,7 +1,7 @@
 /** Graph projection of assertion relationships and explicit internal Markdown
  * links. The optional observer supplies grounding to the note briefing without
  * shipping assertion text in the graph payload. */
-import { vaultRecord, type VaultRecord } from "./vaultReadModel";
+import { documentLinkTexts, vaultRecord, type VaultRecord } from "./vaultReadModel";
 
 import { createHash } from "node:crypto";
 import { assertionSourceReferences, type AssertionEvent } from "./assertionLog";
@@ -15,7 +15,10 @@ import { userIdentityDeclarationsFromEvents } from "./userIdentityPolicy";
 import { resolveDocumentLinks, noteLinkResolver, type ConnectionEvidence, type ObserveConnection } from "./markdownGraph";
 import { isUserNode } from "./userNote";
 
-export function buildAssertionGraph(root: string, observe?: ObserveConnection, record: VaultRecord = vaultRecord(root, true)): Graph {
+/** `linkTexts` (vaultReadModel.documentLinkTexts) is the evidence a link's
+ * connection carries to `observe`, read only when there is an observer. */
+export function buildAssertionGraph(root: string, observe?: ObserveConnection, record: VaultRecord = vaultRecord(root, true),
+  linkTexts: ReadonlyMap<string, string[]> | undefined = observe && documentLinkTexts(root)): Graph {
   const { revoked, rows: assertions, superseded, threadByInsertion: threads, sources: sourceByInsertion, copies } = record;
   const events = [...sourceByInsertion.values()];
   // The arrivals the gardener has not reached yet draw too — as points
@@ -158,8 +161,12 @@ export function buildAssertionGraph(root: string, observe?: ObserveConnection, r
   const byAssertion = new Map(assertions.map(a => [a.id, a]));
   const sourceIds = new Set(events.map(s => sourceKey(s.id)));
   const memoryTargets = new Map<string, Set<string>>();
-  const linkDocuments = [...documents.filter(d => !sourceIds.has(d.id)).map(d => ({ ...d, parsed: record.documentLinks.get(`markdown:${d.path}`)! })), ...events.filter(s => !superseded.has(s.id)).map(s => ({
-    id: sourceKey(s.id), path: s.imported_path ?? insertionEventRel(s), title: s.title, parsed: record.documentLinks.get(`source:${s.id}`)!,
+  const linksOf = (key: string) => {
+    const parsed = record.documentLinks.get(key)!, texts = linkTexts?.get(key);
+    return texts ? { ...parsed, links: parsed.links.map((link, i) => ({ ...link, text: texts[i] ?? "" })) } : parsed;
+  };
+  const linkDocuments = [...documents.filter(d => !sourceIds.has(d.id)).map(d => ({ ...d, parsed: linksOf(`markdown:${d.path}`) })), ...events.filter(s => !superseded.has(s.id)).map(s => ({
+    id: sourceKey(s.id), path: s.imported_path ?? insertionEventRel(s), title: s.title, parsed: linksOf(`source:${s.id}`),
   }))];
   for (const doc of linkDocuments) {
     const targets = doc.path.startsWith("memory/") ? new Set<string>() : undefined;

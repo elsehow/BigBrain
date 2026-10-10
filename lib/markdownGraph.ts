@@ -55,6 +55,12 @@ export interface ParsedDocumentLinks {
   links: Array<{ target: string; markdown: boolean; text: string }>;
   citations: string[];
 }
+/** The same links as the projection serves them at every revision: what each
+ * names, and its evidence only when a reader loaded it. */
+export interface DocumentLinkTargets {
+  links: Array<{ target: string; markdown: boolean; text?: string }>;
+  citations: string[];
+}
 
 /** Extract once on content changes; resolution against identities happens
  * separately, so an alias/rename can resolve an old link without reparsing. */
@@ -101,10 +107,10 @@ export function parseDocumentLinks(document: MarkdownDocument, fencedText = mask
   return { links, citations: [...new Set([...fencedText.matchAll(AST_CITE)].map(m => m[1]!))] };
 }
 
-export function resolveDocumentLinks(document: Pick<MarkdownIdentity, "id" | "path">, parsed: ParsedDocumentLinks, resolve: ReturnType<typeof noteLinkResolver>): Array<{ target: string; evidence: ConnectionEvidence }> {
+export function resolveDocumentLinks(document: Pick<MarkdownIdentity, "id" | "path">, parsed: DocumentLinkTargets, resolve: ReturnType<typeof noteLinkResolver>): Array<{ target: string; evidence: ConnectionEvidence }> {
   return parsed.links.flatMap(hit => {
     const target = resolve(hit.target, document.path, hit.markdown);
-    return !target || target === document.id ? [] : [{ target, evidence: { path: document.path, text: hit.text } }];
+    return !target || target === document.id ? [] : [{ target, evidence: { path: document.path, text: hit.text ?? "" } }];
   });
 }
 
