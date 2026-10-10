@@ -218,6 +218,8 @@ export const api = {
     post<{ member: { id: string; label: string }; against: { id: string; label: string }[] }>("/api/entity/folds/reject", { member, others }),
   /** OPEN a source's origin on this machine — the desktop door for a file
    * origin (lib/sourceOpen.ts); a URL origin the viewer opens itself. */
+  /** A person's word on two sources: one document, or not (lib/sourceCopyReview.ts). */
+  sourceCopies: (a: string, b: string, same: boolean) => post<unknown>("/api/source/copies", { a, b, same }),
   openSource: (path: string, sha256?: string) => post<{ ok: true; opened: string }>("/api/source/open", { path, ...(sha256 ? { sha256 } : {}) }),
   config: () => get<ConfigInfo>("/api/config"),
   /** The pilot (#770, lib/pilot.ts): is a key set; save one ("" removes);
