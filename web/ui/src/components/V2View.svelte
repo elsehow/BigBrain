@@ -10,12 +10,12 @@
   import { onMount, tick } from "svelte";
   import { api } from "../lib/api";
   import { app, goto } from "../lib/store.svelte";
-  import type { FoldGroup, GraphData } from "../lib/types";
+  import type { FoldGroup, GraphData, SourceOrigin } from "../lib/types";
   import { barPilots, buildField, foldOffer, latestPerFamily, neighbours, placePilots, searchFound, searchNames, sourceItems, twinsOf, type Field, type PilotSummary, type V2Feed, type V2FeedRow } from "../lib/v2/model";
   import { md, sanitizeHtml } from "../lib/markdown";
   import { Readability } from "@mozilla/readability";
   import { openExternal } from "../lib/native";
-  import { openOrigin } from "../lib/origin";
+  import { openOrigin, originHint, originLabel } from "../lib/origin";
   import { pageDoc, themeSheet, themeVars } from "../lib/pageTheme";
   import { otherLoopback } from "../lib/loopbackFrame";
   import type { V2Scene } from "../lib/v2/scene";
@@ -136,7 +136,9 @@
   /** A note view's text; a source (a saved email, article, meeting…) also
    * carries how it came in, and Quick's summary of it to read first. */
   /** `page`: the host the source's page was read from, when it read better than what was saved. */
-  type SourceMeta = { via: string; date?: string; header: Array<[string, string]>; summary?: string; html: string; page?: string };
+  type SourceMeta = { via: string; date?: string; header: Array<[string, string]>; summary?: string; html: string; page?: string;
+    /** Every original the document's copies hold, when there is more than one (lib/sourceCopies.ts). */
+    origins?: (SourceOrigin & { path: string })[] };
   let notes: Record<string, { content?: string; error?: string; source?: SourceMeta }> = $state({});
   /** Settings → Security: whether sources may load their images and pages
    * (the engine refuses them otherwise). Asked again whenever a desktop opens. */
@@ -150,6 +152,8 @@
         // only a source the engine says a person or a feed sent in reaches out unasked
         const held = r.byAgent !== false;
         notes[v.path] = asSource(r.content, v.title, held);
+        const origins = (r as { origins?: (SourceOrigin & { path: string })[] }).origins;
+        if (notes[v.path]!.source && origins && origins.length > 1) notes[v.path]!.source!.origins = origins;
         if (notes[v.path]!.source && !data) {
           void briefing(v.path, (text) => { const n = notes[v.path]; if (n?.source) n.source = { ...n.source, summary: text }; });
           const origin = (r as { origin?: { url?: string } }).origin?.url;
@@ -261,6 +265,12 @@
       if (!origin) throw new Error("Nothing to open for this source.");
       await openOrigin(origin, path, { external: openExternal, engine: api.openSource });
     } catch (e) { flash(`Couldn’t open it: ${errText(e)}`); }
+  }
+
+  /** One of a document's several originals (lib/sourceCopies.ts), by the copy that holds it. */
+  async function openOne(origin: SourceOrigin & { path: string }): Promise<void> {
+    try { await openOrigin(origin, origin.path, { external: openExternal, engine: api.openSource }); }
+    catch (e) { flash(`Couldn’t open it: ${errText(e)}`); }
   }
 
   async function closeView(view: string): Promise<void> {
@@ -1271,6 +1281,7 @@
             {#if srcMeta}
               <div class="vsum">{#if srcMeta.summary}{srcMeta.summary}{:else}<span class="spin" aria-label="Writing a summary"></span>{/if}</div>
               {#if srcMeta.header.length}<dl class="vhead">{#each srcMeta.header as [k, val] (k)}<dt>{k}</dt><dd>{val}</dd>{/each}</dl>{/if}
+              {#if srcMeta.origins}<dl class="vhead vorig"><dt>Originals</dt><dd>{#each srcMeta.origins as o, k (k)}<button type="button" title={originHint(o)} onclick={(e) => { e.stopPropagation(); void openOne(o); }}>{originLabel(o)}</button>{/each}</dd></dl>{/if}
             {/if}
             {#if srcMeta}<div class="vsrc">{@html srcMeta.html}</div>
             {:else if notes[v.path]?.content != null}{@html render(notes[v.path]!.content!)}
@@ -1740,6 +1751,9 @@
   .vsum { margin: 0 0 18px; padding-bottom: 16px; border-bottom: 1px solid var(--rule); font: 400 calc(var(--chat-fs) * 1.07)/1.55 var(--font-app); color: var(--fg); }
   .vhead { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; margin: 0 0 16px; font: 400 12px/1.5 var(--font-mono); color: var(--v2-muted); }
   .vhead dt { color: var(--v2-faint); } .vhead dd { margin: 0; }
+  .vorig dd { display: flex; flex-wrap: wrap; gap: 0 12px; }
+  .vorig button { border: 0; padding: 0; background: none; color: var(--v2-muted); font: inherit; cursor: pointer; }
+  .vorig button:hover { color: var(--fg); }
   /* the source itself, as a reader view: pictures fit the column, figures and quotes set apart */
   .vsrc :global(img) { display: block; max-width: 100%; height: auto; margin: 1.2em 0; border-radius: 6px; }
   /* a picture held for a click: where it's from, and the button */

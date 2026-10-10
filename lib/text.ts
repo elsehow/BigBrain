@@ -25,3 +25,20 @@ export const clip = (s: string, n: number, marker = "…"): string =>
 /** A filename back to a label: `evan-keller.md` → "evan keller". */
 export const deslug = (base: string): string =>
   base.replace(/\.md$/, "").replace(/[-_]+/g, " ").trim();
+
+/** A body with fewer non-whitespace characters than this, once its blob
+ * links and quoted warnings are set aside, is a STUB — the PDF door's word
+ * for "the client shipped bytes, not text" (lib/pdfText.ts). Anything longer
+ * is a client that delivered its own discussable version, left alone. */
+export const STUB_CHARS = 400;
+
+const BLOB_LINE = /^!?\[[^\]]*\]\(blob:[0-9a-f]{64}\)\s*$/;
+
+/** The stub test's measure: prose that is not a blob link and not a quoted warning. */
+export function proseChars(body: string): number {
+  return body
+    .split("\n")
+    .filter((l) => !BLOB_LINE.test(l.trim()) && !l.startsWith(">"))
+    .join("")
+    .replace(/\s+/g, "").length;
+}

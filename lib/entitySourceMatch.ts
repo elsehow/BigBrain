@@ -36,7 +36,7 @@ const WORK_KINDS = new Set([
   "article", "post", "review", "legal-document", "podcast", "dataset",
 ]);
 /** Envelope kinds that are talk: about things, never one. */
-const TALK_KINDS = new Set([
+export const TALK_KINDS: ReadonlySet<string> = new Set([
   "meeting", "transcript", "meeting-dossier", "email", "message", "agent-chat", "pilot-chat",
   "request", "directive", "observation", "identity-declaration",
 ]);

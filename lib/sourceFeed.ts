@@ -312,8 +312,10 @@ export function readSourceInsertionPath(root: string, path: string): SourceInser
   }
 }
 
-/** Render the discussable lake item through the existing note reader. */
-export function sourceInsertionMarkdown(source: SourceInsertion): string {
+/** Render the discussable lake item through the existing note reader.
+ * `copies`: the same document's other landings (lib/sourceCopies.ts), named
+ * under the front block so a reader holding a stub reaches the text. */
+export function sourceInsertionMarkdown(source: SourceInsertion, copies: readonly { path: string; title: string }[] = []): string {
   const date = sourceMoment(source) || undefined;
   // Where it was captured (lib/sourceOrigin.ts): the viewer has always
   // offered it to open; a reader asked for "the link" needs it as much.
@@ -328,6 +330,7 @@ export function sourceInsertionMarkdown(source: SourceInsertion): string {
     ...(origin?.kind === "url" ? [`url: ${JSON.stringify(origin.url)}`] : []),
     "---",
     "",
+    ...(copies.length ? [`_Also in the vault as: ${copies.map((copy) => `[[${copy.path}|${copy.title}]]`).join(" · ")}, the fullest first._`, ""] : []),
     source.body,
     "",
   ].join("\n");

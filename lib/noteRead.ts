@@ -32,7 +32,8 @@ import {
   sourceThreadMarkdown,
 } from "./assertionEntityView";
 import { isSourceThreadPath } from "./sourceThreads";
-import { sourceMoment } from "./insertionLog";
+import { insertionEventRel, sourceMoment } from "./insertionLog";
+import { otherCopies } from "./vaultReadModel";
 import { parseWikilinks } from "./linkSyntax";
 import { DEFAULT_SLACK, matchBody } from "./noteMatch";
 import { withinRoot } from "./browsePaths";
@@ -273,7 +274,8 @@ export function notePayload(root: string, relRaw: string, window: NoteWindow = {
   if (isSourceThreadPath(relRaw)) return { status: 404, error: `no thread at ${relRaw}` };
   if (resolved?.kind === "source") {
     const { source } = resolved;
-    const markdown = sourceInsertionMarkdown(source);
+    const copies = otherCopies(root, source.id).map((copy) => ({ path: insertionEventRel(copy), title: copy.title }));
+    const markdown = sourceInsertionMarkdown(source, copies);
     return {
       status: 200,
       rel: relRaw,

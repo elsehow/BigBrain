@@ -63,7 +63,7 @@ import { buildEntityFeed, buildSortedFeed, buildV2Feed, type V2Source } from "..
 import { dueOf, feedItems, feedRecords } from "../lib/feedJournal";
 import { readV2Source } from "../lib/v2Read";
 import { tendJournalFiles } from "../lib/tend";
-import { withVaultSnapshot } from "../lib/vaultReadModel";
+import { otherCopies, withVaultSnapshot } from "../lib/vaultReadModel";
 import { frozenMessagesForRefs, sortFrozenDesc } from "../lib/frozenQueue";
 import { queueHead } from "../lib/queueHead";
 import { noteLog } from "../lib/noteLog";
@@ -78,7 +78,7 @@ import { foldsRoutes } from "../lib/entityFolds";
 import { createNoteBriefingService, noteBriefingRoutes, readNoteBriefingInput } from "../lib/noteBriefing";
 import { noteRelationRoutes } from "../lib/noteRelation";
 import { sourceReadStateRoutes, graphWithReadState } from "../lib/sourceReadStateApi";
-import { sourceOrigin } from "../lib/sourceOrigin";
+import { sourceOrigin, sourceOrigins, type SourceOrigin } from "../lib/sourceOrigin";
 import { setupRoutes, setupState } from "../lib/firstRun";
 import { listTokens, revokeToken, tokenStorePath } from "../lib/auth";
 import { mintPairCode, pendingPair } from "../lib/pair";
@@ -367,11 +367,21 @@ async function noteRead({ req, res, url }: Ctx): Promise<void> {
     // `origin` is the OPEN target: an external original, or a Markdown
     // copy of the stored body for text-only drops (lib/sourceOrigin.ts).
     // `byAgent`: the viewer holds an agent's remote images for a click.
+    // Copies of one document (lib/sourceCopies.ts) pool their claims, and
+    // `origins` is every copy's originals, this one's first, each with the
+    // copy that opens it.
+    const pooled = [source, ...otherCopies(ROOT, source.id)];
+    const origins = new Map<string, SourceOrigin & { path: string }>();
+    for (const copy of pooled) for (const origin of sourceOrigins(copy.envelope)) {
+      const key = origin.kind === "url" ? origin.url : origin.kind === "file" ? origin.sha256 : origin.name;
+      if (!origins.has(key)) origins.set(key, { ...origin, path: insertionEventRel(copy) });
+    }
     return json(res, 200, {
       path: rel,
       content: sourceInsertionMarkdown(source),
-      sourceAssertions: assertionsFromSource(ROOT, source.id),
+      sourceAssertions: assertionsFromSource(ROOT, pooled.map((copy) => copy.id)),
       origin: sourceOrigin(source.envelope, source),
+      origins: [...origins.values()],
       byAgent: agentWritten(source),
     });
   }
