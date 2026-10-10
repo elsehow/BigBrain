@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { askForProvider, reader } from "../lib/reader.svelte";
   // Drag a file — or a whole folder — anywhere onto the app → each file
   // ships to the host inbox
   // IMMEDIATELY (no confirm step), and a notification appears with a note
@@ -295,6 +296,8 @@
   function onDrop(e: DragEvent): void {
     e.preventDefault();
     dragDepth = 0;
+    // Nothing runs the gardener yet: connect a provider first (D5).
+    if (reader.on) { void askForProvider(); return; }
     // Grab every entry SYNCHRONOUSLY — the DataTransferItemList dies the
     // moment this handler yields, so no await may come before the map.
     const entries = Array.from(e.dataTransfer?.items ?? [])

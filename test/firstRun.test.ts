@@ -7,7 +7,7 @@
 import {setupProgress,saveSetupProgress} from "../lib/setupProgress";
 import {setupDone,vaultSetupDone} from "../web/ui/src/lib/setup";
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { mintToken, revokeToken } from "../lib/auth";
@@ -272,5 +272,57 @@ describe("setupRoutes", () => {
       code: 400,
       body: { error: "path is required" },
     });
+  });
+});
+
+describe("joining a server from first run", () => {
+  /** POST a route whose answer waits on the network, and wait for it. */
+  const post = async (routes: Route[], path: string, body: unknown): Promise<{ code: number; body: Record<string, unknown> }> => {
+    let code = 0, answer: Record<string, unknown> | undefined;
+    const res = { writeHead: (c: number) => { code = c; }, end: (b: string) => { answer = JSON.parse(b); } } as unknown as ServerResponse;
+    const req = Object.assign(new PassThrough(), { url: path, method: "POST" });
+    dispatch(routes, req as never, res);
+    req.end(JSON.stringify(body));
+    for (let i = 0; i < 200 && answer === undefined; i++) await new Promise((r) => setTimeout(r, 10));
+    return { code, body: answer! };
+  };
+  test("with no vault: a bad link makes nothing; a good one makes a vault quietly, connects, and lands as a reader", async () => {
+    const home = tmp(), saved = { HOME: process.env.HOME, store: process.env.BIGBRAIN_SHARED_CONNECTIONS };
+    const { SharedVault } = await import("../lib/sharedVault");
+    const { makeSharedApiHandler } = await import("../lib/sharedVaultApi");
+    const { initMemberStore } = await import("../lib/sharedMembers");
+    const { createMemberInvite } = await import("../lib/sharedInvites");
+    const { readConnections } = await import("../lib/sharedConnections");
+    const { setupState } = await import("../lib/firstRun");
+    const shared = join(home, "server"), members = join(home, "members.json");
+    mkdirSync(shared);
+    writeFileSync(join(shared, ".shared-identity.json"), JSON.stringify({ id: "garden", name: "Garden club" }));
+    initMemberStore(members, shared, { handle: "owner", display: "Example Owner" });
+    const handler = makeSharedApiHandler({ root: shared, storePath: members, vault: new SharedVault(shared), log: () => {} });
+    const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: (r) => handler(r) });
+    process.env.HOME = home;
+    process.env.BIGBRAIN_SHARED_CONNECTIONS = join(home, "connections.json");
+    try {
+      const vault = join(home, "vault"), endpoint = `http://127.0.0.1:${server.port}`;
+      let opened: string | undefined;
+      const routes = setupRoutes({ root: null, state: () => setupState(null, { suggested: vault }), onVault: (v) => { opened = v.path; } });
+      const bad = await post(routes, "/api/setup/join", { invite: `${endpoint}/invite#${"x".repeat(43)}` });
+      expect(bad.code).toBe(400);
+      expect(existsSync(vault)).toBe(false);
+      const { secret } = createMemberInvite(members, "Ines Example", "read", new Date());
+      const ok = await post(routes, "/api/setup/join", { invite: `${endpoint}/invite#${secret}` });
+      expect(ok.code).toBe(200);
+      expect(ok.body.joined).toMatchObject({ name: "Garden club" });
+      expect(opened).toBe(vault);
+      expect(existsSync(join(vault, "vault.yaml"))).toBe(true);
+      expect(setupProgress(vault)).toBe("reader");
+      expect(readConnections(join(home, "connections.json")).map((c) => c.name)).toEqual(["Garden club"]);
+      expect(setupDone(ok.body as unknown as SetupState)).toBe(true);
+      expect(vaultSetupDone(ok.body as unknown as SetupState)).toBe(false);
+    } finally {
+      server.stop(true);
+      process.env.HOME = saved.HOME;
+      if (saved.store === undefined) delete process.env.BIGBRAIN_SHARED_CONNECTIONS; else process.env.BIGBRAIN_SHARED_CONNECTIONS = saved.store;
+    }
   });
 });

@@ -1,4 +1,5 @@
 <script lang="ts">
+ import {askForProvider,reader} from '../lib/reader.svelte';
   import { vaultFetch as fetch } from "../lib/vaultScope";
 
   import { onMount } from 'svelte';
@@ -8,7 +9,7 @@
   type Entry={id:string;name:string;description:string;added:boolean;unavailable?:string;status?:{label:string;checkedAt?:string}};
   let entries=$state<Entry[]>([]),editing=$state(''),busy=$state(''),error=$state('');
   async function request(body?:unknown){const r=await fetch('/api/integration-accounts',body?{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)}:undefined);const v=await r.json();if(!r.ok)throw Error(v.error||'Could not load integrations.');entries=v.library??[];}
-  async function add(id:string){busy=id;error='';try{await request({name:id,action:'install'});editing=id;}catch(e){error=e instanceof Error?e.message:'Could not add integration.';}finally{busy='';}}
+  async function add(id:string){if(reader.on){void askForProvider();return;}busy=id;error='';try{await request({name:id,action:'install'});editing=id;}catch(e){error=e instanceof Error?e.message:'Could not add integration.';}finally{busy='';}}
   onMount(()=>{void request().catch(e=>error=e.message);});
 </script>
 <div class="integration-library settings">
