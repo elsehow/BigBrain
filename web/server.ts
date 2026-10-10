@@ -43,7 +43,7 @@ import { ENGINE_ROOT, engineIdentity } from "../lib/engine";
 import { dieWithSupervisor } from "../lib/parentWatch";
 import { configSave, integrationsInfo } from "../lib/configWrite";
 import { allowLoopbackRequest, armor, dispatch, json, readBody, send, type Ctx, type Route } from "../lib/httpx";
-import { dropErrorStatus } from "../lib/door";
+import { dropErrorStatus, Queued } from "../lib/door";
 import { firewallKey } from "../lib/firewall";
 import { landDirective, landDrop } from "../lib/landItem";
 import { voiceMessagesFor } from "../lib/voice";
@@ -709,7 +709,10 @@ function drop(ctx: Ctx): void {
       // are uncapped by design — the CAS is add-only disk, not git
       // history. The item TEXT stays capped inside lib/intake.ts (413).
       cap: Infinity,
-      onError: (e) => json(ctx.res, dropErrorStatus(e), { error: errText(e) }),
+      onError: (e) =>
+        e instanceof Queued
+          ? json(ctx.res, 202, { queued: true, id: e.id, via: "local" })
+          : json(ctx.res, dropErrorStatus(e), { error: errText(e) }),
     }
   );
 }

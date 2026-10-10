@@ -2,6 +2,7 @@
 import { realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, sep } from "node:path";
+import { arrivalsBase } from "./arrivals";
 import { readEnvValues, writeEnvValues } from "./envFile";
 
 export type FileAccess = "read" | "write";
@@ -21,9 +22,11 @@ const CREDENTIAL_PATHS = [".codex", ".claude", ".ssh", ".aws", ".pi", ".config/b
 const SECRET_NAME = /^(\.git|\.env(\..+)?|\.envrc|\.npmrc|\.netrc|\.pypirc|\.git-credentials|\.pgpass|\.htpasswd|credentials\.json|service-account.*\.json|.+\.(pem|key|p12|pfx)|id_(rsa|dsa|ecdsa|ed25519).*)$/i;
 export const secretName = (name: string): boolean => SECRET_NAME.test(name) && !/^\.env\.(example|sample)$/i.test(name);
 export const expandHome = (path: string): string => path.replace(/^~(?=\/|$)/, homedir());
+/** Also the arrivals queue (lib/arrivals.ts), which holds what the firewall
+ * has not screened yet, wherever an override puts it. */
 export function credentialPaths(home = homedir()): string[] {
   const agents = [process.env.PI_CODING_AGENT_DIR, process.env.CODEX_HOME].filter((p): p is string => !!p).map(expandHome);
-  return [...CREDENTIAL_PATHS.map(p => join(home, p)), ...agents].map(canonicalWorkPath);
+  return [...CREDENTIAL_PATHS.map(p => join(home, p)), ...agents, arrivalsBase()].map(canonicalWorkPath);
 }
 const tilde = (path: string, home: string): string => containsPath(home, path) ? "~" + path.slice(home.length) : path;
 /** Why a canonical folder is too broad to grant, or null. */

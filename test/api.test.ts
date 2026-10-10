@@ -16,9 +16,11 @@ import { join } from "node:path";
 import { makeApiHandler, MAX_REQUEST_BYTES, ROUTES } from "../lib/api";
 import { listTokens, mintToken, revokeToken } from "../lib/auth";
 import { readBlob } from "../lib/blobs";
+import { sweep } from "../lib/door";
+import { saveJevKey } from "../lib/jevSettings";
 import { MAX_BYTES } from "../lib/intake";
 import { labels, ledgerRel, readLedger } from "../lib/retrieval";
-import { appendSourceInsertionEvent, insertionEventRel, type SourceInsertion } from "../lib/insertionLog";
+import { appendSourceInsertionEvent, insertionEventRel, readSourceInsertionLog, type SourceInsertion } from "../lib/insertionLog";
 import { appendAssertionEvent, assertionEntityId, createAssertionEvent } from "../lib/assertionLog";
 import { landedTextById } from "./support/landed";
 import { insertion, NATIVE_YAML } from "./support/vault";
@@ -360,6 +362,31 @@ describe("the whole-request body cap (§5)", () => {
 
 // Issue #50: the HTTP front door reports the landed reference id, so a client
 // can name it in a directive's refs. Additive — `path` is unchanged.
+describe("POST /v1/drop while the firewall can't answer", () => {
+  test("is accepted with a receipt (202), kept, and lands once it answers", async () => {
+    const { handler, token, root } = setup();
+    writeFileSync(join(root, "vault.yaml"), "integrations: {}\n");
+    const store = join(mkdtempSync(join(tmpdir(), "bb-api-jev-")), "shared-connections.json");
+    saveJevKey(store, "example-jev-key");
+    const prior = { store: process.env["BIGBRAIN_SHARED_CONNECTIONS"], url: process.env["BIGBRAIN_FIREWALL_URL"] };
+    process.env["BIGBRAIN_SHARED_CONNECTIONS"] = store;
+    process.env["BIGBRAIN_FIREWALL_URL"] = "http://127.0.0.1:9/v1/systemone";
+    try {
+      const res = await handler(drop("---\ntitle: lake\n---\nPhotos from the lake", token, "name=lake.md&poke=false"));
+      expect(res.status).toBe(202);
+      const receipt = (await res.json()) as { queued: boolean; id: string };
+      expect(receipt).toEqual({ queued: true, id: expect.stringMatching(/^[0-9a-f]{64}$/) });
+      expect(readSourceInsertionLog(root)).toHaveLength(0);
+      saveJevKey(store, null); // no longer failing (here: switched off), the next sweep lands it
+      expect(await sweep(root)).toEqual({ settled: 1, waiting: 0 });
+      expect(readSourceInsertionLog(root)).toHaveLength(1);
+    } finally {
+      for (const [k, v] of [["BIGBRAIN_SHARED_CONNECTIONS", prior.store], ["BIGBRAIN_FIREWALL_URL", prior.url]] as const)
+        if (v === undefined) delete process.env[k]; else process.env[k] = v;
+    }
+  });
+});
+
 describe("POST /v1/drop — the landing receipt", () => {
   test("returns the reference id alongside the path", async () => {
     const { handler, token } = setup();

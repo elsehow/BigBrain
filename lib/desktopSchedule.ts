@@ -27,6 +27,8 @@
 export const CADENCE: Readonly<Record<string, number>> = {
   tend: 300,
   publish: 900,
+  // retries what the firewall could not answer for (bin/arrivals.ts)
+  arrivals: 60,
   granola: 60,
   "that-tracks": 60,
   email: 60,

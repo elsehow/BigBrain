@@ -1,5 +1,6 @@
 /** Shared vault tool schemas and operations. Transports and runtime adapters select capabilities. */
 import { parseNoteWindow, NoteWindowError, ENTITY_WINDOW_CAP, SLACK_CAP, type NoteWindow } from "./noteWindow";
+import { Queued } from "./door";
 import { landDrop } from "./landItem";
 import { attachmentPayload, memoryRead, notePayload, type AttachmentPayload, type NotePayload } from "./noteRead";
 import { recordUse, type RetrievalVia } from "./retrieval";
@@ -132,12 +133,15 @@ function dropTool(ctx: VaultToolContext, args: Record<string, unknown>): unknown
   ]);
   const content = fmBody(fm, body);
   // A promise: the landing may extract a PDF's text layer (lib/pdfText.ts).
-  // Validation above still throws in place.
-  return landDrop({ root: ctx.root, content }).then((receipt) => ({
-    id: receipt.id,
-    path: receipt.path,
-    ref_path: receipt.path,
-  }));
+  // Validation above still throws in place. Queued is not a failure: the
+  // drop is kept and lands once the firewall answers.
+  return landDrop({ root: ctx.root, content }).then(
+    (receipt) => ({ id: receipt.id, path: receipt.path, ref_path: receipt.path }),
+    (e: unknown) => {
+      if (e instanceof Queued) return { queued: true, id: e.id };
+      throw e;
+    },
+  );
 }
 
 const KINDS = new Set<string>(WORK_KINDS);

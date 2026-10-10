@@ -13,7 +13,8 @@
 //   the mark      is work in flight — it turns while anything is uploading,
 //                 whether that is the page or a note, and comes to rest on
 //                 its own angle when nothing is (see cube.js).
-//   the eyebrow   is the PAGE: SENDING → IN THE VAULT, or SEND FAILED.
+//   the eyebrow   is the PAGE: SENDING → IN THE VAULT, QUEUED (waiting for
+//                 the vault's firewall), or SEND FAILED.
 //   the hint row  is the NOTE, and otherwise the keys you can press.
 //
 // Layout is the design mockup ("Browser extension.dc.html"); design.css holds
@@ -159,9 +160,10 @@ api.runtime.onMessage.addListener((msg) => {
   if (msg.type === "bigbrain-page-status") {
     answered = true;
     clearTimeout(deadline);
-    landed = Boolean(msg.ok);
+    landed = Boolean(msg.ok) && !msg.queued;
     if (msg.ok && msg.refPath) landedPath = msg.refPath;
-    setPageStatus(msg.ok ? "IN THE VAULT" : "SEND FAILED", msg.ok ? "done" : "failed");
+    if (msg.queued) setPageStatus("QUEUED");
+    else setPageStatus(msg.ok ? "IN THE VAULT" : "SEND FAILED", msg.ok ? "done" : "failed");
     // A failure gets the hint row, which is otherwise only showing you keys
     // you already know. Why it broke is worth more than that.
     if (!msg.ok && msg.reason) setHints(String(msg.reason).toUpperCase(), "failed");

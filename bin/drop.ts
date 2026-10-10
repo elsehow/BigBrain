@@ -23,7 +23,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { basename } from "node:path";
 import { VAULT_ROOT } from "../lib/vaultRoot";
-import { FirewallUnavailable, land } from "../lib/door";
+import { land, Queued } from "../lib/door";
 import { ensureItemId, IntakeError, looksBinary, type Attachment } from "../lib/intake";
 import { discussablePdf } from "../lib/pdfText";
 import { flagValues, positionals } from "../lib/cliflags";
@@ -111,7 +111,11 @@ try {
   );
   process.exit(0);
 } catch (e) {
-  if (e instanceof IntakeError || e instanceof FirewallUnavailable) {
+  if (e instanceof Queued) {
+    console.log(`drop: ${e.message} (arrival ${e.id})`);
+    process.exit(0);
+  }
+  if (e instanceof IntakeError) {
     console.error(`drop: ${e.message}`);
     process.exit(2);
   }

@@ -52,6 +52,8 @@
     /** the landed insertion event's vault path (the receipt's ref_path):
      * the note the picture opens on the landing */
     refPath?: string;
+    /** accepted, but waiting for the firewall: it lands once it answers */
+    queued?: boolean;
     title: string;
     thin: boolean;
     note: string;
@@ -87,7 +89,7 @@
 
   // the landing's receipt: the reference id the note field waits on
   // (#50), and the path the picture opens
-  const landed = (t: Tray, r: { id?: string; ref_path?: string }): void => { t.id = r.id; t.refPath = r.ref_path; };
+  const landed = (t: Tray, r: { id?: string; ref_path?: string; queued?: boolean }): void => { t.id = r.id; t.refPath = r.ref_path; t.queued = r.queued; };
   const progressOf = (t: Tray) => (leg: "encode" | "upload", sent: number, total: number) => { t.leg = leg; t.sent = sent; t.total = total; };
   const uploading = (t: Tray): boolean => t.status === "sending" && !!t.total && (t.sent ?? 0) < (t.total ?? 0);
   const pct = (t: Tray): number => (t.total ? Math.min(100, Math.floor(((t.sent ?? 0) / t.total) * 100)) : 0);
@@ -212,6 +214,11 @@
   // run that consumes them.
   async function postNote(t: Tray): Promise<void> {
     const note = t.note.trim();
+    if (t.queued) {
+      t.noteStatus = "failed";
+      t.noteError = "not sent — the file is waiting for the firewall";
+      return;
+    }
     if (!t.id) {
       // Landed, but the engine reported no id — an older engine. Say so
       // rather than filing prose that points at nothing. Checked HERE, not
@@ -320,7 +327,7 @@
 
 {#snippet statusLabel(t: Tray)}
   <span class="state" class:ok={t.status === "sent"} class:err={t.status === "failed"}>
-    {t.status === "sending" ? (uploading(t) ? `${t.leg === "encode" ? "preparing" : "uploading"} ${pct(t)}%` : "sending…") : t.status === "sent" ? "captured ✓" : "failed"}
+    {t.status === "sending" ? (uploading(t) ? `${t.leg === "encode" ? "preparing" : "uploading"} ${pct(t)}%` : "sending…") : t.status === "sent" ? (t.queued ? "queued" : "captured ✓") : "failed"}
   </span>
 {/snippet}
 

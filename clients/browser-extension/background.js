@@ -308,8 +308,13 @@ async function post({ name, frontmatter, markdown, attachments }) {
         signal: AbortSignal.timeout(withAtt ? ATTACHMENT_TIMEOUT_MS : REQUEST_TIMEOUT_MS),
       }
     );
-    await flashBadge(res.ok ? "✓" : "!", res.ok ? "#27ae60" : "#c0392b");
+    // 202: accepted, and waiting for the vault's firewall to answer; it
+    // lands once it does, with no resend from here
+    const queued = res.status === 202;
+    const [mark, color] = !res.ok ? ["!", "#c0392b"] : queued ? ["…", "#7f8c8d"] : ["✓", "#27ae60"];
+    await flashBadge(mark, color);
     if (!res.ok) return { ok: false, reason: `the vault answered ${res.status}` };
+    if (queued) return { ok: true, queued: true };
     // The landed LAKE id — what a following note names in its refs. A host
     // too old to report one leaves this undefined, and the note fails
     // loudly rather than filing prose that points at nothing.
@@ -378,9 +383,11 @@ function land(pageId, payload, tab) {
     if (r.id) void api.storage.session?.set({ [`landed:${pageId}`]: r.id });
     if (r.ok && r.id) rememberLanding(tab?.id, tab?.url, { pageId, lakeId: r.id, refPath: r.refPath ?? null });
     const extra = r.ok
-      ? r.refPath
-        ? { refPath: r.refPath }
-        : {}
+      ? r.queued
+        ? { queued: true }
+        : r.refPath
+          ? { refPath: r.refPath }
+          : {}
       : r.reason
         ? { reason: r.reason }
         : {};

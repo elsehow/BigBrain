@@ -1,18 +1,22 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
-import { admit, FirewallUnavailable, hold, land } from "../lib/door";
+import { arrivalsBase } from "../lib/arrivals";
+import { admit, hold, land, Queued, sweep } from "../lib/door";
 import { firewallKey, windows, withheldLog } from "../lib/firewall";
+import { sha256hex } from "../lib/hash";
 import { saveJevKey } from "../lib/jevSettings";
 import { JEV_MODEL } from "../lib/sharedJev";
 import { readSourceInsertionLog } from "../lib/insertionLog";
 import { stagedCount } from "../lib/stage";
 import type { StagedItem } from "../lib/stageStorage";
+import { credentialPaths } from "../lib/workPermissions";
 import { mdVault } from "./support/vault";
 
-// The door (lib/door.ts) is the one way an arrival persists, and the
-// firewall (lib/firewall.ts) screens it first. All content here is invented.
+// The door (lib/door.ts) is the one way an arrival persists: every arrival
+// is queued (lib/arrivals.ts), and only the door's worker puts it to the
+// firewall (lib/firewall.ts). All content here is invented.
 
 const ENGINE = join(import.meta.dir, "..");
 
@@ -38,9 +42,14 @@ describe("nothing reaches the record or the stage around the door", () => {
     expect(callersOf("stage", /\/stage(Storage)?$/)).toEqual(["lib/door.ts"]);
   });
 
+  test("only the door's worker screens, and only the door reads or writes the queue", () => {
+    expect(callersOf("screen", /\/firewall$/)).toEqual(["lib/door.ts"]);
+    for (const name of ["putArrival", "readArrival", "settleArrival", "arrivalOutcome", "waitingIds", "pruneOutcomes", "workerLock"])
+      expect(callersOf(name, /\/arrivals$/)).toEqual(["lib/door.ts"]);
+  });
+
   test("admit — landing what the door already staged — is for the admission paths only", () => {
     expect(callersOf("admit", /\/door$/)).toEqual(["lib/granolaRevision.ts", "lib/stage.ts", "lib/thatTracks.ts"]);
-    expect(callersOf("holdCleared", /\/door$/)).toEqual(["lib/granolaStage.ts"]);
   });
 });
 
@@ -194,12 +203,14 @@ describe("the firewall at the door", () => {
     expect(seen.length).toBe(windows(long).length);
   });
 
-  test("fails closed: an unreachable or nonsensical firewall lets nothing through", async () => {
+  test("fails closed: an unreachable or nonsensical firewall lets nothing through, and keeps it queued", async () => {
     const down = vault();
     process.env["BIGBRAIN_FIREWALL_URL"] = "http://127.0.0.1:9/v1/systemone";
     try {
-      await expect(land({ root: down, content: mail("Photos from the lake") })).rejects.toBeInstanceOf(FirewallUnavailable);
-      await expect(hold(...item(down, mail("A newsletter")))).rejects.toBeInstanceOf(FirewallUnavailable);
+      await expect(land({ root: down, content: mail("Photos from the lake") })).rejects.toBeInstanceOf(Queued);
+      expect(await hold(...item(down, mail("A newsletter")))).toBe(true);
+      await expect(land({ root: down, content: mail("https://quillpad.example/reset?t=RESET-TOKEN") })).rejects.toBeInstanceOf(Queued);
+      expect(await sweep(down)).toEqual({ settled: 0, waiting: 3 });
     } finally {
       process.env["BIGBRAIN_FIREWALL_URL"] = `http://127.0.0.1:${server.port}/v1/systemone`;
     }
@@ -207,14 +218,56 @@ describe("the firewall at the door", () => {
     expect(stagedCount(down)).toBe(0);
     expect(existsSync(withheldLog(down))).toBe(false);
 
+    // the firewall answers again: one sweep settles all three, with no retry of the doors' own
+    expect(await sweep(down)).toEqual({ settled: 3, waiting: 0 });
+    expect(readSourceInsertionLog(down)).toHaveLength(1);
+    expect(stagedCount(down)).toBe(1);
+    expect(readFileSync(withheldLog(down), "utf8").trim().split("\n")).toHaveLength(1);
+
     const root = vault();
     mode = "broken";
     try {
-      await expect(land({ root, content: mail("Photos from the lake") })).rejects.toBeInstanceOf(FirewallUnavailable);
+      await expect(land({ root, content: mail("Photos from the lake") })).rejects.toBeInstanceOf(Queued);
     } finally {
       mode = "ok";
     }
     expect(readSourceInsertionLog(root)).toHaveLength(0);
+    expect(await sweep(root)).toEqual({ settled: 1, waiting: 0 });
+  });
+
+  test("a drop sent again, or a find polled again, is the same arrival: screened once, answered with what it became", async () => {
+    const root = vault();
+    seen.length = 0;
+    const first = await land({ root, content: mail("Photos from the lake") });
+    const again = await land({ root, content: mail("Photos from the lake") });
+    expect(again).toEqual({ ...first, deduped: true });
+    expect(await hold(...item(root, mail("A newsletter")))).toBe(true);
+    expect(await hold(...item(root, mail("A newsletter")))).toBe(false);
+    expect(seen).toHaveLength(2);
+    expect(readSourceInsertionLog(root)).toHaveLength(1);
+    expect(stagedCount(root)).toBe(1);
+  });
+
+  test("the queue is sealed: outside the vault, owner-only, and denied like a credential store", async () => {
+    const root = vault();
+    process.env["BIGBRAIN_FIREWALL_URL"] = "http://127.0.0.1:9/v1/systemone";
+    try {
+      await expect(land({ root, content: mail("Photos from the lake") })).rejects.toBeInstanceOf(Queued);
+    } finally {
+      process.env["BIGBRAIN_FIREWALL_URL"] = `http://127.0.0.1:${server.port}/v1/systemone`;
+    }
+    const mine = join(arrivalsBase(), sha256hex(realpathSync(root)).slice(0, 12));
+    const queued = readdirSync(mine, { recursive: true, withFileTypes: true })
+      .filter((d) => d.isFile() && d.name.endsWith(".json"))
+      .map((d) => join(d.parentPath, d.name));
+    expect(queued).toHaveLength(1);
+    expect(readFileSync(queued[0]!, "utf8")).toContain("Photos from the lake");
+    expect(relative(root, queued[0]!).startsWith("..")).toBe(true);
+    expect(statSync(queued[0]!).mode & 0o077).toBe(0);
+    for (let dir = join(queued[0]!, ".."); dir !== arrivalsBase(); dir = join(dir, ".."))
+      expect(statSync(dir).mode & 0o077).toBe(0);
+    expect(credentialPaths()).toContain(realpathSync(arrivalsBase()));
+    await sweep(root);
   });
 
   test("admission lands what the door staged without asking again", () => {
