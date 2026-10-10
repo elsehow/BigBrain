@@ -247,6 +247,8 @@ async function run(root: string): Promise<Run> {
     ];
     for (const name of ["tend", "publish", "arrivals", "copies"])
       jobs.push({ name, script: `bin/${name}.ts`, interval: cadence(name), atStart: false });
+    // daily, and at launch: an app restarted more often than that would otherwise never prune
+    jobs.push({ name: "prune", script: "bin/prune.ts", interval: cadence("prune"), atStart: true });
     for (const name of new Set([...Object.keys(manifest.integrations), ...MANAGED_INTEGRATIONS])) {
       if (!integrationActive(root, name)) continue;
       const script = join("integrations", name, "run.ts");
