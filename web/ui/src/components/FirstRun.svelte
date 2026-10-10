@@ -1,6 +1,5 @@
 <script lang="ts">
   import { vaultFetch as fetch } from "../lib/vaultScope";
-  import { connectSharedInvite } from "../lib/sharedSettings.svelte";
 
   import { onMount, tick, untrack } from 'svelte';
   import '../lib/settingsLists.css';
@@ -12,8 +11,8 @@
   import logo from '../assets/logo.svg';
   import { vaultSetupDone, type SetupState } from '../lib/setup';
   import { app } from '../lib/store.svelte';
-  let {setup,onPick,onConnect,onName,telemetryPending=false,onConsent}: {
-    setup:SetupState;onPick?:(path:string)=>Promise<void>|void;onConnect?:()=>Promise<void>|void;
+  let {setup,onPick,onJoin,onConnect,onName,telemetryPending=false,onConsent}: {
+    setup:SetupState;onPick?:(path:string)=>Promise<void>|void;onJoin?:(invite:string)=>Promise<void>;onConnect?:()=>Promise<void>|void;
     onName?:(name:string,email?:string)=>Promise<void>|void;telemetryPending?:boolean;onConsent?:(enabled:boolean)=>Promise<void>;
   }=$props();
   const steps=['Vault','Providers','Agents','Integrations'];
@@ -22,13 +21,14 @@
   let step=$state(untrack(initial)), name=$state(''),email=$state(''),needsEmail=$state(false);
   let saving=$state(false),moving=$state(false),clientBusy=$state(false),problem=$state('');
   let panel=$state<HTMLDivElement>(),heading=$state<HTMLHeadingElement>();
-  // A member joining someone's shared vault finishes setup inside it.
-  let invite=$state(''),joining=$state(false),joined=$state<{id:string;name:string}|null>(null);
+  // Joining a server: straight to its notes, with a vault made quietly if there is none (D1, D5).
+  let invite=$state(''),joining=$state(false);
   async function join(e:SubmitEvent){
-    e.preventDefault();if(joining)return;
+    e.preventDefault();if(joining||!onJoin)return;
     joining=true;problem='';
-    try{joined=await connectSharedInvite(invite);invite='';}catch(error){problem=error instanceof Error?error.message:'Could not connect.';}finally{joining=false;}
+    try{await onJoin(invite);}catch(error){problem=error instanceof Error?error.message:'Could not join.';}finally{joining=false;}
   }
+  async function paste(){try{invite=(await navigator.clipboard.readText()).trim();}catch{/* no clipboard access: type or paste it */}}
   // a joined vault is already in the field: the engine reads every connected vault together
   const land=()=>{app.rev++;};
   const providerReady=$derived(!!setup.chatgpt?.connected||!!setup.anthropic?.connected);
@@ -101,6 +101,10 @@
         {#if step===0}
           {#if setup.vault}<div class="chosen"><span>{setup.vault.path}</span><span class="status">Selected</span></div>{/if}
           <VaultPicker suggested={setup.vault?.path??setup.suggested} pick={setup.pick} {onPick}/>
+          {#if onJoin}<form class="join" onsubmit={join} aria-label="Join a server">
+            <div class="join-main"><span class="join-head">Join a server</span><span class="join-about">Paste the invite link you were sent.</span></div>
+            <div class="join-link"><input aria-label="Invite link" bind:value={invite} disabled={joining} placeholder="https://…/invite#…" autocomplete="off" spellcheck="false"/><button type="button" class="join-paste" disabled={joining} onclick={paste}>Paste</button><button class="join-go" disabled={joining||!invite.trim()}>{joining?'…':'CONNECT'}</button></div>
+          </form>{/if}
           {#if setup.vault&&!setup.identity}<label class="identity">Your name<input bind:value={name} autocomplete="name" disabled={saving} placeholder="Your name"/></label>{#if needsEmail}<label class="identity">Your email<input bind:value={email} type="email" autocomplete="email" disabled={saving}/></label>{/if}{/if}
         {:else if step===1}
           <div class="providers" inert={saving}>
@@ -108,13 +112,7 @@
             <section aria-label="ChatGPT provider"><SubscriptionConnect provider="chatgpt" {setup} compact onChange={s=>setup=s}/></section>
           </div>
         {:else if step===2}<ClientChecklist onBusy={value=>clientBusy=value} />
-        {:else}<IntegrationLibrary />
-          <section class="shared-invite" aria-label="Server">
-            <h2>Server</h2>
-            {#if joined}<div class="chosen"><span>{joined.name}</span><span class="status">Connected</span></div>
-            {:else}<p>Joining someone's server? Paste the invite link they sent you.</p>
-              <form onsubmit={join}><label>Invite link<input type="url" required bind:value={invite} disabled={joining} placeholder="https://vault.example.org/invite#…" autocomplete="off"/></label><button disabled={joining||!invite.trim()}>{joining?'Connecting…':'Connect'}</button></form>{/if}
-          </section>{/if}
+        {:else}<IntegrationLibrary />{/if}
       </div>
       <footer>{#if step>0}<button class="back" disabled={saving||moving||clientBusy} onclick={()=>go(step-1)}>← Back</button>{/if}<div class="forward">{#if step>=2}<button class="skip" disabled={saving||moving||clientBusy} onclick={()=>go(step+1)}>Skip</button>{/if}<button class="primary" disabled={!nextReady||saving||moving||clientBusy} onclick={()=>go(step+1)}>{saving?'Saving…':step===3&&!telemetryPending?'Finish →':'Next →'}</button></div></footer>
     {/if}
@@ -131,7 +129,11 @@ button{font:var(--type-body);padding:10px 16px;border:1px solid var(--rule);bord
 .consent-actions .opt-in{background:var(--text-strong);color:var(--bg);border-color:var(--text-strong);transition:background-color 120ms ease,box-shadow 120ms ease}
 .consent-actions .opt-in:is(:hover,:focus-visible):not(:disabled){background:color-mix(in srgb,var(--text-strong) 93%,var(--bg));border-color:var(--text-strong);box-shadow:3px 3px 0 color-mix(in srgb,var(--text-strong) 30%,transparent)}
 .consent-actions .opt-in:active:not(:disabled){background:var(--text-strong);box-shadow:inset 0 0 0 2px var(--bg)}
-.shared-invite{display:grid;gap:14px;margin-top:30px}.shared-invite h2{font:var(--type-body);font-weight:500;margin:0}.shared-invite p{font:var(--type-meta);color:var(--text-muted);line-height:1.5;margin:0}.shared-invite form{display:flex;align-items:flex-end;gap:12px}.shared-invite label{flex:1;display:grid;gap:8px;font:var(--type-meta);color:var(--text-muted)}.shared-invite form button{padding:12px 16px}.shared-invite input{min-width:0;padding:12px;font:var(--type-body);background:var(--well);color:var(--text);border:1px solid var(--rule)}.shared-invite .chosen{margin-bottom:0}
+/* "Join a server": a third row under the picker's two, in its type and buttons (VaultPicker.svelte) */
+.join{display:grid;gap:12px;padding:16px 0;border-top:1px solid var(--rule)}.join-main{display:flex;flex-direction:column;gap:3px}.join-head{font-size:15px;font-weight:600;color:var(--text-strong)}.join-about{font-size:13.5px;line-height:1.5;color:var(--text-muted)}
+.join-link{display:flex;gap:var(--sp-2)}.join-link input{flex:1;min-width:0;font:var(--type-mono);padding:9px 11px;border:1px solid var(--rule);border-radius:var(--r-sm);background:var(--surface);color:var(--text)}
+.join-link button{font:var(--type-chip);font-weight:600;letter-spacing:.06em;white-space:nowrap;padding:9px 16px;border:1px solid var(--rule);border-radius:var(--r-sm);background:none;color:var(--text);cursor:pointer}.join-link button:disabled{opacity:.45;cursor:default}
+.join-link .join-go{min-width:96px;background:var(--text-strong);color:var(--bg);border-color:var(--text-strong)}
 @media(prefers-reduced-motion:reduce){.consent-actions .opt-in{transition:none}}
-@media(max-width:600px){.shared-invite form{flex-direction:column;align-items:stretch}main{padding:0 20px;margin-top:60px}nav{gap:6px;margin-bottom:32px}nav button{font-size:12px;gap:6px}.number{width:20px;height:20px}h1{font-size:30px}.intro{font-size:15px}}
+@media(max-width:600px){.join-link{flex-wrap:wrap}.join-link input{flex-basis:100%}main{padding:0 20px;margin-top:60px}nav{gap:6px;margin-bottom:32px}nav button{font-size:12px;gap:6px}.number{width:20px;height:20px}h1{font-size:30px}.intro{font-size:15px}}
 </style>

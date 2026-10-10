@@ -27,7 +27,7 @@ const assert=require('node:assert/strict');
   }
   if(path==='/api/connected-clients'){if(body?.action==='local')local.find(c=>c.kind===body.kind).connected=body.enabled;return json({clients:[],local});}
   if(path==='/api/telemetry'){if(typeof body?.enabled==='boolean'){choices.push(body.enabled);metrics={...metrics,enabled:body.enabled,decided:true};}return json(metrics);}
-  if(path==='/api/shared-settings'&&route.request().method()==='POST'){invites.push(body.invite);return route.fulfill({status:201,json:{id:'fixture-team',name:'Example team',endpoint:'https://vault.example.test'}});}
+  if(path==='/api/setup/join'){invites.push(body.invite);hasVault=true;identity={name:'Ines Example',entity_id:'fixture'};step='reader';return json({...setup(),joined:{id:'fixture-team',name:'Example team'}});}
   if(path==='/api/graph')return json({nodes:[],edges:[],hash:'fixture'});
   if(path==='/api/recent')return json({recent:[],total:0,nextOffset:null});
   if(path==='/api/pilot/chat'||path==='/api/work/sessions')return json({sessions:[]});
@@ -63,10 +63,6 @@ const assert=require('node:assert/strict');
  assert.equal(await pilot.inputValue(),'read');assert.equal(await client.inputValue(),'off');assert.equal(await client.locator('option').count(),2,'no write level where the account offers none');
  await pilot.selectOption('off');await page.getByRole('button',{name:'Save',exact:true}).click();await page.getByText('Saved.',{exact:true}).waitFor();
  assert.deepEqual(posted,[[{caller:'pilot',access:'off'}]],'Save sends only the caller that changed');assert.deepEqual(account.grants,[]);assert.equal(await pilot.inputValue(),'off');
- // A member joining a shared vault redeems the invite here and finishes setup inside it.
- const sharedInvite=page.getByRole('region',{name:'Server'}),inviteLink='https://vault.example.test/invite#'+'A'.repeat(43);
- await sharedInvite.getByLabel('Invite link',{exact:true}).fill(inviteLink);await sharedInvite.getByRole('button',{name:'Connect',exact:true}).click();
- await sharedInvite.getByText('Example team',{exact:true}).waitFor();await sharedInvite.getByText('Connected',{exact:true}).waitFor();assert.deepEqual(invites,[inviteLink]);
  await page.setViewportSize({width:600,height:1000});await page.screenshot({path:'/tmp/bb-first-run-integrations.png'});
  assert.deepEqual(choices,[]);assert.equal(metrics.enabled,false);
  await page.getByRole('button',{name:'Next →',exact:true}).click();await page.getByRole('heading',{name:'Help improve BigBrain',exact:true}).waitFor();assert.equal(step,'analytics');
@@ -74,5 +70,15 @@ const assert=require('node:assert/strict');
  await page.waitForFunction(()=>!document.querySelector('[aria-label="Set up BigBrain"]'));assert.equal(step,'complete');assert.deepEqual(choices,[false]);
  // An existing configured vault has no progress marker and goes straight to its app.
  step=undefined;await page.reload();await page.waitForFunction(()=>!!document.querySelector('.v2'));assert.equal(await page.getByRole('dialog',{name:'Set up BigBrain'}).count(),0);assert.deepEqual(account.grants,[]);
- assert.deepEqual(errors,[]);console.log('Production wizard: explicit navigation, providers, client configuration, library defaults/save, reload, failure recovery, and existing-vault bypass passed');
+ // Joining a server on a new machine: no vault, no provider. A vault is made quietly and the app opens on the server's notes.
+ hasVault=false;identity=null;claude=false;chatgpt=false;step=undefined;rejectVault=false;library.forEach(i=>i.added=false);
+ await page.reload();const join=page.getByRole('form',{name:'Join a server',exact:true});await join.waitFor();
+ const inviteLink='https://vault.example.test/invite#'+'A'.repeat(43);
+ assert(await join.getByRole('button',{name:'CONNECT',exact:true}).isDisabled());
+ await join.getByLabel('Invite link',{exact:true}).fill(inviteLink);await join.getByRole('button',{name:'CONNECT',exact:true}).click();
+ await page.waitForFunction(()=>!!document.querySelector('.v2')&&!document.querySelector('[aria-label="Set up BigBrain"]'));assert.deepEqual(invites,[inviteLink]);assert.equal(step,'reader');
+ // Adding something asks for a provider first: the regular setup flow, from its providers screen.
+ await page.evaluate(()=>{location.hash='#/integrations';});await page.locator('article').filter({hasText:'Granola'}).getByRole('button',{name:'+ Add',exact:true}).click();
+ await page.getByRole('heading',{name:'Connect providers',exact:true}).waitFor();assert.equal(step,'providers');assert.equal(library.find(i=>i.id==='granola').added,false);
+ assert.deepEqual(errors,[]);console.log('Production wizard: explicit navigation, providers, client configuration, library defaults/save, reload, failure recovery, existing-vault bypass, joining a server as a reader, and a provider asked for on first add passed');
 }finally{await browser.close();}})().catch(e=>{console.error(e);process.exitCode=1;});

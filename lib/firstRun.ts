@@ -47,6 +47,7 @@ import { writeAtomic } from "./fsx";
 import { jobsPath } from "./preflight";
 import { declareUserIdentity, latestUserIdentity, legacyUserLabels } from "./userIdentity";
 import { json, readBody, type Route } from "./httpx";
+import { connectInvite, connectionStorePath } from "./sharedConnections";
 import type { ServerResponse } from "node:http";
 
 export interface SetupAgent {
@@ -391,6 +392,41 @@ export function setupRoutes(door: SetupDoor): Route[] {
           return json(res, 400, { error: problemText(error) });
         }
         return json(res, 200, door.state());
+      },
+    },
+
+    // First run's "Join a server": a link someone sent, joined before
+    // anything else. The invite is redeemed first, so a bad link creates
+    // nothing. Without a vault, one is made quietly at the suggested folder
+    // (D1), named for the person as the server knows them when this machine
+    // has an email to attribute it to, and they land in the server's notes
+    // as a reader (D5): BigBrain asks for a provider only when they first
+    // add something.
+    {
+      method: "POST",
+      path: "/api/setup/join",
+      handler: ({ req, res }) => {
+        void (async () => {
+          try {
+            const body = JSON.parse(await readBody(req, 4096)) as { invite?: unknown };
+            const joined = await connectInvite(connectionStorePath(), body.invite);
+            let root = door.root, made: Extract<FolderVerdict, { ok: true }> | undefined;
+            if (root === null) {
+              const v = inspectFolder(door.state().suggested ?? "~/vault");
+              if (!v.ok) throw Error(v.problem);
+              if (v.kind !== "vault") createVault(v.path);
+              pointAt(v.path);
+              root = v.path; made = v;
+            }
+            const email = identityOf(root) ? null : suggestedOwnerEmail(root);
+            if (email) declareUserIdentity(root, { name: joined.identity.display, email, aliases: legacyUserLabels(root) });
+            saveSetupProgress(root, "reader");
+            json(res, 200, { ...setupState(root), joined: { id: joined.id, name: joined.name } });
+            if (made) door.onVault(made);
+          } catch (error) {
+            json(res, 400, { error: problemText(error) });
+          }
+        })();
       },
     },
 
