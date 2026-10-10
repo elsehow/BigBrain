@@ -147,7 +147,8 @@ export interface V2SortedRow {
   section: "needs-you" | "agent" | "know";
   /** The stage's headline, written for the owner. */
   headline: string;
-  /** The deadline or event date (the stage's `expires`), or null. */
+  /** The date something is due by (lib/feedJournal.ts dueOf), or null: a
+   * meeting's own date is not a deadline. */
   due: string | null;
   /** When it entered the feed. */
   added: string;
@@ -161,15 +162,26 @@ export interface V2SortedRow {
   lens?: string;
 }
 
-/** What the sorted feed is built from: the stage's current entries (lib/feedJournal.ts currentFeed). */
-export interface SortedEntry { source: string; section: string; headline: string; expires: string | null; assertions: string[]; added: string }
+/** What the sorted feed is built from: the stage's items (lib/feedJournal.ts feedItems). */
+export interface SortedEntry { source: string; section: string; headline: string; due: string | null; assertions: string[]; added: string }
 
 const SECTIONS: readonly V2SortedRow["section"][] = ["needs-you", "agent", "know"];
 
-/** The stage's entries, newest first, as a feed reads: what just arrived is
- * what shows (the most pressing within one arrival first). An entry whose
- * claims have all been revoked since it was sorted drops out: the record no
- * longer says it. */
+/** Rows to a page of the sorted feed: about three days of a steady feed,
+ * dozens of screens of the viewer's strip (#207). */
+export const SORTED_PAGE = 100;
+
+type SortedKey = Pick<V2SortedRow, "added" | "section" | "source">;
+
+/** The sorted feed's order: newest first, the most pressing first within
+ * one arrival, then by source, so that every row has one place. */
+export const newestFirst = (a: SortedKey, b: SortedKey): number =>
+  b.added.localeCompare(a.added) || SECTIONS.indexOf(a.section) - SECTIONS.indexOf(b.section) || a.source.localeCompare(b.source);
+
+/** The stage's items, newest first, as a feed reads: what just arrived is
+ * what shows (the most pressing within one arrival first). An item whose
+ * claims have all been revoked or superseded since it was sorted drops out:
+ * the record no longer says it. */
 export function buildSortedFeed(src: V2Source, entries: readonly SortedEntry[]): V2SortedRow[] {
   const live = new Map(src.rows.map((row) => [row.id, row]));
   const out: V2SortedRow[] = [];
@@ -177,9 +189,38 @@ export function buildSortedFeed(src: V2Source, entries: readonly SortedEntry[]):
     const section = SECTIONS.find((s) => s === e.section);
     const rows = e.assertions.map((id) => live.get(id)).filter((r): r is AssertionEvent => !!r).map((r) => feedRow(src, r));
     if (!section || !rows.length) continue;
-    out.push({ source: e.source, section, headline: e.headline, due: e.expires, added: e.added, entities: [...new Set(rows.flatMap((r) => r.entities))] });
+    out.push({ source: e.source, section, headline: e.headline, due: e.due, added: e.added, entities: [...new Set(rows.flatMap((r) => r.entities))] });
   }
-  return out.sort((a, b) => b.added.localeCompare(a.added) || SECTIONS.indexOf(a.section) - SECTIONS.indexOf(b.section) || a.source.localeCompare(b.source));
+  return out.sort(newestFirst);
+}
+
+export interface SortedPage { rows: V2SortedRow[]; next: string | null }
+
+/** One page of the sorted feed: at most `limit` rows, newest first, after
+ * the row `before` names (the `next` of the page before). `next` names the
+ * page's last row while older rows remain. A row's key, not an offset, so
+ * what arrives between two pages doesn't shift the second. */
+export function pageSortedFeed(rows: readonly V2SortedRow[], limit: number, before?: string): SortedPage {
+  let from = 0;
+  if (before) {
+    const [added = "", section = "", source = ""] = before.split("|");
+    const cut = { added, section: section as V2SortedRow["section"], source };
+    from = rows.findIndex((r) => newestFirst(cut, r) < 0);
+    if (from < 0) from = rows.length;
+  }
+  const page = rows.slice(from, from + limit);
+  const last = page.at(-1);
+  return { rows: page, next: last && from + page.length < rows.length ? `${last.added}|${last.section}|${last.source}` : null };
+}
+
+/** The loaded pages, read again from the top (`fresh`: as many rows as were
+ * loaded): a row revoked since drops out; rows that new arrivals pushed past
+ * the fresh read's last stay below it, in order, and the page before them is
+ * still the one to load next. */
+export function refreshSortedPages(loaded: SortedPage, fresh: SortedPage): SortedPage {
+  const last = fresh.rows.at(-1);
+  const beyond = last ? loaded.rows.filter((r) => newestFirst(last, r) < 0) : [];
+  return { rows: [...fresh.rows, ...beyond], next: beyond.length ? loaded.next : fresh.next };
 }
 
 /** One entity's latest assertions (aliases folded), dated the same way. */

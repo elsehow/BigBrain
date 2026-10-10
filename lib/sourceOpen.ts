@@ -32,7 +32,7 @@ import { osOpen, osReveal } from "./diagnostics";
 import { json, readBody, send, type Route } from "./httpx";
 import { readSourceInsertionPath } from "./sourceFeed";
 import { sourceThreadView } from "./assertionEntityView";
-import { sourceOrigin, type SourceOrigin } from "./sourceOrigin";
+import { sourceOrigin, sourceOrigins, type SourceOrigin } from "./sourceOrigin";
 
 /** A filename the OS will take as one: no separators, no NUL, no leading
  * dot (a hidden file is one the person cannot find), the sha256 when
@@ -74,19 +74,23 @@ export type OpenResult =
   | { ok: true; origin: SourceOrigin; opened: string; revealed?: true }
   | { ok: false; origin: SourceOrigin | null; error: string };
 
-/** Open one source's origin. Pure over its inputs but for the copy and the
- * open — `base`, `open` and `reveal` are the seams the test holds. */
+/** Open one source's origin — or, by `sha256`, one of the files it names
+ * (a page clipped with its PDF has both). Pure over its inputs but for the
+ * copy and the open — `base`, `open` and `reveal` are the seams the test holds. */
 export function openSourceOrigin(
   root: string,
   path: string,
   open: (target: string) => boolean = osOpen,
   base?: string,
   reveal: (target: string) => boolean = osReveal,
+  sha256?: string,
 ): OpenResult {
   const source = readSourceInsertionPath(root, path) ?? sourceThreadView(root, path)?.members[0];
   if (!source) return { ok: false, origin: null, error: "no such source" };
-  const origin = sourceOrigin(source.envelope, source);
-  if (!origin) return { ok: false, origin, error: "this source has no origin to open" };
+  const origin = sha256
+    ? sourceOrigins(source.envelope).find((o) => o.kind === "file" && o.sha256 === sha256) ?? null
+    : sourceOrigin(source.envelope, source);
+  if (!origin) return { ok: false, origin, error: sha256 ? "this source names no such file" : "this source has no origin to open" };
   if (origin.kind === "url")
     return open(origin.url) ? { ok: true, origin, opened: origin.url } : { ok: false, origin, error: "could not open a browser here" };
   if (origin.kind === "note") {
@@ -117,13 +121,15 @@ export function sourceOpenRoutes(root: string, open: (target: string) => boolean
       method: "POST",
       path: "/api/source/open",
       handler: async ({ req, res }) => {
-        let path = "";
+        let path = "", sha256: string | undefined;
         try {
-          path = String((JSON.parse(await readBody(req)) as { path?: unknown }).path ?? "");
+          const body = JSON.parse(await readBody(req)) as { path?: unknown; sha256?: unknown };
+          path = String(body.path ?? "");
+          if (typeof body.sha256 === "string" && body.sha256) sha256 = body.sha256;
         } catch {
           return send(res, 400, JSON.stringify({ error: "a JSON body naming the source's path" }));
         }
-        const r = openSourceOrigin(root, path, open, base, reveal);
+        const r = openSourceOrigin(root, path, open, base, reveal, sha256);
         if (r.ok) return json(res, 200, r);
         json(res, r.origin ? 500 : 404, r);
       },

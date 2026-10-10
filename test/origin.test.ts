@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { openOrigin, originHint } from "../web/ui/src/lib/origin";
+import { openOrigin, originHint, originLabel } from "../web/ui/src/lib/origin";
 
 // the viewer's OPEN: which opener takes which origin (web/ui/src/lib/origin.ts)
 const SHA = "ab".repeat(32);
@@ -33,7 +33,15 @@ describe("openOrigin", () => {
       engine: async (p) => { asked.push(p); },
     });
     expect(asked).toEqual(["log/insertions/2026-09/ins_1.json"]);
+    // by its sha256: a source that also has a page opens this file, not the page
+    const shas: (string | undefined)[] = [];
+    await openOrigin(file, "p", { external: () => {}, engine: async (_p, sha) => { shas.push(sha); } });
+    expect(shas).toEqual([SHA]);
     await expect(openOrigin(file, "p", { external: () => {}, engine: async () => { throw new Error("no reader"); } })).rejects.toThrow("no reader");
+  });
+  test("one of several originals is named by its site or its file", () => {
+    expect(originLabel({ kind: "url", url: "https://www.arxiv.example/pdf/1" })).toBe("arxiv.example");
+    expect(originLabel({ kind: "file", name: "paper.pdf", sha256: SHA, mime: "", bytes: 0 })).toBe("paper.pdf");
   });
   test("the hover says where ⌘O goes", () => {
     expect(originHint({ kind: "url", url: "https://x.example/p" })).toContain("https://x.example/p");

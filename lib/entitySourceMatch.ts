@@ -36,7 +36,7 @@ const WORK_KINDS = new Set([
   "article", "post", "review", "legal-document", "podcast", "dataset",
 ]);
 /** Envelope kinds that are talk: about things, never one. */
-const TALK_KINDS = new Set([
+export const TALK_KINDS: ReadonlySet<string> = new Set([
   "meeting", "transcript", "meeting-dossier", "email", "message", "agent-chat", "pilot-chat",
   "request", "directive", "observation", "identity-declaration",
 ]);
@@ -51,16 +51,26 @@ export function matchWords(value: string): string[] {
 /** The forms a source's title is written in: as given, without a trailing
  * extension or parenthetical, and without a "| Publisher" or " - Site" tail. */
 export function titleForms(title: string): string[][] {
-  const forms = new Set<string>();
+  const { whole, heads } = titleShapes(title);
+  return [...whole, ...heads];
+}
+
+/** The same forms, split by what was cut: `whole` is the title as given and
+ * without its extension or parenthetical; `heads` are those without a "| Site"
+ * or " - Subtitle" tail. Two titles sharing only a head ("Series — Part one",
+ * "Series — Part two") name a series, not one work (lib/sourceCopies.ts). */
+export function titleShapes(title: string): { whole: string[][]; heads: string[][] } {
+  const whole = new Set<string>(), heads = new Set<string>();
   let base = title.trim().replace(EXTENSION, "");
-  forms.add(base);
+  whole.add(base);
   base = base.replace(/\s*[([][^()[\]]*[)\]]\s*$/u, "");
-  forms.add(base);
+  whole.add(base);
   for (const sep of [" | ", " — ", " – ", " - "]) {
     const at = base.lastIndexOf(sep);
-    if (at > 0) forms.add(base.slice(0, at));
+    if (at > 0 && !whole.has(base.slice(0, at))) heads.add(base.slice(0, at));
   }
-  return [...forms].map(matchWords).filter((words) => words.length);
+  const words = (forms: Set<string>) => [...forms].map(matchWords).filter((w) => w.length);
+  return { whole: words(whole), heads: words(heads) };
 }
 
 const startsWith = (long: readonly string[], short: readonly string[]): boolean =>
@@ -72,6 +82,14 @@ const contains = (long: readonly string[], short: readonly string[]): boolean =>
   return false;
 };
 
+/** Two titles' words that name one work: the same words, or one the other
+ * with its subtitle dropped (five words or more, and most of the longer). */
+export function namesTitle(x: readonly string[], y: readonly string[]): boolean {
+  const [short, long] = x.length <= y.length ? [x, y] : [y, x];
+  if (!startsWith(long, short)) return false;
+  return short.length === long.length || (short.length >= 5 && short.length >= 0.6 * long.length);
+}
+
 /** How `label` names a source with this title, body head and envelope
  * kind (as the envelope holds it: anything but a string is no kind), if it
  * does. */
@@ -81,11 +99,7 @@ export function sourceMatch(label: string, source: { title: string; head?: strin
   const words = matchWords(label);
   if (words.length < (WORK_KINDS.has(kind) ? 3 : 5)) return undefined;
   const titles = titleForms(source.title);
-  for (const title of titles) {
-    if (title.length === words.length && startsWith(title, words)) return "title";
-    const [short, long] = title.length < words.length ? [title, words] : [words, title];
-    if (short.length >= 5 && short.length >= 0.6 * long.length && startsWith(long, short)) return "title";
-  }
+  if (titles.some((title) => namesTitle(title, words))) return "title";
   if (words.length < 5) return undefined;
   const head = matchWords(source.head ?? "");
   if (startsWith(head, words)) return "head";

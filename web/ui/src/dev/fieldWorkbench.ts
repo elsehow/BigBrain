@@ -28,6 +28,7 @@ import Base from "../components/Base.svelte";
 import { installGraphFixture } from "./graphFixture";
 import { watchSystemTheme } from "../lib/theme";
 import { update } from "../lib/update.svelte";
+import { newestFirst, pageSortedFeed, SORTED_PAGE, type V2SortedRow } from "../../../../lib/v2Feed";
 
 const empty = new URLSearchParams(location.search).has("empty");
 if (new URLSearchParams(location.search).has("update")) update.available = { version: "0.7.24", notes: "Preview update" };
@@ -76,7 +77,7 @@ const CLAIMS: Array<[by: string, author: string | null, model: boolean, text: st
 const feed = empty ? [] : claimsScene
   ? CLAIMS.map(([by, author, model, text, entities], i) => ({ id: `ast_${i}`, at: at(i * 7), author, by, model, text, entities }))
   : NAMES.slice(0, 4).map((name, i) => ({ id: `ast_${i}`, at: at(i), author: null, by: "you", model: false, text: `${name} was noted.`, entities: [`ent_${i}`] }));
-const sorted = empty || claimsScene ? [] : [
+const sorted: (V2SortedRow & { path: string; title: string })[] = empty || claimsScene ? [] : [
   { source: "ins_a", section: "needs-you", headline: "Kit asks for the orrery repair estimate by Friday.", due: null, added: at(30), entities: ["ent_0", "ent_2"],
     title: "Orrery estimate", path: "log/insertions/2026-10/ins_a.json", via: "email" },
   { source: "ins_b", section: "know", headline: "The Atlas survey's second leg is complete.", due: null, added: at(20), entities: ["ent_1"],
@@ -84,6 +85,12 @@ const sorted = empty || claimsScene ? [] : [
   { source: "ins_c", section: "agent", headline: "Harbor lab sent the grant draft for review.", due: null, added: at(10), entities: ["ent_4", "ent_6"],
     title: "Lantern grant draft", path: "log/insertions/2026-10/ins_c.json", via: "email" },
 ];
+// `?longFeed`: a feed of several pages, older field notes under the three above
+if (new URLSearchParams(location.search).has("longFeed"))
+  for (let i = 1; i <= 250; i++) sorted.push({ source: `ins_n${i}`, section: i % 7 ? "know" : "needs-you",
+    headline: `Field note ${i}: the north pier tide gauge was read.`, due: null, added: at(-i * 5), entities: [`ent_${i % 4}`],
+    title: `Field note ${i}`, path: `log/insertions/2026-10/ins_n${i}.json`, via: "rss" });
+sorted.sort(newestFirst);
 
 let outOfCredits = new URLSearchParams(location.search).has("credits");
 const reading = new URLSearchParams(location.search).has("reading");
@@ -175,7 +182,8 @@ const fake = window.fetch;
     return json(done);
   }
   if (url.pathname === "/api/v2") return json({ authors: [], feed });
-  if (url.pathname === "/api/v2/sorted") return json({ rows: sorted });
+  if (url.pathname === "/api/v2/sorted")
+    return json(pageSortedFeed(sorted, Number(url.searchParams.get("limit")) || SORTED_PAGE, url.searchParams.get("before") ?? undefined));
   if (url.pathname === "/api/v2/entity") return json({ rows: feed.filter((r) => r.entities.includes(url.searchParams.get("id") ?? "")) });
   // the chat's agent picker: two connected agents, more models than a short window holds
   if (url.pathname === "/api/pilot/chat/models") return json({ agents: [
