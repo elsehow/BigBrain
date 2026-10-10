@@ -69,6 +69,13 @@ describe("copyCandidates", () => {
     expect(pairs.flat()).not.toContain(id("e"));
   });
 
+  test("two titles sharing only a head are a series, and a date alone names nothing", () => {
+    expect(copyCandidates([work("a", "Harbour survey notes — Lantern counts"), work("b", "Harbour survey notes — Tide tables")])).toEqual([]);
+    expect(copyCandidates([work("a", "2026-09-28 — Mara Okafor / Ezra Lind (Notes)"), work("b", "2026-09-28 — Dana Reyes / Ezra Lind (Notes)")])).toEqual([]);
+    // a head that is the other whole title still is one: the file name, the site
+    expect(copyCandidates([work("a", "Harbour survey notes — Lantern counts"), work("b", "Harbour survey notes — Lantern counts - full text")])).toEqual([[id("a"), id("b")]]);
+  });
+
   test("a title shared by a crowd is generic, never a work's", () => {
     expect(copyCandidates([..."abcdefghi"].map((c) => work(c, "Sign in to your account")))).toEqual([]);
   });

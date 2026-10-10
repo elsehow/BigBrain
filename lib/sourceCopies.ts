@@ -17,7 +17,7 @@
  * (the PDF door's own test, lib/text.ts), then the newest.
  */
 
-import { TALK_KINDS, titleForms } from "./entitySourceMatch";
+import { namesTitle, TALK_KINDS, titleShapes } from "./entitySourceMatch";
 import type { SourceMetadata } from "./insertionLog";
 import { copyPairKey, type SourceCopyEvent } from "./sourceCopyLog";
 import { sourceOrigins } from "./sourceOrigin";
@@ -135,7 +135,8 @@ export function sourceCopies<T extends SourceMetadata>(
 // Candidates are works whose titles name each other the way an entity's
 // label names its source (lib/entitySourceMatch.ts): the same words once an
 // extension, a parenthetical or a "| Publisher" tail is off, or one with its
-// subtitle dropped. A model scores each (lib/sourceCopyJudge.ts); at or above
+// subtitle dropped — never two that share only a head ("Series — Part one",
+// "Series — Part two"), and never on a date or a number alone. A model scores each (lib/sourceCopyJudge.ts); at or above
 // the cut-off it is a copy, and below it, above the floor or not yet judged,
 // it is asked. A person's word settles a pair for good, and their answers to
 // judged pairs fit the cut-off.
@@ -182,22 +183,24 @@ export function copyCutoff({ declared, judged }: CopyRecord): number {
   return lines.reduce((best, t) => (errors(t) < errors(best) || (errors(t) === errors(best) && t > best) ? t : best), DEFAULT_CUTOFF);
 }
 
-const sameTitle = (a: readonly string[][], b: readonly string[][]): boolean => a.some((x) => b.some((y) => {
-  const [short, long] = x.length <= y.length ? [x, y] : [y, x];
-  if (!short.every((word, i) => long[i] === word)) return false;
-  return short.length === long.length || (short.length >= 5 && short.length >= 0.6 * long.length);
-}));
+type Shapes = { whole: string[][]; heads: string[][] };
+/** Whole titles that name each other, or one's head (its "| Site" tail off)
+ * that names the other whole. Never two heads: that is a series. */
+const sameTitle = (a: Shapes, b: Shapes): boolean =>
+  [[a.whole, b.whole], [a.heads, b.whole], [b.heads, a.whole]].some(([xs, ys]) => xs!.some((x) => ys!.some((y) => namesTitle(x, y))));
+/** Three words that are words: a date or a number alone names nothing. */
+const named = (words: readonly string[]): boolean => words.filter((word) => /\p{L}/u.test(word)).length >= 3;
 
 /** Pairs of works whose titles name each other, ascending, once each. */
 export function copyCandidates(sources: readonly SourceMetadata[]): [string, string][] {
-  const forms = new Map<string, string[][]>();
+  const forms = new Map<string, Shapes>();
   const buckets = new Map<string, Set<string>>();
   for (const source of sources) {
     if (!isWork(source)) continue;
-    const held = titleForms(source.title).filter((words) => words.length >= 3);
-    if (!held.length) continue;
+    const shapes = titleShapes(source.title), held = { whole: shapes.whole.filter(named), heads: shapes.heads.filter(named) };
+    if (!held.whole.length) continue;
     forms.set(source.id, held);
-    for (const words of held) {
+    for (const words of [...held.whole, ...held.heads]) {
       const key = words.slice(0, 3).join(" "), ids = buckets.get(key);
       if (ids) ids.add(source.id); else buckets.set(key, new Set([source.id]));
     }
