@@ -8,7 +8,7 @@ import { assertionDbPath, openAssertionProjectionReadonly, projectionRevision, s
 import { entityAliasResolution, type EntityAliasEvent, type EntityAliasResolution } from "./entityAliasLog";
 import { assertionSourceReferences, type AssertionEvent } from "./assertionLog";
 import { latestEntitySourceDeclarations, type EntitySourceEvent } from "./entitySourceLog";
-import { insertionEventRel, type SourceInsertion, type SourceMetadata } from "./insertionLog";
+import { insertionEventRel, sourceMoment, type SourceInsertion, type SourceMetadata } from "./insertionLog";
 import type { RevocationEvent } from "./revocationLog";
 import { withProjectionWrite } from "./projectionWriteLock";
 import type { RecentEntry } from "./viewTypes";
@@ -154,7 +154,7 @@ export function vaultRecord(root: string, reconcile = false): VaultRecord {
     for (const event of decoded<RevocationEvent>(db, "SELECT event_json FROM revocations ORDER BY created_at, id"))
       if (!revoked.has(event.assertion_id)) revoked.set(event.assertion_id, event);
     const aliases = aliasesIn(db);
-    const entitySources = latestEntitySourceDeclarations(decoded<EntitySourceEvent>(db, "SELECT event_json FROM entity_source_events"));
+    const entitySources = entitySourcesIn(db);
     const documents = (db.query("SELECT header_json AS document_json FROM markdown_documents ORDER BY path").all() as { document_json: string }[]).map(r => JSON.parse(r.document_json) as MarkdownIdentity);
     const documentLinks = new Map((db.query("SELECT path, links_json, citations_json FROM document_links").all() as { path: string; links_json: string; citations_json: string }[])
       .map(r => [r.path, { links: JSON.parse(r.links_json), citations: JSON.parse(r.citations_json) } as ParsedDocumentLinks]));
@@ -227,6 +227,9 @@ function decoded<T>(db: Database, sql: string, ...params: string[]): T[] {
 function aliasesIn(db: Database): EntityAliasResolution {
   return entityAliasResolution(decoded<EntityAliasEvent>(db, "SELECT event_json FROM entity_alias_events"));
 }
+function entitySourcesIn(db: Database): EntitySourceEvent[] {
+  return latestEntitySourceDeclarations(decoded<EntitySourceEvent>(db, "SELECT event_json FROM entity_source_events"));
+}
 function sourcesFor(db: Database, rows: readonly AssertionEvent[]): Map<string, SourceMetadata> {
   const ids = [...new Set(rows.flatMap(row => assertionSourceReferences(row).map(ref => ref.insertion_id)))];
   return new Map(decoded<SourceMetadata>(db, "SELECT header_json AS event_json FROM sources WHERE present = 1 AND insertion_id IN (SELECT value FROM json_each(?))", JSON.stringify(ids)).map(s => [s.id, s]));
@@ -241,8 +244,20 @@ export function entityReadModel(root: string, asked: string) {
       ORDER BY a.created_at, a.id`, JSON.stringify(ids));
     const declarations = identityAssertions(db);
     const sources = sourcesFor(db, [...rows, ...declarations]);
-    return { revision, id, aliases, rows, sources, owner: userIdentityDeclarationsFromEvents(declarations, sources).at(-1) };
+    return { revision, id, aliases, rows, sources, bound: boundSources(db, ids), owner: userIdentityDeclarationsFromEvents(declarations, sources).at(-1) };
   });
+}
+/** The sources an entity IS (lib/entitySourceLog.ts), bound under any of its
+ * ids, newest first, as the graph's `opens` orders them. A binding to a
+ * superseded landing follows its source's live one. */
+function boundSources(db: Database, ids: readonly string[]): SourceMetadata[] {
+  const bound = entitySourcesIn(db).filter(event => event.bound && ids.includes(event.entity.id)).map(event => event.insertion_id);
+  if (!bound.length) return [];
+  return decoded<SourceMetadata>(db, `SELECT DISTINCT s.header_json AS event_json FROM sources b
+    JOIN sources s ON s.present = 1 AND s.source_id = b.source_id
+    WHERE b.present = 1 AND b.insertion_id IN (SELECT value FROM json_each(?)) AND ${liveSourceSql("s")}
+      AND (s.insertion_id = b.insertion_id OR NOT ${liveSourceSql("b")})`, JSON.stringify(bound))
+    .sort((a, b) => sourceMoment(b).localeCompare(sourceMoment(a)) || a.id.localeCompare(b.id));
 }
 export function sourceAssertionReadModel(root: string, ids: readonly string[]) {
   return withVaultSnapshot(root, db => {

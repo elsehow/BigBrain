@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
+import { assertionEntityPath } from "../lib/assertionEntityView";
 import { buildAssertionGraph } from "../lib/assertionGraph";
 import { assertionEntityId, createAssertionEvent, type AssertionEntity } from "../lib/assertionLog";
 import { appendAndProjectAssertion, appendAndProjectEntityAlias, appendAndProjectEntitySource, syncAssertionProjection } from "../lib/assertionProjection";
@@ -7,7 +8,8 @@ import { createEntityAliasEvent } from "../lib/entityAliasLog";
 import { createEntitySourceEvent, latestEntitySourceDeclarations, readEntitySourceLog } from "../lib/entitySourceLog";
 import { sourceMatch } from "../lib/entitySourceMatch";
 import { planEntitySourceSeed, seedEntitySources } from "../lib/entitySourceSeed";
-import type { SourceInsertion } from "../lib/insertionLog";
+import { insertionEventRel, type SourceInsertion } from "../lib/insertionLog";
+import { notePayload } from "../lib/noteRead";
 import { submitWire } from "../lib/work";
 import { insertion, nativeVault } from "./support/vault";
 
@@ -172,5 +174,46 @@ describe("bind-sources backfill", () => {
     }));
     const graph = buildAssertionGraph(root);
     expect(graph.nodes.find((n) => n.title === "Lantern survey")?.opens).toEqual([`source:${paper.id}`]);
+  });
+});
+
+describe("reading an entity that is a source", () => {
+  const bind = (root: string, e: AssertionEntity, source: SourceInsertion) => appendAndProjectEntitySource(root, createEntitySourceEvent({
+    entity: e, insertion_id: source.id, bound: true, author: AUTHOR, created_at: "2026-10-02T00:00:00.000Z", produced_by: PRODUCED,
+  }));
+  const read = (root: string, label: string, window = {}) => {
+    const p = notePayload(root, assertionEntityPath(ent(label).id), window);
+    if (p.status !== 200) throw new Error(p.error);
+    return p.note;
+  };
+
+  test("the dossier leads to the documents it is, newest first; any other entity's does not", () => {
+    // the same paper landed twice: a capture whose text came later, then the text
+    const stub = insertion({ ...paper, id: `ins_${"c".repeat(24)}`, source_id: "capture-1", title: `${PAPER}.pdf`, body: "Captured; text not extracted.", received_at: "2026-10-01T00:00:00.000Z", envelope: { kind: "pdf-import" } });
+    const text = { ...paper, received_at: "2026-10-01T00:05:00.000Z" };
+    const root = vault([stub, text, notes]);
+    claim(root, [ent(PAPER)], stub, "2026-10-01T00:00:00.000Z");
+    claim(root, [ent(PAPER), ent("Mara Okafor")], text, "2026-10-01T00:06:00.000Z");
+    bind(root, ent(PAPER), stub);
+    bind(root, ent(PAPER), text);
+
+    const line = `_The document itself, in the vault: [[${insertionEventRel(text)}|${PAPER}]] · [[${insertionEventRel(stub)}|${PAPER}.pdf]]. Below is what the record says about it._`;
+    const note = read(root, PAPER);
+    expect(note.markdown).toContain(`# ${PAPER}\n\n${line}\n`);
+    expect(note.links.map((l) => l.path)).toEqual(expect.arrayContaining([insertionEventRel(text), insertionEventRel(stub)]));
+    // a window over the assertions, or the table of contents, keeps it
+    expect(read(root, PAPER, { q: "nothing-matches" }).markdown).toContain(line);
+    expect(read(root, PAPER, { toc: true }).markdown).toContain(line);
+    expect(read(root, "Mara Okafor").markdown).not.toContain("The document itself");
+  });
+
+  test("a binding to a superseded landing leads to its live one", () => {
+    const relanded = insertion({ ...paper, id: `ins_${"d".repeat(24)}`, received_at: "2026-10-03T00:00:00.000Z", envelope: { kind: "document", supersedes: paper.id } });
+    const root = vault([paper, relanded, notes]);
+    claim(root, [ent(PAPER)], relanded, "2026-10-03T00:01:00.000Z");
+    bind(root, ent(PAPER), paper);
+    const { markdown } = read(root, PAPER);
+    expect(markdown).toContain(`The document itself, in the vault: [[${insertionEventRel(relanded)}|${PAPER}]].`);
+    expect(markdown).not.toContain(insertionEventRel(paper));
   });
 });
