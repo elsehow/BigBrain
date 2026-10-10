@@ -63,6 +63,7 @@ use tauri::menu::{MenuBuilder, MenuItemBuilder};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 mod ui_diagnostics;
+use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 use tauri_plugin_opener::OpenerExt;
 use tauri_plugin_updater::UpdaterExt;
@@ -647,6 +648,31 @@ fn show_main(app: &AppHandle) {
     }
 }
 
+/// The invite link inside a `bigbrain://connect?invite=<link>` link, which a
+/// server's invite page opens: an http(s) `/invite` link with its secret in
+/// the fragment. Anything else is ignored.
+fn invite_from(raw: &str) -> Option<String> {
+    let url = tauri::Url::parse(raw).ok()?;
+    if url.scheme() != "bigbrain" || url.host_str() != Some("connect") { return None; }
+    let (_, link) = url.query_pairs().find(|(key, _)| key == "invite")?;
+    let link = tauri::Url::parse(&link).ok()?;
+    let fits = matches!(link.scheme(), "https" | "http") && link.path() == "/invite" && link.fragment().is_some_and(|f| !f.is_empty());
+    (fits && link.as_str().len() <= 2048).then(|| link.to_string())
+}
+
+/// Bring the window forward and hand the viewer the invite link for Connect a
+/// server (web/ui/src/lib/sharedSettings.svelte.ts acceptInviteLinks), waiting
+/// for the page if the link launched the app. It only fills the dialog in:
+/// nothing is redeemed until the person presses Connect.
+fn open_invite(app: &AppHandle, link: &str) {
+    show_main(app);
+    let Some(window) = app.get_webview_window("main") else { return };
+    let Ok(arg) = serde_json::to_string(link) else { return };
+    let _ = window.eval(&format!(
+        "(function go(l,n){{if(window.__bigbrainConnect)window.__bigbrainConnect(l);else if(n<100)setTimeout(function(){{go(l,n+1)}},300)}})({arg},0)"
+    ));
+}
+
 // Keep expansion separate from macOS Spaces fullscreen: Escape belongs to the UI.
 #[derive(Default)]
 struct WindowExpansion(Mutex<bool>);
@@ -1190,6 +1216,7 @@ pub fn run() {
         // Links that leave the app (the extension download page) open in the
         // system browser; a `_blank` link inside a webview has no tab to go to.
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_deep_link::init())
         .setup(|app| {
             app.handle().plugin(
                 tauri_plugin_log::Builder::default()
@@ -1216,6 +1243,16 @@ pub fn run() {
                 .unwrap_or_else(|e| fatal(&handle, format!("the BigBrain window would not open: {e}")));
             build_tray(&handle)
                 .unwrap_or_else(|e| fatal(&handle, format!("the menu bar cube would not build: {e}")));
+            // A server's invite page, opened in the app: now (it launched us) or later.
+            let links = handle.clone();
+            app.deep_link().on_open_url(move |event| {
+                for url in event.urls() {
+                    if let Some(link) = invite_from(url.as_str()) { open_invite(&links, &link); }
+                }
+            });
+            for url in app.deep_link().get_current().ok().flatten().unwrap_or_default() {
+                if let Some(link) = invite_from(url.as_str()) { open_invite(&handle, &link); }
+            }
 
             Ok(())
         })
@@ -1247,6 +1284,24 @@ mod tests {
         fs::write(at.join("bin/desktop.ts"), "").unwrap();
         fs::write(at.join("bin/cli.ts"), "").unwrap();
         at.to_path_buf()
+    }
+
+    #[test]
+    fn invite_links_pass_only_a_servers_invite_page() {
+        let secret = "Q3k8vT0pWm2Lr9xHq4ZcQ3k8vT0pWm2Lr9xHq4ZcQ3k";
+        let page = format!("https://garden.example.org/invite#{secret}");
+        let encoded = format!("bigbrain://connect?invite=https%3A%2F%2Fgarden.example.org%2Finvite%23{secret}");
+        assert_eq!(invite_from(&encoded).as_deref(), Some(page.as_str()));
+        for bad in [
+            "bigbrain://connect?invite=https%3A%2F%2Fgarden.example.org%2Finvite".to_string(),
+            "bigbrain://connect?invite=javascript%3Aalert(1)%2F%2Finvite%23x".to_string(),
+            "bigbrain://other?invite=https%3A%2F%2Fgarden.example.org%2Finvite%23x".to_string(),
+            "https://connect?invite=https%3A%2F%2Fgarden.example.org%2Finvite%23x".to_string(),
+            "bigbrain://connect?invite=https%3A%2F%2Fgarden.example.org%2Fmcp%23x".to_string(),
+            format!("bigbrain://connect?invite=https%3A%2F%2Fgarden.example.org%2Finvite%23{}", "x".repeat(3000)),
+        ] {
+            assert_eq!(invite_from(&bad), None, "{bad}");
+        }
     }
 
     #[test]

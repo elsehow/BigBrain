@@ -42,6 +42,11 @@
     "createUpdaterArtifacts": true
   },
   "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["bigbrain"]
+      }
+    },
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDFCRUFFMjAwRDcyODE1NUIKUldSYkZTalhBT0xxRzZhbml1K1BGYkdUeCsyYUt1MmpzQkx5QVI1aTBoM0J4aDNoRlVtR2NvSUcK",
       "endpoints": [

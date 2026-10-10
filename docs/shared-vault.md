@@ -73,8 +73,12 @@ revoking a leaked credential also retires every delegate it minted.
 
 Bearer-only. Every path — real or not — answers 401 without a live
 credential; there is no health probe and no unauthenticated read. 403
-names the missing permission. Bodies are `application/json`. The one
-exception is opt-in: an operator who sets a public URL turns on the
+names the missing permission. Bodies are `application/json`. Two
+exceptions. Every server answers `GET /invite`, the page an invite link
+opens in a browser (Open in BigBrain, or get the app first; the link's
+secret is in the fragment and never reaches the door), its font, and
+`POST /invite/check`, which names the server to a live link's holder and
+consumes nothing. And opt-in: an operator who sets a public URL turns on the
 [Claude connector](shared-vault-connector.md), whose OAuth discovery,
 registration, sign-in and token paths answer without a credential, and
 whose read-only `/mcp` answers a stranger with a 401 naming where to sign in.

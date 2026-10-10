@@ -42,6 +42,8 @@
  const plural=(n:number,one:string,many:string)=>`${n} ${n===1?one:many}`;
  function openDialog(d:HTMLDialogElement){d.showModal();}
  onMount(()=>{void reloadSharedConnections();});
+ // An invite link opened in the app arrives filled in (lib/sharedSettings.svelte.ts).
+ $effect(()=>{if(sharedSettings.invite&&sharedSettings.prefill){invite=sharedSettings.prefill;sharedSettings.prefill='';}});
  $effect(()=>{const id=sharedSettings.selected;if(id){tab='all';query='';hits=null;showAll=false;data=null;notes=null;people=[];void load().catch(e=>notice={ok:false,text:e.message});void loadNotes().catch(e=>notice={ok:false,text:e.message});void loadPeople().catch(()=>{});void loadLenses().catch(()=>{});}});
 </script>
 <SettingsPage active="sharedVaultSettings" title={data?.name.toUpperCase()??'SERVERS'} count={data?`${new URL(data.endpoint).host} · ${writable?'read and write':'read only'}`:undefined} {notice}>

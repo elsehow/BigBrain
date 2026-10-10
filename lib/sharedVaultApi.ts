@@ -39,7 +39,8 @@ import {SharedMemberBusyError} from './sharedMemberLock';
  * never became a path.
  */
 
-import { sharedVaultIdentity, redeemSharedInvite, createMemberInvite, pendingMemberInvites, cancelMemberInvite } from './sharedInvites';
+import { sharedVaultIdentity, redeemSharedInvite, createMemberInvite, pendingMemberInvites, cancelMemberInvite, sharedInviteIsLive } from './sharedInvites';
+import { FONT_PATHS, fontResponse, inviteLinkPage } from './sharedPages';
 import { makeSharedConnector, MCP_PATH, type SharedConnectorConfig } from "./sharedOAuth";
 import { serveSharedMcp } from "./sharedMcp";
 import {
@@ -444,6 +445,14 @@ export function makeSharedApiHandler(deps: SharedApiDeps): (req: Request) => Pro
     // The connector's public surface (discovery, registration, sign-in,
     // token): the deliberate exception to "everything is 401", and only
     // when the operator turned the connector on.
+    // Every server's invite page (D4): what an invite link shows in a browser,
+    // and the check that names the server to a live link's holder.
+    if (path === "/invite" && req.method === "GET") return respond(inviteLinkPage(connector && !connector.joinUrl ? { claude: connector.resourceUrl } : {}));
+    if (path === "/invite/check" && req.method === "POST") {
+      if (!takeToken("invite-pages").ok) return respond(json(429, { error: "too many requests" }));
+      return respond(sharedInviteIsLive(deps.storePath, presented, now()) ? json(200, { vault: sharedVaultIdentity(deps.root).name }) : json(404, { error: "not found" }));
+    }
+    if (req.method === "GET" && FONT_PATHS.includes(path)) return respond((await fontResponse(path))!);
     const publicAnswer = connector ? await connector.handlePublic(req, url) : undefined;
     if (publicAnswer) return respond(publicAnswer);
     if(path==='/v1/invites/redeem'&&req.method==='POST') {
