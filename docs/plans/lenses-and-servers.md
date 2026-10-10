@@ -90,13 +90,14 @@ for the server page's Yours tab.
 **1e. Screens.** Settings › lenses; Edit a lens (reuses
 `InclusionRuleEditor`, `InclusionRuleReview` and its note picker; table with
 Everything, Joining, Leaving, Removed); the type-the-name dialog; "Lenses you
-are sharing" on the server page.
+are sharing" on the server page; the feed items from D2 and D3, and D3's
+warning and what-changed popup on the lens.
 
 ## Phase 2: joining
 
-**2a. Invite page.** Today `/invite` exists only when the server runs the
-public connector (`--public-url`); otherwise every path is 401. Serve it always
-(D4), with Open in BigBrain and Get it for Mac. `/invite/check` already reports
+**2a. Invite page.** Today `/invite` is mounted only in the connector's route
+table (`lib/sharedOAuth.ts:938`), so without `--public-url` every path is 401.
+Serve it always (D4), with Open in BigBrain and Get it for Mac. `/invite/check` already reports
 the server's name without using up the invite.
 
 **2b. Links into the app.** Nothing is registered today (Tauri 2.11; plugins:
@@ -123,14 +124,23 @@ targets that no screen uses. See D5.
   empty vault at the default `~/vault` (`bin/desktop.ts:449`), connects, and
   opens the app. A mode with no vault at all would touch server startup, setup
   and every read path.
-- **D2. Consent for future matches.** Recommended: typing the lens's name when
+- **D2. Consent for future matches. Decided:** typing the lens's name when
   sharing covers future matches too; the dialog already says "every item in
-  this lens". Rule edits always preview joins and leaves.
+  this lens". Rule edits always preview joins and leaves. Each future match adds
+  a feed item, "[truncated title…] is shared with [server]", that opens the lens
+  responsible. Feed rows are assertions today (`lib/v2Feed.ts`); this is a new
+  row kind, read from the local share receipts (1d).
 - **D3. When scores shift without an edit** (the model is upgraded, or an
-  entity's aliases change). Recommended:
-  leaves apply automatically, joins wait for review. Shrinking what's shared is
-  always safe; growing it needs a look. E4 tells us how often this happens.
-- **D4. Invite page always on**, without the full public connector.
+  entity's aliases change). **Decided:** leaves apply automatically, joins wait
+  for review. Shrinking what's shared is always safe; growing it needs a look.
+  A feed item, "A [model upgrade/vault change] expanded what you share with
+  [server]", opens the lens. The lens shows a warning, and a popup lists what
+  changed since the last upgrade. "Looks OK" dismisses the warning for good.
+  "Edit rule" opens the rule editor, and the warning stays until a new rule is
+  saved. E4 tells us how often this happens.
+- **D4. Invite page always on. Decided:** every server serves `/invite` and
+  `/invite/check`, whether or not it runs the Claude connector. Servers still
+  support the connector; when it's on, the invite page says so at the bottom.
 - **D5. Connecting an AI. Decided:** someone who joins read-only goes straight
   to the server's notes, with no AI or integration step. BigBrain asks only when
   they first try to add something or connect an integration. Still open: which
