@@ -175,6 +175,7 @@ Each step ships alone and deletes something.
    starts the log over, and a reader past the start falls back to a snapshot,
    which is always correct. *Decided.*
 5. **Journals** (`journal/tend`, `journal/feed`) feed the v2 views but are not
-   in the change log, so those views cannot be kept from it yet. Proposed:
+   in the change log, so those views cannot be kept from it yet. Decided:
    journal writes append change rows too (`kind: journal`), so the log is
-   every engine write the viewer reads, not only the projection's. *Open.*
+   every engine write the viewer reads, not only the projection's. The v2 build
+   keeps reading the files, which are written once. *Decided.*
