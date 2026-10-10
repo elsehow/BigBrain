@@ -82,3 +82,18 @@ test('an entity is one entity in every vault: a joined vault\'s mentions, by nam
  expect(claims.flatMap(a=>a.sources.map(s=>s.path))).toContain(`shared/${c.id}/${notes.id}.md`);
  }finally{server.stop(true);if(old===undefined)delete process.env.BIGBRAIN_SHARED_CONNECTIONS;else process.env.BIGBRAIN_SHARED_CONNECTIONS=old;}
 });
+test("a server's history is paged in again only when its change feed moves",async()=>{
+ const dir=mkdtempSync(join(tmpdir(),'union-cache-')),personal=join(dir,'personal'),shared=join(dir,'shared'),members=join(dir,'members.json'),store=join(dir,'connections.json');for(const root of [personal,shared])mkdirSync(root);
+ const owner=initMemberStore(members,shared,{handle:'owner'}),verified=verifyCredential(members,owner.token);if(!verified.ok)throw Error('auth');const vault=new SharedVault(shared);
+ vault.dropEvidence(verified.actor,{title:'First note',body:'Example body'});
+ const handler=makeSharedApiHandler({root:shared,storePath:members,vault,log:()=>{}});let paged=0;
+ const server=Bun.serve({hostname:'127.0.0.1',port:0,fetch:req=>{if(new URL(req.url).pathname==='/v1/evidence')paged++;return handler(req);}});const old=process.env.BIGBRAIN_SHARED_CONNECTIONS;process.env.BIGBRAIN_SHARED_CONNECTIONS=store;
+ try{
+  await saveConnection(store,{name:'Example',endpoint:`http://127.0.0.1:${server.port}`,token:owner.token});
+  const titles=async()=>(await unionRecent(personal,[],0,40,0)).recent.map(r=>r.title).sort();
+  expect(await titles()).toEqual(['First note']);expect(paged).toBe(1);
+  await titles();await titles();expect(paged).toBe(1);
+  vault.dropEvidence(verified.actor,{title:'Second note',body:'Example body'});
+  expect(await titles()).toEqual(['First note','Second note']);expect(paged).toBe(2);
+ }finally{server.stop(true);if(old===undefined)delete process.env.BIGBRAIN_SHARED_CONNECTIONS;else process.env.BIGBRAIN_SHARED_CONNECTIONS=old;}
+});

@@ -25,5 +25,8 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
  await page.keyboard.press('Escape');
  await page.locator('.v2-node',{hasText:'Example project'}).first().waitFor({state:'attached'});
  assert.equal(await page.getByText('Nothing here yet').count(),0);
- assert.deepEqual(pageErrors,[]);console.log('PASS: fresh vault → invite → the joined vault\'s records in the same field, with no switch.');
+ // Opened, a joined server's thing says where it comes from (0c).
+ await page.locator('.v2-node',{hasText:'Example project'}).first().click({force:true});
+ await page.waitForFunction(()=>[...document.querySelectorAll('.eyebrow')].some(e=>/ties? · Example team/.test(e.textContent??'')));
+ assert.deepEqual(pageErrors,[]);console.log('PASS: fresh vault → invite → the joined vault\'s records in the same field, with no switch, each saying which server it comes from.');
 }finally{await browser?.close();child.kill('SIGTERM');}})().catch(e=>{console.error(e);process.exitCode=1;});

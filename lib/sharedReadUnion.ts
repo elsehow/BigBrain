@@ -23,7 +23,20 @@ const remotePath=(c:SharedConnection,id:string)=>`shared/${c.id}/${id}.md`;
 export async function pages<T>(c:SharedConnection,kind:string):Promise<T[]>{const rows:T[]=[];let cursor:string|null=null;do{const p:{items:T[];next_cursor:string|null}=await sharedRequest(c,`/v1/${kind}?limit=200${cursor?'&cursor='+encodeURIComponent(cursor):''}`);rows.push(...p.items);cursor=p.next_cursor;}while(cursor);return rows;}
 export function vaultFilter(header: string | string[] | undefined): string[] { return typeof header === "string" ? [...new Set(header.split(",").filter(Boolean))] : []; }
 export const includesPersonal = (filter: string[]) => !filter.length || filter.includes("personal");
-async function views(filter: string[] = []){const results=await Promise.allSettled(readConnections(connectionStorePath()).filter(c => !filter.length || filter.includes(c.id)).map(async c=>({c,view:sharedProjection(await pages<SourceInsertion>(c,'evidence'),await pages<AssertionView>(c,'assertions'))})));return results.flatMap(r=>r.status==='fulfilled'?[r.value]:[]);}
+type View=ReturnType<typeof sharedProjection>;
+const cached=new Map<string,{head:number;view:View}>(),loading=new Map<string,Promise<View>>();
+/** A server's projection, paged in again only when its change feed has moved:
+ * one small request a read instead of its whole history (E2: about half a
+ * second a read for one remote server). A change landing mid-fetch is caught
+ * by the next read, which sees a newer head. */
+async function viewOf(c:SharedConnection):Promise<View>{
+ const key=c.id+'\0'+c.token,{head}=await sharedRequest<{head:number}>(c,'/v1/feed?after=0&limit=1'),hit=cached.get(key);
+ if(hit?.head===head)return hit.view;
+ let pending=loading.get(key);
+ if(!pending){pending=Promise.all([pages<SourceInsertion>(c,'evidence'),pages<AssertionView>(c,'assertions')]).then(([evidence,assertions])=>sharedProjection(evidence,assertions)).finally(()=>loading.delete(key));loading.set(key,pending);}
+ const view=await pending;cached.set(key,{head,view});return view;
+}
+async function views(filter: string[] = []){const results=await Promise.allSettled(readConnections(connectionStorePath()).filter(c => !filter.length || filter.includes(c.id)).map(async c=>({c,view:await viewOf(c)})));return results.flatMap(r=>r.status==='fulfilled'?[r.value]:[]);}
 function localSources(root:string){return new Map(readSourceInsertionLog(root,{strict:true}).map(s=>['origin:'+sourceKey(s),s]));}
 /** Each memory topic's citations of joined vaults' claims, by path. */
 function sharedCitations(root:string){const cited=new Map<string,[string,string][]>();if(!existsSync(join(root,'memory')))return cited;for(const f of memoryTreeFiles(root))cited.set(`memory/${f}`,[...readFileSync(join(root,'memory',f),'utf8').matchAll(SHARED_AST_CITE)].map(m=>[m[1]!,m[2]!]));return cited;}
@@ -96,7 +109,7 @@ export async function unionNote(path:string){
  const m=/^shared\/([a-zA-Z0-9-]+)\/(ins_[a-f0-9]{24}|ent_[a-f0-9]{20})\.md$/.exec(path);if(!m)return null;
  const c=readConnections(connectionStorePath()).find(c=>c.id===m[1]);if(!c)return null;
  if(m[2]!.startsWith('ins_')){const s=await sharedRequest<SourceInsertion>(c,'/v1/evidence/'+m[2]);return {path,content:sourceInsertionMarkdown(s)};}
- const view=sharedProjection(await pages<SourceInsertion>(c,'evidence'),await pages<AssertionView>(c,'assertions'));
+ const view=await viewOf(c);
  const note=view.note(`projection/entities/${m[2]}.md`);if(!note)return null;
  return {...note,path,projectedEntity:note.projectedEntity?{...note.projectedEntity,assertions:note.projectedEntity.assertions.map(a=>remoteAssertion(c,a))}:undefined};
 }
