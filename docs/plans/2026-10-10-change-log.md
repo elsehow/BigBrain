@@ -159,7 +159,7 @@ Each step ships alone and deletes something.
 | 2 | maintainer worker and `views` table for graph+layout and v2; ETag on `/api/graph`; first start from saved views | one-shot graph workers per request; the `knownRevision` dance; graph invalidation on journal writes; per-request syncs in those routes |
 | 3 (#238) | `event: views` with view stamps; `journal` change rows (decision 5); ETag and `?current` on `/api/graph`; desktops on the application channel | `{"changed":true}` and refetch-everything; Field polling; the v2 journal listing; the read-state overlay on the graph |
 | 4 (#239) | wake on WAL + `data_version`; `bigbrain recover` | watching `log/`; `projectionHolds`; watcher-triggered recovery; the Markdown walk on every commit |
-| 5 | the notes door (#225) writing change rows | the per-read Markdown walk; the one-second clock |
+| 5 (#245) | the notes door (#225) writing change rows: the viewer's watcher names what changed, the memory pass what it wrote, each process's first read takes the census | the per-read Markdown walk; the one-second clock; read-model hints |
 | 6 | remaining views (#231); incremental graph and v2 from change rows | per-request O(vault) routes |
 
 ## What a commit still costs (measured after step 4)
