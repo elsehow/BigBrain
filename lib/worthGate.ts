@@ -76,11 +76,13 @@ export function gardenerVerdicts(root: string, source: string, limit = 1000): Ve
   syncAssertionProjection(root);
   const db = openAssertionProjectionReadonly(root);
   try {
-    const rows = db.query(`SELECT * FROM (SELECT s.insertion_id, s.title, s.body, s.received_at,
+    const rows = db.query(`SELECT v.insertion_id, v.title, json_extract(sd.event_json, '$.body') AS body, v.kept
+      FROM (SELECT s.insertion_id, s.title, s.received_at,
         EXISTS (SELECT 1 FROM assertion_sources a WHERE a.insertion_id = s.insertion_id) AS kept,
         EXISTS (SELECT 1 FROM declines d WHERE d.insertion_id = s.insertion_id) AS declined
-      FROM sources s WHERE s.envelope_source = ? AND ${liveSourceSql("s")})
-      WHERE kept OR declined ORDER BY received_at DESC LIMIT ?`).all(source, limit) as { insertion_id: string; title: string; body: string; kept: number }[];
+      FROM sources s WHERE s.envelope_source = ? AND ${liveSourceSql("s")}) v
+      JOIN source_documents sd ON sd.insertion_id = v.insertion_id
+      WHERE v.kept OR v.declined ORDER BY v.received_at DESC LIMIT ?`).all(source, limit) as { insertion_id: string; title: string; body: string; kept: number }[];
     return rows.map((r) => ({ insertion_id: r.insertion_id, title: r.title, body: r.body, kept: !!r.kept }));
   } finally { db.close(); }
 }

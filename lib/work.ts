@@ -335,14 +335,15 @@ export function nextWork(root: string, opts: Omit<DueWorkOpts, "limit"> & { limi
       // stops riding. json_each answers [] for an absent about and one row
       // for the legacy single-string stamp, so no shape check is needed.
       const voiceQ = db.query(`
-        SELECT s.insertion_id, s.event_json,
+        SELECT s.insertion_id, sd.event_json,
           COALESCE(s.received_at, s.occurred_at, '') AS at
         FROM sources s
+        JOIN source_documents sd ON sd.insertion_id = s.insertion_id
         LEFT JOIN assertion_sources a ON a.insertion_id = s.insertion_id
         LEFT JOIN declines d ON d.insertion_id = s.insertion_id
         WHERE a.assertion_id IS NULL AND d.decline_id IS NULL
-          AND json_extract(s.event_json, '$.envelope.kind') IN ('directive', 'request')
-          AND EXISTS (SELECT 1 FROM json_each(s.event_json, '$.envelope.about') je
+          AND s.envelope_kind IN ('directive', 'request')
+          AND EXISTS (SELECT 1 FROM json_each(sd.event_json, '$.envelope.about') je
                       WHERE je.value = ?)
         ORDER BY at, s.insertion_id`);
       const aboutQ = db.query(`
