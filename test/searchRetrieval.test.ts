@@ -7,6 +7,7 @@ import { scanSurface } from "../lib/searchCore";
 import { handleMcpTool } from "../lib/mcp";
 import { pilotToolCall } from "../lib/pilot";
 import { ENGINE_ROOT } from "../lib/engine";
+import { projectNotes } from "../lib/assertionProjection";
 
 const roots: string[] = [];
 afterAll(() => roots.forEach(root => rmSync(root, { recursive: true, force: true })));
@@ -73,28 +74,34 @@ test("bad alternatives return a repairable query error, never literal OR matches
 test("short uppercase abbreviations match whole words, not unrelated prefixes", () => {
   const root = fixture();
   writeFileSync(join(root, "memory/giving.md"), "# Giving\nGift ideas, giving advice, Gil.");
+  projectNotes(root, ["memory/giving.md"]);
   expect(scan(root, "GI").hits.some(h => h.path === "memory/giving.md")).toBe(false);
   expect(scan(root, "GI").hits.some(h => h.path === "memory/health.md")).toBe(true);
   expect(scan(root, "gi").hits.some(h => h.path === "memory/giving.md")).toBe(true);
 });
-test("memory edits, additions and deletions refresh without restart; symlinks cannot leak files", () => {
+test("memory edits, additions and deletions arrive through the notes door; symlinks cannot leak files", () => {
   const root = fixture();
   expect(scan(root, "Example Clinic").hits[0]?.path).toBe("memory/health.md");
   writeFileSync(join(root, "memory/health.md"), "# Health\nReplacement clinic.");
+  projectNotes(root, ["memory/health.md"]);
   expect(scanSurface(root, "Example Clinic", 20, "api", { ledger: false, relax: false })).toMatchObject({ ok: true, hits: [] });
   expect(scan(root, "Replacement").hits[0]?.path).toBe("memory/health.md");
   mkdirSync(join(root, "memory/nested"));
   writeFileSync(join(root, "memory/nested/topic.md"), "# Nested\nFreshlyadded.");
+  projectNotes(root, ["memory/nested/topic.md"]);
   expect(scan(root, "Freshlyadded").hits[0]?.path).toBe("memory/nested/topic.md");
   rmSync(join(root, "memory/health.md"));
+  projectNotes(root, ["memory/health.md"]);
   expect(scan(root, "Replacement").hits).toEqual([]);
   writeFileSync(join(root, ".env"), "SECRETWORD=must-not-appear");
   symlinkSync(join(root, ".env"), join(root, "memory/secret.md"));
+  projectNotes(root, ["memory/secret.md"]);
   expect(scan(root, "SECRETWORD").hits).toEqual([]);
   // Even the memory directory itself must stay inside the read jail.
   rmSync(join(root, "memory"), { recursive: true });
   const outside = fixture();
   symlinkSync(join(outside, "memory"), join(root, "memory"));
+  projectNotes(root, ["memory"]);
   expect(scan(root, "Example Clinic").hits).toEqual([]);
 });
 test("original sources survive the candidate cap when many conversations match better", () => {

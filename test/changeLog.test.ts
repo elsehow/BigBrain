@@ -3,7 +3,7 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   appendAndProjectAssertion, appendAndProjectDecline, appendAndProjectRevocation, projectionChangesSince,
-  projectionRevision, projectSourceInsertion, rebuildAssertionProjection, recoverAssertionProjection, syncAssertionProjection,
+  projectionRevision, projectNotes, projectSourceInsertion, rebuildAssertionProjection, recoverAssertionProjection, syncAssertionProjection,
 } from "../lib/assertionProjection";
 import { createAssertionEvent } from "../lib/assertionLog";
 import { createDeclineEvent } from "../lib/declineLog";
@@ -51,15 +51,17 @@ test("every commit logs what moved the revision, in commit order", () => {
   expect(since(root, at(root))).toEqual([]);
 });
 
-test("notes log as they are created, edited and deleted; one commit per reconciliation", () => {
+test("notes log as their door projects them created, edited and deleted; one commit per pass", () => {
   const { root } = vault();
   const start = at(root), n = Number(start.split(":")[1]);
   writeFileSync(join(root, "memory", "orrery.md"), "# Orrery\n\nFirst.\n");
   writeFileSync(join(root, "memory", "gears.md"), "# Gears\n\nFour.\n");
   syncAssertionProjection(root);
+  expect(since(root, start)).toEqual([]); // a read never looks at the files
+  projectNotes(root, ["memory/orrery.md", "memory/gears.md"]);
   writeFileSync(join(root, "memory", "orrery.md"), "# Orrery\n\nSecond, longer.\n");
   rmSync(join(root, "memory", "gears.md"));
-  syncAssertionProjection(root);
+  projectNotes(root, ["memory"]);
   expect(since(root, start)).toEqual([
     `${n + 1} markdown:memory/gears.md add`, `${n + 1} markdown:memory/orrery.md add`,
     `${n + 2} markdown:memory/gears.md remove`, `${n + 2} markdown:memory/orrery.md edit`,

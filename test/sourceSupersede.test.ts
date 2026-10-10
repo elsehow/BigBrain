@@ -8,7 +8,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { assertionEntityId, createAssertionEvent, type AssertionEvent } from "../lib/assertionLog";
 import { buildAssertionGraph } from "../lib/assertionGraph";
-import { assertionEntityPath, assertionEntityView, invalidateAssertionRecord } from "../lib/assertionEntityView";
+import { assertionEntityPath, assertionEntityView } from "../lib/assertionEntityView";
 import {
   appendAndProjectAssertion,
   assertionsWithRefsForEntity,
@@ -119,7 +119,6 @@ describe("the readers", () => {
     process.env["BIGBRAIN_ASSERTION_DB"] = join(root, ".state", "assertions.db");
     syncAssertionProjection(root);
     for (const a of [onlyOld, both, onlyNew, onOther]) appendAndProjectAssertion(root, a);
-    invalidateAssertionRecord(root);
 
     const view = assertionEntityView(root, assertionEntityPath(ada.id))!;
     expect(view.assertions.map((a) => a.id).sort()).toEqual([both.id, onlyNew.id, onOther.id].sort());
