@@ -35,6 +35,8 @@ export const CADENCE: Readonly<Record<string, number>> = {
   rss: 900,
   // judges candidates that might be one document (lib/sourceCopyJudge.ts)
   copies: 900,
+  // removes agent scratch nothing will read again (lib/scratchPrune.ts)
+  prune: 86_400,
 };
 
 /** Seconds between runs for `name`. An integration with no entry above polls
