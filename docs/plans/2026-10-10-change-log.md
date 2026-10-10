@@ -175,9 +175,13 @@ which is O(vault) at every revision:
 | re-simulate the layout for the new structure | ~5 s |
 | build the graph | 0.25 s |
 
-Step 6 is where freshness is won: apply change rows to the decoded record and
-the feed page instead of rebuilding them, and place a new node into the
-standing layout instead of re-simulating it.
+Step 6 is where freshness is won. Part 1 (#242) found the decode itself cheap
+(~0.3 s): 13 s was the record reading 72 MB of link evidence the graph view
+discards, and the feed page reading every Claude Code transcript blob in each
+fresh worker. Schema 23 keeps link evidence in its own table and stores the
+transcript's model at projection: one new source now reaches open tabs in
+6.4 s, and the layout's 5.5 s re-simulation is the rest. Part 2 places a new
+node into the standing layout instead of re-simulating it.
 
 ## Decisions
 
