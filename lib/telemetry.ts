@@ -7,6 +7,9 @@ import { writeAtomic } from "./fsx";
 import { telemetryConfig } from "./telemetryConfig";
 import { configDir, engineIdentity } from "./engine";
 import { intakeRunning } from "./assertionAgent";
+import { integrationAccounts, integrationActive } from "./integrationAccess";
+import { integrationNamed } from "./integrations";
+import { needsAction, pollHealth, type PollHealth } from "./integrationStatus";
 import { json, readBody, type Route } from "./httpx";
 
 export type Operation = "search" | "graph" | "note" | "pilot_submit";
@@ -20,6 +23,19 @@ export interface TelemetrySnapshot {
   operations: Record<string, Aggregate>; actions: Record<string, number>; queued: number; delivery: "idle" | "sent" | "retrying";
 }
 interface Event { uuid: string; event: string; timestamp: string; properties: Record<string, string | number | boolean> }
+/** The pollers whose health is reported: those Settings shows a status for.
+ * RSS waits until one unreachable feed stops failing its whole poll. */
+const REPORTED_POLLERS = ["granola", "that-tracks"] as const;
+export interface IntegrationHealth extends PollHealth { integration: typeof REPORTED_POLLERS[number] }
+/** The reported pollers in use: connected, or kept but needing a reconnect. */
+export function integrationHealth(root: string, now = Date.now()): IntegrationHealth[] {
+  return REPORTED_POLLERS.flatMap(integration => {
+    const lapsed = integrationNamed(integration)?.credential.signIn?.lapsed;
+    const inUse = integrationActive(root, integration) || integrationAccounts(root, integration).some(a => lapsed?.(root, a));
+    const health = inUse ? pollHealth(root, integration, now) : undefined;
+    return health ? [{ integration, ...health }] : [];
+  });
+}
 const targets = { us: "https://us.i.posthog.com/batch/", eu: "https://eu.i.posthog.com/batch/" };
 export class Telemetry {
   private consent: { enabled: boolean; id?: string } = { enabled: false };
@@ -40,7 +56,8 @@ export class Telemetry {
   private generation = 0;
   private actions: Record<string, number> = {};
   private seenActions = new Set<string>();
-  constructor(private options: { file: string; root: string; token?: string; region?: string; fetch?: typeof fetch; release?: string; now?: () => number; cpu?: () => NodeJS.CpuUsage; rss?: () => number }) {
+  private lastHealth = -Infinity;
+  constructor(private options: { file: string; root: string; token?: string; region?: string; fetch?: typeof fetch; release?: string; now?: () => number; cpu?: () => NodeJS.CpuUsage; rss?: () => number; integrations?: (now: number) => IntegrationHealth[] }) {
     this.startAt = this.lastAt = this.lastFlush = this.now();
     this.cpu = (options.cpu ?? process.cpuUsage)();
     try {
@@ -66,6 +83,7 @@ export class Telemetry {
     this.operations = {};
     this.actions = {};
     this.seenActions.clear();
+    this.lastHealth = -Infinity;
     this.delivery = "idle";
     // Start the resource measurement window at the consent boundary.
     this.lastAt = this.lastFlush = this.now();
@@ -138,6 +156,20 @@ export class Telemetry {
     });
     for (const [action, count] of Object.entries(this.actions)) this.enqueue("desktop_usage", { action, count });
     this.sampleWindow = []; this.operations = {}; this.actions = {};
+    this.reportIntegrations();
+  }
+  /** Hourly, each reported poller's state: a provider change that breaks
+   * every installation at once shows up as one curve, not as silence. */
+  private reportIntegrations(): void {
+    const now = this.now();
+    if (!this.consent.enabled || !this.configured || now - this.lastHealth < 3_600_000) return;
+    this.lastHealth = now;
+    try {
+      for (const h of (this.options.integrations ?? (at => integrationHealth(this.options.root, at)))(now)) this.enqueue("integration_health", {
+        integration: h.integration, state: h.state, code: h.code ?? "none", needs_action: needsAction(h.code),
+        failures: h.failures, failing_hours: Math.round(h.failingHours * 10) / 10,
+      });
+    } catch { /* best effort: an unreadable vault config must not stop the sampler */ }
   }
   async flush(): Promise<void> {
     if (this.busy || !this.consent.enabled || !this.configured || !this.pending.length) return;

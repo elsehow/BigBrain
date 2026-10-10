@@ -260,7 +260,9 @@ export interface IntegrationInfo {
   name: string;
   enabled: boolean;
   hasCode: boolean; // integrations/<name>/ exists
-  status?: { state: "off" | "unset" | "waiting" | "checking" | "importing" | "ok" | "error"; label: string; checkedAt?: string; lastArrivalAt?: string };
+  status?: { state: "off" | "unset" | "waiting" | "checking" | "importing" | "ok" | "error"; label: string; checkedAt?: string; lastArrivalAt?: string;
+    /** On an error: its kind (lib/integrationStatus.ts), whether only the person can fix it, and since when polls have failed. */
+    code?: "reconnect" | "credentials" | "format" | "network" | "provider" | "unknown"; needsAction?: boolean; failingSince?: string };
   hasTrigger: boolean; // it runs on a clock of its own (lib/desktopSchedule.ts's CADENCE)
   /** Credential fields (host .env): `set` always; `value` only when the
    * field is non-secret. Secrets are write-only through the save path. */

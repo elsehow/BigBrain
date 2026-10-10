@@ -12,6 +12,7 @@
   "integrationAccess",
   "integrationGrants",
   "integrationReconnect",
+  "integrationHealth",
   "noticePlacement",
   "connectedClients",
   "settingsLists",

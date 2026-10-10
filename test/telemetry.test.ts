@@ -2,7 +2,10 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Telemetry, telemetryRoutes } from "../lib/telemetry";
+import { integrationHealth, Telemetry, telemetryRoutes, type IntegrationHealth } from "../lib/telemetry";
+import { PollError, withPollStatus } from "../lib/integrationStatus";
+import { nativeVault } from "./support/vault";
+import { fakeIntegrationActivation } from "./support/integrationActivation";
 import { createServer } from "node:http";
 import { dispatch } from "../lib/httpx";
 
@@ -111,6 +114,29 @@ describe("opt-in telemetry", () => {
     for (let i = 0; i < 400; i++) { now += 10_000; collector.sample(); }
     expect(collector.snapshot().samples).toHaveLength(360);
     collector.close();
+  });
+  test("integration health goes hourly, with consent: state, code and streak, never a message", async () => {
+    const { bodies, send } = capture(); let now = 10_000_000;
+    const root = mkdtempSync(join(tmpdir(), "bb-telemetry-")); dirs.push(root);
+    const rows: IntegrationHealth[] = [{ integration: "granola", state: "error", code: "reconnect", failures: 1700, failingHours: 40.04 }];
+    const collector = new Telemetry({ root, file: join(root, "consent.json"), token: "public-test-token", region: "eu", fetch: send, now: () => now, integrations: () => rows });
+    collector.summarize(); await collector.flush(); expect(bodies).toHaveLength(0);
+    collector.setConsent(true); collector.summarize(); await collector.flush();
+    const [event] = bodies[0].batch;
+    expect(event.event).toBe("integration_health");
+    expect(event.properties).toMatchObject({ integration: "granola", state: "error", code: "reconnect", needs_action: true, failures: 1700, failing_hours: 40 });
+    now += 3_000_000; collector.summarize(); await collector.flush(); expect(bodies).toHaveLength(1);
+    now += 700_000; rows[0] = { integration: "granola", state: "ok", failures: 0, failingHours: 0 }; collector.summarize(); await collector.flush();
+    expect(bodies[1].batch[0].properties).toMatchObject({ integration: "granola", state: "ok", code: "none", needs_action: false, failures: 0 });
+  });
+  test("integration health reads only pollers in use, and never their messages", async () => {
+    const root = nativeVault({ files: { "vault.yaml": "integrations: {}\n" } }); dirs.push(root);
+    await expect(withPollStatus(root, "granola", async () => { throw new PollError("Fixture Meeting could not be read"); })).rejects.toThrow();
+    expect(integrationHealth(root)).toEqual([]);
+    fakeIntegrationActivation(root, "granola");
+    const [row] = integrationHealth(root);
+    expect(row).toMatchObject({ integration: "granola", state: "error", code: "provider", failures: 1 });
+    expect(JSON.stringify(row)).not.toContain("Fixture Meeting");
   });
   test("mutation endpoint rejects foreign origins and non-JSON requests", async () => {
     const { collector } = make(); const routes = telemetryRoutes(collector);

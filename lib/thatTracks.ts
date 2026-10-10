@@ -38,38 +38,38 @@ export class ThatTracksClient {
       response = await this.request(`${this.base}${path}`, {
         headers: { Authorization: `Bearer ${this.key}` }, redirect: "error", signal: AbortSignal.timeout(30_000),
       });
-    } catch { throw new PollError("Could not reach That Tracks; will retry"); }
+    } catch { throw new PollError("Could not reach That Tracks; will retry", "network"); }
     if (response.status === 401 || response.status === 403)
-      throw new PollError("That Tracks rejected the key. Replace it with a valid read key.");
+      throw new PollError("That Tracks rejected the key. Replace it with a valid read key.", "credentials");
     if (response.status === 429) throw new PollError("That Tracks is rate limiting requests; will retry");
     if (!response.ok) throw new PollError(`That Tracks returned HTTP ${response.status}; will retry`);
     try { return await response.json(); }
-    catch { throw new PollError("That Tracks returned an invalid response; will retry"); }
+    catch { throw new PollError("That Tracks returned an invalid response; will retry", "format"); }
   }
   async identity(): Promise<Identity> {
     const value = await this.get("/me");
     if (!object(value) || !uuid(value.id) || !Array.isArray(value.scopes) || !value.scopes.includes("read") ||
       !(value.trackerIDs === null || (Array.isArray(value.trackerIDs) && value.trackerIDs.every(uuid))))
-      throw new PollError("That Tracks did not return a readable account");
+      throw new PollError("That Tracks did not return a readable account", "format");
     return value as unknown as Identity;
   }
   async changes(after: string): Promise<Page> {
     const value = await this.get(`/changes?cursor=${after}&limit=100`);
     if (!object(value) || !Array.isArray(value.items) || !cursor(value.nextCursor) || typeof value.hasMore !== "boolean")
-      throw new PollError("That Tracks returned an invalid change page; will retry");
+      throw new PollError("That Tracks returned an invalid change page; will retry", "format");
     let last = BigInt(after);
     for (const c of value.items) {
       if (!object(c) || !cursor(c.cursor) || BigInt(c.cursor) <= last ||
         !["categories", "trackers", "events"].includes(String(c.entity)) || !["upsert", "delete"].includes(String(c.operation)) ||
         !object(c.record) || !uuid(c.record.id) || !Number.isSafeInteger(c.record.revision) || Number(c.record.revision) < 1 ||
         typeof c.record.updatedAt !== "string" || !Number.isFinite(Date.parse(c.record.updatedAt)))
-        throw new PollError("That Tracks returned an invalid change; no checkpoint was advanced");
+        throw new PollError("That Tracks returned an invalid change; no checkpoint was advanced", "format");
       if (c.entity === "events" && (!uuid(c.record.trackerID) || (c.operation === "upsert" &&
         (typeof c.record.timestamp !== "string" || !Number.isFinite(Date.parse(c.record.timestamp)) ||
          typeof c.record.value !== "number" || !Number.isFinite(c.record.value)))))
-        throw new PollError("That Tracks returned an invalid event; no checkpoint was advanced");
+        throw new PollError("That Tracks returned an invalid event; no checkpoint was advanced", "format");
       if (c.entity !== "events" && c.operation === "upsert" && typeof c.record.name !== "string")
-        throw new PollError("That Tracks returned an invalid tracker or category; will retry");
+        throw new PollError("That Tracks returned an invalid tracker or category; will retry", "format");
       last = BigInt(c.cursor);
     }
     if (BigInt(value.nextCursor) < last || (value.hasMore && BigInt(value.nextCursor) <= BigInt(after)))

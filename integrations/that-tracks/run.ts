@@ -14,7 +14,7 @@ await withPollStatus(VAULT_ROOT, "that-tracks", async (progress) => {
   if(!integrationActive(VAULT_ROOT,"that-tracks",account))continue;
   try {
   const key = integrationAccountKey(VAULT_ROOT,"that-tracks",account);
-  if (!key) throw new PollError("Add a That Tracks API key in Integrations");
+  if (!key) throw new PollError("Add a That Tracks API key in Integrations", "credentials");
   const result = await pollThatTracks(VAULT_ROOT, key, { progress, ...(account!=="that-tracks"?{accountInstance:account}:{}), authorize: () => { if (!integrationActive(VAULT_ROOT, "that-tracks",account)) throw new PollError("That Tracks became inactive; polling stopped."); }, stage: content => stageIntegrationContent(VAULT_ROOT, "that-tracks", content,account) });
   console.log(`that-tracks: ${result.arrivals} revision(s) staged`);
   arrivals+=result.arrivals;

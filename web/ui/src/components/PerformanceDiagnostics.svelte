@@ -40,7 +40,7 @@
       <p>{action.replaceAll("_", " ")}: {count} in this five-minute window</p>
     {/each}
     <label><input type="checkbox" checked={metrics.enabled} disabled={saving} onchange={e => void consent(e.currentTarget.checked)} /> Share usage and performance statistics</label>
-    <p>Optional. Sends numeric performance summaries and usage counts to PostHog, linked by a random installation ID. Never sends vault content, prompts, search queries, file paths, or logs. Turning this off clears unsent reports. Local measurements remain available.</p>
+    <p>Optional. Sends numeric performance summaries, usage counts and whether each integration is syncing to PostHog, linked by a random installation ID. Never sends vault content, prompts, search queries, file paths, or logs. Turning this off clears unsent reports. Local measurements remain available.</p>
     <p>{!metrics.configured ? "Hosted reporting is not configured in this build." : !metrics.enabled ? "Sharing is off." : metrics.delivery === "retrying" ? "Delivery will retry. Reports are kept briefly in memory." : metrics.delivery === "sent" ? "Reports delivered." : "Sharing is on. Reports are sent every five minutes."}</p>
   </section>
 {/if}

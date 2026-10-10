@@ -5,7 +5,8 @@ import { applyConfig } from './config';
 import { basename } from 'node:path';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { accountFingerprint, accountPolicy, writeAccountPolicy, removeAccountPolicy, integrationAccounts, integrationCallerChoices, connectedPolicy, defaultGrants, MANAGED_INTEGRATIONS, type AccountGrant, type Backfill, type GrantCaller, type LiveAccess } from './integrationAccess';
+import { accountFingerprint, accountPolicy, writeAccountPolicy, removeAccountPolicy, integrationAccounts, integrationActive, integrationCallerChoices, connectedPolicy, defaultGrants, MANAGED_INTEGRATIONS, type AccountGrant, type Backfill, type GrantCaller, type LiveAccess } from './integrationAccess';
+import { integrationStatus } from './integrationStatus';
 import { probeInbox, probeGmail, type InboxProbe } from './imapProbe';
 import { emailConfig, passwordEnvKey, gmailReadOnly, isGmailInbox, parseInboxAdd } from "./emailConfig";
 import { readEmailState } from "./emailState";
@@ -36,13 +37,18 @@ function signInRow(root:string,name:string,account:string){
   const unavailable=signIn.unavailable?.(root),reconnect=!!signIn.lapsed?.(root,account);
   return {...(name==='granola'?{transport:'mcp'}:{}),signIn:true,auth:signIn.status(root,account),identity:signIn.identity(root,account),...(reconnect?{reconnect:true,...(signIn.noticeCleared?.(root,account)?{noticeCleared:true}:{})}:{}),...(unavailable?{unavailable}:{})};
 }
+/** A poller in use whose last poll failed: what it said, for its card in Your integrations. */
+function failing(root:string,name:string){
+  const s=integrationStatus(root,name,integrationActive(root,name),true);
+  return s.state==='error'?{status:{label:s.label,...(s.checkedAt?{checkedAt:s.checkedAt}:{})}}:{};
+}
 function backfill(since:unknown):Backfill{
   if(typeof since!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(since)||!Number.isFinite(Date.parse(since))||new Date(since).toISOString().slice(0,10)!==since||since>new Date().toISOString().slice(0,10))throw Error('Choose a past history start date.');
   return {since:new Date(since).toISOString(),request:crypto.randomUUID()};
 }
 export class IntegrationAccounts {
   constructor(readonly root:string,private probes:{email?:InboxProbe;granolaSignIn?:typeof startGranolaSignIn;signIn?:Record<string,StartSignIn>;tracks?:(key:string)=>Promise<unknown>;rss?:(url:string)=>Promise<Feed>}={}){}
-  list(){return {destination:basename(this.root),library:integrationLibrary(this.root),accounts:configuredAccounts(this.root),callers:integrationCallerChoices(this.root)};}
+  list(){return {destination:basename(this.root),library:integrationLibrary(this.root).map(entry=>({...entry,...failing(this.root,entry.id)})),accounts:configuredAccounts(this.root),callers:integrationCallerChoices(this.root)};}
   async update(value:any):Promise<ReturnType<IntegrationAccounts["list"]> & {checked?:boolean}>{
     const {name,account,action}=value,signIn=browserSignIn(name);
     if(action==='install') {

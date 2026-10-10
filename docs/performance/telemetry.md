@@ -22,6 +22,14 @@ of viewing a note. Pilot input IDs deduplicate the most recent 1,000 inputs in
 memory; IDs themselves never leave the machine. A restart can permit a duplicate.
 Keep those counts separate from uptime and foreground state in engagement charts.
 
+Integration health reports, once an hour, each poller Settings shows a status
+for (Granola, That Tracks) while it is connected or needs reconnecting: its
+state, an error code from a fixed list (`reconnect`, `credentials`, `format`,
+`network`, `provider`, `unknown`, or `none`), whether only the person can fix it,
+how many polls in a row have failed and for how many hours. It is read from the
+pollers' status receipts (`lib/integrationStatus.ts`). The poll's message never
+leaves the machine: it can name a feed, a meeting or an account.
+
 ## Consent and delivery
 
 Sharing defaults off. New-vault onboarding offers an optional fifth step,
@@ -42,7 +50,7 @@ reporting window. Queue and local history are memory-only.
 
 One engine-owned sender uses PostHog's batch API every five minutes. Events have a
 versioned, explicit schema: numeric resource/operation summaries and action counts,
-OS family/architecture, engine commit (or `development`), random event IDs and
+integration health (state, a fixed error code and failure counts), OS family/architecture, engine commit (or `development`), random event IDs and
 installation ID. There are no paths, vault IDs, titles, queries, prompts, responses,
 raw errors, or logs. Autocapture and replay are not loaded; person profiles and
 GeoIP enrichment are disabled. Like any direct HTTPS service, PostHog receives the
@@ -65,6 +73,10 @@ Suggested dashboards:
   foreground and gardening; `desktop_operation` mean/max latency and failures
   split by gardener state. Weight means by `samples` / `count` when aggregating.
   These summaries do not support request-level p95/p99 estimates.
+- Integration health: installations with `integration_health` in `error`, by
+  integration and code; alert when any installation reports `failing_hours` of
+  six or more. A provider change that breaks every installation shows as one
+  rising line rather than as silence.
 - Engagement: distinct installations with `desktop_usage` each week and returning
   installations; action counts for `note_opened` and `pilot_input_accepted`.
   Exclude `release = development`. Opt-in installations are a selected sample.
@@ -73,6 +85,7 @@ Suggested dashboards:
 
 `bun test test/telemetry.test.ts` checks default-off, consent persistence/reset,
 allowlisting, retry deduplication, opt-out during upload, bounded queues/history,
+hourly integration health without messages,
 CPU units and resume gaps, plus same-origin mutation protection.
 `bun test/support/profileTelemetry.ts` measures collector cost against a synthetic
 empty vault without network. On the development Mac, 10,000 accelerated sample

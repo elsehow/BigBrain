@@ -4,7 +4,13 @@ import type { IntegrationInfo } from '../lib/types';
 export function installIntegrationAccessScene(fail=false) {
   const original=api.config;
   const fixture:IntegrationInfo={name:'email',enabled:false,hasCode:true,hasTrigger:true,env:[],activation:{accounts:['me@example.com','work@example.com'],callers:[],grants:[]}};
-  api.config=async()=>({...await original(),integrations:[structuredClone(fixture),{...structuredClone(fixture),name:"that-tracks"}]});
+  // `?integration-health`: Granola's polls have failed for eight hours (IntegrationHealthNotices; its card says so too); `=recent` for one hour,
+  // which is not yet worth a notice; `=many` adds a That Tracks key rejected minutes ago, which is
+  const health=new URLSearchParams(location.search).get('integration-health'),ago=(h:number)=>new Date(Date.now()-h*3_600_000).toISOString();
+  const failing:IntegrationInfo[]=health===null?[]:[
+    {name:'granola',enabled:true,hasCode:true,hasTrigger:true,env:[],status:{state:'error',label:'Granola meeting-list format changed; no cursor was advanced.',code:'format',needsAction:false,checkedAt:ago(health==='recent'?1.5:9),failingSince:ago(health==='recent'?1:8)}},
+    ...(health==='many'?[{name:'that-tracks',enabled:true,hasCode:true,hasTrigger:true,env:[],status:{state:'error' as const,label:'That Tracks rejected the key. Replace it with a valid read key.',code:'credentials' as const,needsAction:true,failingSince:ago(0.1)}}]:[])];
+  api.config=async()=>({...await original(),integrations:failing.length?failing:[structuredClone(fixture),{...structuredClone(fixture),name:"that-tracks"}]});
   const accounts=['me@example.com','work@example.com'].map(account=>({name:'email',account,label:account,connected:false,checkedAt:null as string|null,grants:[] as {caller:string;access:string}[],capabilities:{read:'Read current messages and flags without remembering.',write:'Mark messages read or unread.'}}));
   const clients:{id:string;name:string;kind:string;revoked:string|null;lastUsed:string|null;legacy:boolean;replaces?:string;managedBy?:string;expired?:boolean;expiredUse?:string|null}[]=[{id:'12345678',name:'Codex on sample laptop',kind:'codex',revoked:null,lastUsed:"2026-09-24T00:00:00Z",legacy:false,replaces:undefined,managedBy:undefined}];
   if(new URLSearchParams(location.search).has('managed-clients'))clients.push({id:'runner-codex',name:'Orchestration: Codex',kind:'codex',managedBy:'runner:codex',revoked:null,lastUsed:null,legacy:false,replaces:undefined},{id:'runner-claude',name:'Orchestration: Claude Code',kind:'claude-code',managedBy:'runner:claude-code',revoked:null,lastUsed:'2026-09-24T00:00:00Z',legacy:false,replaces:undefined});
@@ -36,7 +42,9 @@ export function installIntegrationAccessScene(fail=false) {
   const lapsed:{name:string;account:string;label:string;connected:boolean;signIn:true;reconnect?:true;noticeCleared?:true;identity?:{username:string};auth?:{phase:string};grants:{caller:string;access:string}[];capabilities:{read:string;write:null}}[]=lapsedAccounts===null?[]:
     [['hardcover','hardcover'],...(lapsedAccounts==='many'?[['account-1111','Book club'],['account-2222','Second reader'],['account-3333','Gift ideas'],['account-4444','Reading group']]:[])].map(([account,label])=>({name:'hardcover',account:account!,label:label!,connected:true,signIn:true,reconnect:true,
       ...(account==='hardcover'?{identity:{username:'sample_reader'}}:{}),grants:[{caller:'pilot',access:'read'}],capabilities:{read:'Look up your Hardcover shelves, books and reviews.',write:null}}));
-  const state=()=>({...(lapsed.length?{library:[{id:'hardcover',name:'Hardcover',description:'Look up your shelves, books and reviews on Hardcover.',added:true}]}:{}),accounts:[...accounts,...lapsed],callers:[{id:'pilot',label:'Pilot'},...clients.filter(c=>!c.revoked).map(c=>({id:'token:'+c.id,label:c.name,...(c.expired?{expired:true}:{})}))]});
+  const library=[...(lapsed.length?[{id:'hardcover',name:'Hardcover',description:'Look up your shelves, books and reviews on Hardcover.',added:true}]:[]),
+    ...(health!==null?[{id:'granola',name:'Granola',description:'Bring your meeting transcripts into your vault.',added:true,status:{label:failing[0]!.status!.label,checkedAt:failing[0]!.status!.checkedAt}}]:[])];
+  const state=()=>({...(library.length?{library}:{}),accounts:[...accounts,...lapsed],callers:[{id:'pilot',label:'Pilot'},...clients.filter(c=>!c.revoked).map(c=>({id:'token:'+c.id,label:c.name,...(c.expired?{expired:true}:{})}))]});
   const prior=window.fetch.bind(window);
   window.fetch=(async(input: RequestInfo | URL,options?: RequestInit)=>{
     const path=new URL(input instanceof Request?input.url:String(input),location.href).pathname;
