@@ -16,7 +16,7 @@ import type { ConnectionEvidence } from "./markdownGraph";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { Graph } from "./graph";
-import { computeLayout, type Positions } from "./graphLayout";
+import { computeLayout, neighbourSignatures, placeLayout, type Positions } from "./graphLayout";
 import { buildAssertionGraph } from "./assertionGraph";
 import { vaultRecord, invalidateVaultReadModel, currentReadRevision, withVaultSnapshot, vaultReconciliationDue, readModelRevision, acceptReadModelRevision } from "./vaultReadModel";
 export { readModelRevision } from "./vaultReadModel";
@@ -26,7 +26,15 @@ import { vaultChangeVersion } from "./vaultChanges";
  * had its own layout file, and the name is kept so a vault's settled layout
  * survives this deletion rather than re-simulating once. */
 export type Projection = "assertions";
-export type LayoutCache = { hash: string; positions: Positions };
+/** The settled layout for one structure. `neighbours` signs each node's
+ * connections, so the next change knows which nodes it moved; `moved` counts
+ * the nodes placed since the last whole-graph settle. */
+export type LayoutCache = { hash: string; positions: Positions; neighbours?: Record<string, string>; moved?: number };
+
+/** Placed moves, as a share of the graph, that call for a whole-graph settle:
+ * placement keeps everything else still, so the picture drifts from what a
+ * settle would draw until one runs. */
+const SETTLE_AFTER_SHARE = 0.1;
 
 const layoutPath = (root: string, projection: Projection): string =>
   join(root, ".state", `graph-layout-${projection}.json`);
@@ -68,10 +76,11 @@ function bake(nodes: { id: string; x?: number; y?: number }[], positions: Positi
  * The graph a viewer should draw: structure plus settled positions.
  *
  * Cache hit (the overwhelmingly common case — a vault's link structure is
- * stable for hours at a time) costs one JSON read. A miss simulates once and
- * persists, so the NEXT reader of that structure is free, on this device and
- * every other. Nodes are mutated in place on the memoized graph, so repeated
- * hits within the memo window do not re-read the file either.
+ * stable for hours at a time) costs one JSON read. A miss places what changed
+ * into the cached layout (graphLayout.placeLayout) and persists, so the NEXT
+ * reader of that structure is free, on this device and every other. Nodes
+ * are mutated in place on the memoized graph, so repeated hits within the
+ * memo window do not re-read the file either.
  */
 export function graphWithLayout(root: string, graph: Graph): Graph {
   const projection: Projection = "assertions";
@@ -80,11 +89,16 @@ export function graphWithLayout(root: string, graph: Graph): Graph {
     bake(graph.nodes, cache.positions);
     return graph;
   }
-  // Seed from the superseded layout: surviving nodes start where they already
-  // are, so a structure change reads as the graph MOVING rather than a
-  // different graph appearing, identically for every viewer.
-  const positions = computeLayout(graph, cache?.positions);
-  writeLayout(root, projection, { hash: graph.hash, positions });
+  const neighbours = neighbourSignatures(graph);
+  const placed = cache?.neighbours ? placeLayout(graph, cache.positions, cache.neighbours, neighbours) : undefined;
+  const moved = (cache?.moved ?? 0) + (placed?.moved ?? 0);
+  // Otherwise settle the whole graph, seeded from the superseded layout:
+  // surviving nodes start where they already are, so a structure change
+  // reads as the graph MOVING rather than a different graph appearing,
+  // identically for every viewer.
+  const settle = !placed || moved > graph.nodes.length * SETTLE_AFTER_SHARE;
+  const positions = settle ? computeLayout(graph, cache?.positions) : placed.positions;
+  writeLayout(root, projection, { hash: graph.hash, positions, neighbours, moved: settle ? 0 : moved });
   bake(graph.nodes, positions);
   return graph;
 }
