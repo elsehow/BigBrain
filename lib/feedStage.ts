@@ -5,10 +5,10 @@
  * claims it has not yet read (lib/feedConversation.ts: a thread, or every
  * landing of one source), one model call (batched) places it in one
  * section — needs the owner, an agent could do it, worth knowing, or skip —
- * with a one-line headline, the date anything is due by, and the date it
- * stops mattering. Each call also sees the feed's ten newest headlines, so
- * the same story told again (another outlet, a column on it, a digest's
- * recap) is skipped, not announced twice, and re-checks up to three open
+ * with a one-line headline and the date anything is due by. Each call also
+ * sees the feed's ten newest headlines, so the same story told again
+ * (another outlet, a column on it, a digest's recap) is skipped, not
+ * announced twice, and re-checks up to three open
  * needs-you conversations that share an entity with what it judges, so an
  * ask settled somewhere else can leave the feed.
  *
@@ -61,9 +61,8 @@ const ENTRIES_SCHEMA = {
           section: { type: "string", enum: [...FEED_SECTIONS] },
           headline: { type: "string" },
           due: { type: ["string", "null"] },
-          expires: { type: ["string", "null"] },
         },
-        required: ["source", "section", "headline", "due", "expires"],
+        required: ["source", "section", "headline", "due"],
         additionalProperties: false,
       },
     },
@@ -97,13 +96,13 @@ function waitingIn(conversations: FeedConversation[], records: FeedRecord[]): Fe
  * something else settled can be placed as resolved — the newest judgment
  * of a conversation is its place in the feed. */
 export function recheckOpen(
-  records: FeedRecord[], today: string, conversationOf: (source: string) => string,
+  records: FeedRecord[], conversationOf: (source: string) => string,
   conversations: ReadonlyMap<string, FeedConversation>, batch: readonly FeedConversation[], n = 3,
 ): FeedConversation[] {
   const judging = new Set(batch.map((c) => c.key));
   const about = new Set(batch.flatMap((c) => [...c.entities]));
   const added = addedAt(records);
-  return currentFeed(records, today, conversationOf).filter((e) => e.section === "needs-you")
+  return currentFeed(records, conversationOf).filter((e) => e.section === "needs-you")
     .flatMap((e) => {
       const key = conversationOf(e.source);
       const c = judging.has(key) ? undefined : conversations.get(key);
@@ -162,9 +161,9 @@ export function renderFeedSource(n: number, conversation: FeedConversation): str
 /** The feed's newest headlines, outside the conversations a call judges:
  * its own entry is about to be replaced, never a reason to skip it. Ten,
  * so a story still reads as told when other news landed in between. */
-export function recentHeadlines(records: FeedRecord[], today: string, conversationOf: (source: string) => string, judging: ReadonlySet<string>, n = 10): string[] {
+export function recentHeadlines(records: FeedRecord[], conversationOf: (source: string) => string, judging: ReadonlySet<string>, n = 10): string[] {
   const added = addedAt(records);
-  return currentFeed(records, today, conversationOf)
+  return currentFeed(records, conversationOf)
     .filter((e) => !judging.has(conversationOf(e.source)))
     .sort((a, b) => (added.get(b.source) ?? "").localeCompare(added.get(a.source) ?? ""))
     .slice(0, n).map((e) => e.headline);
@@ -174,15 +173,14 @@ export function recentHeadlines(records: FeedRecord[], today: string, conversati
  * the schema cannot say — a source number in range, a real date — is
  * checked here. */
 function parseEntries(text: string, batch: FeedConversation[]): FeedEntry[] {
-  const value = JSON.parse(text) as { entries: { source: number; section: FeedSection; headline: string; due: string | null; expires: string | null }[] };
-  const day = (d: string | null) => typeof d === "string" && /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : null;
+  const value = JSON.parse(text) as { entries: { source: number; section: FeedSection; headline: string; due: string | null }[] };
   const out: FeedEntry[] = [];
   for (const e of value.entries) {
     const conversation = batch[e.source - 1];
     if (!conversation || !e.headline.trim()) continue;
     out.push({
       source: faceOf(conversation).id, section: e.section, headline: e.headline.trim(),
-      due: day(e.due), expires: day(e.expires),
+      due: typeof e.due === "string" && /^\d{4}-\d{2}-\d{2}$/.test(e.due) ? e.due : null,
       assertions: claimsOf(conversation).map((a) => a.id),
     });
   }
@@ -244,8 +242,8 @@ export async function runFeed(opts: { root: string; manifest: Manifest; runner?:
       const runId = newRunId(now());
       const startedAt = now().toISOString();
       const today = now().toLocaleDateString("en-CA");
-      const judged = [...batch, ...recheckOpen(records, today, conversationOf, byKey, batch)];
-      const recent = recentHeadlines(records, today, conversationOf, new Set(judged.map((c) => c.key)));
+      const judged = [...batch, ...recheckOpen(records, conversationOf, byKey, batch)];
+      const recent = recentHeadlines(records, conversationOf, new Set(judged.map((c) => c.key)));
       const prompt = [
         `TODAY ${today}`, "", "WORKING SET", workingSet, "",
         "ALREADY IN THE FEED", ...(recent.length ? recent.map((h) => `- ${h}`) : ["none yet"]), "",

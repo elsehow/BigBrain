@@ -37,7 +37,7 @@ if (hasFlag(argv, "run")) {
 }
 
 const records = feedRecords(root);
-const entries = currentFeed(records, new Date().toLocaleDateString("en-CA"), feedConversationOf(root, records));
+const entries = currentFeed(records, feedConversationOf(root, records));
 if (hasFlag(argv, "json")) {
   console.log(JSON.stringify(entries, null, 2));
 } else {
@@ -48,7 +48,7 @@ if (hasFlag(argv, "json")) {
     console.log(`\n${title}`);
     for (const e of rows) {
       const due = dueOf(e);
-      console.log(`  ${e.headline}${due ? `  (due ${due})` : e.expires ? `  (until ${e.expires})` : ""}`);
+      console.log(`  ${e.headline}${due ? `  (due ${due})` : ""}`);
     }
   }
   if (!entries.length) console.log("feed: empty");

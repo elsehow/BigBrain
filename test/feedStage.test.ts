@@ -45,12 +45,12 @@ function claim(root: string, source: SourceInsertion, text: string, day = "2026-
 
 /** A scripted model: places each SOURCE by a word in its title. Every
  * request is kept so a test can read what each call was shown. */
-function scripted(place: (title: string) => { section: string; due?: string | null; expires?: string | null } = () => ({ section: "know" })) {
+function scripted(place: (title: string) => { section: string; due?: string | null } = () => ({ section: "know" })) {
   const calls: ModelRunRequest[] = [];
   const runner = async (req: ModelRunRequest) => {
     calls.push(req);
     const titles = [...req.prompt.matchAll(/^title: (.*)$/gm)].map((m) => m[1]!);
-    const entries = titles.map((title, i) => ({ source: i + 1, headline: `headline for ${title}`, due: null, expires: null, ...place(title) }));
+    const entries = titles.map((title, i) => ({ source: i + 1, headline: `headline for ${title}`, due: null, ...place(title) }));
     return { text: JSON.stringify({ entries }), sessionId: "s", wallMs: 1,
       usage: { input_tokens: 1, output_tokens: 1, cache_read_tokens: 0, cache_write_tokens: 0, turns: 1, cost_usd: 0.01 } };
   };
@@ -61,9 +61,9 @@ const now = () => new Date("2026-08-25T00:00:00.000Z");
 /** A clock that moves a second per reading, so each call lands after the last. */
 const ticking = (from = "2026-08-25T00:00:00.000Z") => { let t = Date.parse(from); return () => new Date(t += 1000); };
 const who = (label: string) => `[[${assertionEntityId(label)}|${label}]]`;
-const feedNow = (root: string, today = "2026-08-25") => {
+const feedNow = (root: string) => {
   const records = feedRecords(root);
-  return currentFeed(records, today, feedConversationOf(root, records));
+  return currentFeed(records, feedConversationOf(root, records));
 };
 /** One email of a thread: the subject is long enough to join on its own. */
 const mail = (title: string, at: string, over: Partial<SourceInsertion> = {}) => {
@@ -124,17 +124,15 @@ describe("the feed stage", () => {
     expect(feedWork(root, loadManifest(root).feed!)).toEqual([]);
   });
 
-  test("the feed is each source's newest entry, without skips or lapsed dates", async () => {
+  test("the feed is each source's newest entry, without skips; a date passing takes nothing away", async () => {
     const [a, b, c] = [insertion({ title: "urgent" }), insertion({ title: "noise" }), insertion({ title: "party" })];
     const root = vault(FEED_YAML(), a, b, c);
     claim(root, a, "Sign the permit form by Friday.");
     claim(root, b, "A coupon for ten percent off.");
-    claim(root, c, "The party was on Saturday.");
-    const m = scripted((t) => t === "urgent" ? { section: "needs-you" } : t === "noise" ? { section: "skip" } : { section: "know", expires: "2026-08-23" });
+    claim(root, c, "The party is on the 23rd.");
+    const m = scripted((t) => t === "urgent" ? { section: "needs-you", due: "2026-08-21" } : t === "noise" ? { section: "skip" } : { section: "know" });
     await runFeed({ root, manifest: loadManifest(root), runner: m.runner, now });
-    const feed = currentFeed(feedRecords(root), "2026-08-25");
-    expect(feed.map((e) => [e.section, e.headline])).toEqual([["needs-you", "headline for urgent"]]);
-    expect(currentFeed(feedRecords(root), "2026-08-22").map((e) => e.source)).toEqual([a.id, c.id]);
+    expect(currentFeed(feedRecords(root)).map((e) => [e.section, e.headline])).toEqual([["needs-you", "headline for urgent"], ["know", "headline for party"]]);
   });
 
   test("a source that gains a claim is judged again, whole; the newest entry wins", async () => {
@@ -147,7 +145,7 @@ describe("the feed stage", () => {
     const second = scripted(() => ({ section: "needs-you" }));
     await runFeed({ root, manifest: loadManifest(root), runner: second.runner, now: () => new Date("2026-08-25T02:00:00.000Z") });
     expect(second.calls[0]!.prompt).toContain("- Kit proposed a call.\n- Kit now needs an answer by Monday.");
-    expect(currentFeed(feedRecords(root), "2026-08-25").map((e) => e.section)).toEqual(["needs-you"]);
+    expect(currentFeed(feedRecords(root)).map((e) => e.section)).toEqual(["needs-you"]);
     // it entered the feed with the first call; being judged again doesn't re-date it
     const records = feedRecords(root);
     expect(addedAt(records).get(a.id)).toBe(records[0]!.completed_at);
@@ -170,7 +168,7 @@ describe("the feed stage", () => {
     expect(second.calls[0]!.prompt).not.toContain("- Kit proposed a call.");
     // one place in the feed, the revision's; read by arrival, it was two
     expect(feedNow(root).map((e) => [e.source, e.section])).toEqual([[revised.id, "know"]]);
-    expect(currentFeed(feedRecords(root), "2026-08-25")).toHaveLength(2);
+    expect(currentFeed(feedRecords(root))).toHaveLength(2);
   });
 
   test("a thread is one conversation, judged whole and oldest first: their mail, your draft, what you sent", async () => {
@@ -215,16 +213,17 @@ describe("the feed stage", () => {
     expect(recent(12)).toBe(["mu", "lambda", "kappa", "iota", "theta", "eta", "zeta", "epsilon", "delta", "gamma"].map((t) => `- headline for ${t}`).join("\n"));
   });
 
-  test("a date is due only where something is to be done by it; a meeting's own date only expires", async () => {
+  test("a date is due only where something is to be done by it, never a meeting's own date", async () => {
     const [form, meeting, news] = [insertion({ title: "form" }), insertion({ title: "meeting" }), insertion({ title: "news" })];
     const root = vault(FEED_YAML(), form, meeting, news);
     claim(root, form, "Sign the permit form by the 30th.");
     claim(root, meeting, "Kit accepted the review meeting on the 28th.");
     claim(root, news, "The library extended its hours.");
-    const m = scripted((t) => t === "form" ? { section: "needs-you", due: "2026-08-30", expires: "2026-08-30" }
-      : t === "meeting" ? { section: "know", expires: "2026-08-28" } : { section: "know", due: "2026-08-29" });
+    const m = scripted((t) => t === "form" ? { section: "needs-you", due: "2026-08-30" }
+      : t === "meeting" ? { section: "know" } : { section: "know", due: "2026-08-29" });
     await runFeed({ root, manifest: loadManifest(root), runner: m.runner, now });
     expect(m.calls[0]!.instructions).toContain("`due`");
+    expect(m.calls[0]!.instructions).not.toContain("expires");
     expect(feedRecords(root)[0]!.prompt_version).toBe(FEED_PROMPT_VERSION);
     const due = Object.fromEntries(feedNow(root).map((e) => [e.headline, dueOf(e)]));
     // know asks for nothing, so a date it carries is never due
