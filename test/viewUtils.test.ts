@@ -65,7 +65,7 @@ describe("themeFor", () => {
   });
 
   test("a choice outranks the OS, both ways", () => {
-    expect(themeFor(true, "somethings-gotta-give")).toBe("somethings-gotta-give");
+    expect(themeFor(true, "moegiiro")).toBe("moegiiro");
     expect(themeFor(false, "web")).toBe("web");
   });
 
@@ -80,8 +80,9 @@ describe("themeFor", () => {
     for (const t of THEMES) expect(themeFor(false, t)).toBe(t);
   });
 
-  test("the picker leads with two pairs: Ink, then Kind of Blue", () => {
-    expect(PAIR_IDS).toEqual(["system", "kind-of-blue"]);
+  test("the picker leads with three pairs: Ink, Kind of Blue, Something's Gotta Give", () => {
+    expect(PAIR_IDS).toEqual(["system", "kind-of-blue", "somethings-gotta-give"]);
+    expect(labelFor("somethings-gotta-give")).toBe("Something's Gotta Give");
     expect(labelFor("system")).toBe("Ink");
     expect(labelFor("kind-of-blue")).toBe("Kind of Blue");
   });
@@ -89,6 +90,18 @@ describe("themeFor", () => {
   test("Kind of Blue follows the OS: pale paper in light, deep blue in dark", () => {
     expect(themeFor(false, "kind-of-blue")).toBe("kind-of-blue-light");
     expect(themeFor(true, "kind-of-blue")).toBe("kind-of-blue-dark");
+  });
+
+  test("Something's Gotta Give keeps its id and now follows the OS into Hampton's Nights", () => {
+    // a record that chose it alone reads as the pair, whose light half is that same palette
+    expect(themeFor(false, "somethings-gotta-give")).toBe("somethings-gotta-give");
+    expect(themeFor(true, "somethings-gotta-give")).toBe("hamptons-nights");
+    expect(THEMES).not.toContain("somethings-gotta-give");
+  });
+
+  test("the singles, in picker order", () => {
+    expect([...THEMES]).toEqual(["web", "moegiiro", "adzukiiro", "asagiiro", "jodie-foster-in-contact", "a-love-supreme"]);
+    expect(THEMES.map((t) => THEME_LABEL[t])).toEqual(["OG Web Blue", "Spring", "Fall", "Winter", "Jodie Foster in Contact", "A Love Supreme"]);
   });
 
   test("the seasons keep their stored ids under their new names", () => {
@@ -172,9 +185,9 @@ describe("the stored choice", () => {
         removeAttribute: (k: string) => attrs.delete(k),
       },
     };
-    setChoice("somethings-gotta-give");
-    expect(map.get("bigbrain:theme")).toBe("somethings-gotta-give");
-    expect(attrs.get("data-theme")).toBe("somethings-gotta-give"); // and it painted
+    setChoice("moegiiro");
+    expect(map.get("bigbrain:theme")).toBe("moegiiro");
+    expect(attrs.get("data-theme")).toBe("moegiiro"); // and it painted
     setChoice("default");
     expect(map.get("bigbrain:theme")).toBe("default");
     expect(attrs.get("data-theme")).toBe("default");

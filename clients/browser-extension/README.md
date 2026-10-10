@@ -295,5 +295,5 @@ next submission doesn't rediscover them:
 `bun run design:sync` from the engine root; commit the generated extension
 `tokens.css` too. `test/designTokens.test.ts` checks parity. `design.css` imports
 those tokens and the offline `fonts.css`, and owns only extension layout and
-controls. All nine app palettes are available via `data-theme`; this does not
+controls. All twelve app palettes are available via `data-theme`; this does not
 sync a user's selected desktop theme into browser storage.

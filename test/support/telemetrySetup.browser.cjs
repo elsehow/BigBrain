@@ -86,7 +86,7 @@ const base = process.env.VIEWER_URL || 'http://127.0.0.1:5305';
    return (Math.max(a, b) + .05) / (Math.min(a, b) + .05);
   };
   await page.emulateMedia({ reducedMotion: 'reduce' });
-  for (const theme of ['default', 'dusk', 'kind-of-blue-light', 'kind-of-blue-dark', 'web', 'somethings-gotta-give', 'moegiiro', 'adzukiiro', 'asagiiro']) {
+  for (const theme of ['default', 'dusk', 'kind-of-blue-light', 'kind-of-blue-dark', 'somethings-gotta-give', 'hamptons-nights', 'web', 'moegiiro', 'adzukiiro', 'asagiiro', 'jodie-foster-in-contact', 'a-love-supreme']) {
    await page.evaluate(theme => document.documentElement.setAttribute('data-theme', theme), theme);
    await page.mouse.move(0, 0);
    assert(await no.evaluate(contrast) >= 4.5, `${theme}: decline contrast`);

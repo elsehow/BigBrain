@@ -21,9 +21,10 @@ bun run logomark:render -- --theme dusk --wordmark --out ~/Desktop/mark
 ```
 
 `--theme` takes a palette by its name — "Ink, light", "Ink, dark", "Kind
-of Blue, light", "Kind of Blue, dark", OG web blue, Something's
-Gotta Give, Spring, Fall, Winter — or by its id (`default`, `dusk`, …); the
-default is Ink's light half, and
+of Blue, light", "Kind of Blue, dark", "Something's Gotta Give, light",
+Hampton's Nights, OG Web Blue, Spring, Fall, Winter, Jodie Foster in Contact,
+A Love Supreme — or by its id (`default`, `dusk`, …); the default is Ink's
+light half, and
 an unknown name prints the list. The render screenshots the workbench's
 render stage frame by frame through this machine's Chrome (playwright-core
 drives it) and leaves three things in `--out`: a transparent ProRes 4444

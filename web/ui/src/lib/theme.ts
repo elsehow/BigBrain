@@ -1,27 +1,31 @@
-// Nine three-color palettes, plus this machine's YAML skins. The picker leads
-// with two light/dark pairs that follow the OS, Ink and Kind of Blue, then
-// offers five palettes on their own. Stored ids outlive renames; the picker's
-// names live in THEME_LABEL and PAIRS.
+// Twelve three-color palettes, plus this machine's YAML skins. The picker
+// leads with three light/dark pairs that follow the OS (Ink, Kind of Blue,
+// Something's Gotta Give), then offers six palettes on their own. Stored ids
+// outlive renames; the picker's names live in THEME_LABEL and PAIRS.
 import { normalizeSkinsCss, fetchSkins, type Skin, type SkinsReport } from "./skins";
 import { syncWindowBackground } from "./native";
 
 /** The palettes the picker offers one by one, after the pairs. */
-export const THEMES = ["web", "somethings-gotta-give", "moegiiro", "adzukiiro", "asagiiro"] as const;
+export const THEMES = ["web", "moegiiro", "adzukiiro", "asagiiro", "jodie-foster-in-contact", "a-love-supreme"] as const;
 
 /** Every built-in palette tokens.css paints: the pairs' halves, then the
  * singles. A half is offered only through its pair, but a record that names
  * one (Ink's halves were once offered alone) still paints it. */
-export const PALETTES = ["default", "dusk", "kind-of-blue-light", "kind-of-blue-dark", ...THEMES] as const;
+export const PALETTES = ["default", "dusk", "kind-of-blue-light", "kind-of-blue-dark", "somethings-gotta-give", "hamptons-nights", ...THEMES] as const;
 export type BuiltIn = (typeof PALETTES)[number];
 
 /** A palette: one of the built-ins, or a skin of this machine's. */
 export type Theme = BuiltIn | Skin["id"];
 
 /** Light/dark pairs that follow the OS, in picker order. Ink keeps the id
- * "system", which every record that followed the OS already holds. */
+ * "system", which every record that followed the OS already holds, and
+ * Something's Gotta Give keeps its palette's id, so a record that chose it
+ * alone now follows the OS into Hampton's Nights. A pair's id wins over a
+ * palette of the same name (themeFor). */
 export const PAIRS = {
   system: { label: "Ink", light: "default", dark: "dusk" },
   "kind-of-blue": { label: "Kind of Blue", light: "kind-of-blue-light", dark: "kind-of-blue-dark" },
+  "somethings-gotta-give": { label: "Something's Gotta Give", light: "somethings-gotta-give", dark: "hamptons-nights" },
 } as const satisfies Record<string, { label: string; light: BuiltIn; dark: BuiltIn }>;
 export type Pair = keyof typeof PAIRS;
 export const PAIR_IDS = Object.keys(PAIRS) as Pair[];
@@ -42,11 +46,14 @@ export const THEME_LABEL: Record<BuiltIn, string> = {
   dusk: "Ink, dark",
   "kind-of-blue-light": "Kind of Blue, light",
   "kind-of-blue-dark": "Kind of Blue, dark",
-  web: "OG web blue",
-  "somethings-gotta-give": "Something's Gotta Give",
+  "somethings-gotta-give": "Something's Gotta Give, light",
+  "hamptons-nights": "Hampton's Nights",
+  web: "OG Web Blue",
   moegiiro: "Spring",
   adzukiiro: "Fall",
   asagiiro: "Winter",
+  "jodie-foster-in-contact": "Jodie Foster in Contact",
+  "a-love-supreme": "A Love Supreme",
 };
 
 const KEY = "bigbrain:theme";
