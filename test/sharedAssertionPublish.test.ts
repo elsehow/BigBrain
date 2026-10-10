@@ -11,7 +11,7 @@ import { appendSourceInsertionEvent, sourceInsertion, type SourceInsertion } fro
 import { addMember, initMemberStore, mintCredential, verifyCredential } from "../lib/sharedMembers";
 import { SharedVault } from "../lib/sharedVault";
 import { makeSharedApiHandler } from "../lib/sharedVaultApi";
-import { readConnections, saveConnection } from "../lib/sharedConnections";
+import { readConnections, saveConnection, SharedProtocolError } from "../lib/sharedConnections";
 import { contributions, sendSources } from "../lib/sharedRules";
 import { publishAssertions, publishableText, publishedPath } from "../lib/sharedAssertionPublish";
 
@@ -56,15 +56,17 @@ function fixture(opts: { agentRoute?: boolean } = {}) {
   const alice = mintCredential(members, "alice", { name: "laptop" });
   const vault = new SharedVault(shared);
   const handler = makeSharedApiHandler({ root: shared, storePath: members, vault, log: () => {} });
-  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: req =>
-    opts.agentRoute === false && new URL(req.url).pathname === "/v1/credentials/agent" ? new Response("{}", { status: 404 }) : handler(req) });
+  // `over.reply`: a reply in place of the door's own, for a server that misbehaves or speaks another version
+  const over: { reply?: (req: Request) => Response | undefined } = {};
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: req => over.reply?.(req) ??
+    (opts.agentRoute === false && new URL(req.url).pathname === "/v1/credentials/agent" ? new Response("{}", { status: 404 }) : handler(req)) });
   const endpoint = `http://127.0.0.1:${server.port}`;
   const live = async () => {
     const r = await fetch(`${endpoint}/v1/assertions`, { headers: { Authorization: `Bearer ${owner.token}` } });
     return ((await r.json()) as { items: { assertion: { text: string; author: unknown } }[] }).items.map(i => i.assertion);
   };
   const actor = () => { const v = verifyCredential(members, alice.token); if (!v.ok) throw Error("auth"); return v.actor; };
-  return { personal, store, server, endpoint, vault, alice, kickoff, budget, owns, approved, live, actor };
+  return { personal, store, server, endpoint, vault, alice, kickoff, budget, owns, approved, live, actor, over };
 }
 
 describe("publishAssertions", () => {
@@ -108,6 +110,46 @@ describe("publishAssertions", () => {
       const minted = readConnections(f.store).find(x => x.id === c.id)!;
       expect(await publishAssertions(f.personal, f.store, minted, await contributions(minted), 1)).toEqual({ published: 1, retracted: 0 });
       expect(await f.live()).toHaveLength(2);
+    } finally { f.server.stop(true); }
+  });
+
+  test("a server that lists nothing beside claims published there retracts nothing, and one whose list can't be read is refused", async () => {
+    const f = fixture();
+    try {
+      const c = await saveConnection(f.store, { name: "Example", endpoint: f.endpoint, token: f.alice.token });
+      const connection = readConnections(f.store).find(x => x.id === c.id)!;
+      await sendSources(f.store, connection, [f.kickoff, f.budget]);
+      expect(await publishAssertions(f.personal, f.store, connection, await contributions(connection))).toEqual({ published: 2, retracted: 0 });
+      const minted = readConnections(f.store).find(x => x.id === c.id)!;
+      const list = (items: unknown) => (req: Request) => new URL(req.url).pathname === "/v1/contributions" ? Response.json({ items }) : undefined;
+
+      f.over.reply = list([]);
+      expect(await publishAssertions(f.personal, f.store, minted, await contributions(minted))).toEqual({ published: 0, retracted: 0 });
+      f.over.reply = list(f.vault.contributions(f.actor()).map(x => ({ ...x, status: "shared" })));
+      await expect(contributions(minted)).rejects.toThrow("can’t read");
+      f.over.reply = list(undefined);
+      await expect(contributions(minted)).rejects.toThrow("can’t read");
+      expect(await f.live()).toHaveLength(2);
+    } finally { f.server.stop(true); }
+  });
+
+  test("every reply names its API version, and a server speaking one this app doesn't is refused, saying which side to update", async () => {
+    const f = fixture();
+    try {
+      expect((await fetch(`${f.endpoint}/v1/whoami`, { headers: { Authorization: `Bearer ${f.alice.token}` } })).headers.get("BigBrain-Protocol")).toBe("1");
+      const c = await saveConnection(f.store, { name: "Example", endpoint: f.endpoint, token: f.alice.token });
+      const connection = readConnections(f.store).find(x => x.id === c.id)!;
+      // a server from before the header speaks 1
+      f.over.reply = (req) => new URL(req.url).pathname === "/v1/contributions" ? Response.json({ items: [] }) : undefined;
+      expect(await contributions(connection)).toEqual([]);
+
+      f.over.reply = () => Response.json({ items: [] }, { headers: { "BigBrain-Protocol": "2" } });
+      const refused = await contributions(connection).catch((e: unknown) => e);
+      expect(refused).toBeInstanceOf(SharedProtocolError);
+      expect((refused as Error).message).toContain("Update the app");
+      await expect(saveConnection(join(f.personal, "other.json"), { name: "Example", endpoint: f.endpoint, token: f.alice.token })).rejects.toThrow("Update the app");
+      f.over.reply = () => Response.json({ items: [] }, { headers: { "BigBrain-Protocol": "0" } });
+      await expect(contributions(connection)).rejects.toThrow("needs an update");
     } finally { f.server.stop(true); }
   });
 

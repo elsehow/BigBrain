@@ -5,6 +5,7 @@ import { homedir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { writeAtomic } from './fsx';
 import { sharedConnectionsStore } from './env';
+import { SPOKEN, spokenBy } from './sharedProtocol';
 export interface SharedConnection { id: string; name: string; endpoint: string; token: string; memberId?: string;
   /** The member's agent delegate, minted on first publish (lib/sharedAssertionPublish.ts). */
   agentToken?: string;
@@ -12,6 +13,14 @@ export interface SharedConnection { id: string; name: string; endpoint: string; 
   root?: string }
 export interface SharedIdentity { vault?: {id:string;name:string}; handle: string; display: string; role: string; permissions: string[]; member_id: string; credential: { id: string; name: string } }
 export class SharedConnectionError extends Error { constructor(public status: number, message: string) { super(message); } }
+/** A server speaking an API version this app doesn't (lib/sharedProtocol.ts): nothing is read or written until one side updates. */
+export class SharedProtocolError extends SharedConnectionError {
+  constructor(public spoken: number) {
+    super(426, spoken > Math.max(...SPOKEN) ? 'This server runs a newer version of BigBrain. Update the app to sync with it.'
+      : 'This server runs an older version of BigBrain. It needs an update before this app can sync with it.');
+  }
+}
+function checkProtocol(response: Response) { const spoken = spokenBy(response.headers); if (!SPOKEN.includes(spoken)) throw new SharedProtocolError(spoken); }
 export function connectionStorePath(): string { return sharedConnectionsStore() ?? join(homedir(), '.config/bigbrain/shared-connections.json'); }
 export function readConnections(path: string): SharedConnection[] { return existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) : []; }
 const writeConnections = (path: string, connections: SharedConnection[]) => writeAtomic(path, JSON.stringify(connections, null, 2) + '\n', 0o600);
@@ -30,6 +39,7 @@ export async function sharedRequest<T>(connection: SharedConnection, path: strin
     headers: { Authorization: `Bearer ${connection.token}`, 'Content-Type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(15000) }); }
   catch { throw new SharedConnectionError(503, 'The server is unavailable.'); }
+  checkProtocol(response);
   if (!response.ok) {
     const data = await response.json().catch(() => ({})) as { error?: string };
     throw new SharedConnectionError(response.status, typeof data.error === 'string' ? data.error.replaceAll(connection.token, '[redacted]').slice(0, 500) : 'The server refused this request.');
@@ -47,6 +57,7 @@ export async function connectInvite(path:string,link:unknown) {
   const endpoint=endpointURL(url.origin);
   if(url.username||url.password||url.search||url.pathname!=='/invite'||!/^#[A-Za-z0-9_-]{43}$/.test(url.hash))throw new SharedConnectionError(400,'Invalid invite link.');
   const response=await fetch(endpoint+'/v1/invites/redeem',{method:'POST',redirect:'error',headers:{Authorization:`Bearer ${url.hash.slice(1)}`},signal:AbortSignal.timeout(15000)});
+  checkProtocol(response);
   if(!response.ok)throw new SharedConnectionError(response.status,'Invitation is expired, already used, or unavailable. Request a new one.');
   const result=await response.json() as {token:string;vault:{id:string;name:string}};
   return saveConnection(path,{name:result.vault.name,endpoint,token:result.token});

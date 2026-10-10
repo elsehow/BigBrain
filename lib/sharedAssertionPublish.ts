@@ -76,14 +76,19 @@ async function agentOf(store:string,c:SharedConnection):Promise<SharedConnection
 /** Bring one connection's published claims in line with what is eligible now:
  * retractions first, then new claims, within the write budget. */
 export async function publishAssertions(root:string,store:string,c:SharedConnection,contributed:Contribution[],budget=PUBLISH_BUDGET):Promise<{published:number;retracted:number}> {
+  const done={published:0,retracted:0};
+  const record=readJson<Record<string,PublishedAssertion>>(publishedPath(store));
+  const published=Object.entries(record).filter(([,p])=>p.connection===c.id&&p.status==='published');
+  // The server lists every contribution it holds, withdrawn ones too, so none
+  // at all beside claims published there is a server that lost them, or a
+  // reply misread: retracting on it would take every claim down for good.
+  if(!contributed.length&&published.length)return done;
   const active=new Map(contributed.filter(x=>x.status==='active').map(x=>[x.source_id,x.insertion_id]));
   const sent=readJson<Record<string,{shared_insertion_id?:string}>>(store+'.receipts.json');
   const wanted=new Map<string,Body>();
   if(active.size)for(const a of readMemoryInputs(root).asts){const body=publishable(root,c,a,active,sent);if(body)wanted.set(a.id,body);}
-  const record=readJson<Record<string,PublishedAssertion>>(publishedPath(store));
-  const stale=Object.entries(record).filter(([,p])=>p.connection===c.id&&p.status==='published'&&!wanted.has(p.personal_assertion_id));
+  const stale=published.filter(([,p])=>!wanted.has(p.personal_assertion_id));
   const fresh=[...wanted].filter(([id])=>!record[`${c.id}:${id}`]);
-  const done={published:0,retracted:0};
   if(!stale.length&&!fresh.length)return done;
   const agent=await agentOf(store,c);if(!agent)return done;
   const save=(key:string,p:PublishedAssertion)=>{const latest=readJson<Record<string,PublishedAssertion>>(publishedPath(store));latest[key]=p;writeAtomic(publishedPath(store),JSON.stringify(latest),0o600);};

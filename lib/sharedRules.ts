@@ -5,7 +5,7 @@ import {existsSync,readFileSync} from 'node:fs';
 import {writeAtomic} from './fsx';
 import {sha256hex} from './hash';
 import type {SourceInsertion} from './insertionLog';
-import {sharedRequest,type SharedConnection} from './sharedConnections';
+import {SharedConnectionError,sharedRequest,type SharedConnection} from './sharedConnections';
 export interface Contribution {path?:string;id:string;source_id:string;title:string;insertion_id:string;status:string;version:number;added_at:string;other_contributors:string[]}
 
 /** A server's inclusion rule from before lenses, read once to become a lens (lib/lensSync.ts migrateRules). */
@@ -17,7 +17,14 @@ export function dropRule(store:string,id:string){const rules=legacyRules(store);
 
 /** A personal note's id on a server: the same for every server, opaque to them. */
 export const sourceKey=(s:Pick<SourceInsertion,'source_id'>)=>'personal-'+sha256hex(s.source_id).slice(0,40);
-export async function contributions(c:SharedConnection):Promise<Contribution[]> { return (await sharedRequest<{items:Contribution[]}>(c,'/v1/contributions')).items; }
+const STATUSES=new Set(['active','withdrawn']);
+const readable=(x:unknown)=>{const r=x as Record<string,unknown>|null;return !!r&&typeof r.id==='string'&&typeof r.source_id==='string'&&typeof r.insertion_id==='string'&&STATUSES.has(r.status as string);};
+/** Your contributions on a server. A reply this app can't read is refused, never guessed at: publishing retracts every claim whose sources it doesn't list as active. */
+export async function contributions(c:SharedConnection):Promise<Contribution[]> {
+ const {items}=await sharedRequest<{items:unknown}>(c,'/v1/contributions');
+ if(!Array.isArray(items)||!items.every(readable))throw new SharedConnectionError(502,'The server sent a list of contributions this app can’t read.');
+ return items as Contribution[];
+}
 export async function sendSources(store:string,c:SharedConnection,rows:SourceInsertion[]) {
  let added=0;
  // Batches remain under the server's whole-request byte bound.
