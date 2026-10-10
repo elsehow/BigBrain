@@ -1,6 +1,4 @@
 <script lang="ts">
-  import AgentAccessSettings from "./AgentAccessSettings.svelte";
-  import DesktopNetworkSettings from "./DesktopNetworkSettings.svelte";
   import CurationModel from "./CurationModel.svelte";
   import SubscriptionConnect from "./SubscriptionConnect.svelte";
   import SettingsPage from "./SettingsPage.svelte";
@@ -62,8 +60,6 @@
   {/if}
   </div>
   {#if setupLoaded}{#key `${!!setup?.chatgpt?.connected}:${!!setup?.anthropic?.connected}`}<CurationModel />{/key}{/if}
-  <AgentAccessSettings />
-  <DesktopNetworkSettings />
 </SettingsPage>
 
 <style>

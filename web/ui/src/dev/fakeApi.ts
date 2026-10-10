@@ -1163,7 +1163,7 @@ export const INTEGRATIONS: Record<string, VaultState> = {
 let current: VaultState = FIRST_RUN.noVault!;
 let pilotBackend = { ...DEFAULT_PILOT_BACKEND };
 let agentPermissions: import("../../../../lib/workPermissions").WorkPermissions = { version: 2, folders: [{ path: "~/Projects", access: "write" }] };
-let desktopHosts: string[] = ["registry.example.test"];
+let desktopHosts: string[] = [];
 const DESKTOP_DEFAULT_HOSTS = ["registry.npmjs.org", "pypi.org", "github.com"];
 
 /** Swap the vault out from under a running app. The SWR cache has to go with
