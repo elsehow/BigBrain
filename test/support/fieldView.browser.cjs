@@ -1,7 +1,8 @@
 // Field on the base (web/ui/field-workbench.html, a fabricated vault): the
 // feed walks with j/k and opens a source; settings open as a panel over the
 // field and give the keys back; Settings offers no Classic; a new vault says
-// what to do. Search finds sources by title, not only entities by name.
+// what to do. Search finds sources by title, not only entities by name. A
+// long feed comes a page at a time.
 const { chromium } = require('./browserHarness.cjs');
 const assert = require('node:assert/strict');
 (async () => {
@@ -127,7 +128,33 @@ const assert = require('node:assert/strict');
     await page.getByRole('button', { name: 'Retry', exact: true }).click();
     await page.locator('.credits').waitFor({ state: 'detached' });
 
+    // a long feed comes a page at a time: walking up past the oldest row
+    // loaded brings the page before in and steps onto it
+    await page.goto(`${base}/field-workbench.html?view=field&longFeed`);
+    await rows.nth(99).waitFor();
+    assert.equal(await rows.count(), 100);
+    for (let i = 0; i < 101; i++) await page.keyboard.press('k');
+    await page.locator('.feed.sorted .row.at', { hasText: 'Field note 98:' }).waitFor();
+    assert.equal(await rows.count(), 200);
+    // scrolled to the top, the page before comes in above, and the row that
+    // was at the top stays where it was
+    await page.goto(`${base}/field-workbench.html?view=field&longFeed`);
+    await rows.nth(99).waitFor();
+    const strip = page.locator('.feed.sorted');
+    const oldest = await rows.first().locator('.x').innerText();
+    // where it sits, read in the same task the scroll is set in: the load
+    // starts from the scroll event, after it
+    const before = await strip.evaluate((el) => {
+      el.scrollTop = 0;
+      return el.querySelector('.row').getBoundingClientRect().top - el.getBoundingClientRect().top;
+    });
+    await rows.nth(199).waitFor();
+    const after = await strip.evaluate((el, text) => [...el.querySelectorAll('.row')]
+      .find((r) => r.querySelector('.x').textContent === text).getBoundingClientRect().top - el.getBoundingClientRect().top, oldest);
+    assert.ok(Math.abs(after - before) < 2, `the row read before stays put (${before}px from the top, then ${after}px)`);
+    assert.equal(await rows.count(), 200);
+
     assert.deepEqual(errors, []);
-    console.log('PASS: Field walks and opens the feed, ⌘O opens the original, settings sit over it and return its keys, Settings offers no Classic, search finds sources by title, a new vault says what to do, an assertion clicked is selected and titled, and running out of credits is said once.');
+    console.log('PASS: Field walks and opens the feed, ⌘O opens the original, settings sit over it and return its keys, Settings offers no Classic, search finds sources by title, a new vault says what to do, an assertion clicked is selected and titled, running out of credits is said once, and a long feed loads the page before, by key or by scroll, without moving what is read.');
   } finally { await browser.close(); }
 })().catch(e => { console.error(e); process.exit(1); });

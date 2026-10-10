@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, sep } from "node:path";
 
 // The point of #260: importing web/server.ts is side-effect free — module
@@ -88,6 +88,49 @@ describe("web/server.ts imports without listening", () => {
 // #639 turned a 500-line `if` chain into a table. Each route's behaviour is
 // tested where it lives; the table itself is not pinned name by name.
 describe("the route table", () => {
+  test("GET /api/v2/sorted pages the feed newest first: `limit`, then `before` the last page's `next`", () => {
+    const root = process.env["BIGBRAIN_VAULT"]!;
+    const yaml = join(root, "vault.yaml"), found = readFileSync(yaml, "utf8");
+    writeFileSync(yaml, `${found}feed:\n  since: 2026-08-01\n`);
+    const cited = insertion({
+      id: "ins_5a1e00000000000000000030", source_id: "src-web-feed", title: "Feed paging probe",
+      body: "Kit asked for the estimate.", received_at: "2026-08-22T10:00:00.000Z", content_sha256: "sha-web-feed",
+    });
+    appendSourceInsertionEvent(root, cited);
+    const claim = createAssertionEvent({
+      text: "Kit asked for the estimate.", entities: [], sources: [cited.id],
+      author: { kind: "model", id: "test", invocation_id: "run-1" }, confidence: "direct",
+      created_at: "2026-08-22T11:00:00.000Z", produced_by: { procedure: "test", version: "v1" },
+    }, new Map([[cited.id, cited]]));
+    appendAssertionEvent(root, claim);
+    invalidateAssertionRecord(root);
+    // five calls, one item each, the cited source's the oldest
+    const sources = [cited.id, ...[1, 2, 3, 4].map((n) => `ins_5a1e0000000000000000003${n}`)];
+    const journal = join(root, "journal", "feed", "2026-08");
+    mkdirSync(journal, { recursive: true });
+    sources.forEach((source, i) => writeFileSync(join(journal, `run-${i}.json`), JSON.stringify({
+      format: "bigbrain-feed-run/v1", invocation_id: `run-${i}`, prompt_version: "feed/v3", assertions: [claim.id],
+      started_at: `2026-08-22T12:0${i}:00.000Z`, completed_at: `2026-08-22T12:0${i}:01.000Z`,
+      entries: [{ source, section: "know", headline: `Item ${i}`, due: null, assertions: [claim.id] }],
+    })));
+    try {
+      type Page = { rows: Array<{ source: string; title?: string }>; next: string | null };
+      const first = call("GET", "/api/v2/sorted?limit=2") as Page;
+      expect(first.rows.map((r) => r.source)).toEqual([sources[4], sources[3]]);
+      const second = call("GET", `/api/v2/sorted?limit=2&before=${encodeURIComponent(first.next!)}`) as Page;
+      expect(second.rows.map((r) => r.source)).toEqual([sources[2], sources[1]]);
+      const last = call("GET", `/api/v2/sorted?limit=2&before=${encodeURIComponent(second.next!)}`) as Page;
+      expect(last).toMatchObject({ next: null, rows: [{ source: cited.id, title: "Feed paging probe" }] });
+      // without a limit, a page of 100: all five
+      expect((call("GET", "/api/v2/sorted") as Page).rows).toHaveLength(5);
+    } finally {
+      writeFileSync(yaml, found);
+      rmSync(join(root, "journal"), { recursive: true, force: true });
+      rmSync(join(root, "log"), { recursive: true, force: true });
+      invalidateAssertionRecord(root);
+    }
+  });
+
   test("GET /api/config answers the two passes in one shape — the shape a patch sends back", () => {
     // #643: the read used to answer `model` for the gardener and
     // `memory: { model }` for the other, and the patch spelled the first

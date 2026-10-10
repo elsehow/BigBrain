@@ -16,7 +16,7 @@ import { resolveDocumentLinks, noteLinkResolver, type ConnectionEvidence, type O
 import { isUserNode } from "./userNote";
 
 export function buildAssertionGraph(root: string, observe?: ObserveConnection, record: VaultRecord = vaultRecord(root, true)): Graph {
-  const { revoked, rows: assertions, superseded, threadByInsertion: threads, sources: sourceByInsertion } = record;
+  const { revoked, rows: assertions, superseded, threadByInsertion: threads, sources: sourceByInsertion, copies } = record;
   const events = [...sourceByInsertion.values()];
   // The arrivals the gardener has not reached yet draw too — as points
   // waiting for their threads (Nick, 2026-09-06: a drop "should appear in
@@ -27,10 +27,14 @@ export function buildAssertionGraph(root: string, observe?: ObserveConnection, r
   const documents = record.documents.map(d => ({ ...d }));
   if (!assertions.length && !events.length && !documents.length) return { nodes: [], edges: [], hash: "assertions-empty", projection: "assertions" };
 
-  const sourceKey = (id: string): string => threads.get(id)?.id ?? `source:${id}`;
+  // Copies of one document (lib/sourceCopies.ts) draw as their best copy,
+  // carrying the others' paths, so a link or a context naming any copy finds it.
+  const sourceKey = (id: string): string => threads.get(id)?.id ?? `source:${copies.get(id)?.members[0]!.id ?? id}`;
   const threadNodes = new Map<string, GraphNode>();
   const groupedNode = (source: SourceMetadata, degree: number): GraphNode => {
     const thread = threads.get(source.id);
+    const copy = copies.get(source.id)?.members;
+    if (copy) return { ...sourceNode(copy[0]!, degree), memberPaths: copy.slice(1).map(insertionEventRel) };
     if (!thread) return sourceNode(source, degree);
     let node = threadNodes.get(thread.id);
     if (!node) {

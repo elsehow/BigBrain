@@ -12,16 +12,16 @@
   import { app, goto, gotoLens } from "../lib/store.svelte";
   import { reloadSharedConnections, sharedSettings } from "../lib/sharedSettings.svelte";
   import { selectedWorkspace } from "../lib/vaultScope";
-  import type { FoldGroup, GraphData } from "../lib/types";
+  import type { CopyWhy, FoldGroup, GraphData, NoteResult, SourceOrigin } from "../lib/types";
   import { barPilots, buildField, foldOffer, latestPerFamily, neighbours, placePilots, searchFound, searchNames, sourceItems, twinsOf, type Field, type PilotSummary, type V2Feed, type V2FeedRow } from "../lib/v2/model";
   import { md, sanitizeHtml } from "../lib/markdown";
   import { Readability } from "@mozilla/readability";
   import { openExternal } from "../lib/native";
-  import { openOrigin } from "../lib/origin";
+  import { openOrigin, originHint, originLabel } from "../lib/origin";
   import { pageDoc, themeSheet, themeVars } from "../lib/pageTheme";
   import { otherLoopback } from "../lib/loopbackFrame";
   import type { V2Scene } from "../lib/v2/scene";
-  import { plainText as plain, type V2SortedRow } from "../../../../lib/v2Feed";
+  import { plainText as plain, refreshSortedPages, SORTED_PAGE, type V2SortedRow } from "../../../../lib/v2Feed";
   import type { DesktopTile, DesktopView } from "../../../../lib/pilotDesktop";
   import { DEFAULT_PILOT_BACKEND } from "../../../../lib/pilotBackendTypes";
   import DesktopCube from "./DesktopCube.svelte";
@@ -85,8 +85,10 @@
 
   let ent: number | null = $state(null);
   let entRows: V2FeedRow[] | null = $state(null);
-  /** The sorted feed (lib/feedStage.ts), when the vault has one. */
+  /** The sorted feed (lib/feedStage.ts), when the vault has one: the pages
+   * loaded so far, newest first, and the key of the page before them. */
   let sorted: V2SortedRow[] = $state([]);
+  let sortedNext: string | null = null, olderLoad: Promise<boolean> | null = null;
   /** The feed row j/k has in hand (by source), and the source opened from it
    * with Quick's summary of it ("" while it is written). */
   let cursor: string | null = $state(null);
@@ -138,7 +140,11 @@
   /** A note view's text; a source (a saved email, article, meeting…) also
    * carries how it came in, and Quick's summary of it to read first. */
   /** `page`: the host the source's page was read from, when it read better than what was saved. */
-  type SourceMeta = { via: string; date?: string; header: Array<[string, string]>; summary?: string; html: string; page?: string };
+  type SourceMeta = { via: string; date?: string; header: Array<[string, string]>; summary?: string; html: string; page?: string;
+    /** Every original the document's copies hold, when there is more than one (lib/sourceCopies.ts). */
+    origins?: (SourceOrigin & { path: string })[];
+    /** The document's other copies, and what it might also be (lib/sourceCopyReview.ts). */
+    copies?: NoteResult["copies"]; proposals?: NoteResult["proposals"] };
   let notes: Record<string, { content?: string; error?: string; source?: SourceMeta }> = $state({});
   /** Settings → Security: whether sources may load their images and pages
    * (the engine refuses them otherwise). Asked again whenever a desktop opens. */
@@ -152,6 +158,10 @@
         // only a source the engine says a person or a feed sent in reaches out unasked
         const held = r.byAgent !== false;
         notes[v.path] = asSource(r.content, v.title, held);
+        const meta = notes[v.path]!.source;
+        if (meta && r.origins && r.origins.length > 1) meta.origins = r.origins;
+        if (meta && r.copies?.length) meta.copies = r.copies;
+        if (meta && r.proposals?.length) meta.proposals = r.proposals;
         if (notes[v.path]!.source && !data) {
           void briefing(v.path, (text) => { const n = notes[v.path]; if (n?.source) n.source = { ...n.source, summary: text }; });
           const origin = (r as { origin?: { url?: string } }).origin?.url;
@@ -263,6 +273,21 @@
       if (!origin) throw new Error("Nothing to open for this source.");
       await openOrigin(origin, path, { external: openExternal, engine: api.openSource });
     } catch (e) { flash(`Couldn’t open it: ${errText(e)}`); }
+  }
+
+  /** A button inside a note's body: its click is its own, not the body's link handling. */
+  const act = (run: () => Promise<void>) => (e: MouseEvent): void => { e.stopPropagation(); void run(); };
+  /** Why a copy is one, as the note view says it. */
+  const COPY_WHY: Record<CopyWhy, string> = { you: "you said so", file: "same file", paper: "same paper", address: "same address", entity: "same entity", judged: "judged the same" };
+  /** A person's word on two sources; the note reads again to show what stands. */
+  async function decideCopies(path: string, other: string, same: boolean): Promise<void> {
+    try { await api.sourceCopies(path, other, same); delete notes[path]; }
+    catch (e) { flash(`Couldn’t record that: ${errText(e)}`); }
+  }
+  /** One of a document's several originals (lib/sourceCopies.ts), by the copy that holds it. */
+  async function openOne(origin: SourceOrigin & { path: string }): Promise<void> {
+    try { await openOrigin(origin, origin.path, { external: openExternal, engine: api.openSource }); }
+    catch (e) { flash(`Couldn’t open it: ${errText(e)}`); }
   }
 
   async function closeView(view: string): Promise<void> {
@@ -732,9 +757,38 @@
     void drawField(heldGraph).then(unlight);
     heldGraph = null;
   }
-  /** The feed changes in the background as tend sorts what it files. */
+  /** The feed changes in the background as tend sorts what it files: what
+   * is loaded is read again, every page of it (lib/v2Feed.ts refreshSortedPages). */
   function refreshSorted(): void {
-    if (!data) void api.v2Sorted().then((f) => { sorted = f.rows; }).catch(() => {});
+    if (data) return;
+    void api.v2Sorted(Math.max(SORTED_PAGE, sorted.length)).then((f) => {
+      const merged = refreshSortedPages({ rows: sorted, next: sortedNext }, f);
+      sorted = merged.rows;
+      sortedNext = merged.next;
+    }).catch(() => {});
+  }
+  /** The page before the oldest row loaded, put above it without moving
+   * what is on screen. False when there is none, or it didn't come. One at a
+   * time: asked again while it loads (k pressed as the walk's own scroll
+   * reached the top), it answers when that one lands. */
+  function loadOlder(): Promise<boolean> {
+    if (data || !sortedNext) return Promise.resolve(false);
+    return olderLoad ??= (async () => {
+      try {
+        const f = await api.v2Sorted(SORTED_PAGE, sortedNext);
+        const have = new Set(sorted.map((r) => r.source));
+        const height = feedEl?.scrollHeight ?? 0;
+        sorted = [...sorted, ...f.rows.filter((r) => !have.has(r.source))];
+        sortedNext = f.next;
+        await tick();
+        if (feedEl) { feedTop += feedEl.scrollHeight - height; feedEl.scrollTop = feedTop; }
+        return true;
+      } catch {
+        return false;
+      } finally {
+        olderLoad = null;
+      }
+    })();
   }
   // pushed, not polled: the base's live stream bumps app.rev when the vault changes
   let pending: ReturnType<typeof setTimeout> | undefined;
@@ -833,14 +887,16 @@
   /** Back from a row pointed at: the row in hand is drawn opened (above), not lit. */
   const unlight = () => scene?.hover(null);
   /** j (down, newer) and k (up, older): the first press takes the newest row;
-   * walking up past the top scrolls the older ones in. */
+   * walking up past the top scrolls the older ones in, the next page first
+   * when the oldest loaded row is in hand. */
   function stepFeed(dir: 1 | -1): void {
     if (!sorted.length) return;
+    const at = sorted.findIndex((r) => r.source === cursor);
+    if (dir < 0 && at === sorted.length - 1 && sortedNext) { void loadOlder().then((ok) => { if (ok) stepFeed(dir); }); return; }
     if (ent != null || src) overview();
     // a walk starting: Esc comes back to the view it started from
     if (cursor == null) scene?.keepView();
     rowOver = null;
-    const at = sorted.findIndex((r) => r.source === cursor);
     cursor = sorted[at < 0 ? 0 : Math.max(0, Math.min(sorted.length - 1, at - dir))]!.source;
     unlight();
     scene?.shift(shiftFor());
@@ -888,7 +944,13 @@
   // is kept here and restored when it comes back. At the newest, it keeps
   // following new rows; scrolled up to read, it stays put — as the chat does.
   let feedFollowing = true, feedTop = 0;
-  const onFeedScroll = () => { if (feedEl) { feedTop = feedEl.scrollTop; feedFollowing = feedEl.scrollHeight - feedTop - feedEl.clientHeight < 48; } };
+  // near the top, the page before comes in above
+  const onFeedScroll = () => {
+    if (!feedEl) return;
+    feedTop = feedEl.scrollTop;
+    feedFollowing = feedEl.scrollHeight - feedTop - feedEl.clientHeight < 48;
+    if (feedTop < 48) void loadOlder();
+  };
   $effect(() => { if (sorted.length && feedEl) feedEl.scrollTop = feedFollowing && cursor == null ? feedEl.scrollHeight : feedTop; });
   /** A memory topic's own first paragraph: citations dropped, links read as labels. */
   async function memorySummary(path: string): Promise<string | undefined> {
@@ -1277,6 +1339,9 @@
             {#if srcMeta}
               <div class="vsum">{#if srcMeta.summary}{srcMeta.summary}{:else}<span class="spin" aria-label="Writing a summary"></span>{/if}</div>
               {#if srcMeta.header.length}<dl class="vhead">{#each srcMeta.header as [k, val] (k)}<dt>{k}</dt><dd>{val}</dd>{/each}</dl>{/if}
+              {#if srcMeta.copies}<dl class="vhead vorig"><dt>Copies</dt><dd>{#each srcMeta.copies as c, k (k)}<span>{c.title}{c.why ? ` (${COPY_WHY[c.why]})` : ""} <button type="button" onclick={act(() => decideCopies(v.path, c.path, false))}>Not the same</button></span>{/each}</dd></dl>{/if}
+              {#if srcMeta.proposals}<div class="same vsame" role="group" aria-label="Same document?"><span class="same-head">Same document?</span>{#each srcMeta.proposals as p, k (k)}<div class="cand"><span class="cand-name">{p.title}</span><span class="acts"><button type="button" onclick={act(() => decideCopies(v.path, p.path, true))}>Same</button><button type="button" onclick={act(() => decideCopies(v.path, p.path, false))}>Different</button></span></div>{/each}</div>{/if}
+              {#if srcMeta.origins}<dl class="vhead vorig"><dt>Originals</dt><dd>{#each srcMeta.origins as o, k (k)}<button type="button" title={originHint(o)} onclick={act(() => openOne(o))}>{originLabel(o)}</button>{/each}</dd></dl>{/if}
             {/if}
             {#if srcMeta}<div class="vsrc">{@html srcMeta.html}</div>
             {:else if notes[v.path]?.content != null}{@html render(notes[v.path]!.content!)}
@@ -1746,6 +1811,11 @@
   .vsum { margin: 0 0 18px; padding-bottom: 16px; border-bottom: 1px solid var(--rule); font: 400 calc(var(--chat-fs) * 1.07)/1.55 var(--font-app); color: var(--fg); }
   .vhead { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; margin: 0 0 16px; font: 400 12px/1.5 var(--font-mono); color: var(--v2-muted); }
   .vhead dt { color: var(--v2-faint); } .vhead dd { margin: 0; }
+  .vorig dd { display: flex; flex-wrap: wrap; gap: 0 12px; }
+  .vorig button { border: 0; padding: 0; background: none; color: var(--v2-muted); font: inherit; cursor: pointer; }
+  .vorig button:hover { color: var(--fg); }
+  .vorig dd > span { display: block; }
+  .vsame { margin: 0 0 16px; }
   /* the source itself, as a reader view: pictures fit the column, figures and quotes set apart */
   .vsrc :global(img) { display: block; max-width: 100%; height: auto; margin: 1.2em 0; border-radius: 6px; }
   /* a picture held for a click: where it's from, and the button */

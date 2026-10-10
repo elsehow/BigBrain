@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { spoolDir } from "../lib/spool";
 import { PilotChats } from "./support/pilotSession";
@@ -137,7 +137,9 @@ describe("text Pilot sessions", () => {
   expect(()=>sessions.setContext(s.id,["dana"],"Stale",0)).toThrow("changed");
   expect(()=>sessions.setContext(s.id,["invented"],"Bad",1)).toThrow("Unknown");expect(s.context).toEqual(["arbor"]);
   const reopened=new PilotChats(root,{graph:()=>nodes,fetch:fetch}).get(s.id);expect(reopened.draft).toBe("First line\nSecond line");expect(reopened.context).toEqual(["arbor"]);
-  sessions.draft(s.id,"");sessions.discard(s.id);expect(sessions.list()).toHaveLength(0);
+  // a discarded draft's scratch goes with it (#217)
+  const scratch=join(spoolDir(root),"workspaces",s.id);mkdirSync(scratch,{recursive:true});writeFileSync(join(scratch,"notes.md"),"x");
+  sessions.draft(s.id,"");sessions.discard(s.id);expect(sessions.list()).toHaveLength(0);expect(existsSync(scratch)).toBe(false);
  });
  test("stream, tool execution, context updates, repeated turns, and model contract", async () => {
   const requests: any[]=[];const called: string[]=[];

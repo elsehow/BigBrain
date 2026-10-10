@@ -31,6 +31,7 @@
 import { getDocumentProxy } from "unpdf";
 import { splitNote, yscalar } from "./fsx";
 import { type Attachment, stripFmKeys } from "./intake";
+import { proseChars, STUB_CHARS } from "./text";
 
 export interface PdfText {
   text: string;
@@ -52,12 +53,6 @@ const PDF_TEXT_MAX_CHARS = 2_000_000;
 /** Below this many non-whitespace characters, a text layer is noise (the
  * web drop zone's threshold — a scanned PDF yields a few stray glyphs). */
 const THIN_CHARS = 200;
-
-/** A body with fewer non-whitespace characters than this, once its blob
- * links and quoted warnings are set aside, is a STUB — the door's word for
- * "the client shipped bytes, not text". Anything longer is a client that
- * delivered its own discussable version (the web drop zone), left alone. */
-const STUB_CHARS = 400;
 
 /** `%PDF` within the first 1kB — the spec tolerates leading junk (the
  * extension's hasPdfMagic, same rule). */
@@ -123,16 +118,6 @@ export async function extractPdfText(
 
 const KIND_PDF = /^kind:\s*["']?(pdf-import|pdf)["']?\s*$/m;
 const FM_TITLE = /^title:\s*(.*?)\s*$/m;
-const BLOB_LINE = /^!?\[[^\]]*\]\(blob:[0-9a-f]{64}\)\s*$/;
-
-/** The stub test: prose that is not a blob link and not a quoted warning. */
-function proseChars(body: string): number {
-  return body
-    .split("\n")
-    .filter((l) => !BLOB_LINE.test(l.trim()) && !l.startsWith(">"))
-    .join("")
-    .replace(/\s+/g, "").length;
-}
 
 function unquote(v: string): string {
   const m = /^"(.*)"$/.exec(v) ?? /^'(.*)'$/.exec(v);
