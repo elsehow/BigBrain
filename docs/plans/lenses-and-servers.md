@@ -146,12 +146,14 @@ targets that no screen uses. See D5.
   >
   > Yee-haw [toggle] Conservative
 
-  Conservative pauses every addition to the lens, new notes included, so a
-  rule that has become too liberal can't keep sharing while the review waits.
-  This is today's behaviour, per lens instead of per connection
-  (`lib/inclusionEvaluation.ts:23`). Yee-haw shares the new matches and adds a
-  feed item, "A [model upgrade/vault change] expanded what you share with
-  [server]", that opens the lens. In both modes the lens shows a warning, and a
+  Conservative is the default. It pauses every addition to the lens, new notes
+  included, so a rule that has become too liberal can't keep sharing while the
+  review waits. This is today's behaviour, per lens instead of per connection
+  (`lib/inclusionEvaluation.ts:23`). Its feed item: "A [model upgrade/vault
+  change] would cause you to share new items with [server]. Lens is paused
+  until you review." Yee-haw shares the new matches, with the feed item "A
+  [model upgrade/vault change] has caused you to share new items with
+  [server]." Either item opens the lens. In both modes the lens shows a warning, and a
   popup lists what changed since the last upgrade. "Looks OK" dismisses the
   warning for good and, in Conservative, resumes the lens. "Edit rule" opens
   the rule editor, and the warning stays until a new rule is saved. E4 tells us
