@@ -158,14 +158,17 @@ Each step ships alone and deletes something.
 | 5 | the notes door (#225) writing change rows | the per-read Markdown walk; the one-second clock |
 | 6 | remaining views (#231); incremental graph and v2 from change rows | per-request O(vault) routes |
 
-## Open questions
+## Decisions
 
-1. **Wake-up:** WAL watch with a slow `data_version` backstop (recommended), or
-   a plain 250 ms `data_version` poll?
-2. **Views:** stored in the projection database (recommended: one disposable
-   store, published atomically with a revision), or as files under `.state/`?
-3. **Hand edits to `log/`:** is "the next process start projects it" an
-   acceptable contract once nothing watches `log/`? The logs are machine-written
-   and append-only, and nothing in the engine places files there by hand.
-4. **Retention:** how many change rows to keep before a reconnecting client gets
-   a snapshot instead of a replay.
+1. **Wake-up:** watch `assertions.db-wal`, with `data_version` as the truth and
+   a 5 s `data_version` backstop.
+2. **Views:** in the projection database: one disposable store, published
+   atomically with a revision.
+3. **Hand changes to `log/`** (a crash between append and projection, a source
+   retracted by deleting its file, a restore, an import script): the next engine
+   process to start projects them, within five minutes since tend starts one
+   that often, and logs them for the viewer. `bigbrain recover` does it at once.
+   *Recommended; awaiting confirmation.*
+4. **Retention:** keep every change row. Rows are about 100 bytes, every rebuild
+   starts the log over, and a reader past the start falls back to a snapshot,
+   which is always correct. *Recommended; awaiting confirmation.*
