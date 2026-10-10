@@ -90,13 +90,14 @@ for the server page's Yours tab.
 **1e. Screens.** Settings › lenses; Edit a lens (reuses
 `InclusionRuleEditor`, `InclusionRuleReview` and its note picker; table with
 Everything, Joining, Leaving, Removed); the type-the-name dialog; "Lenses you
-are sharing" on the server page.
+are sharing" on the server page; the feed items from D2 and D3, D3's
+warning and what-changed popup on the lens, and the Sharing setting.
 
 ## Phase 2: joining
 
-**2a. Invite page.** Today `/invite` exists only when the server runs the
-public connector (`--public-url`); otherwise every path is 401. Serve it always
-(D4), with Open in BigBrain and Get it for Mac. `/invite/check` already reports
+**2a. Invite page.** Today `/invite` is mounted only in the connector's route
+table (`lib/sharedOAuth.ts:938`), so without `--public-url` every path is 401.
+Serve it always (D4), with Open in BigBrain and Get it for Mac. `/invite/check` already reports
 the server's name without using up the invite.
 
 **2b. Links into the app.** Nothing is registered today (Tauri 2.11; plugins:
@@ -112,10 +113,11 @@ Connections are already stored per machine, not per vault
 (`~/.config/bigbrain/shared-connections.json`).
 
 **2d. Connect your AI.** Not part of joining (D5): offered the first time
-someone tries to add something or connect an integration. Today's
-only prompt is first-run step 3 (Claude Code and Codex, on PATH).
-`lib/mcpRegister.ts:19-38` already defines Claude Desktop, Cursor and Windsurf
-targets that no screen uses. See D5.
+someone tries to add something or connect an integration, reusing first run's
+providers step (`SubscriptionConnect`) and clients step (`ClientChecklist`).
+Setup counts as done only once something powers the vault
+(`web/ui/src/lib/setup.ts:100`), so a joiner with no provider needs that gate
+relaxed. See D5.
 
 ## Decide
 
@@ -123,22 +125,55 @@ targets that no screen uses. See D5.
   empty vault at the default `~/vault` (`bin/desktop.ts:449`), connects, and
   opens the app. A mode with no vault at all would touch server startup, setup
   and every read path.
-- **D2. Consent for future matches.** Recommended: typing the lens's name when
+- **D2. Consent for future matches. Decided:** typing the lens's name when
   sharing covers future matches too; the dialog already says "every item in
-  this lens". Rule edits always preview joins and leaves.
+  this lens". Rule edits always preview joins and leaves. Each future match adds
+  a feed item, "[truncated title…] is shared with [server]", that opens the lens
+  responsible. Feed rows are assertions today (`lib/v2Feed.ts`); this is a new
+  row kind, read from the local share receipts (1d).
 - **D3. When scores shift without an edit** (the model is upgraded, or an
-  entity's aliases change). Recommended:
-  leaves apply automatically, joins wait for review. Shrinking what's shared is
-  always safe; growing it needs a look. E4 tells us how often this happens.
-- **D4. Invite page always on**, without the full public connector.
+  entity's aliases change). **Decided:** leaves always apply automatically.
+  When a change makes a shared lens include notes it didn't before, a setting
+  at the bottom of Settings › general picks what happens:
+
+  > # Sharing
+  >
+  > Sometimes, a model upgrade or vault change will cause a Lens to include
+  > items that weren't included before. If you've shared that Lens to a Server,
+  > old items may be suddenly shared. When this happens, **Conservative** mode
+  > pauses all new additions to Lens until you review the changes. In
+  > **Yee-haw** mode, the lens will keep adding items (but alert you, so you
+  > can review the change).
+  >
+  > Yee-haw [toggle] Conservative
+
+  Conservative is the default. It pauses every addition to the lens, new notes
+  included, so a rule that has become too liberal can't keep sharing while the
+  review waits. This is today's behaviour, per lens instead of per connection
+  (`lib/inclusionEvaluation.ts:23`). Its feed item: "A [model upgrade/vault
+  change] would cause you to share new items with [server]. Lens is paused
+  until you review." Yee-haw shares the new matches, with the feed item "A
+  [model upgrade/vault change] has caused you to share new items with
+  [server]." Either item opens the lens. In both modes the lens shows a warning, and a
+  popup lists what changed since the last upgrade. "Looks OK" dismisses the
+  warning for good and, in Conservative, resumes the lens. "Edit rule" opens
+  the rule editor, and the warning stays until a new rule is saved. E4 tells us
+  how often this happens.
+  The move from server rules to lenses is treated the same way, and always
+  held whatever the mode: "A BigBrain update would cause you to share new
+  items with [server]. Lens is paused until you review."
+- **D4. Invite page always on. Decided:** every server serves `/invite` and
+  `/invite/check`, whether or not it runs the Claude connector. Servers still
+  support the connector; when it's on, the invite page says so at the bottom.
 - **D5. Connecting an AI. Decided:** someone who joins read-only goes straight
   to the server's notes, with no AI or integration step. BigBrain asks only when
-  they first try to add something or connect an integration. Still open: which
-  AI clients to offer then. Claude Code and Codex exist;
-  Claude Desktop needs only wiring. Pointing claude.ai at a server's `/mcp` needs
-  the public connector, and `/authorize/invite` uses up the same one-time invite
-  the app needs. The app could mint an agent credential instead
-  (`POST /v1/credentials/agent`), but that route needs write access.
+  they first try to add something or connect an integration. It then asks for
+  what first run's steps 2 and 3 ask for today: a provider (a Claude or ChatGPT
+  subscription), which is what runs the gardener and so is required before
+  anything added gets filed, then the clients Claude Code and Codex. No Claude
+  Desktop, Cursor or Windsurf for now; Claude Desktop only if someone needs it,
+  and it would be a client, never what powers the vault. claude.ai stays out:
+  it can't reach the app, only a server's read-only connector.
 - **D6. Drop the Sources column and the Sources filter for now.** The app has no
   user-facing source field; "source" in the code means any item. Envelope `kind`
   and `source` exist if we want them later.
@@ -194,10 +229,45 @@ targets that no screen uses. See D5.
   summary, for the same rules. Then summarize the notes over the limit and
   record the one-time cost and the failure rate.
 
+  **Result (2026-10-09).** Same vault and rules as E1.
+  - *Summaries keep most of the signal.* On 129 notes Jev could read whole, a
+    summary (median about 4k characters) agreed with the full note on 92 to
+    100% of notes at a 0.6 cut-off. It lost 0 to 16% of matches (6 of 41, 0 of
+    11, 7 of 43) and added 0 to 3. Scores moved by 0.05 to 0.08 on average.
+  - *Summarizing is reliable.* 329 of 329 summaries succeeded; 2 needed a
+    retry. Quick's failures in E1 were in the JSON-scored call, not in Haiku
+    itself.
+  - *It costs a one-time pass:* all 200 notes over the limit took about $16 at
+    Haiku 5.5's API price (an upper bound: 157 prompts were over 100K tokens
+    and were priced whole at the higher rate). One call cost $0.31, so the
+    summary cap has to sit well above the $0.05 Quick cap. Median 28 s a note.
+  - *It matters for some lenses.* Scored on their summaries, 36, 3 and 83 of
+    the 200 oversized notes would join the three lenses at 0.6, mostly agent
+    chats.
+
 - **E2. Read speed with servers.** Every request pages through all of every
   server's evidence and assertions, uncached (`lib/sharedReadUnion.ts:25`). Time
   search, graph and note with 0, 1, 2 and 5 servers of realistic size. This
   decides whether 0c needs a cache first.
+
+  **Result (2026-10-10).** A synthetic personal vault (2,000 notes, 6,000
+  claims) and loopback servers of 800 notes and 2,400 claims each, read
+  through the real web server; medians of five reads.
+
+  | servers | graph | recent | search |
+  |---|---|---|---|
+  | 0 | 6 ms | 1 ms | 130 ms |
+  | 1 | 116 ms | 71 ms | 192 ms |
+  | 5 | 162 ms | 97 ms | 220 ms |
+  | 1, 60 ms a request | 431 ms | 389 ms | 582 ms |
+  | 5, 60 ms a request | 483 ms | 432 ms | 931 ms |
+
+  Servers are read in parallel, so five cost little more than one; but every
+  read pages through each server's whole history again, so a remote server
+  adds about half a second to every graph, recent and search. 0c needs a
+  cache first: keep each server's projection and refetch only when its change
+  feed has moved.
+
 - **E3. Links on macOS.** In a dev build, check that `bigbrain://` reaches the
   running app (not a second copy) from Safari, Chrome and Mail, and what each
   browser shows first.
@@ -207,12 +277,21 @@ targets that no screen uses. See D5.
   Withdrawal hides evidence but those claims stay (`lib/sharedVault.ts:716-723`).
   If the count is high, decide whether to flag them.
 
+  **Result (2026-10-10).** Two real servers, about 570 live claims in all:
+  every one was posted by a member's agent and cites only that member's own
+  notes. None cites another member's note, and none cites a note no longer
+  visible. The app's publisher only posts a claim while every source it cites
+  is the member's own active contribution, and retracts it when one is
+  withdrawn (`lib/sharedAssertionPublish.ts`), so nothing to flag today. A
+  client posting claims directly with a write credential could still cite
+  anyone's notes; revisit if that becomes a real path.
+
 Settled: withdrawal hides a note from what people see; it does not wipe it from
 the server (`docs/plans/shared-source-withdrawal.md`).
 
 ## Order
 
-1. 0a now (one PR). Then 0b. Run E1b, E2 and E3 alongside (E1 is done).
+1. 0a now (one PR). Then 0b. Run E3 alongside (E1, E1b and E2 are done).
 2. Phase 1 in three PRs: store and migration (1a, 1b); exact edits and
    publishing (1c, 1d); screens (1e).
 3. Phase 2 in two PRs: invite page and links (2a, 2b); first run and the AI
