@@ -43,6 +43,7 @@ import { sharedVaultIdentity, redeemSharedInvite, createMemberInvite, pendingMem
 import { FONT_PATHS, fontResponse, inviteLinkPage } from './sharedPages';
 import { makeSharedConnector, MCP_PATH, type SharedConnectorConfig } from "./sharedOAuth";
 import { serveSharedMcp } from "./sharedMcp";
+import { PROTOCOL_HEADER, SHARED_PROTOCOL } from "./sharedProtocol";
 import {
   listMembers, setMemberPermissions, revokeMember, mintCredential, SharedMemberError,
   addMemberByEmail, setMemberEmail, type SharedMember,
@@ -92,10 +93,11 @@ const SECURITY_HEADERS = {
   "Referrer-Policy": "no-referrer",
 };
 
+// Every reply names the API version it speaks (lib/sharedProtocol.ts).
 const json: Json = (status, body, headers = {}) =>
   new Response(`${JSON.stringify(body)}\n`, {
     status,
-    headers: { "Content-Type": "application/json; charset=utf-8", ...SECURITY_HEADERS, ...headers },
+    headers: { "Content-Type": "application/json; charset=utf-8", ...SECURITY_HEADERS, [PROTOCOL_HEADER]: String(SHARED_PROTOCOL), ...headers },
   });
 
 const unauthorized = (): Response => json(401, { error: "unauthorized" }, { "WWW-Authenticate": "Bearer" });

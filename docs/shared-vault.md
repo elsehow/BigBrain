@@ -121,6 +121,13 @@ Refusals a client will meet, by design:
   has arrived, so a member revoked or narrowed while their request body
   was still uploading has that request refused, not landed.
 
+Every JSON reply carries `BigBrain-Protocol`, the API version the door
+speaks (`lib/sharedProtocol.ts`; a door from before the header speaks 1).
+Additions — a route, an optional field — keep the number; a change that
+would make an app misread a reply raises it. The app talks only to the
+versions it knows: to any other it sends nothing and reads nothing, and
+the server page says which side needs an update.
+
 ### Idempotency and the feed
 
 Events are deterministic: evidence carries no receive timestamp and is
