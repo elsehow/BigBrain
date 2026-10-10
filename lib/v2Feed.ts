@@ -147,7 +147,8 @@ export interface V2SortedRow {
   section: "needs-you" | "agent" | "know";
   /** The stage's headline, written for the owner. */
   headline: string;
-  /** The deadline or event date (the stage's `expires`), or null. */
+  /** The date something is due by (lib/feedJournal.ts dueOf), or null: a
+   * meeting's own date is not a deadline. */
   due: string | null;
   /** When it entered the feed. */
   added: string;
@@ -159,15 +160,15 @@ export interface V2SortedRow {
   via?: string;
 }
 
-/** What the sorted feed is built from: the stage's current entries (lib/feedJournal.ts currentFeed). */
-export interface SortedEntry { source: string; section: string; headline: string; expires: string | null; assertions: string[]; added: string }
+/** What the sorted feed is built from: the stage's items (lib/feedJournal.ts feedItems). */
+export interface SortedEntry { source: string; section: string; headline: string; due: string | null; assertions: string[]; added: string }
 
 const SECTIONS: readonly V2SortedRow["section"][] = ["needs-you", "agent", "know"];
 
-/** The stage's entries, newest first, as a feed reads: what just arrived is
- * what shows (the most pressing within one arrival first). An entry whose
- * claims have all been revoked since it was sorted drops out: the record no
- * longer says it. */
+/** The stage's items, newest first, as a feed reads: what just arrived is
+ * what shows (the most pressing within one arrival first). An item whose
+ * claims have all been revoked or superseded since it was sorted drops out:
+ * the record no longer says it. */
 export function buildSortedFeed(src: V2Source, entries: readonly SortedEntry[]): V2SortedRow[] {
   const live = new Map(src.rows.map((row) => [row.id, row]));
   const out: V2SortedRow[] = [];
@@ -175,7 +176,7 @@ export function buildSortedFeed(src: V2Source, entries: readonly SortedEntry[]):
     const section = SECTIONS.find((s) => s === e.section);
     const rows = e.assertions.map((id) => live.get(id)).filter((r): r is AssertionEvent => !!r).map((r) => feedRow(src, r));
     if (!section || !rows.length) continue;
-    out.push({ source: e.source, section, headline: e.headline, due: e.expires, added: e.added, entities: [...new Set(rows.flatMap((r) => r.entities))] });
+    out.push({ source: e.source, section, headline: e.headline, due: e.due, added: e.added, entities: [...new Set(rows.flatMap((r) => r.entities))] });
   }
   return out.sort((a, b) => b.added.localeCompare(a.added) || SECTIONS.indexOf(a.section) - SECTIONS.indexOf(b.section) || a.source.localeCompare(b.source));
 }

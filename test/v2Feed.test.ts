@@ -133,8 +133,8 @@ describe("sorted feed", () => {
   const gardener = { kind: "model", id: "model-a" } as const;
   const a = row(gardener, "intake-assertion-agent", [ada], day(3)), b = row(gardener, "intake-assertion-agent", [atlas], day(5));
   const c = row(gardener, "intake-assertion-agent", [orrery], day(4)), d = row(gardener, "intake-assertion-agent", [ada, orrery], day(6));
-  const entry = (source: string, section: string, assertions: string[], expires: string | null = null, added = day(10)) =>
-    ({ source, section, headline: `About ${source}`, expires, assertions, added });
+  const entry = (source: string, section: string, assertions: string[], due: string | null = null, added = day(10)) =>
+    ({ source, section, headline: `About ${source}`, due, assertions, added });
 
   test("newest first, the most pressing first within one arrival; joined to the live claims' entities", () => {
     const rows = buildSortedFeed(source([a, b, c, d]), [
