@@ -60,7 +60,7 @@ import { parseBlobRef, readBlob } from "../lib/blobs";
 import { recentSourcePageAsync } from "../lib/sourceFeed";
 import { primaryGraphWithLayoutAsync, primaryGraphAsync } from "../lib/graphCache";
 import { buildEntityFeed, buildSortedFeed, buildV2Feed, type V2Source } from "../lib/v2Feed";
-import { addedAt, currentFeed, feedRecords } from "../lib/feedJournal";
+import { addedAt, currentFeed, dueOf, feedRecords } from "../lib/feedJournal";
 import { feedConversationOf } from "../lib/feedConversation";
 import { readV2Source } from "../lib/v2Read";
 import { tendJournalFiles } from "../lib/tend";
@@ -565,7 +565,7 @@ function v2Sorted({ res }: Ctx): void {
   try {
     const records = loadManifest(ROOT).feed ? feedRecords(ROOT) : [];
     const added = addedAt(records);
-    const entries = currentFeed(records, new Date().toLocaleDateString("en-CA"), feedConversationOf(ROOT, records)).map((e) => ({ ...e, added: added.get(e.source)! }));
+    const entries = currentFeed(records, new Date().toLocaleDateString("en-CA"), feedConversationOf(ROOT, records)).map((e) => ({ ...e, due: dueOf(e), added: added.get(e.source)! }));
     const rows = buildSortedFeed(v2Source(), entries);
     const heads = projectedSourceHeads(ROOT, rows.map((r) => r.source));
     json(res, 200, { rows: rows.map((r) => {

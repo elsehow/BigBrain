@@ -147,7 +147,8 @@ export interface V2SortedRow {
   section: "needs-you" | "agent" | "know";
   /** The stage's headline, written for the owner. */
   headline: string;
-  /** The deadline or event date (the stage's `expires`), or null. */
+  /** The date something is due by (lib/feedJournal.ts dueOf), or null: a
+   * meeting's own date is not a deadline. */
   due: string | null;
   /** When it entered the feed. */
   added: string;
@@ -160,7 +161,7 @@ export interface V2SortedRow {
 }
 
 /** What the sorted feed is built from: the stage's current entries (lib/feedJournal.ts currentFeed). */
-export interface SortedEntry { source: string; section: string; headline: string; expires: string | null; assertions: string[]; added: string }
+export interface SortedEntry { source: string; section: string; headline: string; due: string | null; assertions: string[]; added: string }
 
 const SECTIONS: readonly V2SortedRow["section"][] = ["needs-you", "agent", "know"];
 
@@ -175,7 +176,7 @@ export function buildSortedFeed(src: V2Source, entries: readonly SortedEntry[]):
     const section = SECTIONS.find((s) => s === e.section);
     const rows = e.assertions.map((id) => live.get(id)).filter((r): r is AssertionEvent => !!r).map((r) => feedRow(src, r));
     if (!section || !rows.length) continue;
-    out.push({ source: e.source, section, headline: e.headline, due: e.expires, added: e.added, entities: [...new Set(rows.flatMap((r) => r.entities))] });
+    out.push({ source: e.source, section, headline: e.headline, due: e.due, added: e.added, entities: [...new Set(rows.flatMap((r) => r.entities))] });
   }
   return out.sort((a, b) => b.added.localeCompare(a.added) || SECTIONS.indexOf(a.section) - SECTIONS.indexOf(b.section) || a.source.localeCompare(b.source));
 }

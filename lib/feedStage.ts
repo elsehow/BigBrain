@@ -5,9 +5,10 @@
  * claims it has not yet read (lib/feedConversation.ts: a thread, or every
  * landing of one source), one model call (batched) places it in one
  * section — needs the owner, an agent could do it, worth knowing, or skip —
- * with a one-line headline and, when there is a deadline, an expiry date.
- * Each call also sees the feed's three newest headlines, so it doesn't
- * announce again what the feed already says, and re-checks up to three open
+ * with a one-line headline, the date anything is due by, and the date it
+ * stops mattering. Each call also sees the feed's ten newest headlines, so
+ * the same story told again (another outlet, a column on it, a digest's
+ * recap) is skipped, not announced twice, and re-checks up to three open
  * needs-you conversations that share an entity with what it judges, so an
  * ask settled somewhere else can leave the feed.
  *
@@ -43,7 +44,7 @@ import type { RunUsage } from "./run/model";
 import { tryHold } from "./sqliteLock";
 import { plainText } from "./v2Feed";
 
-export const FEED_PROMPT_VERSION = "feed/v2";
+export const FEED_PROMPT_VERSION = "feed/v3";
 const OFF = "off (no feed: block in vault.yaml)";
 
 type Runner = typeof runAgent;
@@ -59,9 +60,10 @@ const ENTRIES_SCHEMA = {
           source: { type: "integer" },
           section: { type: "string", enum: [...FEED_SECTIONS] },
           headline: { type: "string" },
+          due: { type: ["string", "null"] },
           expires: { type: ["string", "null"] },
         },
-        required: ["source", "section", "headline", "expires"],
+        required: ["source", "section", "headline", "due", "expires"],
         additionalProperties: false,
       },
     },
@@ -158,8 +160,9 @@ export function renderFeedSource(n: number, conversation: FeedConversation): str
 }
 
 /** The feed's newest headlines, outside the conversations a call judges:
- * its own entry is about to be replaced, never a reason to skip it. */
-export function recentHeadlines(records: FeedRecord[], today: string, conversationOf: (source: string) => string, judging: ReadonlySet<string>, n = 3): string[] {
+ * its own entry is about to be replaced, never a reason to skip it. Ten,
+ * so a story still reads as told when other news landed in between. */
+export function recentHeadlines(records: FeedRecord[], today: string, conversationOf: (source: string) => string, judging: ReadonlySet<string>, n = 10): string[] {
   const added = addedAt(records);
   return currentFeed(records, today, conversationOf)
     .filter((e) => !judging.has(conversationOf(e.source)))
@@ -171,14 +174,15 @@ export function recentHeadlines(records: FeedRecord[], today: string, conversati
  * the schema cannot say — a source number in range, a real date — is
  * checked here. */
 function parseEntries(text: string, batch: FeedConversation[]): FeedEntry[] {
-  const value = JSON.parse(text) as { entries: { source: number; section: FeedSection; headline: string; expires: string | null }[] };
+  const value = JSON.parse(text) as { entries: { source: number; section: FeedSection; headline: string; due: string | null; expires: string | null }[] };
+  const day = (d: string | null) => typeof d === "string" && /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : null;
   const out: FeedEntry[] = [];
   for (const e of value.entries) {
     const conversation = batch[e.source - 1];
     if (!conversation || !e.headline.trim()) continue;
     out.push({
       source: faceOf(conversation).id, section: e.section, headline: e.headline.trim(),
-      expires: typeof e.expires === "string" && /^\d{4}-\d{2}-\d{2}$/.test(e.expires) ? e.expires : null,
+      due: day(e.due), expires: day(e.expires),
       assertions: claimsOf(conversation).map((a) => a.id),
     });
   }
@@ -244,7 +248,7 @@ export async function runFeed(opts: { root: string; manifest: Manifest; runner?:
       const recent = recentHeadlines(records, today, conversationOf, new Set(judged.map((c) => c.key)));
       const prompt = [
         `TODAY ${today}`, "", "WORKING SET", workingSet, "",
-        "Recent messages in the feed:", ...(recent.length ? recent.map((h) => `- ${h}`) : ["none yet"]), "",
+        "ALREADY IN THE FEED", ...(recent.length ? recent.map((h) => `- ${h}`) : ["none yet"]), "",
         ...judged.map((c, n) => `${renderFeedSource(n + 1, c)}\n`),
       ].join("\n");
       const base = {

@@ -4,8 +4,8 @@ import { join } from "node:path";
 import { appendAssertionEvent, assertionEntityId, createAssertionEvent, type AssertionEvent } from "../lib/assertionLog";
 import { chainHasWork } from "../lib/chain";
 import { feedConversationOf } from "../lib/feedConversation";
-import { addedAt, currentFeed, feedRecords, sortedAssertions } from "../lib/feedJournal";
-import { feedDue, feedLockFile, feedWork, runFeed } from "../lib/feedStage";
+import { addedAt, currentFeed, dueOf, feedRecords, sortedAssertions } from "../lib/feedJournal";
+import { FEED_PROMPT_VERSION, feedDue, feedLockFile, feedWork, runFeed } from "../lib/feedStage";
 import { appendSourceInsertionEvent, type SourceInsertion } from "../lib/insertionLog";
 import { loadManifest } from "../lib/manifest";
 import type { ModelRunRequest } from "../lib/run/request";
@@ -45,12 +45,12 @@ function claim(root: string, source: SourceInsertion, text: string, day = "2026-
 
 /** A scripted model: places each SOURCE by a word in its title. Every
  * request is kept so a test can read what each call was shown. */
-function scripted(place: (title: string) => { section: string; expires?: string | null } = () => ({ section: "know" })) {
+function scripted(place: (title: string) => { section: string; due?: string | null; expires?: string | null } = () => ({ section: "know" })) {
   const calls: ModelRunRequest[] = [];
   const runner = async (req: ModelRunRequest) => {
     calls.push(req);
     const titles = [...req.prompt.matchAll(/^title: (.*)$/gm)].map((m) => m[1]!);
-    const entries = titles.map((title, i) => ({ source: i + 1, headline: `headline for ${title}`, expires: null, ...place(title) }));
+    const entries = titles.map((title, i) => ({ source: i + 1, headline: `headline for ${title}`, due: null, expires: null, ...place(title) }));
     return { text: JSON.stringify({ entries }), sessionId: "s", wallMs: 1,
       usage: { input_tokens: 1, output_tokens: 1, cache_read_tokens: 0, cache_write_tokens: 0, turns: 1, cost_usd: 0.01 } };
   };
@@ -195,22 +195,45 @@ describe("the feed stage", () => {
       `[2026-08-20 11:05] Re: ${subject}`, "- You told Kit Tuesday works.",
     ].join("\n"));
     // its own last headline is about to be replaced: not "recent" to the call judging it
-    expect(prompt).toContain("Recent messages in the feed:\nnone yet\n");
+    expect(prompt).toContain("ALREADY IN THE FEED\nnone yet\n");
     expect(feedRecords(root).at(-1)!.entries.map((e) => e.source)).toEqual([sent.id]);
     // what you sent settles it: the thread leaves the feed, its ask with it
     expect(feedNow(root)).toEqual([]);
   });
 
-  test("each call sees the feed's three newest headlines, the last call's included", async () => {
-    const items = ["alpha", "beta", "gamma", "delta", "epsilon"].map((title) => insertion({ title }));
+  test("each call sees the feed's ten newest headlines, the last call's included, and never a skip", async () => {
+    const titles = ["alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta", "iota", "kappa", "lambda", "mu", "noise"];
+    const items = titles.map((title) => insertion({ title }));
     const root = vault(FEED_YAML("  batch: 1\n"), ...items);
     for (const item of items) claim(root, item, `Something about ${item.title}.`);
-    const m = scripted();
+    const m = scripted((t) => ({ section: t === "beta" ? "skip" : "know" }));
     await runFeed({ root, manifest: loadManifest(root), runner: m.runner, now: ticking() });
-    const recent = (i: number) => m.calls[i]!.prompt.split("Recent messages in the feed:\n")[1]!.split("\n\n")[0];
+    const recent = (i: number) => m.calls[i]!.prompt.split("ALREADY IN THE FEED\n")[1]!.split("\n\n")[0];
     expect(recent(0)).toBe("none yet");
     expect(recent(1)).toBe("- headline for alpha");
-    expect(recent(4)).toBe("- headline for delta\n- headline for gamma\n- headline for beta");
+    expect(recent(2)).toBe("- headline for alpha");
+    expect(recent(12)).toBe(["mu", "lambda", "kappa", "iota", "theta", "eta", "zeta", "epsilon", "delta", "gamma"].map((t) => `- headline for ${t}`).join("\n"));
+  });
+
+  test("a date is due only where something is to be done by it; a meeting's own date only expires", async () => {
+    const [form, meeting, news] = [insertion({ title: "form" }), insertion({ title: "meeting" }), insertion({ title: "news" })];
+    const root = vault(FEED_YAML(), form, meeting, news);
+    claim(root, form, "Sign the permit form by the 30th.");
+    claim(root, meeting, "Kit accepted the review meeting on the 28th.");
+    claim(root, news, "The library extended its hours.");
+    const m = scripted((t) => t === "form" ? { section: "needs-you", due: "2026-08-30", expires: "2026-08-30" }
+      : t === "meeting" ? { section: "know", expires: "2026-08-28" } : { section: "know", due: "2026-08-29" });
+    await runFeed({ root, manifest: loadManifest(root), runner: m.runner, now });
+    expect(m.calls[0]!.instructions).toContain("`due`");
+    expect(feedRecords(root)[0]!.prompt_version).toBe(FEED_PROMPT_VERSION);
+    const due = Object.fromEntries(feedNow(root).map((e) => [e.headline, dueOf(e)]));
+    // know asks for nothing, so a date it carries is never due
+    expect(due).toEqual({ "headline for form": "2026-08-30", "headline for meeting": null, "headline for news": null });
+    // before feed/v3 an entry had only expires: due where it asks for action
+    const legacy = { source: "ins_x", headline: "h", assertions: [], expires: "2026-08-30" };
+    expect(dueOf({ ...legacy, section: "agent" })).toBe("2026-08-30");
+    expect(dueOf({ ...legacy, section: "know" })).toBeNull();
+    expect(dueOf({ ...legacy, section: "needs-you", due: null })).toBeNull();
   });
 
   test("an open ask that shares an entity with the news is judged beside it, and the newer judgment settles it", async () => {

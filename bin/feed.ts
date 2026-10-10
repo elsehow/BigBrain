@@ -14,7 +14,7 @@
 import { requireVaultRoot } from "../lib/engine";
 import { hasFlag } from "../lib/cliflags";
 import { feedConversationOf } from "../lib/feedConversation";
-import { currentFeed, feedRecords, type FeedEntry } from "../lib/feedJournal";
+import { currentFeed, dueOf, feedRecords, type FeedEntry } from "../lib/feedJournal";
 import { feedDue, runFeed } from "../lib/feedStage";
 import { loadManifest } from "../lib/manifest";
 
@@ -46,7 +46,10 @@ if (hasFlag(argv, "json")) {
     const rows = entries.filter((e) => e.section === section);
     if (!rows.length) continue;
     console.log(`\n${title}`);
-    for (const e of rows) console.log(`  ${e.headline}${e.expires ? `  (until ${e.expires})` : ""}`);
+    for (const e of rows) {
+      const due = dueOf(e);
+      console.log(`  ${e.headline}${due ? `  (due ${due})` : e.expires ? `  (until ${e.expires})` : ""}`);
+    }
   }
   if (!entries.length) console.log("feed: empty");
   console.error(`\nfeed: next run — ${feedDue(root, manifest.feed).reason}`);
