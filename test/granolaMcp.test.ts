@@ -3,8 +3,9 @@ import {existsSync,mkdirSync,rmSync,readdirSync,statSync,writeFileSync} from 'no
 import {dirname,join} from 'node:path';
 import {nativeVault} from './support/vault';
 import {sha256hex} from '../lib/hash';
-import {fakeGranola as fake} from './support/granolaFake';
-import {startGranolaSignIn,granolaSignInStatus,cancelGranolaSignIn,granolaConnection,disconnectGranola,withGranola,mcpData} from '../lib/granolaMcp';
+import {fakeGranola as fake,fixtureAccountInfo} from './support/granolaFake';
+import {startGranolaSignIn,granolaSignInStatus,cancelGranolaSignIn,granolaConnection,disconnectGranola,withGranola,mcpData,granolaLapsed,granolaNoticeCleared,clearGranolaNotice} from '../lib/granolaMcp';
+import {PollError} from '../lib/integrationStatus';
 
 test('Granola OAuth binds state, isolates two accounts, persists privately and disconnects',async()=>{
  const root=nativeVault(),f=fake();
@@ -21,7 +22,7 @@ test('Granola OAuth binds state, isolates two accounts, persists privately and d
    expect(await response.text()).toContain('Granola connected');expect(committed).toBe(true);
    expect(granolaSignInStatus(root,account)?.phase).toBe('connected');
    const info=await withGranola(root,account,async c=>mcpData(await c.callTool({name:'get_account_info',arguments:{}}) as any),{endpoint:f.endpoint});
-   expect(info).toEqual({email:account+'@example.test',workspace:'fixture'});
+   expect(info).toEqual(fixtureAccountInfo(account+'@example.test'));
   }
   expect(f.registered()).toBe(2);
   for(const file of readdirSync(join(root,'.spool/source-mcp/granola')))expect(statSync(join(root,'.spool/source-mcp/granola',file)).mode&0o777).toBe(0o600);
@@ -183,5 +184,43 @@ test('the pid-lock directory earlier versions left beside a sign-in is removed',
   mkdirSync(legacy,{recursive:true});writeFileSync(join(legacy,'pid'),'999999999\n');
   await withGranola(root,'granola',async()=>null,{endpoint:f.endpoint});
   expect(existsSync(legacy)).toBe(false);
+ }finally{disconnectGranola(root,'granola');f.server.stop(true);rmSync(root,{recursive:true,force:true});}
+});
+test('a field Granola adds to its account info is the same account; another workspace lapses the sign-in until it is signed in again',async()=>{
+ const root=nativeVault(),f=fake(()=>result('current meeting data'));
+ const service=new IntegrationAccounts(root,{granolaSignIn:(r,a,cb)=>startGranolaSignIn(r,a,cb,{endpoint:f.endpoint})});
+ const read=()=>withGranola(root,'granola',async()=>'read',{endpoint:f.endpoint});
+ const row=()=>service.list().accounts.find(a=>a.name==='granola') as {reconnect?:boolean}|undefined;
+ try{
+  await connect(service,root);
+  f.setAccountInfo(email=>({...fixtureAccountInfo(email),sign_out_url:'https://example.test/logout'}));
+  expect(await read()).toBe('read');
+  // an answer that no longer names the account is a format change, not another account
+  f.setAccountInfo(()=>({mcp_plan:'plus'}));
+  await expect(read()).rejects.toMatchObject({code:'format'});expect(granolaLapsed(root,'granola')).toBe(false);
+  f.setAccountInfo(email=>fixtureAccountInfo(email,'another-workspace'));
+  const changed=await read().catch(e=>e);
+  expect(changed).toBeInstanceOf(PollError);expect(changed).toMatchObject({code:'reconnect',message:expect.stringContaining('active workspace changed')});
+  expect(granolaLapsed(root,'granola')).toBe(true);expect(row()?.reconnect).toBe(true);
+  // lapsed, it asks Granola nothing more, even once the answer would match again
+  f.setAccountInfo(email=>fixtureAccountInfo(email));const calls=f.calls.length;
+  await expect(read()).rejects.toMatchObject({code:'reconnect'});expect(f.calls.length).toBe(calls);
+  clearGranolaNotice(root,'granola');expect(granolaNoticeCleared(root,'granola')).toBe(true);expect(granolaLapsed(root,'granola')).toBe(true);
+  await connect(service,root);
+  expect(granolaLapsed(root,'granola')).toBe(false);expect(granolaNoticeCleared(root,'granola')).toBe(false);expect(row()?.reconnect).toBeUndefined();
+  expect(await read()).toBe('read');
+ }finally{disconnectGranola(root,'granola');f.server.stop(true);rmSync(root,{recursive:true,force:true});}
+});
+test('reconnecting the same account keeps who may read it, though Granola added a field; another workspace starts with no grants',async()=>{
+ const root=nativeVault(),f=fake(()=>result('current meeting data'));
+ const service=new IntegrationAccounts(root,{granolaSignIn:(r,a,cb)=>startGranolaSignIn(r,a,cb,{endpoint:f.endpoint})});
+ const grants=()=>accountPolicy(root,'granola','granola').grants;
+ try{
+  await connect(service,root);
+  const before=grants();expect(before.length).toBeGreaterThan(0);
+  f.setAccountInfo(email=>({...fixtureAccountInfo(email),sign_out_url:'https://example.test/logout'}));
+  await connect(service,root);expect(grants()).toEqual(before);
+  f.setAccountInfo(email=>fixtureAccountInfo(email,'another-workspace'));
+  await connect(service,root);expect(grants()).toEqual([]);
  }finally{disconnectGranola(root,'granola');f.server.stop(true);rmSync(root,{recursive:true,force:true});}
 });

@@ -5,7 +5,7 @@ import { existsSync } from "node:fs";
 import { z } from "zod";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
-import { cancelGranolaSignIn, disconnectGranola, GRANOLA_READ_TOOLS, granolaConnection, granolaSignInStatus, startGranolaSignIn, withGranola } from "../granolaMcp";
+import { cancelGranolaSignIn, clearGranolaNotice, disconnectGranola, GRANOLA_READ_TOOLS, granolaAccountSubject, granolaConnection, granolaLapsed, granolaNoticeCleared, granolaSignInStatus, startGranolaSignIn, withGranola } from "../granolaMcp";
 import { readEnvValues } from "../envFile";
 import { sha256hex } from "../hash";
 import { upstreamForAgent, upstreamToolsForAgent } from "../agentReads";
@@ -65,7 +65,10 @@ export const granola: Integration = {
   // envKey: the retired API key, still part of a legacy activation's fingerprint
   credential: { kind: "oauth", envKey: a => accountEnvKey("GRANOLA_API_KEY", "granola", a), signedIn: (root, a) => !!granolaConnection(root, a),
     signIn: { start: (root, a, onConnected) => startGranolaSignIn(root, a, onConnected), status: granolaSignInStatus, cancel: cancelGranolaSignIn,
-      disconnect: disconnectGranola, identity: (root, a) => granolaConnection(root, a)?.identity } },
+      disconnect: disconnectGranola, identity: (root, a) => granolaConnection(root, a)?.identity,
+      lapsed: granolaLapsed, noticeCleared: granolaNoticeCleared, clearNotice: clearGranolaNotice,
+      // known by account and active workspace, not the whole answer: Granola adds fields to it
+      subject: granolaAccountSubject } },
   accounts: root => ["granola", ...extraAccounts(root, "granola").map(a => a.id)],
   fingerprint: (root, account) => sha256hex(JSON.stringify([account, granolaConnection(root, account)?.generation ?? "disconnected"])),
   live: { read: "Read current meeting notes, transcripts and folders via Granola MCP. Does not change meetings or remember evidence.", write: null },

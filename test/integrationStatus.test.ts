@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { integrationStatus, PollError, withPollStatus } from "../lib/integrationStatus";
+import { integrationStatus, PollError, pollErrorCode, pollHealth, withPollStatus } from "../lib/integrationStatus";
 const scratch = () => mkdtempSync(join(tmpdir(), "bb-poll-status-"));
 
 test("quiet successful polls update checked time independently of last arrival", async () => {
@@ -42,4 +42,35 @@ test("import progress is visible, corrupt status recovers, and stopped imports d
   });
   writeFileSync(join(root, ".state/integrations/that-tracks.json"), "{");
   expect(integrationStatus(root, "that-tracks", true, true).state).toBe("waiting");
+});
+
+test("a failure's code, streak and start ride the receipt; success ends the streak", async () => {
+  const root = scratch();
+  await expect(withPollStatus(root, "granola", async () => { throw new PollError("Reconnect it", "reconnect"); })).rejects.toThrow();
+  const first = integrationStatus(root, "granola", true, true);
+  expect(first).toMatchObject({ state: "error", label: "Reconnect it", code: "reconnect", needsAction: true });
+  expect(first.failingSince).toBeTruthy();
+  await expect(withPollStatus(root, "granola", async () => { throw Object.assign(new Error("Unable to connect"), { code: "ConnectionRefused" }); })).rejects.toThrow();
+  expect(integrationStatus(root, "granola", true, true)).toMatchObject({ code: "network", needsAction: false, failingSince: first.failingSince });
+  const health = pollHealth(root, "granola", Date.parse(first.failingSince!) + 2 * 3_600_000);
+  expect(health).toEqual({ state: "error", code: "network", failures: 2, failingHours: 2 });
+  await withPollStatus(root, "granola", async () => ({ arrivals: 0 }));
+  const ok = integrationStatus(root, "granola", true, true);
+  expect(ok.state).toBe("ok"); expect(ok.code).toBeUndefined(); expect(ok.failingSince).toBeUndefined();
+  expect(pollHealth(root, "granola")).toEqual({ state: "ok", failures: 0, failingHours: 0 });
+});
+
+test("a poll killed mid-run neither ends nor restarts a streak; unknown errors and forged codes say nothing", async () => {
+  const root = scratch(), file = join(root, ".state/integrations/granola.json");
+  await expect(withPollStatus(root, "granola", async () => { throw new Error("secret-key"); })).rejects.toThrow();
+  const since = integrationStatus(root, "granola", true, true).failingSince;
+  await withPollStatus(root, "granola", async () => {
+    expect(JSON.parse(readFileSync(file, "utf8"))).toMatchObject({ state: "checking", failures: 1, failingSince: since });
+    throw new DOMException("timed out", "TimeoutError");
+  }).catch(() => {});
+  expect(pollHealth(root, "granola")).toMatchObject({ code: "network", failures: 2 });
+  expect(pollErrorCode(new Error("anything"))).toBe("unknown");
+  writeFileSync(file, JSON.stringify({ state: "error", at: new Date().toISOString(), code: "secret-key", failures: "many" }));
+  expect(pollHealth(root, "granola")).toEqual({ state: "error", failures: 0, failingHours: 0 });
+  expect(integrationStatus(root, "granola", true, true).code).toBeUndefined();
 });

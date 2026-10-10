@@ -8,7 +8,7 @@ import { rmSync } from "node:fs";
 import { join } from "node:path";
 import type { ImapFlow } from "imapflow";
 import { gitVault } from "./support/vault";
-import { fakeGranola } from "./support/granolaFake";
+import { fakeGranola, fixtureAccountInfo } from "./support/granolaFake";
 import { writeAtomic } from "../lib/fsx";
 import { sha256hex } from "../lib/hash";
 import { mintToken } from "../lib/auth";
@@ -32,7 +32,7 @@ const granola = fakeGranola((name, args) => ({ content: [{ type: "text", text: `
 afterAll(() => { granola.server.stop(true); if (originalStore === undefined) delete process.env.BIGBRAIN_TOKENS; else process.env.BIGBRAIN_TOKENS = originalStore; rmSync(root, { recursive: true, force: true }); });
 
 writeAtomic(join(root, ".spool/source-mcp/granola", sha256hex("granola") + ".json"), JSON.stringify({ generation: "fixture", connected: true, redirect: "http://127.0.0.1/callback",
-  tokens: { access_token: "synthetic", token_type: "Bearer" }, identity: { email: "work@example.test", workspace: "fixture" } }), 0o600);
+  tokens: { access_token: "synthetic", token_type: "Bearer" }, identity: fixtureAccountInfo("work@example.test") }), 0o600);
 const reader = mintToken(store, root, "Reader agent", ["vault:read"], { kind: "agent" });
 const policy = (name: string, account: string, grants: { caller: string; access: "read" | "read-write" }[]) =>
   writeAccountPolicy(root, name, account, { version: 3, connected: true, fingerprint: accountFingerprint(root, name, account), checkedAt: "2026-01-01T00:00:00.000Z", grants });
