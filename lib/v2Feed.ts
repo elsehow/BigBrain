@@ -113,15 +113,21 @@ export function plainText(text: string): string {
   return text.replace(/\[\[[^|\]]*\|([^\]]*)\]\]/g, "$1").replace(/\[\[([^\]]*)\]\]/g, "$1").replace(/\s+/g, " ").trim();
 }
 
+const canonical = (src: V2Source, id: string) => src.aliases.canonical.get(id)?.id ?? id;
 const feedRow = (src: V2Source, row: AssertionEvent): V2FeedRow => {
   const at = src.firstAt.get(row.id) ?? row.created_at;
   const ran = src.models?.get(row.id);
   return {
     id: row.id, at, ...(at !== row.created_at ? { writtenAt: row.created_at } : {}),
     author: authorOf(row, !!ran), by: ran ?? row.author.id, model: !!ran || namesModel(row.author), text: plainText(row.text),
-    entities: [...new Set(row.entities.map((e) => src.aliases.canonical.get(e.id)?.id ?? e.id))],
+    entities: [...new Set(row.entities.map((e) => canonical(src, e.id)))],
   };
 };
+/** The entities named by claims that cite any of these notes (personal
+ * source ids): a lens, as the field filters to it. */
+export function entitiesCiting(src: V2Source, sourceIds: ReadonlySet<string>): string[] {
+  return [...new Set(src.rows.filter((r) => r.sources?.some((s) => sourceIds.has(s.source_id))).flatMap((r) => r.entities.map((e) => canonical(src, e.id))))];
+}
 const byRecorded = (a: V2FeedRow, b: V2FeedRow) => a.at.localeCompare(b.at) || a.id.localeCompare(b.id);
 
 export function buildV2Feed(src: V2Source): V2Feed {

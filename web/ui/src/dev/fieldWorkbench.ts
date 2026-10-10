@@ -35,8 +35,14 @@ if (new URLSearchParams(location.search).has("update")) update.available = { ver
 await installGraphFixture();
 
 const NAMES = ["Orrery repair", "Atlas survey", "Kit Brennan", "Briar Lowe", "Harbor lab", "Ridgeway trail", "Lantern grant", "Quill press", "Tidewater review", "Marlow studio"];
+// `?servers` (fakeApi's Garden club and three lenses): Garden logistics is
+// shared with Garden club, so its entities are on the server too, beside one
+// only the server has; hovering the gear lists them, and one filters the field.
+const serversScene = new URLSearchParams(location.search).has("servers");
+const LENS_ENTITIES: Record<string, string[]> = { lens_00000000000a: ["ent_0", "ent_2", "ent_3", "ent_9"], lens_00000000000b: ["ent_1", "ent_5"], lens_00000000000c: ["ent_4", "ent_6", "ent_8"] };
+const vaultsOf = (id: string) => !serversScene ? {} : id === "ent_7" ? { vaults: ["garden"] } : LENS_ENTITIES.lens_00000000000a!.includes(id) ? { vaults: ["personal", "garden"] } : {};
 const entities = empty ? [] : NAMES.map((title, i) => ({ id: `ent_${i}`, title, group: "entity", entity: true as const, degree: 10 - i,
-  path: `projection/entities/ent_${i}.md`, x: Math.cos(i * 0.9) * (80 + i * 18), y: Math.sin(i * 0.9) * (80 + i * 18) }));
+  path: `projection/entities/ent_${i}.md`, x: Math.cos(i * 0.9) * (80 + i * 18), y: Math.sin(i * 0.9) * (80 + i * 18), ...vaultsOf(`ent_${i}`) }));
 const twinScene = new URLSearchParams(location.search).has("twins");
 const hex = (c: string) => `ent_${c.repeat(20)}`;
 const TWINS = twinScene ? [
@@ -144,6 +150,7 @@ const fake = window.fetch;
   const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url, location.origin);
   const json = (v: unknown, status = 200) => new Response(JSON.stringify(v), { status, headers: { "content-type": "application/json" } });
   if (url.pathname === "/api/graph") return json(graph);
+  if (serversScene && url.pathname === "/api/lenses/entities") return json({ entities: LENS_ENTITIES[url.searchParams.get("id") ?? ""] ?? [] });
   // recents from this vault, not the fixture's: what search lists before you type.
   // One row per path, as the engine's: a feed source is a graph node too.
   if (url.pathname === "/api/recent") {

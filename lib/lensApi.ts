@@ -118,14 +118,18 @@ function detail(root:string,store:string,lens:Lens){
   notes:lens.members.flatMap(row),review:lens.review&&lens.review.at?{...lens.review,joins:lens.review.joins.flatMap(row),leaves:lens.review.leaves.flatMap(row)}:undefined};
 }
 
-export async function lensApi(req:IncomingMessage,res:ServerResponse,root:string){
+/** `entitiesOf`: the entities claims citing these notes name (web/server.ts reads the record). */
+export async function lensApi(req:IncomingMessage,res:ServerResponse,root:string,entitiesOf:(sourceIds:ReadonlySet<string>)=>string[]){
  const url=new URL(req.url??'/','http://localhost');if(!url.pathname.startsWith('/api/lenses'))return false;
  if(!allowVaultRequest(req,res,vaultIdentity(root)))return true;
  const store=connectionStorePath(),action=url.pathname.slice('/api/lenses'.length).replace(/^\//,'');
  try{
   if(req.method==='GET'){
    if(action===''){json(res,200,{lenses:listLenses(root,store).map(l=>summary(store,l)),servers:readConnections(store).map(c=>({id:c.id,name:c.name})),mode:sharingMode(store)});return true;}
-   if(action==='lens'){const lens=readLens(root,store,checkId(url.searchParams.get('id')));if(!lens)throw Error('This lens no longer exists.');json(res,200,detail(root,store,lens));return true;}
+   if(action==='lens'||action==='entities'){
+    const lens=readLens(root,store,checkId(url.searchParams.get('id')));if(!lens)throw Error('This lens no longer exists.');
+    json(res,200,action==='lens'?detail(root,store,lens):{entities:entitiesOf(new Set(lens.members))});return true;
+   }
    if(action==='notes'){
     const words=(url.searchParams.get('q')??'').toLowerCase().trim().split(/\s+/).filter(Boolean),out:{id:string;title:string;date:string;path:string}[]=[];
     for(const n of lensNotes(root).reverse()){if(out.length>=20)break;const text=(n.title+'\n'+n.body).toLowerCase();if(words.every(w=>text.includes(w)))out.push({id:n.source_id,title:n.title,date:(n.insertion.received_at??n.insertion.occurred_at??'').slice(0,10),path:insertionEventRel(n.insertion)});}
