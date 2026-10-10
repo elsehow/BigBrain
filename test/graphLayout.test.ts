@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { Graph } from "../lib/graph";
 import { NODE_R_MAX, nodeRadius, nodeSpacing, seedPosition } from "../lib/graphGeometry";
-import { computeLayout } from "../lib/graphLayout";
+import { computeLayout, neighbourSignatures, placeLayout } from "../lib/graphLayout";
 
 // The force layout, moved out of the browser (web/ui/src/lib/layout.worker.ts,
 // deleted 2026-08-17). What matters is not the exact coordinates — a force
@@ -97,5 +97,57 @@ describe("graphGeometry", () => {
     expect(new Set(seeds.map(([x, y]) => `${x},${y}`)).size).toBe(50);
     // Monotonically outward: the spiral's radius is 12*sqrt(i+0.5).
     expect(Math.hypot(...seeds[49]!)).toBeGreaterThan(Math.hypot(...seeds[0]!));
+  });
+});
+
+describe("placeLayout", () => {
+  // Twenty fabricated hubs of ten leaves each: a settled vault in miniature.
+  const ids: string[] = [], edges: [string, string][] = [];
+  for (let h = 0; h < 20; h++) {
+    ids.push(`hub${h}`);
+    for (let l = 0; l < 10; l++) { ids.push(`leaf${h}-${l}`); edges.push([`hub${h}`, `leaf${h}-${l}`]); }
+  }
+  const base = graph(ids, edges);
+  const settled = computeLayout(base);
+  const before = neighbourSignatures(base);
+  const nearest = (out: Record<string, [number, number]>, id: string) =>
+    Math.min(...Object.entries(out).filter(([o]) => o !== id).map(([, p]) => dist(p, out[id]!)));
+
+  test("a new node lands by what it connects to, and nothing else moves", () => {
+    const next = graph([...ids, "new"], [...edges, ["new", "leaf3-4"]]);
+    const placed = placeLayout(next, settled, before)!;
+    // it and the leaf it joined moved; every other node stands exactly where it was
+    expect(placed.moved).toBe(2);
+    for (const id of ids) if (id !== "leaf3-4") expect(placed.positions[id]).toEqual(settled[id]!);
+    expect(dist(placed.positions["new"]!, placed.positions["leaf3-4"]!)).toBeLessThan(80);
+    expect(nearest(placed.positions, "new")).toBeGreaterThan(nodeSpacing(1));
+  });
+
+  test("a node that was alone joins what it now connects to", () => {
+    const lonely = graph([...ids, "drop"], edges);
+    const withDrop = placeLayout(lonely, settled, before)!;
+    const filed = graph([...ids, "drop"], [...edges, ["drop", "hub7"]]);
+    const placed = placeLayout(filed, withDrop.positions, neighbourSignatures(lonely))!;
+    expect(dist(placed.positions["drop"]!, placed.positions["hub7"]!)).toBeLessThan(120);
+  });
+
+  test("a lone new node lands among the lone nodes a settle spread, not outside them", () => {
+    const loners = Array.from({ length: 12 }, (_, i) => `alone${i}`);
+    const field = graph([...ids, ...loners], edges);
+    const spread = computeLayout(field);
+    const placed = placeLayout(graph([...ids, ...loners, "arrival"], edges), spread, neighbourSignatures(field))!;
+    const radii = loners.map((id) => Math.hypot(...spread[id]!));
+    const r = Math.hypot(...placed.positions["arrival"]!);
+    expect(r).toBeGreaterThan(Math.min(...radii) - 60);
+    expect(r).toBeLessThan(Math.max(...radii) + 60);
+  });
+
+  test("a change that moves no connection places nothing", () => {
+    const reweighed: Graph = { ...base, edges: base.edges.map((e, i) => (i ? e : { ...e, weight: 2 })), hash: "h2" };
+    expect(placeLayout(reweighed, settled, before)).toEqual({ positions: settled, moved: 0 });
+  });
+
+  test("a graph mostly new is settled whole, not placed", () => {
+    expect(placeLayout(base, { hub0: settled["hub0"]! }, before)).toBeUndefined();
   });
 });

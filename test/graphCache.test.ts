@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdtempSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Graph } from "../lib/graph";
@@ -69,6 +69,32 @@ describe("layout cache", () => {
     const after = graphWithLayout(root, graph("h2", ["a.md", "b.md", "c.md", "d.md", "e.md"], [["a.md", "b.md"], ["c.md", "d.md"], ["d.md", "e.md"]]));
     const now = after.nodes.find((n) => n.id === "a.md")!;
     expect(Math.hypot(now.x! - was.x!, now.y! - was.y!)).toBeLessThan(120);
+  });
+
+  test("a small change is placed; once placements add up to a tenth of the graph, it settles whole", () => {
+    const root = fresh();
+    const ids = Array.from({ length: 40 }, (_, i) => `n${i}.md`);
+    const chain = ids.slice(1).map((id, i) => [ids[i]!, id] as [string, string]);
+    graphWithLayout(root, graph("h0", ids, chain));
+    const settled = readLayoutCache(root)!;
+    expect(settled.moved).toBe(0);
+    // one new node on the end: it and n39 move, the rest stand still
+    graphWithLayout(root, graph("h1", [...ids, "x0.md"], [...chain, ["n39.md", "x0.md"]]));
+    const placed = readLayoutCache(root)!;
+    expect(placed.moved).toBe(2);
+    expect(placed.positions["n0.md"]).toEqual(settled.positions["n0.md"]!);
+    // more of them: past 10% of the graph, a whole settle, and the count starts over
+    graphWithLayout(root, graph("h2", [...ids, "x0.md", "x1.md", "x2.md"], [...chain, ["n39.md", "x0.md"], ["x0.md", "x1.md"], ["x1.md", "x2.md"]]));
+    expect(readLayoutCache(root)!.moved).toBe(0);
+  });
+
+  test("a layout saved before placement settles whole once, then places", () => {
+    const root = fresh();
+    graphWithLayout(root, graph("h1", ["a.md", "b.md"], [["a.md", "b.md"]]));
+    const { hash, positions } = readLayoutCache(root)!;
+    writeFileSync(join(root, ".state", "graph-layout-assertions.json"), JSON.stringify({ hash, positions }));
+    graphWithLayout(root, graph("h2", ["a.md", "b.md", "c.md"], [["a.md", "b.md"]]));
+    expect(readLayoutCache(root)!.neighbours).toBeDefined();
   });
 
   test("an unwritable .state costs a re-settle, never the request", () => {
