@@ -30,6 +30,7 @@
   import { keyText, registerShortcuts, RANK } from "../lib/shortcuts.svelte";
   import { keyboardHints } from "../lib/keyboardHints.svelte";
   import { graphSources } from "../lib/graphSources.svelte";
+  import { lensRequest, type LensSummary, type ServerRef } from "../lib/lenses.svelte";
   import { serializeMentions, type MentionItem } from "../../../../lib/pilotMentions";
   import { mentionRecents, mentionSearch } from "../lib/mentionSources";
 
@@ -43,6 +44,7 @@
   let hudEl: HTMLElement | undefined = $state();
   let feedEl: HTMLElement | undefined = $state();
   let searchEl: HTMLElement | undefined = $state();
+  let lensesEl: HTMLElement | undefined = $state();
   let qEl: HTMLInputElement | undefined = $state();
   let sidebarEl: HTMLElement | undefined = $state();
   /** The chat's width, when you've dragged the split (null: the default
@@ -709,7 +711,7 @@
       const [graph, sq] = data ? [data.graph, data.v2] : await Promise.all([api.graph(), api.v2()]);
       writing = sq;
       refreshSorted();
-      if (!data) void loadFolds();
+      if (!data) { void loadFolds(); void loadLensRows(); }
       await drawField(graph);
     } catch (e) {
       error = errText(e);
@@ -725,7 +727,7 @@
     const camera = scene?.camera();
     scene?.dispose();
     scene = createV2Scene(host, field, {
-      blockers: () => [hudEl, feedEl, searching ? searchEl : undefined, chatEl, sidebarEl].filter((e): e is HTMLElement => !!e).map((e) => e.getBoundingClientRect()).filter((r) => r.height > 0),
+      blockers: () => [hudEl, feedEl, searching ? searchEl : undefined, chatEl, sidebarEl, lensesEl].filter((e): e is HTMLElement => !!e).map((e) => e.getBoundingClientRect()).filter((r) => r.height > 0),
       onPick,
       onPickPilot: (id) => (openPilot === id ? closePilot() : openPilotChat(id)),
       onHover: relateTie,
@@ -733,6 +735,7 @@
       sources: () => graphSources.show,
     }, camera);
     scene.setPilots(placePilots(field, bar));
+    applyLens();
     sceneRev++;
   }
   /** The vault changed (the engine's /api/events ping, as the app's views
@@ -862,9 +865,33 @@
     scene?.shift(shiftFor());
   }
 
+  // ── lenses and servers: one filters the field ─────────────────────────
+  type LensRow = { id: string; name: string; kind: "lens" | "server" };
+  let lensRows: LensRow[] = $state([]);
+  let lensOn: string | null = $state(null);
+  let lensIds: string[] = [];
+  async function loadLensRows(): Promise<void> {
+    const r = await lensRequest<{ lenses: LensSummary[]; servers: ServerRef[] }>("").catch(() => null);
+    if (r) lensRows = [...r.lenses.map((l): LensRow => ({ id: l.id, name: l.name, kind: "lens" })), ...r.servers.map((s): LensRow => ({ id: s.id, name: s.name, kind: "server" }))];
+  }
+  /** The chosen lens or server, as the field's filter. */
+  const applyLens = () => scene?.filter(lensOn && field ? indicesOf(lensIds) : null);
+  async function toggleLens(v: LensRow): Promise<void> {
+    if (!field) return;
+    if (lensOn === v.id) { lensOn = null; lensIds = []; applyLens(); return; }
+    lensOn = v.id;
+    const ids = v.kind === "server" ? field.nodes.flatMap((n) => n.servers.includes(v.id) ? [n.id] : [])
+      : (await lensRequest<{ entities: string[] }>(`entities?id=${v.id}`).catch(() => ({ entities: [] }))).entities;
+    if (lensOn !== v.id) return;
+    lensIds = ids;
+    applyLens();
+  }
+
   // ── walking the feed ──────────────────────────────────────────────────
   function closeSource(): void { if (src || claim) { src = null; claim = null; scene?.search(null); } }
-  const feedEntities = (r: { entities: string[] }) => r.entities.map((id) => field!.byId.get(id)).filter((x): x is number => x != null);
+  /** Entity ids, as the field's indices (those it draws). */
+  const indicesOf = (ids: string[]) => ids.map((id) => field!.byId.get(id)).filter((x): x is number => x != null);
+  const feedEntities = (r: { entities: string[] }) => indicesOf(r.entities);
   const cursorRow = () => sorted.find((r) => r.source === cursor) ?? null;
   /** The feed row under the pointer: set as the pointer moves, not on enter,
    * so a row the walk scrolls under a resting pointer isn't taken for one pointed at. */
@@ -1381,12 +1408,22 @@
       {/each}
       <button type="button" class="new" onclick={() => void createPilot([])} title={`New Desktop ${keyText("new") && `(${keyText("new")})`}`}>+ <span class="k keyboard-hint">{keyText("new")}</span></button>
       <button type="button" class="find" onclick={openSearch}>Search <span class="k keyboard-hint">{keyText("search")}</span></button>
-      <button type="button" class="gear" onclick={openSettings} title={`Settings ${keyText("settings") && `(${keyText("settings")})`}`} aria-label="Settings">
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
-          <circle cx="12" cy="12" r="3" />
-          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.08a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.08a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-        </svg>
-      </button>
+      <span class="gearwrap">
+        <button type="button" class="gear" onclick={openSettings} aria-label="Settings">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+            <circle cx="12" cy="12" r="3" />
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.08a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.08a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+          </svg>
+        </button>
+        {#if lensRows.length}
+          <div class="lenses" bind:this={lensesEl} role="group" aria-label="Lenses and servers">
+            {#each lensRows as v, k (v.kind + v.id)}
+              {#if v.kind === "server" && lensRows[k - 1]?.kind !== "server"}<span class="lenshead">Servers</span>{/if}
+              <button type="button" class="lensrow" class:on={lensOn === v.id} aria-pressed={lensOn === v.id} onclick={() => void toggleLens(v)}>{v.name}</button>
+            {/each}
+          </div>
+        {/if}
+      </span>
     </nav>
   {/if}
 
@@ -1695,6 +1732,15 @@
   .tok.on .k { color: color-mix(in srgb, var(--bg) 65%, var(--fg)); }
   .new { color: var(--v2-muted); }
   .find.lit { color: var(--fg); }
+  /* the lenses and servers show while the pointer is on the gear or on them */
+  .strip .gearwrap { flex: none; position: relative; display: inline-flex; }
+  .lenses { position: absolute; top: 100%; right: 0; width: max-content; display: none; flex-direction: column; align-items: flex-end; gap: 2px; padding-top: 6px; }
+  .gearwrap:hover .lenses, .gearwrap:has(:focus-visible) .lenses { display: flex; }
+  .lenshead { padding: 10px 11px 4px; font: var(--type-eyebrow); text-transform: uppercase; letter-spacing: 1px; color: var(--v2-faint); }
+  .lensrow { display: inline-flex; align-items: center; white-space: nowrap; height: 28px; padding: 0 11px; border: 0; border-radius: 999px;
+    background: color-mix(in srgb, var(--bg) 70%, transparent); color: var(--v2-muted); font: 500 13px/1 var(--font-app); cursor: pointer; }
+  .lensrow:hover { color: var(--fg); background: color-mix(in srgb, var(--fg) 7%, var(--bg)); }
+  .lensrow.on { background: var(--fg); color: var(--bg); }
   /* What sits under the top bar leaves the notification stack its corner
      (NotificationStack.svelte): it starts at --under-bar, --notice-lane keeps
      the chat (--chat-at) and the empty state left of the stack's column, and

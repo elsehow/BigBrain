@@ -55,6 +55,9 @@ export interface V2Scene {
   search(state: { matches: number[]; active: number | null; text?: string; caption?: string; move: "frame" | "glide" | "none"; ties?: boolean } | null): void;
   /** A hovered feed row: what it mentions. */
   hover(entities: number[] | null): void;
+  /** A lens or server as a filter: what's outside it steps back, what's in it
+   * stays as it was, and the camera stays put. Null shows everything. */
+  filter(entities: number[] | null): void;
   /** The feed row in hand, as a node of its own: over what it mentions, tied
    * to each (mentioning nothing in the field, it sits mid-view, tied to
    * nothing). Sources aren't in the field at rest; this one is there only
@@ -266,8 +269,9 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
   // ── lines ────────────────────────────────────────────────────────────────
   // fat lines (a GL line is always 1px), drawn in device pixels: resize() fits each to the canvas
   const lineMats = new Set<LineMaterial>();
+  const flat = (pairs: Array<[THREE.Vector3, THREE.Vector3]>) => new Float32Array(pairs.flatMap(([a, b]) => [a.x, a.y, a.z, b.x, b.y, b.z]));
   const lineSet = (pairs: Array<[THREE.Vector3, THREE.Vector3]>, opacity: number) => {
-    const g = new LineSegmentsGeometry().setPositions(new Float32Array(pairs.flatMap(([a, b]) => [a.x, a.y, a.z, b.x, b.y, b.z])));
+    const g = new LineSegmentsGeometry().setPositions(flat(pairs));
     const m = new LineMaterial({ linewidth: EDGE_PX, transparent: true, opacity, depthWrite: false });
     lineMats.add(m);
     const l = new LineSegments2(g, m);
@@ -281,6 +285,8 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
   // asked for, and rebuilt when the sources move
   const srcTiePairs = () => field.sources.flatMap((x, k) => x.ties.map((j) => [SP[k]!, P[j]!] as [THREE.Vector3, THREE.Vector3]));
   let restTies: LineSegments2 | null = null;
+  // the field's own lines among what a filter keeps, built when one is set
+  let onlyStrong: LineSegments2 | null = null, onlyPairs = 0;
   let placedAt = "0,0";
   /** Lift and flatten (field look): sources move off the layout's heights. */
   const placeSources = () => {
@@ -293,7 +299,7 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
       pos.setXYZ(k, p.x, p.y, p.z);
     });
     pos.needsUpdate = true;
-    restTies?.geometry.setPositions(new Float32Array(srcTiePairs().flatMap(([a, b]) => [a.x, a.y, a.z, b.x, b.y, b.z])));
+    restTies?.geometry.setPositions(flat(srcTiePairs()));
     for (const s of sources) if (s.home && s.want) settle(s);
   };
   const dynamic = (max: number) => {
@@ -396,11 +402,12 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
   let ent: { i: number; ties: number[]; text?: string; caption?: string } | null = null;
   let srch: { matches: Set<number>; active: number | null; text?: string; caption?: string; ties: Field["edges"] } | null = null;
   let hot: Set<number> | null = null;
+  let only: Set<number> | null = null;
   let rl: { j: number; text: string } | null = null;
   let shiftGoal = 0, shiftNow = 0;
   // point: the dot under the pointer, eased so its name fades in and out
-  const rel = new Float32Array(N), heat = new Float32Array(N), match = new Float32Array(N), point = new Float32Array(N);
-  let dim = 0, searchDim = 1;
+  const rel = new Float32Array(N), heat = new Float32Array(N), match = new Float32Array(N), point = new Float32Array(N), out = new Float32Array(N);
+  let dim = 0, searchDim = 1, filtered = 0;
 
   // camera: springs toward a goal, a long lens from further back
   const rig: Rig = { az: OVERVIEW.az, el: OVERVIEW.el, dist: OVERVIEW.dist, tx: OVERVIEW.target.x, ty: OVERVIEW.target.y, tz: OVERVIEW.target.z };
@@ -632,6 +639,7 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
     for (const pl of pilots.values()) pl.line.color.copy(col.fg);
     strong.material.color.copy(col.fg);
     restTies?.material.color.copy(col.fg);
+    onlyStrong?.material.color.copy(col.fg);
     for (const g of memory) {
       // all but colourless: the faintest ink in it, so it reads as glass, not smoke
       g.mat.color.setRGB(1, 1, 1).lerp(col.fg, 0.02);
@@ -678,6 +686,7 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
     const k = ease(9);
     dim += ((inPlay ? 1 : 0) - dim) * k;
     searchDim += ((srch && srch.matches.size ? 0.12 : srch ? 0.5 : 1) - searchDim) * ease(10);
+    filtered += ((only ? 1 : 0) - filtered) * k;
     rehub();
     dust.copy(col.fg).lerp(col.bg, 0.42);
     entInk.copy(dust).lerp(col.fg, look.entTone);
@@ -691,12 +700,13 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
       heat[i]! += ((lit ? 1 : 0) - heat[i]!) * ease(lit ? 18 : 10);
       match[i]! += ((srch?.matches.has(i) ? 1 : 0) - match[i]!) * ease(12);
       point[i]! += ((i === under ? 1 : 0) - point[i]!) * ease(i === under ? 18 : 10);
+      out[i]! += ((only && !only.has(i) ? 1 : 0) - out[i]!) * k;
       if (n.memory) { alphas[i] = 0; continue; }
       const h = Math.max(heat[i]!, match[i]!);
       const r = rel[i]!;
       sizes[i] = baseSize[i]! * look.entSize * (isNamed[i] ? 1 : THREE.MathUtils.lerp(1, entScale[i]!, look.entByTies)) * (1 + 0.7 * h) * (1 + 0.45 * r * dim);
       const rest = Math.min(1, (isNamed[i] ? 0.95 : 0.6) * look.entAlpha) * (isNamed[i] ? 1 : byMentions(entRank[i]!, look.entAlphaByTies));
-      alphas[i] = Math.max(h, THREE.MathUtils.lerp(rest, THREE.MathUtils.lerp(isNamed[i] ? 0.22 : 0.12, 1, r), dim)) * THREE.MathUtils.lerp(searchDim, 1, match[i]!);
+      alphas[i] = Math.max(h, THREE.MathUtils.lerp(rest, THREE.MathUtils.lerp(isNamed[i] ? 0.22 : 0.12, 1, r), dim)) * THREE.MathUtils.lerp(searchDim, 1, match[i]!) * (1 - 0.92 * out[i]!);
       c1.copy(isNamed[i] || r > 0.5 ? col.fg : entInk).lerp(col.act, h * 0.9).toArray(colors, i * 3);
     }
     let srcHeld = 0;
@@ -732,12 +742,14 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
       if (restTies) { restTies.material.opacity = tied; restTies.visible = tied > 0.002; }
     }
     // a source in hand: the field's own lines step back so its ties read
-    strong.material.opacity = 0.14 * searchDim * (1 - 0.5 * dim) * (1 - 0.6 * srcHeld);
+    const lines = 0.14 * searchDim * (1 - 0.5 * dim) * (1 - 0.6 * srcHeld);
+    strong.material.opacity = lines * (1 - filtered);
+    if (onlyStrong) { onlyStrong.material.opacity = lines * filtered; onlyStrong.visible = onlyPairs > 0 && filtered > 0.002; }
 
     // memory glass recedes with everything else when something is in play
     for (const g of memory) {
       const linked = inPlay ? field.edges.some(([a, b]) => (a === g.i && inPlay.has(b)) || (b === g.i && inPlay.has(a))) : true;
-      g.vis += (THREE.MathUtils.lerp(1, linked ? 1 : 0.3, dim) * THREE.MathUtils.lerp(searchDim, 1, match[g.i]!) - g.vis) * k;
+      g.vis += (THREE.MathUtils.lerp(1, linked ? 1 : 0.3, dim) * THREE.MathUtils.lerp(searchDim, 1, match[g.i]!) * (1 - 0.9 * out[g.i]!) - g.vis) * k;
       g.mat.opacity = GLASS_OPACITY * g.vis;
     }
 
@@ -835,6 +847,7 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
       const restOp = isNamed[i] && (hubs.has(i) || n.memory) ? 1 : 0;
       let op = srch && srch.matches.size ? match[i]! : Math.max(heat[i]!, THREE.MathUtils.lerp(restOp, rel[i]!, dim)) * (srch ? searchDim : 1);
       if (i === inHand || related) op = 1;
+      op *= 1 - out[i]!;
       // the dot under the pointer always says its name
       const pointed = point[i]! > 0.04;
       op = Math.max(op, point[i]!);
@@ -923,6 +936,15 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
       else if (state.move === "frame") frameAround(state.matches.map((m) => P[m]!), 0.55, 3.2, 7, OVERVIEW.dist);
     },
     hover(entities) { hot = entities ? new Set(entities) : null; },
+    filter(entities) {
+      only = entities ? new Set(entities) : null;
+      if (!only) return;
+      const pairs = field.strong.filter(([a, b]) => only!.has(a) && only!.has(b)).map(([a, b]): [THREE.Vector3, THREE.Vector3] => [P[a]!, P[b]!]);
+      onlyPairs = pairs.length;
+      if (!pairs.length) return;
+      if (onlyStrong) onlyStrong.geometry.setPositions(flat(pairs));
+      else { onlyStrong = lineSet(pairs, 0); fit(onlyStrong.material); onlyStrong.material.color.copy(col.fg); }
+    },
     source(want) {
       const key = want ? `${want.label}\u0000${want.entities.join(",")}` : "";
       // one let go is no longer open, so walking back to it frames it again

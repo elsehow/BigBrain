@@ -59,7 +59,7 @@ import { walkMarkdown } from "../lib/vaultRead";
 import { parseBlobRef, readBlob } from "../lib/blobs";
 import { recentSourcePageAsync } from "../lib/sourceFeed";
 import { primaryGraphWithLayoutAsync, primaryGraphAsync } from "../lib/graphCache";
-import { buildEntityFeed, buildSortedFeed, buildV2Feed, newestFirst, pageSortedFeed, SORTED_PAGE, type V2SortedRow, type V2Source } from "../lib/v2Feed";
+import { buildEntityFeed, buildSortedFeed, buildV2Feed, entitiesCiting, newestFirst, pageSortedFeed, SORTED_PAGE, type V2SortedRow, type V2Source } from "../lib/v2Feed";
 import { dueOf, feedItems, feedRecords } from "../lib/feedJournal";
 import { readV2Source } from "../lib/v2Read";
 import { tendJournalFiles } from "../lib/tend";
@@ -926,7 +926,7 @@ export function start(): void {
     if (!allowLoopbackRequest(req, res)) return;
     if (!allowSession(req, res)) return;
     if (await inclusionReviewApi(req,res,ROOT)) return;
-    if (await lensApi(req,res,ROOT)) return;
+    if (await lensApi(req,res,ROOT,(ids) => entitiesCiting(v2Source(), ids))) return;
     if (await jevSettingsApi(req,res,ROOT)) return;
     if (await sharedSettingsApi(req,res,ROOT)) return;
     if (await sharedWorkspace(req, res)) return;
