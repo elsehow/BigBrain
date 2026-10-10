@@ -1,10 +1,12 @@
 # Skins
 
-The app leads with two themes that follow the system's light or dark
-appearance: **Ink** (the default), white by day and a plum-black by night, and
-**Kind of Blue**, a pale paper by day and a deep blue by night. Single themes
-follow: **OG Web Blue**, **Something's Gotta Give**, **Spring**, **Fall**, and
-**Winter**.
+The app leads with three themes that follow the system's light or dark
+appearance: **Ink** (the default), white by day and a plum-black by night;
+**Kind of Blue**, a pale paper by day and a deep blue by night; and
+**Something's Gotta Give**, cream by day and Hampton's Nights, a soft
+Solarized-style slate, by night. Single themes follow: **OG Web Blue**,
+**Spring**, **Fall**, **Winter**, **Jodie Foster in Contact**, and
+**A Love Supreme**.
 Every palette defines just three colors: background, foreground, and activity.
 Muted text, borders and surfaces derive from background and foreground.
 Selection inverts those two colors for regular and closed nodes. Active

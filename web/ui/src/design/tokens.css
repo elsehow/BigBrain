@@ -64,6 +64,7 @@
 :root { color-scheme: light; }
 
 /* Stored ids outlive renames: default/dusk are Ink's light and dark halves,
+   somethings-gotta-give is its pair's light half (Hampton's Nights the dark),
    and moegiiro/adzukiiro/asagiiro read as Spring/Fall/Winter. */
 [data-theme="default"] { --bg: #FFFFFF; --fg: #211A18; --activity: #CC4A3E; color-scheme: light; }
 [data-theme="dusk"] { --bg: #21191F; --fg: #DDE9F4; --activity: #EF656B; color-scheme: dark; }
@@ -71,9 +72,12 @@
 [data-theme="kind-of-blue-dark"] { --bg: #12303A; --fg: #E9EFEC; --activity: #D4A23F; color-scheme: dark; }
 [data-theme="web"] { --bg: #1e2bd6; --fg: #ffffff; --activity: #ffd23f; color-scheme: dark; }
 [data-theme="somethings-gotta-give"] { --bg: #f5ecdc; --fg: #365f70; --activity: #ad4934; color-scheme: light; }
+[data-theme="hamptons-nights"] { --bg: #13272F; --fg: #A1BDC9; --activity: #D36851; color-scheme: dark; }
 [data-theme="moegiiro"] { --bg: #286A3C; --fg: #F7EAF8; --activity: #FFDA52; color-scheme: dark; }
 [data-theme="adzukiiro"] { --bg: #803653; --fg: #F2D8F5; --activity: #BCC9DD; color-scheme: dark; }
 [data-theme="asagiiro"] { --bg: #355F7B; --fg: #FFF6EC; --activity: #FFD65A; color-scheme: dark; }
+[data-theme="jodie-foster-in-contact"] { --bg: #384C50; --fg: #F3F8F9; --activity: #FFA65E; color-scheme: dark; }
+[data-theme="a-love-supreme"] { --bg: #2C3E42; --fg: #F3F8F9; --activity: #F7893A; color-scheme: dark; }
 
 /* Re-declare aliases on theme boundaries, so nested swatches resolve against
    their own base colors rather than inheriting the parent's resolved ink. */

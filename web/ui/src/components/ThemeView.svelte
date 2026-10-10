@@ -88,6 +88,15 @@
   }
 </script>
 
+<!-- background, foreground, activity: in whatever palette the box around them wears -->
+{#snippet dots()}
+  <div class="dots">
+    <span style="background: var(--bg); border: 1px solid var(--rule)"></span>
+    <span style="background: var(--fg)"></span>
+    <span style="background: var(--activity)"></span>
+  </div>
+{/snippet}
+
 <section class="themes" aria-label="Themes">
   <h2>Themes <span class="status">{reading}</span></h2>
   <div class="grid">
@@ -97,12 +106,17 @@
         aria-pressed={choice === id}>
         <!-- the two it chooses between, split down the middle -->
         <div class="swatch split">
-          <div class="half" data-theme={pair.light}><div class="line t"></div><div class="line"></div></div>
-          <div class="half" data-theme={pair.dark}><div class="line t"></div><div class="line"></div></div>
+          {#each [pair.light, pair.dark] as half (half)}
+            <div class="half" data-theme={half}>
+              <div class="line t"></div>
+              <div class="line"></div>
+              {@render dots()}
+            </div>
+          {/each}
         </div>
         <span class="cap">
           {pair.label}
-          <span class="state">{choice === id ? "current" : "light + dark"}</span>
+          <span class="state">{choice === id ? "current" : "follows system"}</span>
         </span>
       </button>
     {/each}
@@ -114,11 +128,7 @@
           <div class="line t"></div>
           <div class="line"></div>
           <div class="line short"></div>
-          <div class="dots">
-            <span style="background: var(--bg); border: 1px solid var(--rule)"></span>
-            <span style="background: var(--fg)"></span>
-            <span style="background: var(--activity)"></span>
-          </div>
+          {@render dots()}
         </div>
         <span class="cap">
           {t.label}
@@ -181,14 +191,15 @@
   .dots { margin-top: auto; display: flex; gap: 5px; }
   .dots span { width: 9px; height: 9px; border-radius: var(--r-full); }
 
-  .cap { display: flex; align-items: baseline; gap: var(--sp-3);
+  /* a long name keeps its words together; the state wraps beneath it whole */
+  .cap { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: var(--sp-3);
     font: var(--type-body); color: var(--text-faint); }
   .card:hover .cap { color: var(--text); }
   .card.on .cap { color: var(--text-strong); }
   /* the ring is the app's ink, not the card's: selection has to read the
      same across the palettes */
   .card.on .swatch { outline: 2px solid var(--text-strong); outline-offset: 2px; }
-  .state { font: var(--type-meta); color: var(--text-muted); }
+  .state { font: var(--type-meta); color: var(--text-muted); white-space: nowrap; }
 
   /* the skins' card — the diagnostics screen's voice: a heading, a note,
      a row of acts */
