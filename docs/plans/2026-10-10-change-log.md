@@ -158,9 +158,26 @@ Each step ships alone and deletes something.
 | 1 | `changes` rows in every commit; tests that the log equals commit order, and that a rebuild starts a new generation | — (enables the rest) |
 | 2 | maintainer worker and `views` table for graph+layout and v2; ETag on `/api/graph`; first start from saved views | one-shot graph workers per request; the `knownRevision` dance; graph invalidation on journal writes; per-request syncs in those routes |
 | 3 (#238) | `event: views` with view stamps; `journal` change rows (decision 5); ETag and `?current` on `/api/graph`; desktops on the application channel | `{"changed":true}` and refetch-everything; Field polling; the v2 journal listing; the read-state overlay on the graph |
-| 4 | wake on WAL + `data_version` | watching `log/`; `projectionHolds`; watcher-triggered recovery |
+| 4 (#239) | wake on WAL + `data_version`; `bigbrain recover` | watching `log/`; `projectionHolds`; watcher-triggered recovery; the Markdown walk on every commit |
 | 5 | the notes door (#225) writing change rows | the per-read Markdown walk; the one-second clock |
 | 6 | remaining views (#231); incremental graph and v2 from change rows | per-request O(vault) routes |
+
+## What a commit still costs (measured after step 4)
+
+On a large vault, one new source reaches open tabs 14–25 s after it commits.
+The push itself starts within ~340 ms; the rest is the graph view's rebuild,
+which is O(vault) at every revision:
+
+| Phase | Time |
+|---|---|
+| decode the whole record (`vaultRecord`) | ~7 s |
+| republish the recent-sources page (`recentSourcePage`) | ~6 s |
+| re-simulate the layout for the new structure | ~5 s |
+| build the graph | 0.25 s |
+
+Step 6 is where freshness is won: apply change rows to the decoded record and
+the feed page instead of rebuilding them, and place a new node into the
+standing layout instead of re-simulating it.
 
 ## Decisions
 
