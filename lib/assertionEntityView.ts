@@ -56,7 +56,7 @@ export interface ProjectedEntityView {
    * absent when none. */
   aliases?: string[];
   /** The sources this entity IS — a document taken as its own subject
-   * (lib/entitySourceLog.ts) — newest first; absent when it is none. The
+   * (lib/entitySourceLog.ts) — best copy first; absent when it is none. The
    * graph draws the pair as one node, so whoever asks about that node must
    * be led to the document, not left with what the record says of it. */
   documents?: Pick<ProjectedEntitySource, "insertion_id" | "title" | "path">[];

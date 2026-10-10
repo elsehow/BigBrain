@@ -1,5 +1,5 @@
 /** Fixed Pilot filesystem boundary. No shell, per-task grants, or approvals. */
-import { closeSync, constants, fstatSync, ftruncateSync, mkdirSync, openSync, readSync, readdirSync, realpathSync, writeFileSync } from 'node:fs';
+import { closeSync, constants, fstatSync, ftruncateSync, mkdirSync, openSync, readSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import { spoolDir } from './spool';
 import { canonicalWorkPath, containsPath, credentialPaths, secretName, validatedWorkPermissions, migratePilotReadSettings } from './workPermissions';
@@ -12,6 +12,8 @@ export const PILOT_LOCAL_TOOLS = [
   tool('read_file','Read a bounded UTF-8 text file from your scratch or an approved folder. Use vault search/read tools for vault notes. Relative paths refer to scratch.',{path:string,offset:{type:'integer',minimum:0},limit:{type:'integer',minimum:1,maximum:64000}},['path']),
   tool('write_scratch','Write a UTF-8 text file inside your private scratch, creating parent folders as needed. Never writes vault notes or project files. Use drop/directive for vault contributions and your own external agent application for implementation.',{path:string,text:string},['path','text']),
 ];
+/** Where each session's scratch folder lives, by session id. */
+export const scratchRoot=(root:string):string=>join(spoolDir(root),'workspaces');
 type Readable = {roots:string[]; denied:string[]};
 export class PilotAccess {
   constructor(private root:string) {}
@@ -25,10 +27,14 @@ export class PilotAccess {
     if(s.localCommand?.status==='running') s.localCommand.status='uncertain';
   }
   scratch(s:PilotChatSession):string {
-    const path=join(canonicalWorkPath(join(spoolDir(this.root),'workspaces')),s.id);
+    const path=join(canonicalWorkPath(scratchRoot(this.root)),s.id);
     mkdirSync(path,{recursive:true,mode:0o700});
     if(realpathSync(path)!==resolve(path)) throw new Error('Pilot scratch must not be a symbolic link.');
     return path;
+  }
+  /** A discarded session's scratch goes with it; an archived one's, later (lib/scratchPrune.ts). */
+  dropScratch(s:PilotChatSession):void {
+    rmSync(join(scratchRoot(this.root),s.id),{recursive:true,force:true});
   }
   private roots(s:PilotChatSession):string[] { return [realpathSync(this.root),this.scratch(s),...validatedWorkPermissions(this.root).folders.map(f=>f.path)]; }
   /** Resolved once per call; a directory listing checks every entry against it. */

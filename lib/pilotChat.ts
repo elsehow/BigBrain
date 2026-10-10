@@ -446,6 +446,7 @@ export class PilotChats {
     unlinkSync(join(this.directory, `${s.id}.json`)); this.sessions.delete(s.id);
     this.options.changes?.changed("pilot", s.id, s.revision + 1);
     this.release(s.id); this.conversations.delete(s.id); rmSync(conversationPath(this.root, s.id), { force: true });
+    this.local.dropScratch(s);
   }
   /** A person's name for the session: it stands, and Quick stops re-naming it. */
   /** The person's hand on a desktop: closing a view, or arranging the tiles. */

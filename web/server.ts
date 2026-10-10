@@ -59,12 +59,11 @@ import { walkMarkdown } from "../lib/vaultRead";
 import { parseBlobRef, readBlob } from "../lib/blobs";
 import { recentSourcePageAsync } from "../lib/sourceFeed";
 import { primaryGraphWithLayoutAsync, primaryGraphAsync } from "../lib/graphCache";
-import { buildEntityFeed, buildSortedFeed, buildV2Feed, type V2SortedRow, type V2Source } from "../lib/v2Feed";
-import { addedAt, currentFeed, feedRecords } from "../lib/feedJournal";
-import { feedConversationOf } from "../lib/feedConversation";
+import { buildEntityFeed, buildSortedFeed, buildV2Feed, newestFirst, pageSortedFeed, SORTED_PAGE, type V2SortedRow, type V2Source } from "../lib/v2Feed";
+import { dueOf, feedItems, feedRecords } from "../lib/feedJournal";
 import { readV2Source } from "../lib/v2Read";
 import { tendJournalFiles } from "../lib/tend";
-import { withVaultSnapshot } from "../lib/vaultReadModel";
+import { otherCopies, withVaultSnapshot } from "../lib/vaultReadModel";
 import { frozenMessagesForRefs, sortFrozenDesc } from "../lib/frozenQueue";
 import { queueHead } from "../lib/queueHead";
 import { noteLog } from "../lib/noteLog";
@@ -76,10 +75,11 @@ import { agentWritten, insertionFiler, sourceInsertionMarkdown } from "../lib/so
 import { assertionsFromSource, projectedEntityMarkdown, truncatedEntityView, sourceThreadForInsertion, sourceInsertionCached } from "../lib/assertionEntityView";
 import { insertionEventRel, sourceMoment } from "../lib/insertionLog";
 import { foldsRoutes } from "../lib/entityFolds";
+import { copyReview, sourceCopyRoutes } from "../lib/sourceCopyReview";
 import { createNoteBriefingService, noteBriefingRoutes, readNoteBriefingInput } from "../lib/noteBriefing";
 import { noteRelationRoutes } from "../lib/noteRelation";
 import { sourceReadStateRoutes, graphWithReadState } from "../lib/sourceReadStateApi";
-import { sourceOrigin } from "../lib/sourceOrigin";
+import { sourceOrigin, sourceOrigins, type SourceOrigin } from "../lib/sourceOrigin";
 import { setupRoutes, setupState } from "../lib/firstRun";
 import { listTokens, revokeToken, tokenStorePath } from "../lib/auth";
 import { mintPairCode, pendingPair } from "../lib/pair";
@@ -368,11 +368,23 @@ async function noteRead({ req, res, url }: Ctx): Promise<void> {
     // `origin` is the OPEN target: an external original, or a Markdown
     // copy of the stored body for text-only drops (lib/sourceOrigin.ts).
     // `byAgent`: the viewer holds an agent's remote images for a click.
+    // Copies of one document (lib/sourceCopies.ts) pool their claims, and
+    // `origins` is every copy's originals, this one's first, each with the
+    // copy that opens it.
+    const pooled = [source, ...otherCopies(ROOT, source.id)];
+    const origins = new Map<string, SourceOrigin & { path: string }>();
+    for (const copy of pooled) for (const origin of sourceOrigins(copy.envelope)) {
+      const key = origin.kind === "url" ? origin.url : origin.kind === "file" ? origin.sha256 : origin.name;
+      if (!origins.has(key)) origins.set(key, { ...origin, path: insertionEventRel(copy) });
+    }
     return json(res, 200, {
       path: rel,
       content: sourceInsertionMarkdown(source),
-      sourceAssertions: assertionsFromSource(ROOT, source.id),
+      sourceAssertions: assertionsFromSource(ROOT, pooled.map((copy) => copy.id)),
       origin: sourceOrigin(source.envelope, source),
+      origins: [...origins.values()],
+      // the document's other copies and what it might also be (lib/sourceCopyReview.ts)
+      ...copyReview(ROOT, source.id),
       byAgent: agentWritten(source),
     });
   }
@@ -560,23 +572,24 @@ function v2Entity({ res, url }: Ctx): void {
 
 // The sorted feed (lib/feedStage.ts): what needs the owner, what an agent
 // could do, what is worth knowing. Empty without a feed: block, and the view
-// keeps showing the latest assertions.
-function v2Sorted({ res }: Ctx): void {
+// keeps showing the latest assertions. A page at a time (`limit`, newest
+// first, and `before`, the `next` of the page before): the feed only grows.
+const SORTED_MAX = 5_000;
+function v2Sorted({ res, url }: Ctx): void {
   try {
     const feedOn = !!loadManifest(ROOT).feed, records = feedOn ? feedRecords(ROOT) : [];
-    const added = addedAt(records);
-    const entries = currentFeed(records, new Date().toLocaleDateString("en-CA"), feedConversationOf(ROOT, records)).map((e) => ({ ...e, added: added.get(e.source)! }));
-    const rows = buildSortedFeed(v2Source(), entries);
-    const heads = projectedSourceHeads(ROOT, rows.map((r) => r.source));
-    const sources = rows.map((r) => {
-      const h = heads.get(r.source);
-      return h ? { ...r, title: h.title, path: insertionEventRel(h), ...(h.source ? { via: h.source } : {}) } : r;
-    });
+    const limit = Math.min(SORTED_MAX, Math.max(1, Math.trunc(Number(url.searchParams.get("limit"))) || SORTED_PAGE));
     // What lenses shared, and changes that grew a shared lens (D2, D3), among what arrived.
     const sharing = feedOn ? readLensEvents(ROOT, connectionStorePath()).map((e, i): V2SortedRow => ({
       source: `lens:${e.at}:${i}`, section: e.kind === "shared" ? "know" : "needs-you", headline: lensEventHeadline(e), due: null, added: e.at, entities: [], lens: e.lens,
     })) : [];
-    json(res, 200, { rows: [...sources, ...sharing].sort((a, b) => b.added.localeCompare(a.added)) });
+    const sorted = [...buildSortedFeed(v2Source(), feedItems(records).map((e) => ({ ...e, due: dueOf(e) }))), ...sharing].sort(newestFirst);
+    const { rows, next } = pageSortedFeed(sorted, limit, url.searchParams.get("before") ?? undefined);
+    const heads = projectedSourceHeads(ROOT, rows.map((r) => r.source));
+    json(res, 200, { next, rows: rows.map((r) => {
+      const h = heads.get(r.source);
+      return h ? { ...r, title: h.title, path: insertionEventRel(h), ...(h.source ? { via: h.source } : {}) } : r;
+    }) });
   } catch (error) {
     json(res, 500, { error: errText(error) });
   }
@@ -855,6 +868,7 @@ export const ROUTES: readonly Route[] = [
   // entity folds (#728): the memory pass's proposals against today's
   // record, and the operator's accept (an alias) and reject (remembered)
   ...foldsRoutes(ROOT),
+  ...sourceCopyRoutes(ROOT),
   { method: "GET", path: "/api/config", handler: configRead },
   { method: "POST", path: "/api/config", handler: ({ req, res }) => void handleConfigSave(req, res) },
   { method: "GET", path: "/api/events", handler: events },

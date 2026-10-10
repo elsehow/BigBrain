@@ -5,11 +5,12 @@
  * claims it has not yet read (lib/feedConversation.ts: a thread, or every
  * landing of one source), one model call (batched) places it in one
  * section — needs the owner, an agent could do it, worth knowing, or skip —
- * with a one-line headline and, when there is a deadline, an expiry date.
- * Each call also sees the feed's three newest headlines, so it doesn't
- * announce again what the feed already says, and re-checks up to three open
- * needs-you conversations that share an entity with what it judges, so an
- * ask settled somewhere else can leave the feed.
+ * with a one-line headline and the date anything is due by. The feed is
+ * append-only (lib/feedJournal.ts feedItems): a call adds items, never
+ * changes one. So each call sees the feed's ten newest headlines, and the
+ * same story told again (another outlet, a column on it, a digest's recap)
+ * is skipped, not announced twice; and a conversation judged again shows
+ * the items it already has, so only what is new in it adds one.
  *
  * It reads only its own chain's output: the live assertions, the source
  * each assertion cites, and the working set (memory/MEMORY.md). It writes
@@ -29,8 +30,8 @@ import { scheduledVerdict, type StageVerdict } from "./chain";
 import { ENGINE_ROOT } from "./engine";
 import { feedConversationOf, feedConversations, type FeedConversation, type FeedMessage } from "./feedConversation";
 import {
-  addedAt, currentFeed, FEED_JOURNAL_DIR, FEED_SECTIONS, feedRecords, sortedAssertions,
-  type FeedEntry, type FeedRecord, type FeedSection,
+  FEED_JOURNAL_DIR, FEED_SECTIONS, feedItems, feedRecords, sortedAssertions,
+  type FeedEntry, type FeedItem, type FeedRecord, type FeedSection,
 } from "./feedJournal";
 import { ensureDir, writeAtomic } from "./fsx";
 import { sourceMoment } from "./insertionLog";
@@ -43,7 +44,7 @@ import type { RunUsage } from "./run/model";
 import { tryHold } from "./sqliteLock";
 import { plainText } from "./v2Feed";
 
-export const FEED_PROMPT_VERSION = "feed/v2";
+export const FEED_PROMPT_VERSION = "feed/v3";
 const OFF = "off (no feed: block in vault.yaml)";
 
 type Runner = typeof runAgent;
@@ -59,9 +60,9 @@ const ENTRIES_SCHEMA = {
           source: { type: "integer" },
           section: { type: "string", enum: [...FEED_SECTIONS] },
           headline: { type: "string" },
-          expires: { type: ["string", "null"] },
+          due: { type: ["string", "null"] },
         },
-        required: ["source", "section", "headline", "expires"],
+        required: ["source", "section", "headline", "due"],
         additionalProperties: false,
       },
     },
@@ -87,29 +88,6 @@ export function feedWork(root: string, cfg: FeedConfig, records: FeedRecord[] = 
 function waitingIn(conversations: FeedConversation[], records: FeedRecord[]): FeedConversation[] {
   const read = sortedAssertions(records);
   return conversations.filter((c) => claimsOf(c).some((a) => !read.has(a.id)));
-}
-
-/** The open needs-you conversations a call re-checks beside its batch
- * (#178): those sharing an entity with it, most shared first, then the
- * newest in the feed. Judged in the same call as the news, an ask that
- * something else settled can be placed as resolved — the newest judgment
- * of a conversation is its place in the feed. */
-export function recheckOpen(
-  records: FeedRecord[], today: string, conversationOf: (source: string) => string,
-  conversations: ReadonlyMap<string, FeedConversation>, batch: readonly FeedConversation[], n = 3,
-): FeedConversation[] {
-  const judging = new Set(batch.map((c) => c.key));
-  const about = new Set(batch.flatMap((c) => [...c.entities]));
-  const added = addedAt(records);
-  return currentFeed(records, today, conversationOf).filter((e) => e.section === "needs-you")
-    .flatMap((e) => {
-      const key = conversationOf(e.source);
-      const c = judging.has(key) ? undefined : conversations.get(key);
-      const shared = c ? [...c.entities].filter((id) => about.has(id)).length : 0;
-      return c && shared ? [{ c, shared, added: added.get(e.source) ?? "" }] : [];
-    })
-    .sort((a, b) => b.shared - a.shared || b.added.localeCompare(a.added))
-    .slice(0, n).map((r) => r.c);
 }
 
 /** Now, unless the last call failed: then one interval after it. */
@@ -139,9 +117,10 @@ const template = (): string => readFileSync(join(ENGINE_ROOT, "prompts", "feed.m
 const claimLines = (m: FeedMessage): string[] => m.claims.map((a) => `- ${plainText(a.text)}`);
 
 /** One conversation as the call reads it: where its newest message came
- * from, then its claims — message by message, oldest first and each under
- * its time and title, when there is more than one. */
-export function renderFeedSource(n: number, conversation: FeedConversation): string {
+ * from, the items it already has in the feed, then its claims — message by
+ * message, oldest first and each under its time and title, when there is
+ * more than one. */
+export function renderFeedSource(n: number, conversation: FeedConversation, told: readonly string[] = []): string {
   const { messages } = conversation, face = faceOf(conversation);
   const env = face.source?.envelope ?? {};
   const str = (k: string) => (typeof env[k] === "string" ? env[k] : "");
@@ -152,33 +131,30 @@ export function renderFeedSource(n: number, conversation: FeedConversation): str
     `from_kind: ${str("from_kind")}`,
     `title: ${face.source?.title ?? ""}`,
     `date: ${when(face).slice(0, 10)}`,
+    ...told.map((h) => `in the feed: ${h}`),
   ];
   if (messages.length === 1) return [...head, ...claimLines(face)].join("\n");
   return [...head, ...messages.flatMap((m) => [`[${when(m).slice(0, 16).replace("T", " ")}] ${m.source?.title ?? ""}`, ...claimLines(m)])].join("\n");
 }
 
-/** The feed's newest headlines, outside the conversations a call judges:
- * its own entry is about to be replaced, never a reason to skip it. */
-export function recentHeadlines(records: FeedRecord[], today: string, conversationOf: (source: string) => string, judging: ReadonlySet<string>, n = 3): string[] {
-  const added = addedAt(records);
-  return currentFeed(records, today, conversationOf)
-    .filter((e) => !judging.has(conversationOf(e.source)))
-    .sort((a, b) => (added.get(b.source) ?? "").localeCompare(added.get(a.source) ?? ""))
-    .slice(0, n).map((e) => e.headline);
-}
+/** The feed's newest headlines, newest first, from items oldest first (as
+ * feedItems gives them). Ten, so a story still reads as told when other
+ * news landed in between. */
+export const recentHeadlines = (items: readonly FeedItem[], n = 10): string[] =>
+  items.slice(-n).reverse().map((e) => e.headline);
 
 /** The runner hands back schema-checked JSON (lib/run/sessionJob.ts); what
  * the schema cannot say — a source number in range, a real date — is
  * checked here. */
 function parseEntries(text: string, batch: FeedConversation[]): FeedEntry[] {
-  const value = JSON.parse(text) as { entries: { source: number; section: FeedSection; headline: string; expires: string | null }[] };
+  const value = JSON.parse(text) as { entries: { source: number; section: FeedSection; headline: string; due: string | null }[] };
   const out: FeedEntry[] = [];
   for (const e of value.entries) {
     const conversation = batch[e.source - 1];
     if (!conversation || !e.headline.trim()) continue;
     out.push({
       source: faceOf(conversation).id, section: e.section, headline: e.headline.trim(),
-      expires: typeof e.expires === "string" && /^\d{4}-\d{2}-\d{2}$/.test(e.expires) ? e.expires : null,
+      due: typeof e.due === "string" && /^\d{4}-\d{2}-\d{2}$/.test(e.due) ? e.due : null,
       assertions: claimsOf(conversation).map((a) => a.id),
     });
   }
@@ -227,8 +203,8 @@ export async function runFeed(opts: { root: string; manifest: Manifest; runner?:
     const conversations = feedConversations(root, cfg.since);
     const waiting = waitingIn(conversations, records).slice(0, cfg.max);
     if (!waiting.length) return { ran: true, calls: [] };
-    const byKey = new Map(conversations.map((c) => [c.key, c]));
     const live = new Map(conversations.flatMap((c) => c.messages.map((m) => [m.id, c.key] as const)));
+    const standing = new Set(conversations.flatMap((c) => claimsOf(c).map((a) => a.id)));
     const journaled = feedConversationOf(root, records);
     const conversationOf = (source: string) => live.get(source) ?? journaled(source);
     const instructions = render(template(), { OWNER: ownerLabelsFor(root)[0] ?? "the owner" });
@@ -240,12 +216,15 @@ export async function runFeed(opts: { root: string; manifest: Manifest; runner?:
       const runId = newRunId(now());
       const startedAt = now().toISOString();
       const today = now().toLocaleDateString("en-CA");
-      const judged = [...batch, ...recheckOpen(records, today, conversationOf, byKey, batch)];
-      const recent = recentHeadlines(records, today, conversationOf, new Set(judged.map((c) => c.key)));
+      // what the viewer shows: an item whose claims were all revoked or
+      // superseded since is gone from it, so it is no longer told
+      const shown = feedItems(records).filter((e) => e.assertions.some((id) => standing.has(id)));
+      const told = Map.groupBy(shown, (e) => conversationOf(e.source));
+      const recent = recentHeadlines(shown);
       const prompt = [
         `TODAY ${today}`, "", "WORKING SET", workingSet, "",
-        "Recent messages in the feed:", ...(recent.length ? recent.map((h) => `- ${h}`) : ["none yet"]), "",
-        ...judged.map((c, n) => `${renderFeedSource(n + 1, c)}\n`),
+        "ALREADY IN THE FEED", ...(recent.length ? recent.map((h) => `- ${h}`) : ["none yet"]), "",
+        ...batch.map((c, n) => `${renderFeedSource(n + 1, c, (told.get(c.key) ?? []).map((e) => e.headline))}\n`),
       ].join("\n");
       const base = {
         format: "bigbrain-feed-run/v1" as const, invocation_id: runId, prompt_version: FEED_PROMPT_VERSION,
@@ -256,18 +235,18 @@ export async function runFeed(opts: { root: string; manifest: Manifest; runner?:
           root, role: "feed", auth: manifest.auth, target: cfg.target, capabilities: "none",
           instructions, prompt, output: { requireText: true, schema: ENTRIES_SCHEMA },
         });
-        const entries = parseEntries(run.text, judged);
+        const entries = parseEntries(run.text, batch);
         const record: FeedRecord = {
-          ...base, assertions: judged.flatMap((c) => claimsOf(c).map((a) => a.id)), entries,
+          ...base, assertions: batch.flatMap((c) => claimsOf(c).map((a) => a.id)), entries,
           completed_at: now().toISOString(), ...modelRunJournalFields(run) as { usage?: RunUsage },
         };
         journalFeed(root, record);
         records.push(record);
-        calls.push({ runId, sources: judged.length, entries: entries.length, ...(run.usage ? { usage: run.usage } : {}) });
+        calls.push({ runId, sources: batch.length, entries: entries.length, ...(run.usage ? { usage: run.usage } : {}) });
       } catch (e) {
         const message = (e instanceof Error ? e.message : String(e)).slice(0, 2_000);
         journalFeed(root, { ...base, assertions: [], entries: [], completed_at: now().toISOString(), error: { message } });
-        calls.push({ runId, sources: judged.length, entries: 0, error: message });
+        calls.push({ runId, sources: batch.length, entries: 0, error: message });
         break;
       }
     }

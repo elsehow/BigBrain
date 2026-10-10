@@ -1,6 +1,11 @@
 /**
  * legacy.ts — retired installs, in ONE file.
  *
+ * `.spool/worker-workspaces/` is the scratch the retired workers wrote:
+ * nothing has read it since they became Pilot conversations, whose outputs
+ * are vault sources, and it held gigabytes (#217). Removed by the prune job
+ * (retireWorkerWorkspaces).
+ *
  * `~/.bigbrain/plugin/` is where the hosted-era installer wrote the Claude
  * Code plugin (#645); the desktop app moves it aside at launch
  * (retireHostPluginDir, #693).
@@ -13,8 +18,17 @@
  * in the code spells the old name.
  */
 
-import { existsSync, renameSync } from "node:fs";
+import { existsSync, renameSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { spoolDir } from "./spool";
+
+/** The retired workers' scratch, gone; "none" when there was none. */
+export function retireWorkerWorkspaces(root: string): "removed" | "none" {
+  const dir = join(spoolDir(root), "worker-workspaces");
+  if (!existsSync(dir)) return "none";
+  rmSync(dir, { recursive: true, force: true });
+  return "removed";
+}
 
 /** `~/.bigbrain/plugin/` — the Claude Code plugin as the hosted installer
  * wrote it, with four `Bash(sh ~/.bigbrain/plugin/scripts/<door>.sh:*)`

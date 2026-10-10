@@ -46,6 +46,12 @@ import {
   validateEntitySourceEvent,
   type EntitySourceEvent,
 } from "./entitySourceLog";
+import {
+  appendSourceCopyEvent,
+  listSourceCopyEventFiles,
+  validateSourceCopyEvent,
+  type SourceCopyEvent,
+} from "./sourceCopyLog";
 import type { LabelRow } from "./entityLookalikes";
 import { assertionDb } from "./env";
 import {
@@ -68,7 +74,8 @@ import { withProjectionWrite } from "./projectionWriteLock";
 // 16: compact source metadata and transactionally published thread membership.
 // 17: compact graph/feed summaries and link evidence; canonical Markdown titles.
 // 18: entity↔source bindings (lib/entitySourceLog.ts).
-const SCHEMA_VERSION = "18";
+// 19: judged and declared copies of one document (lib/sourceCopyLog.ts).
+const SCHEMA_VERSION = "19";
 
 export interface AssertionSearchHit {
   id: string;
@@ -241,6 +248,12 @@ function schema(db: Database): void {
   // graph folds it (latest per pair) when it builds; there is no resolved
   // table to keep in step.
   db.run(`CREATE TABLE IF NOT EXISTS entity_source_events (
+    id TEXT PRIMARY KEY,
+    event_json TEXT NOT NULL
+  )`);
+  // Copies judged and declared (lib/sourceCopyLog.ts): the census alone,
+  // folded latest-per-pair on read (lib/sourceCopyReview.ts).
+  db.run(`CREATE TABLE IF NOT EXISTS source_copy_events (
     id TEXT PRIMARY KEY,
     event_json TEXT NOT NULL
   )`);
@@ -529,6 +542,13 @@ function insertEntitySourceRow(db: Database, event: EntitySourceEvent): boolean 
   });
 }
 
+function insertSourceCopyRow(db: Database, event: SourceCopyEvent): boolean {
+  validateSourceCopyEvent(event);
+  return insertOnce(db, "source_copy_events", "id", event.id, event, (eventJson) => {
+    db.query("INSERT INTO source_copy_events(id, event_json) VALUES (?, ?)").run(event.id, eventJson);
+  });
+}
+
 /** Durable append first, disposable projection second. A projection failure
  * leaves the event safe in its log, where sync and rebuild deterministically
  * heal it — the discipline every kind follows, so it is written once. The
@@ -552,6 +572,7 @@ export const appendAndProjectAssertion = appendAndProject(appendAssertionEvent, 
 export const appendAndProjectDecline = appendAndProject(appendDeclineEvent, insertDeclineRow);
 export const appendAndProjectEntityAlias = appendAndProject(appendEntityAliasEvent, insertEntityAliasRow);
 export const appendAndProjectEntitySource = appendAndProject(appendEntitySourceEvent, insertEntitySourceRow);
+export const appendAndProjectSourceCopy = appendAndProject(appendSourceCopyEvent, insertSourceCopyRow);
 // Last of its kind on purpose: a revocation needs its assertion — and, when
 // it supersedes, that successor — already projected.
 export const appendAndProjectRevocation = appendAndProject(appendRevocationEvent, insertRevocationRow);
@@ -684,6 +705,12 @@ const KINDS: readonly ProjectionKind[] = [
     listFiles: listEntitySourceEventFiles,
     validate: validateEntitySourceEvent,
     insert: insertEntitySourceRow,
+  }),
+  projectionKind<SourceCopyEvent>({
+    held: "SELECT id FROM source_copy_events",
+    listFiles: listSourceCopyEventFiles,
+    validate: validateSourceCopyEvent,
+    insert: insertSourceCopyRow,
   }),
   projectionKind<RevocationEvent>({
     held: "SELECT id FROM revocations",
