@@ -30,6 +30,9 @@ export interface GraphNode {
    * still names it answers to. Absent when it has none. */
   aliases?: string[];
   entityType?: string;
+  /** Where it comes from, when servers are joined (lib/sharedReadUnion.ts):
+   * "personal" and/or connection ids. Absent on a personal-only read. */
+  vaults?: string[];
   /** Explicit navigation target. Undefined means the legacy id itself;
    * null means a synthetic node has no note to open. */
   path?: string | null;

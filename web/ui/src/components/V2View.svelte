@@ -10,6 +10,8 @@
   import { onMount, tick } from "svelte";
   import { api } from "../lib/api";
   import { app, goto, gotoLens } from "../lib/store.svelte";
+  import { reloadSharedConnections, sharedSettings } from "../lib/sharedSettings.svelte";
+  import { selectedWorkspace } from "../lib/vaultScope";
   import type { CopyWhy, FoldGroup, GraphData, NoteResult, SourceOrigin } from "../lib/types";
   import { barPilots, buildField, foldOffer, latestPerFamily, neighbours, placePilots, searchFound, searchNames, sourceItems, twinsOf, type Field, type PilotSummary, type V2Feed, type V2FeedRow } from "../lib/v2/model";
   import { md, sanitizeHtml } from "../lib/markdown";
@@ -694,7 +696,8 @@
       // twins with nothing to answer (a joined vault's, a legacy note) are only named
       const same = !offer && tw.length ? `Also in your vault as “${tw.join("”, “")}”.` : undefined;
       return {
-        eyebrow: n.memory ? "Memory" : `${n.degree} ${n.degree === 1 ? "tie" : "ties"}`, name: n.label,
+        // where it comes from, when a server has it (0c): connection ids to their names
+        eyebrow: [n.memory ? "Memory" : `${n.degree} ${n.degree === 1 ? "tie" : "ties"}`, ...n.servers.map((id) => sharedSettings.connections.find((c) => c.id === id)?.name ?? "").filter(Boolean)].join(" · "), name: n.label,
         status: who.length ? `Lately written about by ${who.join(", ")}.` : "", same,
       };
     }
@@ -796,6 +799,8 @@
     seenRev = rev;
     clearTimeout(pending); pending = setTimeout(() => void onVaultChange(), 300);
   });
+  // the joined servers' names, for what the field says about where a thing comes from
+  onMount(() => { if (!data && !selectedWorkspace) void reloadSharedConnections().catch(() => {}); });
   onMount(() => {
     void load();
     void refreshPilots();
