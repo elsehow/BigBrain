@@ -25,6 +25,7 @@ import { supersededInsertionIds } from "./sourceSupersede";
 import { fmProvenance, type FilingStatus } from "./noteMeta";
 import type { RecentEntry } from "./viewTypes";
 import { savedClaudeModel } from "./sourceModel";
+import { sourceOrigin } from "./sourceOrigin";
 
 const sourcePath = /^log\/insertions\/(?:\d{4}-\d{2}|undated)\/(ins_[a-f0-9]{24})\.json$/u;
 const scalar = (value: unknown): string | undefined =>
@@ -314,6 +315,9 @@ export function readSourceInsertionPath(root: string, path: string): SourceInser
 /** Render the discussable lake item through the existing note reader. */
 export function sourceInsertionMarkdown(source: SourceInsertion): string {
   const date = sourceMoment(source) || undefined;
+  // Where it was captured (lib/sourceOrigin.ts): the viewer has always
+  // offered it to open; a reader asked for "the link" needs it as much.
+  const origin = sourceOrigin(source.envelope);
   return [
     "---",
     "type: source",
@@ -321,6 +325,7 @@ export function sourceInsertionMarkdown(source: SourceInsertion): string {
     `insertion_id: ${JSON.stringify(source.id)}`,
     ...(date ? [`date: ${JSON.stringify(date)}`] : []),
     `title: ${JSON.stringify(source.title)}`,
+    ...(origin?.kind === "url" ? [`url: ${JSON.stringify(origin.url)}`] : []),
     "---",
     "",
     source.body,

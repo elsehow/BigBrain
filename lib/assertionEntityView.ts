@@ -55,6 +55,11 @@ export interface ProjectedEntityView {
   /** Labels the alias log folds into this entity (lib/entityAliasLog.ts);
    * absent when none. */
   aliases?: string[];
+  /** The sources this entity IS — a document taken as its own subject
+   * (lib/entitySourceLog.ts) — newest first; absent when it is none. The
+   * graph draws the pair as one node, so whoever asks about that node must
+   * be led to the document, not left with what the record says of it. */
+  documents?: Pick<ProjectedEntitySource, "insertion_id" | "title" | "path">[];
 }
 
 /** All readers share the complete projection revision, independently of graph construction. */
@@ -80,7 +85,7 @@ export function assertionEntityExists(root: string, path: string): boolean {
 export function assertionEntityView(root: string, path: string): ProjectedEntityView | undefined {
   const asked = pathPattern.exec(path)?.[1];
   if (!asked) return undefined;
-  const { rows, sources, aliases, id, owner: me } = entityReadModel(root, asked);
+  const { rows, sources, aliases, id, bound, owner: me } = entityReadModel(root, asked);
   // Every id in the record resolves through the alias log: a stub's path
   // lands on its canonical dossier, links in the prose point there too, and
   // the rows are everything that names the entity under any of its labels.
@@ -101,6 +106,7 @@ export function assertionEntityView(root: string, path: string): ProjectedEntity
     label,
     ...(me && resolve(me.entity_id) === id ? { you: true as const } : {}),
     ...(aliasLabels.length ? { aliases: aliasLabels } : {}),
+    ...(bound.length ? { documents: bound.map((source) => ({ insertion_id: source.id, title: source.title, path: insertionEventRel(source) })) } : {}),
     assertions: rows.map((row) => ({
       id: row.id,
       text: linkedText(row.text),
@@ -288,16 +294,25 @@ export function filterEntityView(view: ProjectedEntityView, f: EntityViewFilter)
   return { ...view, assertions: rows, ...(rows.length < total ? { total } : {}) };
 }
 
+const sourceLink = (source: { path: string; title: string }): string => `[[${source.path}|${source.title}]]`;
+
+/** The dossier's line naming the documents the entity is, under its heading:
+ * a reader handed the entity reaches the document in one link. */
+function documentsLine(view: ProjectedEntityView): string[] {
+  if (!view.documents?.length) return [];
+  return [`_The document itself, in the vault: ${view.documents.map(sourceLink).join(" · ")}. Below is what the record says about it._`, ""];
+}
+
 export function projectedEntityMarkdown(view: ProjectedEntityView, caption?: string): string {
   const body = view.assertions.flatMap((row) => {
-    const refs = row.sources.map((source) => `[[${source.path}|${source.title}]]`);
+    const refs = row.sources.map(sourceLink);
     return [`- ${row.text}`, ...(refs.length ? [`  Sources: ${refs.join(" · ")}`] : []), ""];
   });
   return [
     "---", "type: entity", `title: ${JSON.stringify(view.label)}`, `entity_id: ${view.id}`,
     ...(view.aliases?.length ? [`aliases: [${view.aliases.map((a) => JSON.stringify(a)).join(", ")}]`] : []),
     "---", "",
-    `# ${view.label}`, "", ...(caption ? [`_${caption}_`, ""] : []), ...body,
+    `# ${view.label}`, "", ...documentsLine(view), ...(caption ? [`_${caption}_`, ""] : []), ...body,
   ].join("\n");
 }
 
@@ -342,7 +357,7 @@ export function projectedEntityToc(view: ProjectedEntityView): string {
   const total = view.total ?? view.assertions.length;
   const head = [
     "---", "type: entity", `title: ${JSON.stringify(view.label)}`, `entity_id: ${view.id}`, "---", "",
-    `# ${view.label}`, "",
+    `# ${view.label}`, "", ...documentsLine(view),
   ];
   if (!rows.length)
     return [...head, `_Table of contents: no assertions${total ? ` of ${total} match this window` : ""}._`, ""]

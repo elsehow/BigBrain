@@ -172,6 +172,14 @@ describe("native source feed", () => {
     expect(sourceInsertionMarkdown(item)).toContain(item.body);
   });
 
+  test("a source's markdown names the page it was captured from, and only a web page", () => {
+    const item = source("ins_444444444444444444444444", "2026-08-18T10:00:00Z", "A clipped paper");
+    const at = (url: unknown) => sourceInsertionMarkdown({ ...item, envelope: { ...item.envelope, url } });
+    expect(at("https://example.org/papers/lanterns.pdf")).toContain('\nurl: "https://example.org/papers/lanterns.pdf"\n---\n');
+    expect(at("file:///Users/someone/lanterns.pdf")).not.toContain("url:");
+    expect(sourceInsertionMarkdown(item)).not.toContain("url:");
+  });
+
   test("pages the full source history and marks its real end", () => {
     const root = mkdtempSync(join(tmpdir(), "bb-source-page-"));
     appendSourceInsertionEvent(root, source("ins_111111111111111111111111", "2026-08-17T10:00:00Z", "Oldest"));
