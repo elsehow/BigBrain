@@ -6,7 +6,7 @@ import { mdVault, insertion } from "./support/vault";
 import { appendAssertionEvent, createAssertionEvent, assertionEntityId } from "../lib/assertionLog";
 import { assertionEntityView, assertionEntityPath } from "../lib/assertionEntityView";
 import { appendSourceInsertionEvent, insertionEventRel } from "../lib/insertionLog";
-import { projectSourceInsertion, rebuildAssertionProjection, openAssertionProjectionReadonly, projectionRevision, syncAssertionProjection } from "../lib/assertionProjection";
+import { projectSourceInsertion, rebuildAssertionProjection, openAssertionProjectionReadonly, projectionRevision, recoverAssertionProjection, syncAssertionProjection } from "../lib/assertionProjection";
 import { sourceCatalog, sourceReadTargets, threadReadModel, invalidateVaultReadModel, publishReadModel, vaultRecord, withVaultSnapshot, projectedSource, projectedMarkdown, sourceRecord } from "../lib/vaultReadModel";
 import { buildAssertionGraph } from "../lib/assertionGraph";
 import { recentSourcePage } from "../lib/sourceFeed";
@@ -94,7 +94,8 @@ test("stale derived results cannot overwrite a newer feed revision", () => {
   const { root } = fixture();
   const first = vaultRecord(root);
   expect(recentSourcePage(root, 0, 1).total).toBe(1);
-  appendSourceInsertionEvent(root, insertion({ id: `ins_${"2".repeat(24)}`, source_id: "second", title: "Second", received_at: "2026-09-20T00:00:00Z" }));
+  const second = insertion({ id: `ins_${"2".repeat(24)}`, source_id: "second", title: "Second", received_at: "2026-09-20T00:00:00Z" });
+  appendSourceInsertionEvent(root, second); projectSourceInsertion(root, second);
   expect(recentSourcePage(root, 0, 1).recent[0]!.title).toBe("Second");
   expect(publishReadModel(root, first.revision, db => db.run("DELETE FROM read_feed"))).toBe(false);
   expect(recentSourcePage(root, 1, 1)).toMatchObject({ total: 2, nextOffset: null, recent: [{ title: "First source" }] });
@@ -109,13 +110,16 @@ test("retracting/restoring a source updates openable views while preserving its 
   expect(recentSourcePage(root, 0, 10).total).toBe(1);
   const revision = projectionRevision(root);
   rmSync(join(root, insertionEventRel(source)));
+  // A hand retraction is the census's to find: reads alone do not scan log/.
+  expect(recentSourcePage(root, 0, 10).total).toBe(1);
+  recoverAssertionProjection(root);
   invalidateVaultReadModel(root);
   expect(recentSourcePage(root, 0, 10).total).toBe(0);
   expect(buildAssertionGraph(root).nodes).toHaveLength(0);
   expect(projectionRevision(root)).not.toBe(revision);
   expect(assertionEntityView(root, assertionEntityPath(entity.id))?.assertions).toHaveLength(1);
   expect(assertionEntityView(root, assertionEntityPath(entity.id))?.assertions[0]!.sources).toEqual([]);
-  appendSourceInsertionEvent(root, source);
+  appendSourceInsertionEvent(root, source); recoverAssertionProjection(root);
   expect(recentSourcePage(root, 0, 10).total).toBe(1);
   expect(buildAssertionGraph(root).nodes).toHaveLength(2);
 });
@@ -130,7 +134,8 @@ test("failed catch-up keeps Markdown and the feed at the last complete revision"
   mkdirSync(join(root, "log/assertions/2026-09"), { recursive: true });
   const broken = join(root, "log/assertions/2026-09/ast_broken.json");
   writeFileSync(broken, "{}");
-  expect(() => syncAssertionProjection(root)).toThrow();
+  // A hand-written log file is only seen by recovery, which must fail whole.
+  expect(() => recoverAssertionProjection(root)).toThrow();
   const db = openAssertionProjectionReadonly(root);
   try {
     expect(projectionRevision(root, db)).toBe(revision);
@@ -157,8 +162,8 @@ test("nested note and graph reads retain their snapshot across a concurrent publ
   withVaultSnapshot(root, (_db, revision) => {
     const sources = sourceRecord(root);
     expect(vaultRecord(root).sources.size).toBe(1);
-    appendSourceInsertionEvent(root, insertion({ id: `ins_${"2".repeat(24)}`, source_id: "second" }));
-    syncAssertionProjection(root);
+    const second = insertion({ id: `ins_${"2".repeat(24)}`, source_id: "second" });
+    appendSourceInsertionEvent(root, second); projectSourceInsertion(root, second);
     expect(projectionRevision(root)).not.toBe(revision);
     expect(vaultRecord(root).revision).toBe(revision);
     expect(sourceRecord(root)).toBe(sources);
@@ -190,7 +195,7 @@ test("thread membership and metadata stay at the borrowed revision across append
     expect(threadReadModel(root, path)).toEqual(view);
   });
   expect(threadReadModel(root, path)).toEqual(view);
-  rmSync(join(root, insertionEventRel(b))); invalidateVaultReadModel(root);
+  rmSync(join(root, insertionEventRel(b))); recoverAssertionProjection(root); invalidateVaultReadModel(root);
   expect(sourceCatalog(root).threads[0]!.members.map(s => s.id)).toEqual([a.id]);
   expect(threadReadModel(root, a.id, true)).toBeUndefined();
 });

@@ -28,13 +28,19 @@ import {
   type AssertionEvent,
 } from "../lib/assertionLog";
 import { appendSourceInsertionEvent, type SourceInsertion } from "../lib/insertionLog";
+import {
+  appendAndProjectAssertion,
+  appendAndProjectEntityAlias,
+  appendAndProjectRevocation,
+  projectSourceInsertion,
+} from "../lib/assertionProjection";
 import { runMemory, type MemoryRunResult } from "../lib/memoryRun";
 import { MEMORY_MAX_ASSERTIONS_INLINE, readMemorySnapshot } from "../lib/memoryContext";
 import { memoryStanding, memoryLine } from "../lib/diagnostics";
 import { readMemoryInputs } from "../lib/memoryInputs";
 import { supersedeEntity } from "../lib/entitySupersede";
-import { appendRevocationEvent, createRevocationEvent } from "../lib/revocationLog";
-import { appendEntityAliasEvent, createEntityAliasEvent } from "../lib/entityAliasLog";
+import { createRevocationEvent } from "../lib/revocationLog";
+import { createEntityAliasEvent } from "../lib/entityAliasLog";
 import {
   assertionAt,
   describeMemoryWork,
@@ -198,13 +204,14 @@ describe("native due-ness — assertions trigger, raw arrivals do not", () => {
     // make the pass due when extraction lands (Decision 2's corollary)
     const late = mkSource(5);
     appendSourceInsertionEvent(root, late);
+    projectSourceInsertion(root, late);
     expect(hasMemoryWork(memoryWork(root))).toBe(false);
     const idle = memoryDue(root, { now: new Date("2026-08-18T12:00:00Z") });
     expect(idle.due).toBe(false);
     expect(idle.reason).toBe("nothing to fold in — no voice, no new assertions");
 
     // extraction lands: now the pass has something to fold
-    appendAssertionEvent(root, mkAssertion(late, "asserted the late arrival.", at(30)));
+    appendAndProjectAssertion(root, mkAssertion(late, "asserted the late arrival.", at(30)));
     const w = memoryWork(root);
     expect(w.record).toBe(1);
     expect(describeMemoryWork(w)).toBe("1 new assertion(s)");
@@ -252,13 +259,13 @@ describe("runMemory on a native vault", () => {
     expect(snapshot.astDelta[0]!.created_at).toBe(asts[0]!.created_at);
 
     writeMemoryStamp(root, { ...stamp, checkpoint: snapshot.checkpoint });
-    appendRevocationEvent(root, createRevocationEvent({
+    appendAndProjectRevocation(root, createRevocationEvent({
       assertion_id: asts[1]!.id, reason: "withdrawn", author: { kind: "user", id: "test" },
       created_at: at(5), produced_by: { procedure: "test", version: "1" },
     }));
     expect(memoryWork(root)).toMatchObject({ record: 0, recordChanged: true });
     writeMemoryStamp(root, { ...stamp, checkpoint: readMemoryInputs(root).checkpoint });
-    appendEntityAliasEvent(root, createEntityAliasEvent({
+    appendAndProjectEntityAlias(root, createEntityAliasEvent({
       alias: "Countess Lovelace", entity: { id: assertionEntityId("Augusta Ada King"), label: "Augusta Ada King" },
       author: { kind: "user", id: "test" }, created_at: at(6), produced_by: { procedure: "test", version: "1" },
     }));
@@ -280,7 +287,7 @@ describe("runMemory on a native vault", () => {
     expect(hasMemoryWork(memoryWork(root))).toBe(false);
     // It arrived after the checkpoint, despite an older content timestamp.
     const late = mkAssertion(sources[0]!, "reported a late correction.", at(-100));
-    appendAssertionEvent(root, late);
+    appendAndProjectAssertion(root, late);
     expect(readMemorySnapshot(root, recovered).astDelta.map((a) => a.id)).toEqual([late.id]);
     expect(memoryDue(root, { now: new Date(Date.parse(stamp.nextRunAt!) + 1) }).due).toBe(true);
   });

@@ -259,7 +259,7 @@ export function landReference(root: string, content: string, opts: LandOpts = {}
   // The source log is the ONE durable write (#496): the immutable insertion
   // event, idempotent by its deterministic id. The projection row lands
   // eagerly (O(1)) so search and the next dedup see it without a sync;
-  // fail-soft — a projection hiccup heals on the next sync and must never
+  // fail-soft — a projection hiccup heals at the next recovery and must never
   // fail the landing.
   const insertion = appendSourceInsertion(root, env as Envelope & Record<string, unknown>, body);
   try {

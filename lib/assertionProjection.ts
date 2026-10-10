@@ -6,7 +6,7 @@ import { Database } from "bun:sqlite";
 import { searchMatch as matchQuery, searchAlternatives, searchTerms as matchTerms } from "./searchQuery";
 import { searchNames } from "./searchNames";
 import { existsSync, mkdirSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 import { parseEventFile, type EventFile } from "./eventLog";
 import { sha256hex } from "./hash";
 import { norm } from "./ids";
@@ -15,6 +15,7 @@ import {
   appendAssertionEvent,
   assertionSourceReferences,
   listAssertionEventFiles,
+  ASSERTION_LOG_DIR,
   validateAssertionEvent,
   validateAssertionEvidence,
   type AssertionEntity,
@@ -23,6 +24,7 @@ import {
 } from "./assertionLog";
 import {
   listSourceInsertionEventFiles,
+  INSERTION_LOG_DIR,
   validateSourceInsertion,
   type SourceInsertion,
 } from "./insertionLog";
@@ -30,6 +32,7 @@ import { liveAssertionSql, liveSourceSql, supersedesOf } from "./sourceSupersede
 import {
   appendDeclineEvent,
   listDeclineEventFiles,
+  DECLINE_LOG_DIR,
   validateDeclineEvent,
   type DeclineEvent,
 } from "./declineLog";
@@ -37,18 +40,21 @@ import {
   appendEntityAliasEvent,
   entityAliasResolution,
   listEntityAliasEventFiles,
+  ENTITY_ALIAS_LOG_DIR,
   validateEntityAliasEvent,
   type EntityAliasEvent,
 } from "./entityAliasLog";
 import {
   appendEntitySourceEvent,
   listEntitySourceEventFiles,
+  ENTITY_SOURCE_LOG_DIR,
   validateEntitySourceEvent,
   type EntitySourceEvent,
 } from "./entitySourceLog";
 import {
   appendSourceCopyEvent,
   listSourceCopyEventFiles,
+  SOURCE_COPY_LOG_DIR,
   validateSourceCopyEvent,
   type SourceCopyEvent,
 } from "./sourceCopyLog";
@@ -57,6 +63,7 @@ import { assertionDb } from "./env";
 import {
   appendRevocationEvent,
   listRevocationEventFiles,
+  REVOCATION_LOG_DIR,
   validateRevocationEvent,
   type RevocationEvent,
 } from "./revocationLog";
@@ -650,18 +657,26 @@ export function projectedEntityAliases(root: string, id: string, db?: Database):
  * decline's insertions before the decline, and a revocation's assertion —
  * with its successor, when it supersedes — before the revocation. */
 interface ProjectionKind {
+  /** The log directory, whose files are named by event id. */
+  dir: string;
   held: string;
+  /** Whether the projection holds one id: an indexed lookup. */
+  holds: string;
   listFiles: (root: string) => EventFile[];
   project: (db: Database, file: EventFile) => void;
 }
 
 const projectionKind = <T extends { id: string }>(spec: {
+  dir: string;
   held: string;
+  holds: string;
   listFiles: (root: string) => EventFile[];
   validate: (event: T) => void;
   insert: (db: Database, event: T) => boolean;
 }): ProjectionKind => ({
+  dir: spec.dir,
   held: spec.held,
+  holds: spec.holds,
   listFiles: spec.listFiles,
   project: (db, file) => {
     let event: T;
@@ -676,68 +691,108 @@ const projectionKind = <T extends { id: string }>(spec: {
 
 const KINDS: readonly ProjectionKind[] = [
   projectionKind<SourceInsertion>({
+    dir: INSERTION_LOG_DIR,
     held: "SELECT insertion_id AS id FROM sources",
+    holds: "SELECT 1 FROM sources WHERE insertion_id = ? AND present = 1",
     listFiles: listSourceInsertionEventFiles,
     validate: validateSourceInsertion,
     insert: insertSourceRow,
   }),
   projectionKind<AssertionEvent>({
+    dir: ASSERTION_LOG_DIR,
     held: "SELECT id FROM assertions",
+    holds: "SELECT 1 FROM assertions WHERE id = ?",
     listFiles: listAssertionEventFiles,
     validate: validateAssertionEvent,
     insert: insertAssertionRow,
   }),
   projectionKind<DeclineEvent>({
     // A decline holds one row per insertion it settles, so its id repeats.
+    dir: DECLINE_LOG_DIR,
     held: "SELECT DISTINCT decline_id AS id FROM declines",
+    holds: "SELECT 1 FROM declines WHERE decline_id = ? LIMIT 1",
     listFiles: listDeclineEventFiles,
     validate: validateDeclineEvent,
     insert: insertDeclineRow,
   }),
   projectionKind<EntityAliasEvent>({
+    dir: ENTITY_ALIAS_LOG_DIR,
     held: "SELECT id FROM entity_alias_events",
+    holds: "SELECT 1 FROM entity_alias_events WHERE id = ?",
     listFiles: listEntityAliasEventFiles,
     validate: validateEntityAliasEvent,
     insert: insertEntityAliasRow,
   }),
   projectionKind<EntitySourceEvent>({
+    dir: ENTITY_SOURCE_LOG_DIR,
     held: "SELECT id FROM entity_source_events",
+    holds: "SELECT 1 FROM entity_source_events WHERE id = ?",
     listFiles: listEntitySourceEventFiles,
     validate: validateEntitySourceEvent,
     insert: insertEntitySourceRow,
   }),
   projectionKind<SourceCopyEvent>({
+    dir: SOURCE_COPY_LOG_DIR,
     held: "SELECT id FROM source_copy_events",
+    holds: "SELECT 1 FROM source_copy_events WHERE id = ?",
     listFiles: listSourceCopyEventFiles,
     validate: validateSourceCopyEvent,
     insert: insertSourceCopyRow,
   }),
   projectionKind<RevocationEvent>({
+    dir: REVOCATION_LOG_DIR,
     held: "SELECT id FROM revocations",
+    holds: "SELECT 1 FROM revocations WHERE id = ?",
     listFiles: listRevocationEventFiles,
     validate: validateRevocationEvent,
     insert: insertRevocationRow,
   }),
 ];
 
+/** Whether the projection already holds every event file a watcher named
+ * (vault-relative paths). A projected log names each file by its event id,
+ * so this is one indexed lookup per path, never a census. A file that is gone
+ * (retracted by hand), or an id the projection lacks, answers false: that is
+ * recovery's to heal. An atomic write's temp file is skipped — its rename
+ * names the event — and paths outside the projected logs are not ours. */
+export function projectionHolds(root: string, rels: Iterable<string>): boolean {
+  let db: Database | undefined;
+  try {
+    for (const rel of rels) {
+      const path = rel.split(sep).join("/");
+      const kind = KINDS.find((k) => path.startsWith(`${k.dir}/`));
+      if (!kind) continue;
+      const name = path.slice(path.lastIndexOf("/") + 1);
+      if (name.startsWith(".")) continue;
+      if (!name.endsWith(".json") || !existsSync(join(root, path))) return false;
+      db ??= openReadonly(root);
+      if (!db.query(kind.holds).get(name.slice(0, -".json".length))) return false;
+    }
+    return true;
+  } catch {
+    return false;
+  } finally { db?.close(); }
+}
+
 const heldIds = (db: Database, sql: string): Set<string> =>
   new Set((db.query(sql).all() as { id: string }[]).map((row) => row.id));
 
-/** Whether any log holds an event the projection does not, read on a
- * READONLY connection, plus the stats to answer with when nothing does.
- * Search freshens once a second while someone types, and a current
- * projection must cost a directory listing and five id scans — never a write
- * transaction. Metadata stamps detect changed Markdown without body reads.
+interface Probe { generation: string; pending: boolean }
+
+/** What reconciliation would have to do, read on a READONLY connection —
+ * never a write transaction. Metadata stamps detect changed Markdown without
+ * body reads. The log census (a directory listing and id scans per kind) runs
+ * only when `census` asks for it: recovery does, a read never does.
  * `undefined` when there is no projection to compare against: absent,
  * damaged, or built by another schema — the write path rebuilds. */
-function pendingEvents(root: string): { pending: boolean; stats: AssertionProjectionStats } | undefined {
+function probe(root: string, census: boolean): Probe | undefined {
   let db: Database;
   try { db = openReadonly(root); } catch { return undefined; }
   try {
-    const version = (db.query("SELECT v FROM meta WHERE k = 'schema'").get() as { v?: string } | null)?.v;
-    if (version !== SCHEMA_VERSION || !db.query("SELECT 1 FROM meta WHERE k = 'complete'").get()) return undefined;
-    let pending = Boolean(db.query("SELECT 1 FROM meta WHERE k = 'threads_dirty'").get());
-    for (const kind of KINDS) {
+    const meta = Object.fromEntries((db.query("SELECT k, v FROM meta WHERE k IN ('schema','complete','generation','threads_dirty')").all() as { k: string; v: string }[]).map(r => [r.k, r.v]));
+    if (meta.schema !== SCHEMA_VERSION || !meta.complete || !meta.generation) return undefined;
+    let pending = Boolean(meta.threads_dirty);
+    if (census) for (const kind of KINDS) {
       const held = heldIds(db, kind.held), files = new Set(kind.listFiles(root).map(file => file.id));
       if ([...files].some(id => !held.has(id))) pending = true;
       if (kind.listFiles === listSourceInsertionEventFiles) {
@@ -745,7 +800,7 @@ function pendingEvents(root: string): { pending: boolean; stats: AssertionProjec
         if (present.size !== files.size || [...present].some(id => !files.has(id))) pending = true;
       }
     }
-    return { pending: pending || markdownChanged(db, root), stats: statsOf(db) };
+    return { generation: meta.generation, pending: pending || markdownChanged(db, root) };
   } catch {
     return undefined;
   } finally { db.close(); }
@@ -758,7 +813,7 @@ function markdownChanged(db: Database, root: string): boolean {
 }
 
 /** Search must see mutable memory edits immediately. On a hit this checks
- * only Markdown metadata, leaving the log census to normal reconciliation. */
+ * only Markdown metadata, leaving the log census to recovery. */
 export function syncMarkdownProjection(root: string): void {
   let changed = true;
   try {
@@ -838,28 +893,80 @@ function reconcile(db: Database, root: string): AssertionProjectionStats {
   return statsOf(db);
 }
 
-/** Recovery/startup path. Ordinary ingestion calls the O(1) project methods.
+/** The projection generation this process has reconciled against the logs,
+ * by root. A rebuild mints a new generation, so it is recovered afresh. */
+const recovered = new Map<string, string>();
+function generationOf(root: string): string | undefined {
+  try {
+    const db = openReadonly(root);
+    try { return (db.query("SELECT v FROM meta WHERE k = 'generation'").get() as { v: string } | null)?.v; }
+    finally { db.close(); }
+  } catch { return undefined; }
+}
+/** Count the current generation as recovered; undefined without a projection. */
+function markRecovered(root: string): string | undefined {
+  const generation = generationOf(root);
+  if (generation) recovered.set(resolve(root), generation);
+  return generation;
+}
+
+/** Bring the projection up to date for a read. Every engine write projects
+ * itself as it appends (appendAndProject*, projectSourceInsertion), and a
+ * reader's snapshot carries the revision those writes advanced — so another
+ * process's write is visible here with no census at all. What remains is
+ * Markdown, which people edit outside the engine: its metadata stamps are
+ * compared on every call, and a change reconciles under the write lock. A
+ * current projection takes no lock. The first call per root and generation
+ * in a process recovers instead (recoverAssertionProjection). */
+export function syncAssertionProjection(root: string): void {
+  const ahead = probe(root, false);
+  if (!ahead || recovered.get(resolve(root)) !== ahead.generation) { recoverAssertionProjection(root); return; }
+  if (!ahead.pending) return;
+  withProjectionWrite(root, () => {
+    const db = open(root);
+    try {
+      db.transaction(() => {
+        reconcileMarkdown(db, root);
+        reconcileThreads(db);
+      })();
+    } finally { db.close(); }
+  });
+}
+
+/** Heal what the write path could not: a process that died between its
+ * append and its projection, a landing that swallowed a projection error, a
+ * file put in `log/` by hand. Runs once per root and generation in every
+ * process, and again whenever the viewer's watcher sees `log/` change — off
+ * the request path there (lib/liveEvents.ts).
  *
  * Incremental by filename (#456): the log filename IS the event id, so the
  * only files ever parsed are the ones the projection does not hold yet — one
  * connection for the whole pass, never one per event. An already-projected
  * file is never reread: the projection holds the copy it validated at insert
- * time, and the append path owns immutability collisions. A vault whose
- * projection is current pays one directory listing and five id scans, which
- * is what lets searchCore freshen on the request path without turning
- * projection maintenance into a corpus replay. */
-export function syncAssertionProjection(root: string): AssertionProjectionStats {
-  return withProjectionWrite(root, () => {
-    const ahead = pendingEvents(root);
-    if (ahead && !ahead.pending) return ahead.stats;
+ * time, and the append path owns immutability collisions. */
+export function recoverAssertionProjection(root: string): AssertionProjectionStats {
+  const stats = withProjectionWrite(root, () => {
+    const ahead = probe(root, true);
+    if (ahead && !ahead.pending) return assertionProjectionStats(root);
     const db = open(root);
     try { return db.transaction(() => reconcile(db, root))(); }
     finally { db.close(); }
   });
+  markRecovered(root);
+  return stats;
+}
+
+/** Count this process's recovery of `root` as done without running it here:
+ * the viewer hands the census to a worker, and every worker it spawns serves
+ * the viewer's projection. The returned function withdraws the claim, for a
+ * recovery that failed. No-op without a projection, which a read must build. */
+export function claimProjectionRecovery(root: string): () => void {
+  const generation = markRecovered(root), key = resolve(root);
+  return () => { if (generation && recovered.get(key) === generation) recovered.delete(key); };
 }
 
 export function rebuildAssertionProjection(root: string): AssertionProjectionStats {
-  return withProjectionWrite(root, () => {
+  const stats = withProjectionWrite(root, () => {
     const db = open(root);
     try {
       return db.transaction(() => {
@@ -870,6 +977,8 @@ export function rebuildAssertionProjection(root: string): AssertionProjectionSta
       })();
     } finally { db.close(); }
   });
+  markRecovered(root);
+  return stats;
 }
 
 /** A generation changes on rebuild; revision advances for record/content changes.

@@ -8,10 +8,12 @@ import {
   createAssertionEvent,
   type AssertionEvent,
 } from "../lib/assertionLog";
-import { appendEntityAliasEvent, createEntityAliasEvent } from "../lib/entityAliasLog";
-import { appendRevocationEvent, createRevocationEvent } from "../lib/revocationLog";
+import { createEntityAliasEvent } from "../lib/entityAliasLog";
+import { createRevocationEvent } from "../lib/revocationLog";
 import { appendSourceInsertionEvent } from "../lib/insertionLog";
 import {
+  appendAndProjectEntityAlias,
+  appendAndProjectRevocation,
   listAssertions,
   syncAssertionProjection,
   tallyAssertionEntities,
@@ -116,7 +118,7 @@ describe("listAssertions", () => {
       id: assertionEntityId("Field Research Institute"),
       label: "Field Research Institute",
     };
-    appendEntityAliasEvent(
+    appendAndProjectEntityAlias(
       root,
       createEntityAliasEvent({
         alias: "FRI",
@@ -138,7 +140,7 @@ describe("listAssertions", () => {
       { n: 1, label: "Atlas", occurred: "2026-08-10T00:00:00.000Z" },
       { n: 2, label: "Babbage", occurred: "2026-08-11T00:00:00.000Z" },
     ]);
-    appendRevocationEvent(
+    appendAndProjectRevocation(
       root,
       createRevocationEvent({
         assertion_id: asts[0]!.id,
@@ -174,7 +176,7 @@ describe("tallyAssertionEntities", () => {
       { n: 3, label: "Atlas", occurred: "2026-08-01T00:00:00.000Z" },
       { n: 4, label: "Babbage", occurred: "2026-06-01T00:00:00.000Z" },
     ]);
-    appendRevocationEvent(
+    appendAndProjectRevocation(
       root,
       createRevocationEvent({
         assertion_id: asts[2]!.id,

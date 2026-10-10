@@ -29,10 +29,10 @@ import {
   writeMemoryStamp,
 } from "../lib/memory";
 import {
-  appendAssertionEvent,
   assertionEntityId,
   createAssertionEvent,
 } from "../lib/assertionLog";
+import { appendAndProjectAssertion, projectSourceInsertion } from "../lib/assertionProjection";
 import { appendSourceInsertionEvent, type SourceInsertion } from "../lib/insertionLog";
 import { holdElsewhere } from "./support/lockElsewhere";
 import { gitVault, insertion, testManifest } from "./support/vault";
@@ -69,6 +69,7 @@ function emitVoice(
     content_sha256: `sha-voice-${obsSeq}`,
   });
   appendSourceInsertionEvent(root, event);
+  projectSourceInsertion(root, event); // as voice landing does
   return event;
 }
 
@@ -87,8 +88,9 @@ function seedAssertion(root: string, created: string): void {
     content_sha256: `sha-src-${astSeq}`,
   });
   appendSourceInsertionEvent(root, src);
+  projectSourceInsertion(root, src);
   const ada = { id: assertionEntityId("Ada Lovelace"), label: "Ada Lovelace" };
-  appendAssertionEvent(
+  appendAndProjectAssertion(
     root,
     createAssertionEvent(
       {

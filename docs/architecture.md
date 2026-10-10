@@ -108,12 +108,22 @@ publishes content, source presence, thread membership, Markdown metadata, and
 parsed links together with a revision. Failure leaves the previous complete
 revision intact.
 
+Every engine write projects itself as it appends (`appendAndProject*`,
+`projectSourceInsertion`), advancing the revision, so reads never list the
+logs: another process's write is visible in the next snapshot. The log census —
+event files the projection lacks, insertion files deleted by hand — is
+recovery, for what the write path could not do (a process that died between
+append and projection, a file copied into `log/`). It runs once per process
+and projection generation, in a worker when the viewer starts, and whenever the
+viewer's watcher sees `log/` change.
+
 [`vaultReadModel.ts`](../lib/vaultReadModel.ts) is the shared snapshot boundary.
 A synchronous `withVaultSnapshot` callback borrows one SQLite read transaction;
 nested readers borrow the same transaction. Callers must not hold it across
 asynchronous work. Decoded views share a bounded per-vault revision cache.
-Local changes trigger reconciliation; a one-second census fallback detects
-external changes when notifications are missed.
+People edit Markdown outside the engine, so its metadata stamps are checked on
+a one-second fallback when notifications are missed; a read takes the
+projection write lock only when that check finds a change.
 
 The feed borrows a narrow `SourceRecord`: source headers, short excerpts, intake
 priorities, thread membership, and settlement/supersession facts. Settlement
@@ -130,7 +140,7 @@ Persisted feed pages are published only if their input revision is still current
 [`graphWorker.ts`](../lib/graphWorker.ts) prepare graph/feed data and layouts
 away from the viewer's event loop. Graph readers use the same one-second
 reconciliation gate as other snapshot readers. An async reader delegates a due
-census to a worker; concurrent requests share that preparation. If the revision
+freshness check to a worker; concurrent requests share that preparation. If the revision
 is unchanged, the worker returns only its revision and the existing graph is
 reused. An obsolete worker can neither publish a graph nor satisfy the shared
 freshness clock. The fallback runs on demand, so this adds no idle polling timer.

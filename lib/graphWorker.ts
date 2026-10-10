@@ -5,13 +5,20 @@ import { assertionGraphEvidenceCached } from "./graphCache";
 import { withVaultSnapshot } from "./vaultReadModel";
 import { recentSourcePage } from "./sourceFeed";
 import { computeLayout } from "./graphLayout";
+import { claimProjectionRecovery, recoverAssertionProjection } from "./assertionProjection";
 
 declare const self: Worker;
 self.onmessage = ({ data: request }: MessageEvent<ReadModelWorkerRequest>) => {
   try {
     if (request.kind === "layout") {
       postMessage({ value: computeLayout(request.graph, request.previous) });
+    } else if (request.kind === "recover") {
+      postMessage({ value: recoverAssertionProjection(request.root) });
     } else {
+      // The process that spawned this owns recovery (the viewer runs it as
+      // its own "recover" job); a worker must not repeat the log census
+      // every build.
+      claimProjectionRecovery(request.root);
       // Live warming prepares compact feed pages alongside the graph.
       recentSourcePage(request.root, 0, 1);
       const snapshot = withVaultSnapshot(request.root, (_db, revision) =>
