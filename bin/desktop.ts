@@ -245,7 +245,7 @@ async function run(root: string): Promise<Run> {
       { name: "api", script: "bin/api.ts", interval: null, atStart: true, env: { PORT: apiPort } },
       { name: "web", script: "web/server.ts", interval: null, atStart: true, env: { PORT: webPort } },
     ];
-    for (const name of ["tend", "publish", "arrivals"])
+    for (const name of ["tend", "publish", "arrivals", "copies"])
       jobs.push({ name, script: `bin/${name}.ts`, interval: cadence(name), atStart: false });
     for (const name of new Set([...Object.keys(manifest.integrations), ...MANAGED_INTEGRATIONS])) {
       if (!integrationActive(root, name)) continue;

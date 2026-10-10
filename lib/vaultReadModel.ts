@@ -14,7 +14,8 @@ import { withProjectionWrite } from "./projectionWriteLock";
 import type { RecentEntry } from "./viewTypes";
 import { threadsByInsertion, type SourceThread } from "./sourceThreads";
 import { supersededInsertionIds, liveAssertionSql, liveSourceSql } from "./sourceSupersede";
-import { sourceCopies, type SourceCopies } from "./sourceCopies";
+import { copyCandidates, copyCutoff, foldCopyEvents, PROPOSE_FLOOR, sourceCopies, type CopyWhy, type SourceCopies } from "./sourceCopies";
+import { copyPairKey, type SourceCopyEvent } from "./sourceCopyLog";
 import { proseChars, STUB_CHARS } from "./text";
 import { aboutIds, VOICE_KINDS } from "./voiceFacts";
 import { markVaultChanged, vaultChangeVersion } from "./vaultChanges";
@@ -47,7 +48,7 @@ interface DecodedRevision {
   revision: string;
   record?: VaultRecord;
   sources?: SourceRecord;
-  copies?: Map<string, SourceCopies<SourceSummary>>;
+  copies?: CopiesRecord;
   catalog?: { sources: SourceMetadata[]; threads: SourceThread<SourceMetadata>[] };
   memory?: { inss: SourceMetadata[]; asserted: AssertionEvent[]; voice: SourceInsertion[];
     revocations: RevocationEvent[]; aliases: EntityAliasEvent[] };
@@ -167,10 +168,23 @@ export function vaultRecord(root: string, reconcile = false): VaultRecord {
   });
 }
 
-/** Copies of one document (lib/sourceCopies.ts), by insertion id: live
- * arrivals outside mail threads, an entity binding joining the sources it
- * is (a superseded landing followed to its live one, as the graph does). */
-export function sourceCopiesRecord(root: string): Map<string, SourceCopies<SourceSummary>> {
+/** A pair that might be one document, still to settle: asked of a person,
+ * with the model's score once it has one. */
+export interface CopyProposal { a: string; b: string; score?: number }
+
+interface CopiesRecord {
+  groups: Map<string, SourceCopies<SourceSummary>>;
+  /** By insertion id: the proposals its document is part of. */
+  proposals: Map<string, CopyProposal[]>;
+  /** Candidates no model has scored and no person has settled. */
+  unjudged: [string, string][];
+}
+
+/** Copies of one document (lib/sourceCopies.ts) over live arrivals outside
+ * mail threads. Exact keys, an entity binding (a superseded landing followed
+ * to its live one, as the graph does), a person's "same" and a judgment at or
+ * above the cut-off link a pair; a person's "not the same" cuts it. */
+function copiesRecord(root: string): CopiesRecord {
   return withVaultSnapshot(root, (db, revision) => {
     const held = decodedRevision(root, revision);
     if (held.copies) return held.copies;
@@ -184,12 +198,43 @@ export function sourceCopiesRecord(root: string): Map<string, SourceCopies<Sourc
       const id = landed && (superseded.has(landed.id) ? live.get(landed.source_id) : landed.id);
       if (id) joins.set(id, [...(joins.get(id) ?? []), `entity:${(aliases.canonical.get(binding.entity.id) ?? binding.entity).id}`]);
     }
+    const said = foldCopyEvents(decoded<SourceCopyEvent>(db, "SELECT event_json FROM source_copy_events"));
+    const cutoff = copyCutoff(said);
+    const pair = (key: string): [string, string] => key.split("|") as [string, string];
+    const pairs: [string, string, CopyWhy][] = [];
+    for (const [key, same] of said.declared) if (same) pairs.push([...pair(key), "you"]);
+    for (const [key, j] of said.judged) if (j.score >= cutoff && !said.declared.has(key)) pairs.push([...pair(key), "judged"]);
     const body = db.query("SELECT body FROM sources WHERE insertion_id = ?");
-    return held.copies = sourceCopies([...sources.values()].filter((s) => !superseded.has(s.id) && !threadByInsertion.has(s.id)), {
-      joins, stub: (source) => proseChars((body.get(source.id) as { body: string } | null)?.body ?? "") < STUB_CHARS,
+    const works = [...sources.values()].filter((s) => !superseded.has(s.id) && !threadByInsertion.has(s.id));
+    const groups = sourceCopies(works, {
+      joins, pairs, apart: (a, b) => said.declared.get(copyPairKey(a, b)) === false,
+      stub: (source) => proseChars((body.get(source.id) as { body: string } | null)?.body ?? "") < STUB_CHARS,
     });
+    const proposals = new Map<string, CopyProposal[]>(), unjudged: [string, string][] = [];
+    const members = (id: string): string[] => groups.get(id)?.members.map((m) => m.id) ?? [id];
+    for (const [a, b] of copyCandidates(works)) {
+      const key = copyPairKey(a, b), group = groups.get(a), judged = said.judged.get(key);
+      if (said.declared.has(key) || (group && group === groups.get(b))) continue;
+      if (!judged) unjudged.push([a, b]);
+      else if (judged.score < PROPOSE_FLOOR) continue;
+      const proposal: CopyProposal = { a, b, ...(judged ? { score: judged.score } : {}) };
+      for (const id of [...members(a), ...members(b)]) {
+        const held = proposals.get(id);
+        if (held) held.push(proposal); else proposals.set(id, [proposal]);
+      }
+    }
+    return held.copies = { groups, proposals, unjudged };
   });
 }
+
+/** Copies of one document (lib/sourceCopies.ts), by insertion id. */
+export const sourceCopiesRecord = (root: string): Map<string, SourceCopies<SourceSummary>> => copiesRecord(root).groups;
+
+/** The pairs still to settle that a source's document is part of. */
+export const copyProposals = (root: string, insertionId: string): CopyProposal[] => copiesRecord(root).proposals.get(insertionId) ?? [];
+
+/** Candidates for the judging pass (lib/sourceCopyJudge.ts). */
+export const unjudgedCopies = (root: string): [string, string][] => copiesRecord(root).unjudged;
 
 /** A source's other copies, best first; none when it has none. */
 export function otherCopies(root: string, insertionId: string): SourceSummary[] {

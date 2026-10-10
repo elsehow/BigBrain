@@ -33,6 +33,8 @@ export const CADENCE: Readonly<Record<string, number>> = {
   "that-tracks": 60,
   email: 60,
   rss: 900,
+  // judges candidates that might be one document (lib/sourceCopyJudge.ts)
+  copies: 900,
 };
 
 /** Seconds between runs for `name`. An integration with no entry above polls

@@ -75,6 +75,7 @@ import { agentWritten, insertionFiler, sourceInsertionMarkdown } from "../lib/so
 import { assertionsFromSource, projectedEntityMarkdown, truncatedEntityView, sourceThreadForInsertion, sourceInsertionCached } from "../lib/assertionEntityView";
 import { insertionEventRel, sourceMoment } from "../lib/insertionLog";
 import { foldsRoutes } from "../lib/entityFolds";
+import { copyReview, sourceCopyRoutes } from "../lib/sourceCopyReview";
 import { createNoteBriefingService, noteBriefingRoutes, readNoteBriefingInput } from "../lib/noteBriefing";
 import { noteRelationRoutes } from "../lib/noteRelation";
 import { sourceReadStateRoutes, graphWithReadState } from "../lib/sourceReadStateApi";
@@ -382,6 +383,8 @@ async function noteRead({ req, res, url }: Ctx): Promise<void> {
       sourceAssertions: assertionsFromSource(ROOT, pooled.map((copy) => copy.id)),
       origin: sourceOrigin(source.envelope, source),
       origins: [...origins.values()],
+      // the document's other copies and what it might also be (lib/sourceCopyReview.ts)
+      ...copyReview(ROOT, source.id),
       byAgent: agentWritten(source),
     });
   }
@@ -857,6 +860,7 @@ export const ROUTES: readonly Route[] = [
   // entity folds (#728): the memory pass's proposals against today's
   // record, and the operator's accept (an alias) and reject (remembered)
   ...foldsRoutes(ROOT),
+  ...sourceCopyRoutes(ROOT),
   { method: "GET", path: "/api/config", handler: configRead },
   { method: "POST", path: "/api/config", handler: ({ req, res }) => void handleConfigSave(req, res) },
   { method: "GET", path: "/api/events", handler: events },
