@@ -12,8 +12,7 @@ const server = await import("../web/server");
 const { dispatch } = await import("../lib/httpx");
 const { appendSourceInsertionEvent, insertionEventRel } = await import("../lib/insertionLog");
 const { assertionEntityId, createAssertionEvent } = await import("../lib/assertionLog");
-const { appendAndProjectAssertion, projectSourceInsertion, recoverAssertionProjection } = await import("../lib/assertionProjection");
-const { invalidateAssertionRecord } = await import("../lib/assertionEntityView");
+const { appendAndProjectAssertion, projectNotes, projectSourceInsertion, recoverAssertionProjection } = await import("../lib/assertionProjection");
 const { insertion } = await import("./support/vault");
 
 /** Drive one route against the preloaded scratch vault and parse what it
@@ -32,6 +31,7 @@ describe("web/server.ts imports without listening", () => {
     const path = "memory/search-probe.md";
     mkdirSync(join(root, "memory"), { recursive: true });
     writeFileSync(join(root, path), "# Curatedsearchprobe\nThe latest working context.");
+    projectNotes(root, [path]); // as the viewer's watcher does
     try {
       const payload = await new Promise<string>((resolve) => {
         const res = { writeHead: () => {}, end: resolve };
@@ -41,7 +41,7 @@ describe("web/server.ts imports without listening", () => {
         { dir: "memory", evidence: "memory", title: "Curatedsearchprobe", note: { path } },
       ]);
       expect(call("GET", `/api/note?path=${path}`)).toMatchObject({ content: expect.stringContaining("latest working context") });
-    } finally { rmSync(join(root, path), { force: true }); }
+    } finally { rmSync(join(root, path), { force: true }); projectNotes(root, [path]); }
   });
 
   test("search pages preserve ranked order, expose continuation, and stop at the end", async () => {
@@ -49,6 +49,7 @@ describe("web/server.ts imports without listening", () => {
     const paths = Array.from({ length: 7 }, (_, i) => `memory/paged-probe-${i}.md`);
     mkdirSync(join(root, "memory"), { recursive: true });
     paths.forEach((path, i) => writeFileSync(join(root, path), `# Pagedsearchprobe ${i}\nPagination fixture.`));
+    projectNotes(root, paths);
     const search = async (params: string) => JSON.parse(await new Promise<string>(resolve => {
       const res = { writeHead: () => {}, end: resolve };
       dispatch(server.ROUTES, { url: `/api/search?q=Pagedsearchprobe&${params}`, method: "GET" } as never, res as never);
@@ -63,7 +64,7 @@ describe("web/server.ts imports without listening", () => {
       expect([...first.hits, ...second.hits, ...last.hits].map(h => h.note.path))
         .toEqual(whole.hits.map((h: { note: { path: string } }) => h.note.path));
       expect((await search("limit=3&offset=250")).hits).toEqual([]);
-    } finally { paths.forEach(path => rmSync(join(root, path), { force: true })); }
+    } finally { paths.forEach(path => rmSync(join(root, path), { force: true })); projectNotes(root, paths); }
   });
 
   test("start is the one door to a socket, and importing never opened it", () => {
@@ -105,7 +106,6 @@ describe("the route table", () => {
       created_at: "2026-08-22T11:00:00.000Z", produced_by: { procedure: "test", version: "v1" },
     }, new Map([[cited.id, cited]]));
     appendAndProjectAssertion(root, claim);
-    invalidateAssertionRecord(root);
     // five calls, one item each, the cited source's the oldest
     const sources = [cited.id, ...[1, 2, 3, 4].map((n) => `ins_5a1e0000000000000000003${n}`)];
     const journal = join(root, "journal", "feed", "2026-08");
@@ -130,7 +130,6 @@ describe("the route table", () => {
       rmSync(join(root, "journal"), { recursive: true, force: true });
       rmSync(join(root, "log"), { recursive: true, force: true });
       recoverAssertionProjection(root); // a read no longer censuses log/: heal the removal here
-      invalidateAssertionRecord(root);
     }
   });
 
@@ -319,7 +318,6 @@ describe("a source note carries the assertions grounded in it", () => {
       },
       new Map([[cited.id, cited]]),
     ));
-    invalidateAssertionRecord(root);
     try {
       const note = call("GET", `/api/note?path=${encodeURIComponent(insertionEventRel(cited))}`) as {
         content: string;
@@ -343,7 +341,6 @@ describe("a source note carries the assertions grounded in it", () => {
       // the preloaded scratch vault is every file's; leave it as found
       rmSync(join(root, "log"), { recursive: true, force: true });
       recoverAssertionProjection(root); // a read no longer censuses log/: heal the removal here
-      invalidateAssertionRecord(root);
     }
   });
 });
@@ -367,7 +364,7 @@ test("search keeps grouped thread rows fresh across the live invalidation path",
   const live = createLive({ root, debounceMs: 1, watch: () => ({ close() {} }), warmLayout: primaryGraphCached });
   try {
     for (const row of rows.slice(0, 2)) { appendSourceInsertionEvent(root, row); projectSourceInsertion(root, row); }
-    syncAssertionProjection(root); invalidateGraphCaches(root); invalidateAssertionRecord(root);
+    syncAssertionProjection(root); invalidateGraphCaches(root);
     const first = await search();
     expect(first.hits).toHaveLength(1);
     expect(first.nextOffset).toBeNull();
@@ -391,6 +388,6 @@ test("search keeps grouped thread rows fresh across the live invalidation path",
     live.stop();
     rows.forEach(row => rmSync(join(root, insertionEventRel(row)), { force: true }));
     recoverAssertionProjection(root); // a read no longer censuses log/: heal the removal here
-    invalidateGraphCaches(root); invalidateAssertionRecord(root);
+    invalidateGraphCaches(root);
   }
 });

@@ -1,7 +1,7 @@
 /** Explicit note links shared by the graph and its Quick-model reading aid. */
 import { AST_CITE } from "./ids";
-import { readFileSync, realpathSync, statSync } from "node:fs";
-import { join, relative } from "node:path";
+import { lstatSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { dirname, join, relative } from "node:path";
 import { withinRoot, BROWSE_ROOTS } from "./browsePaths";
 import type { GraphNode } from "./graph";
 import { maskFences, parseWikilinks } from "./linkSyntax";
@@ -118,13 +118,40 @@ export function explicitNoteLinks(document: MarkdownDocument, resolve: ReturnTyp
   return resolveDocumentLinks(document, parseDocumentLinks(document, fencedText), resolve);
 }
 
+/** Whether the full walk below reaches folder `rel`: a browse root, then
+ * real (not linked) folders, none dotted — the walk's own rules. */
+function walkable(root: string, rel: string): boolean {
+  const parts = rel.split("/");
+  if (!BROWSE_ROOTS.has(parts[0]!) || parts.some((p) => !p || p.startsWith("."))) return false;
+  try {
+    if (!statSync(join(root, parts[0]!)).isDirectory()) return false;
+    for (let i = 2; i <= parts.length; i++) {
+      const st = lstatSync(join(root, ...parts.slice(0, i)));
+      if (!st.isDirectory() || st.isSymbolicLink()) return false;
+    }
+    return true;
+  } catch { return false; }
+}
+
+/** The notes the walk would find at vault-relative `rel`: the note itself,
+ * or every note in that folder. */
+function notesAt(root: string, rel: string): string[] {
+  if (!rel.endsWith(".md")) return walkable(root, rel) ? walkMarkdown(root, [rel], { skipDotted: true }) : [];
+  const name = rel.slice(rel.lastIndexOf("/") + 1);
+  if (name.startsWith(".") || !walkable(root, dirname(rel))) return [];
+  try { return lstatSync(join(root, rel)).isFile() ? [rel] : []; } catch { return []; }
+}
+
 /** Metadata census, including realpath in the stamp so retargeted symlinks
- * cannot reuse content outside the allowed trees. No body reads on a hit. */
-export function markdownInventory(root: string): Map<string, string> {
+ * cannot reuse content outside the allowed trees. No body reads on a hit.
+ * `under` limits it to those vault-relative paths — a note, or a folder of
+ * them — as the notes door reconciles what it saw change. */
+export function markdownInventory(root: string, under?: readonly string[]): Map<string, string> {
   const files = new Map<string, string>();
   let realRoot: string;
   try { realRoot = realpathSync(root); } catch { return files; }
-  for (const path of walkMarkdown(root, [...BROWSE_ROOTS], { skipDotted: true }).sort()) {
+  const paths = under ? [...new Set(under.flatMap((rel) => notesAt(root, rel)))] : walkMarkdown(root, [...BROWSE_ROOTS], { skipDotted: true });
+  for (const path of paths.sort()) {
     try {
       const real = realpathSync(join(root, path));
       if (!withinRoot(realRoot, relative(realRoot, real))) continue;

@@ -6,6 +6,7 @@ import { nativeVault, NATIVE_YAML, insertion } from "./support/vault";
 import { scanSurface, type SearchFilters, type SearchHit } from "../lib/searchCore";
 import { handleMcpTool } from "../lib/mcp";
 import { ENGINE_ROOT } from "../lib/engine";
+import { projectNotes } from "../lib/assertionProjection";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -49,6 +50,7 @@ test("memory leads equally relevant record hits, topics precede the index, and t
   expect(scan(root, "clinic appointment", {}, 1).hits[0]?.evidence).toBe("memory");
   // A strong record title still outranks an incidental memory body match.
   writeFileSync(join(root, "memory/health.md"), "# Health\nHistorical notes about the clinic.");
+  projectNotes(root, ["memory/health.md"]);
   expect(scan(root, "Historical notes").hits[0]?.title).toBe("Historical notes");
 });
 
@@ -88,23 +90,29 @@ test("memory-only matches prevent relaxation; zero exact matches relax across bo
   expect(scan(root, "???").hits).toEqual([]);
 });
 
-test("edits, nested additions, deletions and symlink replacement refresh without reindexing", () => {
+test("edits, nested additions, deletions and symlink replacement arrive through the notes door, without reindexing", () => {
   const root = fixture();
   expect(scan(root, "Tuesday").hits[0]?.path).toBe("memory/health.md");
   writeFileSync(join(root, "memory/health.md"), "# Health\nReplacement clinic.");
+  expect(scan(root, "Tuesday").hits[0]?.path).toBe("memory/health.md"); // a read never looks at the file
+  projectNotes(root, ["memory/health.md"]); // the watcher names what changed
   expect(scan(root, "Tuesday").hits).toEqual([]);
   expect(scan(root, "Replacement").hits[0]?.path).toBe("memory/health.md");
   mkdirSync(join(root, "memory/nested"));
   writeFileSync(join(root, "memory/nested/topic.md"), "# Nested\nFreshlyadded.");
+  projectNotes(root, ["memory/nested"]);
   expect(scan(root, "Freshlyadded").hits[0]?.path).toBe("memory/nested/topic.md");
   rmSync(join(root, "memory/health.md"));
+  projectNotes(root, ["memory/health.md"]);
   expect(scan(root, "Replacement").hits).toEqual([]);
   writeFileSync(join(root, ".env"), "SECRETWORD=must-not-appear");
   symlinkSync(join(root, ".env"), join(root, "memory/secret.md"));
+  projectNotes(root, ["memory/secret.md"]);
   expect(scan(root, "SECRETWORD").hits).toEqual([]);
   rmSync(join(root, "memory"), { recursive: true });
   const outside = fixture();
   process.env["BIGBRAIN_ASSERTION_DB"] = join(root, ".state", "assertions.db");
   symlinkSync(join(outside, "memory"), join(root, "memory"));
+  projectNotes(root, ["memory"]);
   expect(scan(root, "Tuesday").hits).toEqual([]);
 });

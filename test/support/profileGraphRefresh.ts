@@ -11,7 +11,8 @@ const engine = realpathSync(engineArg), root = realpathSync(rootArg);
 if (!/^bb-(vault-scale|gardener-profile)-/.test(basename(root)) || !existsSync(join(root, ".benchmark-snapshot"))) throw Error("Marked scratch snapshot required");
 if (process.env.BIGBRAIN_ASSERTION_DB || process.env.BIGBRAIN_SEARCH_DB) throw Error("External database overrides forbidden");
 const cache = await import(join(engine, "lib/graphCache.ts"));
-const { invalidateAssertionRecord } = await import(join(engine, "lib/assertionEntityView.ts"));
+// Engines before the notes door (#225) needed a hint to drop decoded records; later ones key them by revision.
+const invalidateAssertionRecord: (root: string) => void = (await import(join(engine, "lib/assertionEntityView.ts"))).invalidateAssertionRecord ?? (() => {});
 const { createLive } = await import(join(engine, "lib/liveEvents.ts"));
 const build = cache.primaryGraphAsync ?? cache.primaryGraphCached;
 const layout = cache.graphWithLayoutAsync ?? cache.graphWithLayout;

@@ -7,7 +7,7 @@ import { Database } from "bun:sqlite";
 import { searchMatch as matchQuery, searchAlternatives, searchTerms as matchTerms } from "./searchQuery";
 import { searchNames } from "./searchNames";
 import { existsSync, mkdirSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 import { parseEventFile, type EventFile } from "./eventLog";
 import { sha256hex } from "./hash";
 import { proseChars } from "./text";
@@ -797,8 +797,8 @@ const heldIds = (db: Database, sql: string): Set<string> =>
 interface Probe { generation: string; pending: boolean }
 
 /** What reconciliation would have to do, read on a READONLY connection —
- * never a write transaction. Metadata stamps detect changed Markdown without
- * body reads. The log census (a directory listing and id scans per kind) runs
+ * never a write transaction. The census — a directory listing and id scans
+ * per log kind, and Markdown's metadata stamps, without body reads — runs
  * only when `census` asks for it: recovery does, a read never does.
  * `undefined` when there is no projection to compare against: absent,
  * damaged, or built by another schema — the write path rebuilds. */
@@ -817,7 +817,7 @@ function probe(root: string, census: boolean): Probe | undefined {
         if (present.size !== files.size || [...present].some(id => !files.has(id))) pending = true;
       }
     }
-    return { generation: meta.generation, pending: pending || markdownChanged(db, root) };
+    return { generation: meta.generation, pending: pending || (census && markdownChanged(db, root)) };
   } catch {
     return undefined;
   } finally { db.close(); }
@@ -829,22 +829,14 @@ function markdownChanged(db: Database, root: string): boolean {
   return files.size !== docs.size || [...files].some(([path, stamp]) => docs.get(path) !== stamp);
 }
 
-/** Search must see mutable memory edits immediately. On a hit this checks
- * only Markdown metadata, leaving the log census to recovery. */
-export function syncMarkdownProjection(root: string): void {
-  let changed = true;
-  try {
-    const db = openReadonly(root);
-    try { changed = markdownChanged(db, root); } finally { db.close(); }
-  } catch { /* Missing/old schema: the full sync below initializes it. */ }
-  if (changed) syncAssertionProjection(root);
-}
-
 /** Mutable Markdown belongs to the same published revision as its parsed
- * relationships. A changed/deleted file cannot leave stale links behind. */
-function reconcileMarkdown(db: Database, root: string): void {
-  const files = markdownInventory(root);
-  const held = new Map((db.query("SELECT path, stamp FROM markdown_documents").all() as { path: string; stamp: string }[]).map(d => [d.path, d.stamp]));
+ * relationships. A changed/deleted file cannot leave stale links behind.
+ * `under` limits it to those paths — a note, or a folder of them. */
+function reconcileMarkdown(db: Database, root: string, under?: readonly string[]): void {
+  const files = markdownInventory(root, under);
+  const scoped = (path: string) => !under || under.some((u) => u.endsWith(".md") ? path === u : path.startsWith(`${u}/`));
+  const held = new Map((db.query("SELECT path, stamp FROM markdown_documents").all() as { path: string; stamp: string }[])
+    .filter(d => scoped(d.path)).map(d => [d.path, d.stamp]));
   const moved: Omit<ProjectionChange, "revision">[] = [];
   for (const [path, stamp] of files) {
     if (held.get(path) === stamp) continue;
@@ -923,6 +915,20 @@ function generationOf(root: string): string | undefined {
     finally { db.close(); }
   } catch { return undefined; }
 }
+/** Whether this process has recovered `generation` of the projection at `root`. */
+export function projectionRecovered(root: string, generation: string): boolean {
+  return recovered.get(resolve(root)) === generation;
+}
+
+/** The projection as this process has recovered it. A process that has not
+ * recovers first, which reconciles everything: undefined then. */
+function recoveredProbe(root: string): Probe | undefined {
+  const ahead = probe(root, false);
+  if (ahead && projectionRecovered(root, ahead.generation)) return ahead;
+  recoverAssertionProjection(root);
+  return undefined;
+}
+
 /** Count the current generation as recovered; undefined without a projection. */
 function markRecovered(root: string): string | undefined {
   const generation = generationOf(root);
@@ -933,23 +939,33 @@ function markRecovered(root: string): string | undefined {
 /** Bring the projection up to date for a read. Every engine write projects
  * itself as it appends (appendAndProject*, projectSourceInsertion), and a
  * reader's snapshot carries the revision those writes advanced — so another
- * process's write is visible here with no census at all. What remains is
- * Markdown, which people edit outside the engine: its metadata stamps are
- * compared on every call, and a change reconciles under the write lock. A
- * current projection takes no lock. The first call per root and generation
- * in a process recovers instead (recoverAssertionProjection). */
+ * process's write is visible here with no census at all. Markdown, which
+ * people edit outside the engine, comes in through its own door (projectNotes).
+ * What remains is grouping a batch of sources into threads. A current
+ * projection takes no lock. The first call per root and generation in a
+ * process recovers instead (recoverAssertionProjection), which is where
+ * notes edited while no process watched them are found. */
 export function syncAssertionProjection(root: string): void {
-  const ahead = probe(root, false);
-  if (!ahead || recovered.get(resolve(root)) !== ahead.generation) { recoverAssertionProjection(root); return; }
-  if (!ahead.pending) return;
+  if (!recoveredProbe(root)?.pending) return;
   withProjectionWrite(root, () => {
     const db = open(root);
-    try {
-      db.transaction(() => {
-        reconcileMarkdown(db, root);
-        reconcileThreads(db);
-      })();
-    } finally { db.close(); }
+    try { db.transaction(() => reconcileThreads(db))(); }
+    finally { db.close(); }
+  });
+}
+
+/** The door for Markdown, the one input people edit outside the engine:
+ * project notes as they stand now, one commit with a change row for each note
+ * created, edited or deleted. `paths` (vault-relative: a note, or a folder of
+ * them) limits it to what changed — the viewer's watcher passes what it saw,
+ * and an engine pass what it wrote; without them, every note. */
+export function projectNotes(root: string, paths?: Iterable<string>): void {
+  const under = paths && [...new Set([...paths].map((p) => p.split(sep).join("/")))];
+  if ((under && !under.length) || !recoveredProbe(root)) return;
+  withProjectionWrite(root, () => {
+    const db = open(root);
+    try { db.transaction(() => reconcileMarkdown(db, root, under))(); }
+    finally { db.close(); }
   });
 }
 

@@ -26,10 +26,9 @@ import { watch as fsWatch } from "node:fs";
 import { isAbsolute, relative, sep } from "node:path";
 import { BROWSE_ROOTS } from "./browsePaths";
 import { isLedgerPath } from "./retrieval";
-import { invalidateGraphCaches } from "./graphCache";
 import { maintainGraphView, onGraphView } from "./maintainedGraph";
 import { viewStamps, type ViewStamps } from "./viewStamps";
-import { assertionDbPath, claimProjectionRecovery, syncAssertionProjection } from "./assertionProjection";
+import { assertionDbPath, claimProjectionRecovery, projectNotes } from "./assertionProjection";
 import { projectionWake, type ProjectionWake } from "./projectionWake";
 import { background } from "./readModelBackground";
 import { readModelRevision } from "./vaultReadModel";
@@ -97,10 +96,9 @@ export interface LiveOptions {
   /** First path segments that count as vault changes; WATCHED by default. */
   watched?: ReadonlySet<string>;
   watch?: LiveWatchFn;
-  /** The search-cache warm ridden off the same change signal; the assertion
-   * projection's incremental sync by default (#495 — the legacy markdown
-   * index is gone from the product path). */
-  refresh?: (root: string) => void;
+  /** The notes door: project the notes a change named (every note, when the
+   * watcher may have missed some); assertionProjection.projectNotes by default. */
+  refresh?: (root: string, paths?: string[]) => void;
   /** The graph view's upkeep ridden off the same signal: maintainedGraph's
    * maintainGraphView by default, which builds only when the projection's
    * revision moved. A seam for the same reason `refresh` is one: a fan-out
@@ -143,7 +141,7 @@ export function createLive(opts: LiveOptions): Live {
     root,
     watched = WATCHED,
     watch = defaultLiveWatch,
-    refresh = syncAssertionProjection,
+    refresh = projectNotes,
     warmLayout = maintainGraphView,
     recover = recoverInBackground,
     wake = projectionWake,
@@ -165,8 +163,10 @@ export function createLive(opts: LiveOptions): Live {
   let watchGeneration = 0;
 
   let revision = 0;
-  /** Notes changed since the last settle: reconcile them before it. */
-  let notesDirty = false;
+  /** Notes changed since the last settle, projected before it; every note
+   * when the watcher was lost and may have missed some. */
+  const notePaths = new Set<string>();
+  let notesLost = false;
   let stopped = false;
   let commits: ProjectionWake | null = null;
   let backstop: ReturnType<typeof setInterval> | null = null;
@@ -233,16 +233,9 @@ export function createLive(opts: LiveOptions): Live {
     // the search index twice a second for as long as the tab stays open
     // (#247/#248).
     if (isLedgerPath(rel) || stopped) return;
-    if (BROWSE_ROOTS.has(first)) notesChanged();
+    if (BROWSE_ROOTS.has(first)) notePaths.add(rel);
     else files++;
     announce();
-  }
-
-  /** A note changed, or a lost watcher may have missed one: the next read
-   * reconciles Markdown, and so does the next settle. */
-  function notesChanged(): void {
-    notesDirty = true;
-    invalidateGraphCaches(root);
   }
 
   /** A vault change: push the stamps once it has settled. */
@@ -252,15 +245,16 @@ export function createLive(opts: LiveOptions): Live {
     pingTimer = setTimeout(async () => {
       pingTimer = null;
       const current = revision;
-      // Reconcile edited Markdown off the same signal, so the first search
-      // after an edit is instant instead of paying the catch-up. Its commit
-      // is heard like any other.
-      if (notesDirty) {
-        notesDirty = false;
+      // Project edited notes: reads never look at the files. The commit is
+      // heard like any other.
+      if (notesLost || notePaths.size) {
+        const paths = notesLost ? undefined : [...notePaths];
+        notesLost = false;
+        notePaths.clear();
         try {
-          refresh(root);
+          refresh(root, paths);
         } catch {
-          /* index is best-effort; search rebuilds lazily anyway */
+          /* the next edit, or the next process to start, projects them */
         }
       }
       // Rebuild and settle off-thread before pinging. Requests for the same
@@ -305,7 +299,7 @@ export function createLive(opts: LiveOptions): Live {
       if (path) {
         const rel = relative(root, path);
         if (!isAbsolute(rel) && rel !== ".." && !rel.startsWith(`..${sep}`)) {
-          notesChanged(); // what it missed meanwhile, no event will name
+          notesLost = true; // what it missed meanwhile, no event will name
           handleChange(rel);
         }
       }
@@ -338,7 +332,8 @@ export function createLive(opts: LiveOptions): Live {
       commits?.close();
       commits = wake(root);
       commits.moved(); // the baseline
-      backstop = setInterval(checkCommits, backstopMs);
+      // Also the bound on notes a lost watcher missed: projected within it.
+      backstop = setInterval(() => { if (notesLost) announce(); else checkCommits(); }, backstopMs);
       backstop.unref?.();
       heartbeat = setInterval(() => {
         publishProgress(); // also clears a dead lock holder after a crash

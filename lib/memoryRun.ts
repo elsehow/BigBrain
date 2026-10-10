@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { AST_CITE, SHARED_AST_CITE } from "./ids";
 import type { Manifest } from "./manifest";
 import { hasAssertionEvents } from "./assertionLog";
-import { assertionIdsExist, syncAssertionProjection } from "./assertionProjection";
+import { assertionIdsExist, projectNotes, syncAssertionProjection } from "./assertionProjection";
 import { ENGINE_ROOT } from "./engine";
 import { writeAtomic } from "./fsx";
 import { commitPathsOnly, gitOut, pokePublish } from "./git";
@@ -684,6 +684,9 @@ export async function runMemory(opts: MemoryRunOpts): Promise<MemoryRunResult> {
     throw error;
   } finally {
     lock.release();
+    // What the pass wrote (or restored), through the notes door: no read
+    // looks at the files, and the briefings warmed next read the graph.
+    try { projectNotes(root, ["memory"]); } catch { /* the viewer's watcher, or the next start, projects them */ }
     if (warmCompletedMemory) {
       try {
         const { warmMemoryBriefings } = await import("./memoryBriefings");

@@ -5,6 +5,7 @@ import { contextConnections } from "../lib/contextConnections";
 import { connectedMentions } from "../web/ui/src/lib/pilotMentionSuggestions";
 import { briefingPrompt } from "../lib/noteBriefing";
 import { buildAssertionGraph } from "../lib/assertionGraph";
+import { projectNotes } from "../lib/assertionProjection";
 import { assertionEntityId, createAssertionEvent, appendAssertionEvent } from "../lib/assertionLog";
 import { assertionEntityPath } from "../lib/assertionEntityView";
 import { appendSourceInsertionEvent, insertionEventRel } from "../lib/insertionLog";
@@ -101,6 +102,7 @@ test("only outbound memory links confer support; repeated mentions, aliases and 
   expect(score(initial, ada.id)).toBeCloseTo(0.5);
   expect(score(initial, atlas.id)).toBeCloseTo(0.5);
   writeFileSync(join(root, "memory", "focused.md"), `# Focused\n[[${ada.id}|Ada]] [[${assertionEntityPath(ada.id)}|Ada again]]`);
+  projectNotes(root, ["memory/focused.md"]);
   const repeated = buildAssertionGraph(root);
   expect(score(repeated, ada.id)).toBeCloseTo(1.5);
   expect(score(repeated, atlas.id)).toBeCloseTo(0.5);
@@ -114,6 +116,7 @@ test("only outbound memory links confer support; repeated mentions, aliases and 
   const before = buildAssertionGraph(pairRoot);
   writeFileSync(join(pairRoot, "memory", "a.md"), "# A");
   writeFileSync(join(pairRoot, "memory", "b.md"), "# B\n[[memory/a]]");
+  projectNotes(pairRoot, ["memory/a.md", "memory/b.md"]);
   const after = buildAssertionGraph(pairRoot);
   expect(after.edges).toEqual(before.edges);
   expect(after.hash).not.toBe(before.hash);

@@ -18,9 +18,8 @@ import { dirname, join } from "node:path";
 import type { Graph } from "./graph";
 import { computeLayout, neighbourSignatures, placeLayout, type Positions } from "./graphLayout";
 import { buildAssertionGraph } from "./assertionGraph";
-import { vaultRecord, invalidateVaultReadModel, currentReadRevision, withVaultSnapshot, vaultReconciliationDue, readModelRevision, acceptReadModelRevision } from "./vaultReadModel";
+import { vaultRecord, currentReadRevision, withVaultSnapshot, readModelRevision } from "./vaultReadModel";
 export { readModelRevision } from "./vaultReadModel";
-import { vaultChangeVersion } from "./vaultChanges";
 
 /** One projection is left — the assertion graph. The link graph it replaced
  * had its own layout file, and the name is kept so a vault's settled layout
@@ -138,9 +137,8 @@ export function primaryGraphCached(root: string): Graph {
 
 export const EMPTY_GRAPH: Graph = { nodes: [], edges: [], hash: "empty", projection: "assertions" };
 
-/** Invalidate shared freshness and reject workers started before this hint. */
+/** Drop the evidence memo and reject workers started before this. */
 export function invalidateGraphCaches(root: string): void {
-  invalidateVaultReadModel(root);
   assertionMemo.delete(root);
   generations.set(root, (generations.get(root) ?? 0) + 1);
 }
@@ -157,16 +155,15 @@ export async function assertionGraphEvidenceAsync(root: string): Promise<GraphWi
   if (currentReadRevision(root)) return assertionGraphEvidenceCached(root);
   for (;;) {
     const held = assertionMemo.get(root);
-    if (!vaultReconciliationDue(root) && held?.revision === readModelRevision(root)) return held;
+    if (held?.revision === readModelRevision(root)) return held;
     let pending = builds.get(root);
     if (!pending) {
-      const generation = generations.get(root) ?? 0, change = vaultChangeVersion(root);
+      const generation = generations.get(root) ?? 0;
       pending = background<GraphSnapshot>({ kind: "graph", root, knownRevision: held?.revision }).then(result => {
         const prepared = "graph" in result ? result : assertionMemo.get(root);
-        // Reuse an unchanged graph after the worker's census. A stale worker
-        // may neither publish a graph nor satisfy the shared freshness clock.
-        if (generation !== (generations.get(root) ?? 0) || prepared?.revision !== result.revision
-          || !acceptReadModelRevision(root, result.revision, change)) return;
+        // Reuse an unchanged graph; a worker started before an invalidation
+        // publishes nothing.
+        if (generation !== (generations.get(root) ?? 0) || prepared?.revision !== result.revision) return;
         assertionMemo.set(root, prepared);
       }).finally(() => builds.delete(root));
       builds.set(root, pending);
