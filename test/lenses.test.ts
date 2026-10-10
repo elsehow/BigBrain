@@ -59,6 +59,19 @@ describe('scorePass',()=>{
  });
 });
 
+describe('scorePass, when the provider fails',()=>{
+ test('a run of failures stops the pass, and the tick leaves that rule be; a preview tries again',async()=>{
+  const v=vault();for(let i=0;i<30;i++)v.note('ex-'+i,'Note '+i,.9);
+  let calls=0;const broken:typeof inclusionEvaluator=(...args)=>({...scorer('jev-broken')(...args),score:async()=>{calls++;throw Error('invalid key');}});
+  const first=await scorePass(v.root,v.store,{text:'Broken rule',labels:[]},lensNotes(v.root),{factory:broken});
+  expect(calls).toBeLessThan(20);expect(first.scores.size).toBe(0);
+  const before=calls,second=await scorePass(v.root,v.store,{text:'Broken rule',labels:[]},lensNotes(v.root),{factory:broken});
+  expect(calls).toBe(before);expect(second.failed.get(idOf(v.root,'Note 3'))).toContain('invalid key');
+  await scorePass(v.root,v.store,{text:'Broken rule',labels:[]},lensNotes(v.root),{factory:broken,fresh:true});
+  expect(calls).toBeGreaterThan(before);
+ });
+});
+
 describe('passLens',()=>{
  async function shared(mode:'conservative'|'yeehaw'='conservative'){
   const v=vault();setSharingMode(v.store,mode);

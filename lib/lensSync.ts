@@ -169,7 +169,8 @@ export async function tickLenses(root:string,store:string){
  try{
   await migrateRules(root,store);
   const notes=lensNotes(root);
-  for(const lens of listLenses(root,store))await passLens(root,store,lens,notes).catch(e=>console.error(`lens ${lens.id}: ${e instanceof Error?e.message:e}`));
+  // A few new summaries a tick: the first pass over a vault's largest notes spreads out instead of stalling.
+  for(const lens of listLenses(root,store))await passLens(root,store,lens,notes,{summaries:3}).catch(e=>console.error(`lens ${lens.id}: ${e instanceof Error?e.message:e}`));
   const lenses=listLenses(root,store);
   for(const c of readConnections(store)){
    if(getRule(store,c.id)?.root===root)continue; // not migrated yet: its lens doesn't exist to say what belongs

@@ -60,7 +60,7 @@ function startPreview(root:string,store:string,id:string,text:unknown):ReturnTyp
  const notes=lensNotes(root);
  const p:Preview={id:randomUUID(),root,lens:id,text:text.trim(),labels,busy:true,done:0,total:notes.length,at:Date.now()};previews.set(p.id,p);
  void (async()=>{try{
-  const pass=await scorePass(root,store,{text:p.text,labels},notes,{current:()=>previews.has(p.id),progress:done=>{p.done=done;}});
+  const pass=await scorePass(root,store,{text:p.text,labels},notes,{fresh:true,summaries:0,current:()=>previews.has(p.id),progress:done=>{p.done=done;}});
   if(pass.outOfCredits)throw Error('Out of usage credits. (You need credits to see what this rule includes.)');
   const digests=new Map(notes.map(n=>[n.digest,n.source_id]));
   p.threshold=fitThreshold(labels.flatMap(l=>{const sid=digests.get(sourceDigest(l.source));const score=sid?pass.scores.get(sid):undefined;return score===undefined?[]:[{include:l.include,score}];}));

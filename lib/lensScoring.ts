@@ -30,6 +30,14 @@ import type {LensNote} from './lenses';
 /** Characters, title and body together. E1 saw Jev fail from about 84,000. */
 export const READ_LIMIT=80_000;
 const SUMMARY_VERSION=1,SUMMARY_TRIES=3,CONCURRENCY=3;
+/** A note that failed to score or summarize waits this long before the tick tries it again. */
+const COOLDOWN_MS=6*60*60*1000;
+/** A pass whose first calls all fail stops: a bad key or a down provider fails every note alike. */
+const GIVE_UP_AFTER=12;
+// Failures by cache key (identity + digest, or summary path), until when to leave them be.
+const resting=new Map<string,{until:number;why:string}>();
+function rest(key:string,why:string){if(resting.size>=50_000)resting.clear();resting.set(key,{until:Date.now()+COOLDOWN_MS,why});}
+const restingWhy=(key:string)=>{const r=resting.get(key);if(!r)return undefined;if(r.until<Date.now()){resting.delete(key);return undefined;}return r.why;};
 
 // A note's digest, by the insertion it came from: insertions never change, and hashing every note every tick adds up.
 const digests=new Map<string,string>();
@@ -43,11 +51,14 @@ export function lensNotes(root:string):(LensNote&{insertion:SourceInsertion})[]{
  });
 }
 
+const summaryPath=(root:string,store:string,note:LensNote)=>join(dirname(store),'note-summaries',sha256hex(JSON.stringify({version:SUMMARY_VERSION,digest:note.digest,target:loadManifest(root).quick}))+'.txt');
+/** A note's summary if one has been written. */
+export function cachedSummary(root:string,store:string,note:LensNote):string|undefined{const path=summaryPath(root,store,note);return existsSync(path)?readFileSync(path,'utf8'):undefined;}
 /** A Quick summary of a whole note, cached; throws once every try has failed. */
 export async function noteSummary(root:string,store:string,note:LensNote,run?:typeof runAgent):Promise<string>{
- const manifest=loadManifest(root),target=manifest.quick;
- const path=join(dirname(store),'note-summaries',sha256hex(JSON.stringify({version:SUMMARY_VERSION,digest:note.digest,target}))+'.txt');
+ const manifest=loadManifest(root),target=manifest.quick,path=summaryPath(root,store,note);
  if(existsSync(path))return readFileSync(path,'utf8');
+ const recently=restingWhy(path);if(recently)throw Error(recently);
  const execute=run??(await import('./run/agent')).runAgent;
  let last:unknown;
  for(let i=0;i<SUMMARY_TRIES;i++){
@@ -61,7 +72,7 @@ export async function noteSummary(root:string,store:string,note:LensNote,run?:ty
    mkdirSync(dirname(path),{recursive:true,mode:0o700});writeAtomic(path,text,0o600);return text;
   }catch(e){last=e;}
  }
- throw last instanceof Error?last:Error(String(last));
+ const why=modelErrText(last);rest(path,why);throw Error(why);
 }
 
 export interface LensPass {
@@ -80,22 +91,35 @@ export interface PassOptions {
  progress?:(done:number,total:number)=>void;
  factory?:typeof inclusionEvaluator;
  summarize?:typeof noteSummary;
+ /** Try notes that failed recently too: someone is waiting on this pass (a preview). */
+ fresh?:boolean;
+ /** How many new summaries this pass may write; the rest wait, unscored. Unlimited when absent. */
+ summaries?:number;
 }
 /** Score every note against a rule and its ratings. Never throws for one note; stops at no credits. */
 export async function scorePass(root:string,store:string,rule:{text:string;labels:InclusionLabel[]},notes:LensNote[],opts:PassOptions={}):Promise<LensPass>{
  const evaluator=(opts.factory??inclusionEvaluator)(root,store,rule.text,rule.labels),summarize=opts.summarize??noteSummary;
  const pass:LensPass={identity:evaluator.identity,model:evaluator.model,scores:new Map(),failed:new Map(),summarized:new Set(),outOfCredits:false};
  if(includesEverything(rule.text)){for(const n of notes)pass.scores.set(n.source_id,1);return pass;}
- let next=0,done=0;const current=opts.current??(()=>true);
+ const stopped='pass:'+evaluator.identity,stoppedWhy=opts.fresh?undefined:restingWhy(stopped);
+ if(stoppedWhy){for(const n of notes)pass.failed.set(n.source_id,stoppedWhy);return pass;}
+ let next=0,done=0,errors=0,summaries=opts.summaries??Infinity;const current=opts.current??(()=>true),recent=(key:string)=>opts.fresh?undefined:restingWhy(key);
  await Promise.all(Array.from({length:CONCURRENCY},async()=>{
-  while(next<notes.length&&!pass.outOfCredits&&current()){
-   const note=notes[next++]!;
+  while(next<notes.length&&!pass.outOfCredits&&current()&&!(errors>=GIVE_UP_AFTER&&!pass.scores.size)){
+   const note=notes[next++]!,key=evaluator.identity+note.digest,earlier=recent(key);
+   if(earlier){pass.failed.set(note.source_id,earlier);opts.progress?.(++done,notes.length);continue;}
    try{
     if(note.title.length+note.body.length<=READ_LIMIT)pass.scores.set(note.source_id,await evaluator.score(note,note.digest));
-    else{const stand={title:note.title,body:await summarize(root,store,note)};pass.scores.set(note.source_id,await evaluator.score(stand));pass.summarized.add(note.source_id);}
-   }catch(e){if(e instanceof OutOfCredits)pass.outOfCredits=true;else pass.failed.set(note.source_id,modelErrText(e));}
+    else{
+     let body=opts.summarize?undefined:cachedSummary(root,store,note);
+     if(body===undefined){if(summaries<=0){pass.failed.set(note.source_id,'Waiting for a summary');opts.progress?.(++done,notes.length);continue;}summaries--;body=await summarize(root,store,note);}
+     pass.scores.set(note.source_id,await evaluator.score({title:note.title,body}));pass.summarized.add(note.source_id);
+    }
+   }catch(e){if(e instanceof OutOfCredits)pass.outOfCredits=true;else{const why=modelErrText(e);pass.failed.set(note.source_id,why);rest(key,why);errors++;}}
    opts.progress?.(++done,notes.length);
   }
  }));
+ // Every call so far failed: leave this rule and model be for a while rather than fail each note in turn.
+ if(errors>=GIVE_UP_AFTER&&!pass.scores.size)rest(stopped,[...pass.failed.values()].at(-1)!);
  return pass;
 }
