@@ -66,17 +66,25 @@ function addEvents(root:string,store:string,events:LensEvent[]){
 }
 const CAUSE={model:'A model upgrade',vault:'A vault change',update:'A BigBrain update'} as const;
 /** A sharing event as the feed says it (decisions D2 and D3). */
-export function lensEventHeadline(e:LensEvent):string{
+export function lensEventHeadline(e:LensEvent,count=1):string{
  const servers=e.servers.join(', ');
+ if(e.kind==='shared'&&count>1)return `${count} items are shared with ${servers}`;
  if(e.kind==='shared'){const t=e.title??'';return `${t.length>48?t.slice(0,48).trimEnd()+'…':t} is shared with ${servers}`;}
  const cause=CAUSE[e.reason??'model'];
  return e.kind==='paused'?`${cause} would cause you to share new items with ${servers}. Lens is paused until you review.`:`${cause} has caused you to share new items with ${servers}.`;
 }
-/** Which events still belong in the feed: what a lens shared stays, a review
- * only until it is cleared (Looks OK, or a new rule saved). */
-export function openLensEvents(root:string,store:string):(e:LensEvent)=>boolean{
+/** The feed's lens rows: what a lens shared stays, a review only until it is
+ * cleared (Looks OK, or a new rule saved), and what one pass shared from a
+ * lens is one row, so a review released all at once doesn't bury the feed. */
+export function feedLensEvents(root:string,store:string):{event:LensEvent;count:number}[]{
  const open=new Set(listLenses(root,store).flatMap(l=>l.review?.at?[`${l.id} ${l.review.at}`]:[]));
- return e=>e.kind==='shared'||open.has(`${e.lens} ${e.at}`);
+ const rows=new Map<string,{event:LensEvent;count:number}>();
+ for(const e of readLensEvents(root,store,Infinity)){
+  if(e.kind!=='shared'&&!open.has(`${e.lens} ${e.at}`))continue;
+  const key=`${e.kind} ${e.lens} ${e.at}`,row=rows.get(key);
+  if(row)row.count++;else rows.set(key,{event:e,count:1});
+ }
+ return [...rows.values()];
 }
 export function readLensEvents(root:string,store:string,limit=200):LensEvent[]{
  const path=lensEventsPath(root,store);if(!existsSync(path))return [];

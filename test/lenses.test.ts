@@ -15,7 +15,7 @@ import {readConnections,saveConnection,type SharedConnection} from '../lib/share
 import {contributions,getRule,sendSources} from '../lib/sharedRules';
 import {fitThreshold,listLenses,previewThreshold,membership,newLens,readLens,setSharingMode,updateLens,writeLens,type Lens} from '../lib/lenses';
 import {lensNotes,scorePass,READ_LIMIT} from '../lib/lensScoring';
-import {migrateRules,openLensEvents,originOf,passLens,readLensEvents,syncServer,tickLenses} from '../lib/lensSync';
+import {feedLensEvents,lensEventHeadline,migrateRules,originOf,passLens,readLensEvents,syncServer,tickLenses} from '../lib/lensSync';
 import {publishedPath,tickPublishing} from '../lib/sharedAssertionPublish';
 import type {inclusionEvaluator} from '../lib/inclusionEvaluation';
 
@@ -98,6 +98,12 @@ describe('passLens',()=>{
   expect(after.members).toEqual([idOf(v.root,'Plot plan')]);
   expect(readLensEvents(v.root,v.store).map(e=>[e.kind,e.title,e.servers])).toContainEqual(['shared','Plot plan',['Garden club']]);
  });
+ test('what one pass shares from a lens is one feed row',async()=>{
+  const v=await shared();
+  v.note('ex-3','Plot plan',.8);v.note('ex-4','Rain barrels',.85);
+  await passLens(v.root,v.store,readLens(v.root,v.store,v.lens.id)!,lensNotes(v.root),{factory:scorer()});
+  expect(feedLensEvents(v.root,v.store).map(r=>lensEventHeadline(r.event,r.count))).toEqual(['Seed swap is shared with Garden club','2 items are shared with Garden club']);
+ });
  test('Conservative: a model upgrade that adds notes holds every addition until reviewed, and still drops leavers',async()=>{
   const v=await shared('conservative');
   v.note('ex-4','Frost dates',.7);
@@ -113,9 +119,10 @@ describe('passLens',()=>{
   const later=(await passLens(v.root,v.store,after,lensNotes(v.root),{factory:upgraded}))!;
   expect(later.members).toEqual([]);expect(later.review!.joins).toContain(idOf(v.root,'Water barrels'));
   // the feed keeps the pause only until it is reviewed
-  const paused=readLensEvents(v.root,v.store).at(-1)!;expect(openLensEvents(v.root,v.store)(paused)).toBe(true);
+  const kinds=()=>feedLensEvents(v.root,v.store).map(r=>r.event.kind);
+  expect(kinds()).toContain('paused');
   updateLens(v.root,v.store,v.lens.id,l=>{l.review=undefined;});
-  expect(openLensEvents(v.root,v.store)(paused)).toBe(false);
+  expect(kinds()).not.toContain('paused');
  });
  test('Yee-haw: the notes join and the review stays as a warning',async()=>{
   const v=await shared('yeehaw');
