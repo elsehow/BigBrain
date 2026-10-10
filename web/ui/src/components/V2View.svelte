@@ -19,7 +19,7 @@
   import { pageDoc, themeSheet, themeVars } from "../lib/pageTheme";
   import { otherLoopback } from "../lib/loopbackFrame";
   import type { V2Scene } from "../lib/v2/scene";
-  import { plainText as plain, type V2SortedRow } from "../../../../lib/v2Feed";
+  import { plainText as plain, refreshSortedPages, SORTED_PAGE, type V2SortedRow } from "../../../../lib/v2Feed";
   import type { DesktopTile, DesktopView } from "../../../../lib/pilotDesktop";
   import { DEFAULT_PILOT_BACKEND } from "../../../../lib/pilotBackendTypes";
   import DesktopCube from "./DesktopCube.svelte";
@@ -83,8 +83,10 @@
 
   let ent: number | null = $state(null);
   let entRows: V2FeedRow[] | null = $state(null);
-  /** The sorted feed (lib/feedStage.ts), when the vault has one. */
+  /** The sorted feed (lib/feedStage.ts), when the vault has one: the pages
+   * loaded so far, newest first, and the key of the page before them. */
   let sorted: V2SortedRow[] = $state([]);
+  let sortedNext: string | null = null, olderLoad: Promise<boolean> | null = null;
   /** The feed row j/k has in hand (by source), and the source opened from it
    * with Quick's summary of it ("" while it is written). */
   let cursor: string | null = $state(null);
@@ -729,9 +731,38 @@
     void drawField(heldGraph).then(unlight);
     heldGraph = null;
   }
-  /** The feed changes in the background as tend sorts what it files. */
+  /** The feed changes in the background as tend sorts what it files: what
+   * is loaded is read again, every page of it (lib/v2Feed.ts refreshSortedPages). */
   function refreshSorted(): void {
-    if (!data) void api.v2Sorted().then((f) => { sorted = f.rows; }).catch(() => {});
+    if (data) return;
+    void api.v2Sorted(Math.max(SORTED_PAGE, sorted.length)).then((f) => {
+      const merged = refreshSortedPages({ rows: sorted, next: sortedNext }, f);
+      sorted = merged.rows;
+      sortedNext = merged.next;
+    }).catch(() => {});
+  }
+  /** The page before the oldest row loaded, put above it without moving
+   * what is on screen. False when there is none, or it didn't come. One at a
+   * time: asked again while it loads (k pressed as the walk's own scroll
+   * reached the top), it answers when that one lands. */
+  function loadOlder(): Promise<boolean> {
+    if (data || !sortedNext) return Promise.resolve(false);
+    return olderLoad ??= (async () => {
+      try {
+        const f = await api.v2Sorted(SORTED_PAGE, sortedNext);
+        const have = new Set(sorted.map((r) => r.source));
+        const height = feedEl?.scrollHeight ?? 0;
+        sorted = [...sorted, ...f.rows.filter((r) => !have.has(r.source))];
+        sortedNext = f.next;
+        await tick();
+        if (feedEl) { feedTop += feedEl.scrollHeight - height; feedEl.scrollTop = feedTop; }
+        return true;
+      } catch {
+        return false;
+      } finally {
+        olderLoad = null;
+      }
+    })();
   }
   // pushed, not polled: the base's live stream bumps app.rev when the vault changes
   let pending: ReturnType<typeof setTimeout> | undefined;
@@ -828,14 +859,16 @@
   /** Back from a row pointed at: the row in hand is drawn opened (above), not lit. */
   const unlight = () => scene?.hover(null);
   /** j (down, newer) and k (up, older): the first press takes the newest row;
-   * walking up past the top scrolls the older ones in. */
+   * walking up past the top scrolls the older ones in, the next page first
+   * when the oldest loaded row is in hand. */
   function stepFeed(dir: 1 | -1): void {
     if (!sorted.length) return;
+    const at = sorted.findIndex((r) => r.source === cursor);
+    if (dir < 0 && at === sorted.length - 1 && sortedNext) { void loadOlder().then((ok) => { if (ok) stepFeed(dir); }); return; }
     if (ent != null || src) overview();
     // a walk starting: Esc comes back to the view it started from
     if (cursor == null) scene?.keepView();
     rowOver = null;
-    const at = sorted.findIndex((r) => r.source === cursor);
     cursor = sorted[at < 0 ? 0 : Math.max(0, Math.min(sorted.length - 1, at - dir))]!.source;
     unlight();
     scene?.shift(shiftFor());
@@ -882,7 +915,13 @@
   // is kept here and restored when it comes back. At the newest, it keeps
   // following new rows; scrolled up to read, it stays put — as the chat does.
   let feedFollowing = true, feedTop = 0;
-  const onFeedScroll = () => { if (feedEl) { feedTop = feedEl.scrollTop; feedFollowing = feedEl.scrollHeight - feedTop - feedEl.clientHeight < 48; } };
+  // near the top, the page before comes in above
+  const onFeedScroll = () => {
+    if (!feedEl) return;
+    feedTop = feedEl.scrollTop;
+    feedFollowing = feedEl.scrollHeight - feedTop - feedEl.clientHeight < 48;
+    if (feedTop < 48) void loadOlder();
+  };
   $effect(() => { if (sorted.length && feedEl) feedEl.scrollTop = feedFollowing && cursor == null ? feedEl.scrollHeight : feedTop; });
   /** A memory topic's own first paragraph: citations dropped, links read as labels. */
   async function memorySummary(path: string): Promise<string | undefined> {

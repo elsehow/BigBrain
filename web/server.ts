@@ -59,7 +59,7 @@ import { walkMarkdown } from "../lib/vaultRead";
 import { parseBlobRef, readBlob } from "../lib/blobs";
 import { recentSourcePageAsync } from "../lib/sourceFeed";
 import { primaryGraphWithLayoutAsync, primaryGraphAsync } from "../lib/graphCache";
-import { buildEntityFeed, buildSortedFeed, buildV2Feed, type V2Source } from "../lib/v2Feed";
+import { buildEntityFeed, buildSortedFeed, buildV2Feed, pageSortedFeed, SORTED_PAGE, type V2Source } from "../lib/v2Feed";
 import { dueOf, feedItems, feedRecords } from "../lib/feedJournal";
 import { readV2Source } from "../lib/v2Read";
 import { tendJournalFiles } from "../lib/tend";
@@ -559,13 +559,17 @@ function v2Entity({ res, url }: Ctx): void {
 
 // The sorted feed (lib/feedStage.ts): what needs the owner, what an agent
 // could do, what is worth knowing. Empty without a feed: block, and the view
-// keeps showing the latest assertions.
-function v2Sorted({ res }: Ctx): void {
+// keeps showing the latest assertions. A page at a time (`limit`, newest
+// first, and `before`, the `next` of the page before): the feed only grows.
+const SORTED_MAX = 5_000;
+function v2Sorted({ res, url }: Ctx): void {
   try {
     const records = loadManifest(ROOT).feed ? feedRecords(ROOT) : [];
-    const rows = buildSortedFeed(v2Source(), feedItems(records).map((e) => ({ ...e, due: dueOf(e) })));
+    const limit = Math.min(SORTED_MAX, Math.max(1, Math.trunc(Number(url.searchParams.get("limit"))) || SORTED_PAGE));
+    const { rows, next } = pageSortedFeed(buildSortedFeed(v2Source(), feedItems(records).map((e) => ({ ...e, due: dueOf(e) }))),
+      limit, url.searchParams.get("before") ?? undefined);
     const heads = projectedSourceHeads(ROOT, rows.map((r) => r.source));
-    json(res, 200, { rows: rows.map((r) => {
+    json(res, 200, { next, rows: rows.map((r) => {
       const h = heads.get(r.source);
       return h ? { ...r, title: h.title, path: insertionEventRel(h), ...(h.source ? { via: h.source } : {}) } : r;
     }) });
