@@ -2,7 +2,8 @@ import { expect, test, afterEach } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { assertionGraphEvidenceAsync, invalidateGraphCaches, primaryGraphAsync, primaryGraphWithLayoutAsync, readLayoutCache } from "../lib/graphCache";
+import { assertionGraphEvidenceAsync, invalidateGraphCaches, readLayoutCache } from "../lib/graphCache";
+import { currentGraph, forgetGraphView, maintainGraphView, saveGraphView, savedGraph, type BuildGraphView } from "../lib/maintainedGraph";
 import { buildAssertionGraph } from "../lib/assertionGraph";
 import { appendSourceInsertionEvent, insertionEventRel } from "../lib/insertionLog";
 import { projectSourceInsertion } from "../lib/assertionProjection";
@@ -13,7 +14,7 @@ import { createLive } from "../lib/liveEvents";
 
 const roots: string[] = [];
 function fresh() { const root = mkdtempSync(join(tmpdir(), "bb-graph-background-")); roots.push(root); return root; }
-afterEach(() => { for (const root of roots.splice(0)) { invalidateGraphCaches(root); rmSync(root, { recursive: true, force: true }); } });
+afterEach(() => { for (const root of roots.splice(0)) { invalidateGraphCaches(root); forgetGraphView(root); rmSync(root, { recursive: true, force: true }); } });
 const source = (digit: string) => insertion({ id: `ins_${digit.repeat(24)}`, title: `Source ${digit}` });
 
 test("concurrent async readers share graph/evidence and prepare feed pages for that revision", async () => {
@@ -35,40 +36,62 @@ test("concurrent async readers share graph/evidence and prepare feed pages for t
   });
 });
 
-test("an invalidation during a worker build cannot publish an obsolete snapshot", async () => {
+test("a commit during a build runs it again: the view ends at the projection's revision", async () => {
   const root = fresh();
   appendSourceInsertionEvent(root, source("1"));
-  const first = primaryGraphAsync(root);
+  const first = maintainGraphView(root);
   appendSourceInsertionEvent(root, source("2")); projectSourceInsertion(root, source("2"));
-  invalidateGraphCaches(root);
-  const second = primaryGraphAsync(root);
-  const [a, b] = await Promise.all([first, second]);
-  expect(a).toBe(b);
-  expect(a.nodes.map(n => n.id)).toEqual([`source:${source("1").id}`, `source:${source("2").id}`]);
+  const second = maintainGraphView(root);
+  await Promise.all([first, second]);
+  expect(savedGraph(root)!.nodes.map(n => n.id)).toEqual([`source:${source("1").id}`, `source:${source("2").id}`]);
+});
+
+test("a start serves the view saved last session, with no build when nothing moved", async () => {
+  const root = fresh();
+  appendSourceInsertionEvent(root, source("1"));
+  await maintainGraphView(root);
+  saveGraphView(root);
+  forgetGraphView(root); // a new process
+  let builds = 0;
+  const counting: BuildGraphView = async () => { builds++; throw new Error("no build expected"); };
+  expect((await currentGraph(root, counting)).nodes.map(n => n.id)).toEqual([`source:${source("1").id}`]);
+  await maintainGraphView(root, counting);
+  expect(builds).toBe(0);
+});
+
+test("a journal write never rebuilds the view; a commit does", async () => {
+  const root = fresh();
+  appendSourceInsertionEvent(root, source("1"));
+  await maintainGraphView(root);
+  let builds = 0;
+  const counting: BuildGraphView = async (r) => { builds++; const { buildGraphView } = await import("../lib/maintainedGraph"); return buildGraphView(r); };
+  mkdirSync(join(root, "journal", "tend", "2026-10"), { recursive: true });
+  writeFileSync(join(root, "journal", "tend", "2026-10", "run-1.json"), "{}");
+  await maintainGraphView(root, counting);
+  expect(builds).toBe(0);
+  appendSourceInsertionEvent(root, source("2")); projectSourceInsertion(root, source("2"));
+  await maintainGraphView(root, counting);
+  expect(builds).toBe(1);
 });
 
 test("a worker error rejects readers and a repaired vault can retry", async () => {
   const root = fresh(), item = source("1");
   appendSourceInsertionEvent(root, item);
   writeFileSync(join(root, insertionEventRel(item)), "broken json");
-  await expect(primaryGraphAsync(root)).rejects.toThrow("unreadable event");
+  await expect(currentGraph(root)).rejects.toThrow("unreadable event");
   writeFileSync(join(root, insertionEventRel(item)), JSON.stringify(item));
-  expect((await primaryGraphAsync(root)).nodes).toHaveLength(1);
+  expect((await currentGraph(root)).nodes).toHaveLength(1);
 });
 
-test("layout requests stay fresh when invalidated while the worker is running", async () => {
+test("the view carries settled positions for its structure, and the layout persists by hash", async () => {
   const root = fresh();
   appendSourceInsertionEvent(root, source("1"));
-  await primaryGraphAsync(root);
-  const pending = primaryGraphWithLayoutAsync(root);
-  await Promise.resolve();
+  await maintainGraphView(root);
   appendSourceInsertionEvent(root, source("2")); projectSourceInsertion(root, source("2"));
-  invalidateGraphCaches(root);
-  const latest = await primaryGraphWithLayoutAsync(root);
-  const earlier = await pending;
-  expect(earlier.hash).toBe(latest.hash);
-  expect(earlier.nodes).toHaveLength(2);
-  expect(earlier.nodes.every(n => Number.isFinite(n.x) && Number.isFinite(n.y))).toBe(true);
+  await maintainGraphView(root);
+  const latest = savedGraph(root)!;
+  expect(latest.nodes).toHaveLength(2);
+  expect(latest.nodes.every(n => Number.isFinite(n.x) && Number.isFinite(n.y))).toBe(true);
   expect(readLayoutCache(root)?.hash).toBe(latest.hash);
 });
 
@@ -86,16 +109,18 @@ test("stopping the watcher suppresses a ping from an outstanding async warm", as
   expect(writes).toEqual([]);
 });
 
-test("async readers observe a newly projected filing verdict before the watcher fires", async () => {
+test("a request serves the last view at once and starts the build; no watcher needed", async () => {
   const { projectSourceInsertion, appendAndProjectDecline } = await import("../lib/assertionProjection");
   const { createDeclineEvent } = await import("../lib/declineLog");
   const root = fresh(), item = source("1");
   appendSourceInsertionEvent(root, item); projectSourceInsertion(root, item);
-  expect((await primaryGraphAsync(root)).nodes[0]?.pending).toBe(true);
+  expect((await currentGraph(root)).nodes[0]?.pending).toBe(true);
   appendAndProjectDecline(root, createDeclineEvent({ insertion_ids: [item.id], reason: "Boilerplate",
     author: { kind: "model", id: "gardener", invocation_id: "test" }, produced_by: { procedure: "intake", version: "v1" },
     created_at: "2026-09-20T00:00:00.000Z" }, new Map([[item.id, item]])));
-  expect((await primaryGraphAsync(root)).nodes[0]?.pending).toBeUndefined();
+  expect((await currentGraph(root)).nodes[0]?.pending).toBe(true); // the last view, at once
+  await maintainGraphView(root); // the build the request started
+  expect(savedGraph(root)!.nodes[0]?.pending).toBeUndefined();
 });
 
 test("a newer watcher change suppresses the older in-flight ping", async () => {
