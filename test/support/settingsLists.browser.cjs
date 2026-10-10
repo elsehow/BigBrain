@@ -19,7 +19,7 @@ const base = process.env.SIDEBAR_PREVIEW_URL || 'http://127.0.0.1:5231';
     const client=await measure('.settings-card');
     assert(client.width > 0);
     assert.deepEqual(await page.locator('.rail .rail-eyebrow').allInnerTexts(),['SETTINGS','GENERAL','AGENTS','SERVERS','SYSTEM']);
-    assert.deepEqual(await page.locator('.rail .rail-row').allInnerTexts(),['general','models','integrations','connected agents','+ Connect a server','security','diagnostics']);
+    assert.deepEqual(await page.locator('.rail .rail-row').allInnerTexts(),['general','models','integrations','lenses','connected agents','+ Connect a server','security','diagnostics']);
     await page.setViewportSize({width:600,height:900});
     assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
     assert.deepEqual(errors,[]);

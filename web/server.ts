@@ -3,13 +3,13 @@ import {IntegrationAccounts} from '../lib/integrationAccounts';
 import {readLogRoutes} from '../lib/readLogRoutes';
 import {logIntegrationCalls} from '../lib/readLog';
 import {inclusionReviewApi} from '../lib/inclusionReviewApi';
-import {inclusionBackfillApi} from '../lib/inclusionBackfillApi';
+import {lensApi} from '../lib/lensApi';
 import {tickIntegrationAdmission} from '../lib/integrationAdmission';
 import { unionGraph, unionRecent, unionSearch, unionNote, vaultFilter, includesPersonal, sharedEntityClaims } from '../lib/sharedReadUnion';
 import { jevSettingsApi } from '../lib/jevSettingsApi';
 import { optionalJevKey } from '../lib/jevSettings';
 import { sharedSettingsApi } from '../lib/sharedSettingsApi';
-import { tickRules } from '../lib/sharedRules';
+import { lensEventHeadline, readLensEvents, tickLenses } from '../lib/lensSync';
 import { tickPublishing } from '../lib/sharedAssertionPublish';
 import { connectionStorePath } from '../lib/sharedConnections';
 import { sharedWorkspace } from "../lib/sharedWorkspace";
@@ -59,7 +59,7 @@ import { walkMarkdown } from "../lib/vaultRead";
 import { parseBlobRef, readBlob } from "../lib/blobs";
 import { recentSourcePageAsync } from "../lib/sourceFeed";
 import { primaryGraphWithLayoutAsync, primaryGraphAsync } from "../lib/graphCache";
-import { buildEntityFeed, buildSortedFeed, buildV2Feed, pageSortedFeed, SORTED_PAGE, type V2Source } from "../lib/v2Feed";
+import { buildEntityFeed, buildSortedFeed, buildV2Feed, newestFirst, pageSortedFeed, SORTED_PAGE, type V2SortedRow, type V2Source } from "../lib/v2Feed";
 import { dueOf, feedItems, feedRecords } from "../lib/feedJournal";
 import { readV2Source } from "../lib/v2Read";
 import { tendJournalFiles } from "../lib/tend";
@@ -577,10 +577,14 @@ function v2Entity({ res, url }: Ctx): void {
 const SORTED_MAX = 5_000;
 function v2Sorted({ res, url }: Ctx): void {
   try {
-    const records = loadManifest(ROOT).feed ? feedRecords(ROOT) : [];
+    const feedOn = !!loadManifest(ROOT).feed, records = feedOn ? feedRecords(ROOT) : [];
     const limit = Math.min(SORTED_MAX, Math.max(1, Math.trunc(Number(url.searchParams.get("limit"))) || SORTED_PAGE));
-    const { rows, next } = pageSortedFeed(buildSortedFeed(v2Source(), feedItems(records).map((e) => ({ ...e, due: dueOf(e) }))),
-      limit, url.searchParams.get("before") ?? undefined);
+    // What lenses shared, and changes that grew a shared lens (D2, D3), among what arrived.
+    const sharing = feedOn ? readLensEvents(ROOT, connectionStorePath()).map((e, i): V2SortedRow => ({
+      source: `lens:${e.at}:${i}`, section: e.kind === "shared" ? "know" : "needs-you", headline: lensEventHeadline(e), due: null, added: e.at, entities: [], lens: e.lens,
+    })) : [];
+    const sorted = [...buildSortedFeed(v2Source(), feedItems(records).map((e) => ({ ...e, due: dueOf(e) }))), ...sharing].sort(newestFirst);
+    const { rows, next } = pageSortedFeed(sorted, limit, url.searchParams.get("before") ?? undefined);
     const heads = projectedSourceHeads(ROOT, rows.map((r) => r.source));
     json(res, 200, { next, rows: rows.map((r) => {
       const h = heads.get(r.source);
@@ -916,13 +920,13 @@ export function start(): void {
   // server's death.
   const metrics = isDesktop() ? telemetry(ROOT) : undefined;
   metrics?.start();
-  const sharedRuleTimer=setInterval(()=>{void tickRules(ROOT,connectionStorePath()).then(()=>tickPublishing(ROOT,connectionStorePath()));void tickIntegrationAdmission(ROOT).catch(()=>{});},30000);sharedRuleTimer.unref();
+  const sharedRuleTimer=setInterval(()=>{void tickLenses(ROOT,connectionStorePath()).then(()=>tickPublishing(ROOT,connectionStorePath()));void tickIntegrationAdmission(ROOT).catch(()=>{});},30000);sharedRuleTimer.unref();
   const server = createServer(async (req, res) => {
     armor(res);
     if (!allowLoopbackRequest(req, res)) return;
     if (!allowSession(req, res)) return;
     if (await inclusionReviewApi(req,res,ROOT)) return;
-    if (await inclusionBackfillApi(req,res,ROOT)) return;
+    if (await lensApi(req,res,ROOT)) return;
     if (await jevSettingsApi(req,res,ROOT)) return;
     if (await sharedSettingsApi(req,res,ROOT)) return;
     if (await sharedWorkspace(req, res)) return;

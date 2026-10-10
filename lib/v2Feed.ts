@@ -158,6 +158,8 @@ export interface V2SortedRow {
   title?: string;
   path?: string;
   via?: string;
+  /** A sharing event's lens (lib/lensSync.ts): the row opens it, not a source. */
+  lens?: string;
 }
 
 /** What the sorted feed is built from: the stage's items (lib/feedJournal.ts feedItems). */

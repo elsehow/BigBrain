@@ -7,6 +7,7 @@ export const SETTINGS_TABS = [
   { label: "general", view: "vaultSettings", group: "GENERAL" },
   { label: "models", view: "agents", group: "GENERAL" },
   { label: "integrations", view: "integrations", group: "GENERAL" },
+  { label: "lenses", view: "lenses", group: "GENERAL" },
   { label: "connected agents", view: "connectedClients", group: "AGENTS" },
   { label: "security", view: "security", group: "SYSTEM" },
   // diagnostics last (#710): the logs and the facts, read when something

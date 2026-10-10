@@ -1,10 +1,10 @@
 import type {IncomingMessage,ServerResponse} from 'node:http';
 import {json,readBody} from './httpx';
 import {allowVaultRequest,vaultIdentity} from './vaultBoundary';
-import {connectionStorePath,readConnections,sharedRequest} from './sharedConnections';
-import {contributions,getRule,setRule,sourceKey} from './sharedRules';
-import {readSourceInsertionLog,type SourceInsertion} from './insertionLog';
-import {sharedRuleScope,type InclusionSource} from './inclusionPolicy';
+import {connectionStorePath} from './sharedConnections';
+import type {InclusionSource} from './inclusionPolicy';
+import {lensNotes} from './lensScoring';
+import {lensScope,readLens} from './lenses';
 import {getReview,startReview,reviewState,rateReview,pickReview,searchReviewSources,editReview,retryReview,finishReview,type ReviewContext} from './inclusionReview';
 import {ruleCandidateFilter,searchRuleEntities} from './sharedRuleMentions';
 import {ruleQueries} from './inclusionQueries';
@@ -19,18 +19,13 @@ export async function inclusionReviewApi(req:IncomingMessage,res:ServerResponse,
   if(req.method!=='POST'){json(res,405,{error:'Method not allowed'});return true;}
   const body=JSON.parse(await readBody(req,20000));
   if(action==='start'){
-   const target=body.target;let context:ReviewContext;
-   if(target?.kind==='shared'){
-    const c=readConnections(store).find(c=>c.id===target.id);if(!c)throw Error('Shared connection unavailable.');
-    const who=await sharedRequest<{permissions:string[]}>(c,'/v1/whoami');if(!who.permissions.includes('write'))throw Error('This server is read-only.');
-    const version=getRule(store,c.id)?.version;
-    const check=()=>{if(!readConnections(store).some(x=>x.id===c.id&&x.token===c.token)||getRule(store,c.id)?.version!==version)throw Error('The shared connection or rule changed. Reopen its review.');};
-    // "Include these?" asks only about notes not yet in the shared vault, whatever their age.
-    const shared=new Set((await contributions(c)).map(x=>x.source_id));
-    const unshared=()=>{const all=new Map<string,SourceInsertion>();for(const s of readSourceInsertionLog(root,{strict:true}))all.set(s.source_id,s);return [...all.values()].reverse().filter(s=>!shared.has('origin:'+sourceKey(s)));};
-    const asSource=(s:SourceInsertion):InclusionSource=>({id:s.id,title:s.title,body:s.body,origin:['Personal',(s.received_at??'').slice(0,10)].filter(Boolean).join(' · ')});
-    context={root,store,scope:sharedRuleScope(c.id),text:body.text??getRule(store,c.id)?.text??'',sources:unshared().map(asSource),select:text=>unshared().filter(ruleCandidateFilter(root,text)).map(asSource),check,save:text=>setRule(store,c.id,text,root)};
-   }else throw Error('Choose a server.');
+   // A lens's rule, reviewed over the whole vault; saving the lens happens in Edit a lens (lib/lensApi.ts).
+   const target=body.target;if(target?.kind!=='lens'||typeof target.id!=='string'||!/^lens_[a-f0-9]{12}$/.test(target.id))throw Error('Choose a lens.');
+   const notes=()=>lensNotes(root).reverse();
+   const asSource=(n:ReturnType<typeof lensNotes>[number]):InclusionSource=>({id:n.insertion.id,title:n.title,body:n.body,origin:['Personal',(n.insertion.received_at??'').slice(0,10)].filter(Boolean).join(' · ')});
+   const lens=readLens(root,store,target.id);
+   const context:ReviewContext={root,store,scope:lensScope(target.id),text:body.text??lens?.text??'',labels:lens?.labels,sources:notes().map(asSource),
+    select:text=>{const keep=ruleCandidateFilter(root,text);return notes().filter(n=>keep(n.insertion)).map(asSource);},check:()=>{},save:()=>{}};
    if(typeof context.text!=='string'||!context.text.trim()||context.text.length>8000)throw Error('Write an inclusion rule first.');
    context.queries=(text,entities)=>ruleQueries(root,store,text,entities);
    json(res,202,startReview(context));return true;
