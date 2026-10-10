@@ -31,7 +31,7 @@ const SAVE_AFTER_MS = 5_000;
 export function buildGraphView(root: string): ProjectionView {
   recentSourcePage(root, 0, 1);
   return withVaultSnapshot(root, (_db, revision) => {
-    const built = buildAssertionGraph(root, () => {}, vaultRecord(root));
+    const built = buildAssertionGraph(root, undefined, vaultRecord(root)); // no evidence: none of its text is read
     const graph = graphWithLayout(root, built.nodes.length ? built : { ...EMPTY_GRAPH, nodes: [], edges: [] });
     const body = JSON.stringify(graph);
     return { revision, hash: sha256hex(body).slice(0, 16), body };

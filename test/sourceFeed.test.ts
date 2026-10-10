@@ -2,7 +2,7 @@ import { sourceSummary } from "../lib/sourceSummary";
 import { intakePriority } from "../lib/intakeClass";
 import { describe, expect, test } from "bun:test";
 import { renderTurns, TRANSCRIPT_MARK } from "../lib/transcriptProjection";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { appendSourceInsertionEvent, sourceInsertion, type SourceInsertion } from "../lib/insertionLog";
@@ -21,6 +21,7 @@ import {
   agentWritten,
 } from "../lib/sourceFeed";
 import { insertion } from "./support/vault";
+import { sourceRecord } from "../lib/vaultReadModel";
 import { putBlob } from "../lib/blobs";
 
 test("existing Claude transcripts recover model from their raw attachments without rewriting events", () => {
@@ -43,6 +44,22 @@ test("existing Claude transcripts recover model from their raw attachments witho
   expect(insertionFiler(badAttachment, root).agentModel).toBeUndefined();
   const codex = { ...event, envelope: { ...event.envelope, from: "codex" } };
   expect(insertionFiler(codex, root).agentModel).toBeUndefined();
+});
+
+test("the projection reads a transcript's model once; the feed's rows never open the blob", () => {
+  const root = mkdtempSync(join(tmpdir(), "bb-projected-model-"));
+  const raw = Buffer.from(JSON.stringify({ type: "assistant", message: { model: "claude-fable-5-1" } }) + "\n");
+  const blob = putBlob(root, raw);
+  const event = insertion({ envelope: { source: "agent-chat", from: "claude-code", from_kind: "agent", attachments: [{ name: "session-1-2.jsonl", sha256: blob.sha256 }] } });
+  appendSourceInsertionEvent(root, event); projectSourceInsertion(root, event);
+  rmSync(join(root, ".blobs"), { recursive: true, force: true }); // nothing left to read
+  // the row carries it, so the filer takes it from there
+  expect(sourceRecord(root).sources.get(event.id)!.transcriptModel).toBe("claude-fable-5-1");
+  expect(recentSourcePage(root, 0, 10).recent[0]!.agentModel).toBe("claude-fable-5-1");
+  // a projected row that names none stays without one, rather than reading
+  const plain = insertion({ id: `ins_${"b".repeat(24)}`, source_id: "b", envelope: { source: "agent-chat", from: "claude-code", from_kind: "agent" } });
+  appendSourceInsertionEvent(root, plain); projectSourceInsertion(root, plain);
+  expect(recentSourcePage(root, 0, 10).recent.find((r) => r.insertionId === plain.id)!.agentModel).toBeUndefined();
 });
 
 // The viewer loads a source's remote images unasked only when no agent wrote
