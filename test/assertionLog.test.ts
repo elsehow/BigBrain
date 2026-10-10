@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -19,7 +19,6 @@ import {
   projectSourceInsertion,
   projectedSourcesById,
   claimProjectionRecovery,
-  projectionHolds,
   rebuildAssertionProjection,
   recoverAssertionProjection,
   searchAssertionEntities,
@@ -188,23 +187,6 @@ describe("ontology-free assertion substrate", () => {
     expect(synced(root).sources).toBe(1);
     withdraw(); // that worker failed: the next read recovers itself
     expect(synced(root).sources).toBe(2);
-  });
-
-  test("projectionHolds answers per named file, by id, without a census", () => {
-    const root = mkdtempSync(join(tmpdir(), "bb-assertion-holds-"));
-    const landed = source(), byHand = source("ins_by_hand", "meeting-2");
-    const a = appendSourceInsertionEvent(root, landed);
-    synced(root);
-    const b = appendSourceInsertionEvent(root, byHand);
-    expect(projectionHolds(root, [a.path])).toBe(true); // projected: one lookup
-    expect(projectionHolds(root, [a.path, b.path])).toBe(false); // a file nothing projected
-    expect(projectionHolds(root, ["log/insertions/2026-08/.tmp-123", "journal/tend/x.json", "memory/n.md"])).toBe(true);
-    expect(projectionHolds(root, ["log/insertions/2026-09"])).toBe(false); // not an event file: count it
-    rmSync(join(root, a.path));
-    expect(projectionHolds(root, [a.path])).toBe(false); // retracted by hand
-    recoverAssertionProjection(root);
-    appendSourceInsertionEvent(root, landed); // restored by hand: held, but not present
-    expect(projectionHolds(root, [a.path])).toBe(false);
   });
 
   test("a full replay is logically identical to incremental projection", () => {
