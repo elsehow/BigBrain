@@ -30,9 +30,8 @@ export function granolaHistory(root:string,r:GranolaRevision):{event:SourceInser
  syncAssertionProjection(root);
  const db=openAssertionProjectionReadonly(root);
  try {
-  const rows=db.query(`SELECT event_json FROM sources WHERE present = 1
-   AND json_extract(event_json, '$.envelope.stream') = ?
-   AND json_extract(event_json, '$.envelope.key') = ?
+  const rows=db.query(`SELECT event_json FROM sources JOIN source_documents USING (insertion_id) WHERE present = 1
+   AND envelope_stream = ? AND envelope_key = ?
    ORDER BY coalesce(received_at, occurred_at, ''), insertion_id`).all(r.stream,r.key) as {event_json:string}[];
   return rows.map(row=>JSON.parse(row.event_json) as SourceInsertion)
    .filter(event=>insertionEventOnDisk(root,event))

@@ -128,7 +128,7 @@ function sourceHeads(root: string, account: string): Map<string, Head> {
   const db = openAssertionProjectionReadonly(root);
   try {
     const rows = db.query(`SELECT source_id, insertion_id,
-      json_extract(event_json, '$.envelope.seq') AS revision FROM sources
+      envelope_seq AS revision FROM sources
       WHERE source_id LIKE ?`).all(`that-tracks-${account}-%`) as { source_id: string; insertion_id: string; revision: number }[];
     const heads = new Map<string, Head>();
     for (const r of rows) if (Number.isSafeInteger(r.revision) && r.revision > (heads.get(r.source_id)?.revision ?? 0))

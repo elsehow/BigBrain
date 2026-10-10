@@ -103,7 +103,12 @@ even when a later commit or projection step needs retrying.
 
 [`assertionProjection.ts`](../lib/assertionProjection.ts) reconciles logs and
 allowed Markdown into SQLite under a process-shared write lock. Schema changes
-rebuild this disposable database; they do not migrate event files. Reconciliation
+rebuild this disposable database; they do not migrate event files. Narrow
+data is stored apart from wide (schema 20): `sources` holds headers and the
+arrival identity readers filter on (kind, source, sha256, stream/key/seq) and
+`source_documents` each whole event, once; `markdown_documents` holds headers
+and `markdown_bodies` documents. A header scan reads a table of headers, never
+past a body: SQLite reaches a row's later columns only through its earlier ones. Reconciliation
 publishes content, source presence, thread membership, Markdown metadata, and
 parsed links together with a revision. Failure leaves the previous complete
 revision intact.
