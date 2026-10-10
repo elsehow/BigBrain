@@ -113,10 +113,11 @@ Connections are already stored per machine, not per vault
 (`~/.config/bigbrain/shared-connections.json`).
 
 **2d. Connect your AI.** Not part of joining (D5): offered the first time
-someone tries to add something or connect an integration. Today's
-only prompt is first-run step 3 (Claude Code and Codex, on PATH).
-`lib/mcpRegister.ts:19-38` already defines Claude Desktop, Cursor and Windsurf
-targets that no screen uses. See D5.
+someone tries to add something or connect an integration, reusing first run's
+providers step (`SubscriptionConnect`) and clients step (`ClientChecklist`).
+Setup counts as done only once something powers the vault
+(`web/ui/src/lib/setup.ts:100`), so a joiner with no provider needs that gate
+relaxed. See D5.
 
 ## Decide
 
@@ -163,12 +164,13 @@ targets that no screen uses. See D5.
   support the connector; when it's on, the invite page says so at the bottom.
 - **D5. Connecting an AI. Decided:** someone who joins read-only goes straight
   to the server's notes, with no AI or integration step. BigBrain asks only when
-  they first try to add something or connect an integration. Still open: which
-  AI clients to offer then. Claude Code and Codex exist;
-  Claude Desktop needs only wiring. Pointing claude.ai at a server's `/mcp` needs
-  the public connector, and `/authorize/invite` uses up the same one-time invite
-  the app needs. The app could mint an agent credential instead
-  (`POST /v1/credentials/agent`), but that route needs write access.
+  they first try to add something or connect an integration. It then asks for
+  what first run's steps 2 and 3 ask for today: a provider (a Claude or ChatGPT
+  subscription), which is what runs the gardener and so is required before
+  anything added gets filed, then the clients Claude Code and Codex. No Claude
+  Desktop, Cursor or Windsurf for now; Claude Desktop only if someone needs it,
+  and it would be a client, never what powers the vault. claude.ai stays out:
+  it can't reach the app, only a server's read-only connector.
 - **D6. Drop the Sources column and the Sources filter for now.** The app has no
   user-facing source field; "source" in the code means any item. Envelope `kind`
   and `source` exist if we want them later.
