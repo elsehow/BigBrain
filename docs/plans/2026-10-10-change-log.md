@@ -180,8 +180,11 @@ Step 6 is where freshness is won. Part 1 (#242) found the decode itself cheap
 discards, and the feed page reading every Claude Code transcript blob in each
 fresh worker. Schema 23 keeps link evidence in its own table and stores the
 transcript's model at projection: one new source now reaches open tabs in
-6.4 s, and the layout's 5.5 s re-simulation is the rest. Part 2 places a new
-node into the standing layout instead of re-simulating it.
+6.4 s, and the layout's 5.5 s re-simulation is the rest. Part 2 (#244) places
+what changed into the standing layout: only nodes whose connections changed
+move, among nodes held still, and the whole graph settles again after a tenth
+of it has moved. Layout 5.5 s → 40–150 ms; a new source reaches open tabs in
+0.5–1.6 s.
 
 ## Decisions
 
