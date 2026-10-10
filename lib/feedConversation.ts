@@ -4,8 +4,9 @@
  * Every landing of one source (a meeting's revisions, lib/sourceSupersede.ts)
  * and every message of one thread (lib/sourceThreads.ts: their mail, your
  * drafts, what you sent) is ONE conversation: judged whole, newest message
- * last, and holding one place in the feed. Judged an arrival at a time, a
- * reply saved as several drafts was several entries asking you to send it,
+ * last, beside the items it already has in the feed, so a judgment adds an
+ * item only for what is new in it. Judged an arrival at a time, a reply
+ * saved as several drafts was several entries asking you to send it,
  * beside the one saying you had, and a meeting re-sent on every edit was an
  * entry per edit.
  *
@@ -88,9 +89,9 @@ export function feedConversations(root: string, since: string): FeedConversation
   });
 }
 
-/** Each journaled entry's conversation, for reading the feed: the journal
- * names an entry by its face, and an older entry in the same conversation
- * is the same place in the feed. */
+/** Each journaled entry's conversation: the journal names an entry by the
+ * message that was its face then, so a call can show a conversation the
+ * items it already has, a superseded landing's among them. */
 export function feedConversationOf(root: string, records: readonly FeedRecord[]): (source: string) => string {
   const ids = [...new Set(records.flatMap((r) => r.entries.map((e) => e.source)))];
   if (!ids.length) return (id) => id;

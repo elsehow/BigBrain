@@ -4,9 +4,10 @@
  *
  * The journal is the stage's whole state. Its checkpoint is the union of the
  * assertions closed records read; its schedule is the last attempt plus the
- * interval; the feed itself is each conversation's newest entry, kept until
- * a newer judgment replaces it: a date passing never takes one away. Delete
- * `.state/` and nothing is lost. */
+ * interval; the feed itself is every source a call placed, as that first
+ * judgment placed it. Append-only: a later judgment adds an item or nothing,
+ * and never changes or removes one already there. Delete `.state/` and
+ * nothing is lost. */
 
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -71,14 +72,6 @@ export function feedRecords(root: string): FeedRecord[] {
 export const sortedAssertions = (records: FeedRecord[]): Set<string> =>
   new Set(records.filter((r) => !r.error).flatMap((r) => r.assertions));
 
-/** When each source entered the feed: the first call that put it in a
- * section other than skip. A later re-judgment keeps that time. */
-export function addedAt(records: FeedRecord[]): Map<string, string> {
-  const out = new Map<string, string>();
-  for (const r of records) if (!r.error) for (const e of r.entries) if (e.section !== "skip" && !out.has(e.source)) out.set(e.source, r.completed_at);
-  return out;
-}
-
 /** The date an entry has something due by. Only an entry that asks for
  * action has one: needs-you or agent, never know. Since feed/v3 the call
  * names the date itself; an older entry has only `expires`, which also dates
@@ -86,11 +79,17 @@ export function addedAt(records: FeedRecord[]): Map<string, string> {
 export const dueOf = (e: FeedEntry): string | null =>
   e.section !== "needs-you" && e.section !== "agent" ? null : e.due !== undefined ? e.due : e.expires ?? null;
 
-/** The feed as it stands: each conversation's newest entry, without skips.
- * `conversationOf` names an entry's conversation (lib/feedConversation.ts),
- * each source its own when not given. */
-export function currentFeed(records: FeedRecord[], conversationOf: (source: string) => string = (s) => s): FeedEntry[] {
-  const latest = new Map<string, FeedEntry>();
-  for (const r of records) if (!r.error) for (const e of r.entries) latest.set(conversationOf(e.source), e);
-  return [...latest.values()].filter((e) => e.section !== "skip");
+/** One item of the feed: an entry, and when it was added. */
+export interface FeedItem extends FeedEntry {
+  added: string;
+}
+
+/** The feed: the first entry that placed each source in a section, oldest
+ * first. A source judged again, alone or as part of its conversation, keeps
+ * the item it has; a skip adds nothing. */
+export function feedItems(records: FeedRecord[]): FeedItem[] {
+  const items = new Map<string, FeedItem>();
+  for (const r of records) if (!r.error) for (const e of r.entries)
+    if (e.section !== "skip" && !items.has(e.source)) items.set(e.source, { ...e, added: r.completed_at });
+  return [...items.values()];
 }

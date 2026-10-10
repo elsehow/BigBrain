@@ -160,15 +160,15 @@ export interface V2SortedRow {
   via?: string;
 }
 
-/** What the sorted feed is built from: the stage's current entries (lib/feedJournal.ts currentFeed). */
+/** What the sorted feed is built from: the stage's items (lib/feedJournal.ts feedItems). */
 export interface SortedEntry { source: string; section: string; headline: string; due: string | null; assertions: string[]; added: string }
 
 const SECTIONS: readonly V2SortedRow["section"][] = ["needs-you", "agent", "know"];
 
-/** The stage's entries, newest first, as a feed reads: what just arrived is
- * what shows (the most pressing within one arrival first). An entry whose
- * claims have all been revoked since it was sorted drops out: the record no
- * longer says it. */
+/** The stage's items, newest first, as a feed reads: what just arrived is
+ * what shows (the most pressing within one arrival first). An item whose
+ * claims have all been revoked or superseded since it was sorted drops out:
+ * the record no longer says it. */
 export function buildSortedFeed(src: V2Source, entries: readonly SortedEntry[]): V2SortedRow[] {
   const live = new Map(src.rows.map((row) => [row.id, row]));
   const out: V2SortedRow[] = [];

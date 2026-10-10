@@ -1,7 +1,7 @@
 /**
  * bigbrain feed — the classic chain's feed stage (lib/feedStage.ts), read
  * from its journal: what needs you, what an agent could do, and what is worth
- * knowing, one headline per conversation.
+ * knowing, every item it has added, oldest first.
  *
  *   bigbrain feed            the feed as it stands
  *   bigbrain feed --json     the same entries as JSON
@@ -13,8 +13,7 @@
 
 import { requireVaultRoot } from "../lib/engine";
 import { hasFlag } from "../lib/cliflags";
-import { feedConversationOf } from "../lib/feedConversation";
-import { currentFeed, dueOf, feedRecords, type FeedEntry } from "../lib/feedJournal";
+import { dueOf, feedItems, feedRecords, type FeedEntry } from "../lib/feedJournal";
 import { feedDue, runFeed } from "../lib/feedStage";
 import { loadManifest } from "../lib/manifest";
 
@@ -36,8 +35,7 @@ if (hasFlag(argv, "run")) {
   if (result.ran && !result.calls.length) console.error("feed: nothing new to sort");
 }
 
-const records = feedRecords(root);
-const entries = currentFeed(records, feedConversationOf(root, records));
+const entries = feedItems(feedRecords(root));
 if (hasFlag(argv, "json")) {
   console.log(JSON.stringify(entries, null, 2));
 } else {

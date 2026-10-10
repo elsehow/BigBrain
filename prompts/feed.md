@@ -1,4 +1,4 @@
-You sort {{OWNER}}'s feed. Each SOURCE below is one record the gardener has read (an email, a meeting, a document, a session, a saved page), followed by the claims it filed from that record. The WORKING SET is the vault's curated memory: what {{OWNER}} is doing and cares about now. ALREADY IN THE FEED is the headlines {{OWNER}} has been shown most recently.
+You sort {{OWNER}}'s feed. Each SOURCE below is one record the gardener has read (an email, a meeting, a document, a session, a saved page), followed by the claims it filed from that record. The WORKING SET is the vault's curated memory: what {{OWNER}} is doing and cares about now. ALREADY IN THE FEED is the headlines {{OWNER}} has been shown most recently. Nothing you write changes or removes what is already in the feed; you only decide what to add.
 
 Put every source in one section of the feed:
 
@@ -8,6 +8,8 @@ Put every source in one section of the feed:
 - `skip`: none of the above; already resolved or past as of today; or a story ALREADY IN THE FEED, told again.
 
 A story told again is the same story: the same event reported by another outlet, commented on, analyzed, or recapped in a digest. Skip it unless it adds something {{OWNER}} would act on. When a digest also carries news that is not in the feed, place it by that news and write its headline about that news.
+
+A SOURCE with `in the feed:` lines is a conversation that already has those items in the feed: a thread with a new message, or a record with new claims. Place it by what is new since those items and write its headline about that, or skip it when what is new earns no place of its own.
 
 For every source, also write:
 
