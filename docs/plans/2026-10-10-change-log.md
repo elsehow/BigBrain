@@ -26,7 +26,7 @@ view maintainer (web, one long-lived worker)    graph+layout, feeds, folds…
   │  each view saved with the revision it reflects
   ▼
 viewer routes: lookups of saved views        GET /api/graph → bytes + ETag
-  │  event: vault {generation, revision, views: {graph: hash, v2: rev, …}}
+  │  event: views {generation, revision, views: {graph: hash, feed: rev, …}}
   ▼
 clients: hold stamps, fetch only a view whose stamp moved; never poll
 ```
@@ -117,18 +117,20 @@ before any build, and the Field draws from a lookup.
 
 ## 4. Pushing to clients
 
-The viewer's ping becomes:
+The viewer's ping becomes (built in #238; `event: vault` already names the
+vault's identity, so the stamps have their own event):
 
 ```
-event: vault
-data: {"generation":"…","revision":"…","views":{"graph":"<hash>","v2":"<rev>","feed":"<rev>","folds":"<rev>"}}
+event: views
+data: {"generation":"…","revision":"…","views":{"graph":"<hash>","joined":"<ids>","feed":"<generation:rev>","files":"<epoch:n>"}}
 ```
 
-A client keeps the stamps it rendered and fetches only a view whose stamp
-moved. On reconnect it sends `since=<generation:revision>`; the viewer answers
-with current stamps, and a changed generation means refetch everything. This is
-the application channel's shape (epoch, revision, snapshot) applied to the
-vault, and the two share one client cursor.
+`graph` is the maintained view's content hash and `/api/graph`'s ETag; `feed`
+is the last commit the v2 feed reads; `joined` names the shared vaults the
+graph merges in; `files` counts watched files outside the projection, for the
+views that have no stamp of their own. A client keeps the stamps it fetched
+and fetches only a view whose stamp moved. Every connection opens with the
+current stamps, so a reconnect needs no `since`: the stamps are the snapshot.
 
 Pilot and desktop lists ride the application channel, whose `pilot` events
 already exist and are unused. The Field stops polling. Their routes stop
@@ -155,7 +157,7 @@ Each step ships alone and deletes something.
 |---|---|---|
 | 1 | `changes` rows in every commit; tests that the log equals commit order, and that a rebuild starts a new generation | — (enables the rest) |
 | 2 | maintainer worker and `views` table for graph+layout and v2; ETag on `/api/graph`; first start from saved views | one-shot graph workers per request; the `knownRevision` dance; graph invalidation on journal writes; per-request syncs in those routes |
-| 3 | `event: vault` with view stamps; client cursor; `since` on reconnect | `{"changed":true}` and refetch-everything; Field polling; pilot list awaiting the graph |
+| 3 (#238) | `event: views` with view stamps; `journal` change rows (decision 5); ETag and `?current` on `/api/graph`; desktops on the application channel | `{"changed":true}` and refetch-everything; Field polling; the v2 journal listing; the read-state overlay on the graph |
 | 4 | wake on WAL + `data_version` | watching `log/`; `projectionHolds`; watcher-triggered recovery |
 | 5 | the notes door (#225) writing change rows | the per-read Markdown walk; the one-second clock |
 | 6 | remaining views (#231); incremental graph and v2 from change rows | per-request O(vault) routes |
@@ -178,4 +180,4 @@ Each step ships alone and deletes something.
    in the change log, so those views cannot be kept from it yet. Decided:
    journal writes append change rows too (`kind: journal`), so the log is
    every engine write the viewer reads, not only the projection's. The v2 build
-   keeps reading the files, which are written once. *Decided.*
+   keeps reading the files, which are written once. *Decided; built in step 3.*
