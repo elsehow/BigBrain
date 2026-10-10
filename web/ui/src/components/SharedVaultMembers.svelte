@@ -3,7 +3,8 @@
   type Access = 'Can contribute' | 'Read only';
   type Member = {id:string;name:string;access:Access;owner?:boolean};
   type Invite = Member & {link:string;expires:string;pending?:boolean};
-  let {vaultName,endpoint,request}:{vaultName:string;endpoint:string;request:(action:string,body?:unknown)=>Promise<any>}=$props();
+  let {vaultName,endpoint,request,filter=''}:{vaultName:string;endpoint:string;request:(action:string,body?:unknown)=>Promise<any>;filter?:string}=$props();
+  const matches=(name:string)=>name.toLowerCase().includes(filter.trim().toLowerCase());
   let canManage=$state(false);
   let members=$state<Member[]>([]),invites=$state<Invite[]>([]),busy=$state(false),error=$state(''),loading=$state(true);
   let inviting=$state(false),name=$state(''),access=$state<Access>('Can contribute');
@@ -14,7 +15,7 @@
   function invitation(i:{id:string;display:string;permission:string;secret:string;expires:string}):Invite{return {id:i.id,name:i.display,access:i.permission==='write'?'Can contribute':'Read only',link:endpoint+'/invite#'+i.secret,expires:i.expires};}
   type Row={id:string;display:string;role:string;permissions:string[];pending?:boolean;email?:string|null};
   const accessOf=(m:Row):Access=>m.permissions.includes('write')?'Can contribute':'Read only';
-  async function load(){const data=await request('members');canManage=data.can_manage;emailInvites=!!data.email_invites;joinUrl=data.join_url??'';const rows:Row[]=data.members,pending=emailInvites?rows.filter(m=>m.pending):[];members=rows.filter(m=>!pending.includes(m)).map(m=>({id:m.id,name:m.display,owner:m.role==='owner',access:accessOf(m)}));invites=[...data.invites.map(invitation),...pending.map(m=>({id:m.id,name:m.email??m.display,access:accessOf(m),link:joinUrl,expires:'',pending:true}))];loading=false;}
+  async function load(){const data=await request('members');canManage=data.can_manage;emailInvites=!!data.email_invites;joinUrl=data.join_url??'';const rows:Row[]=data.members,pending=emailInvites?rows.filter(m=>m.pending):[];members=rows.filter(m=>!pending.includes(m)).map(m=>({id:m.id,name:m.display,owner:m.role==='owner',access:accessOf(m)})).sort((a,b)=>Number(!!b.owner)-Number(!!a.owner));invites=[...data.invites.map(invitation),...pending.map(m=>({id:m.id,name:m.email??m.display,access:accessOf(m),link:joinUrl,expires:'',pending:true}))];loading=false;}
   async function act(fn:()=>Promise<void>){if(busy)return;busy=true;error='';try{await fn();}catch(e){error=(e as Error).message;}finally{busy=false;loading=false;}}
   async function create(event:SubmitEvent){event.preventDefault();await act(async()=>{const permission=access==='Can contribute'?'write':'read';if(emailInvites){const m=await request('member-add',{email:name.trim(),permission});created={id:m.id,name:m.email,access,link:joinUrl,expires:'',pending:true};}else created=invitation(await request('member-invite',{name:name.trim(),permission}));await load();});}
   async function copy(link:string){try{await navigator.clipboard.writeText(link);copied=link;}catch{error='Could not copy. Select and copy the invite link.';}}
@@ -26,15 +27,15 @@
   {#if error&&!inviting&&!removing}<p role="alert">{error} <button onclick={()=>act(load)}>Retry</button></p>{/if}
   <div class="heading"><h3>Members</h3>{#if canManage}<button class="primary" disabled={busy||loading} onclick={start}>Invite someone</button>{/if}</div>
   {#if loading}<p class="muted">Loading members…</p>{/if}
-  {#each members as member (member.id)}
-    <div class="row"><div>{member.name}{#if member.owner}<small>Owner</small>{/if}</div>{#if member.owner}<span class="muted">Full access</span>{:else if !canManage}<span class="muted">{member.access}</span>{:else}<div class="actions">
+  {#each members.filter(m=>matches(m.name)) as member (member.id)}
+    <div class="row"><div>{member.name}{#if member.owner}<small>Admin</small>{/if}</div>{#if member.owner}<span class="muted">Full access</span>{:else if !canManage}<span class="muted">{member.access}</span>{:else}<div class="actions">
       <select aria-label={`Access for ${member.name}`} value={member.access} disabled={busy} onchange={e=>{const permission=e.currentTarget.value==='Can contribute'?'write':'read';e.currentTarget.value=member.access;void act(async()=>{await request('member-access',{id:member.id,permission});await load();});}}><option>Can contribute</option><option>Read only</option></select>
       <button disabled={busy} onclick={()=>{error="";removing=member;}}>Remove</button>
     </div>{/if}</div>
   {/each}
   {#if canManage&&invites.length}
     <h3 class="pending-heading">Pending invitations</h3>
-    {#each invites as invite (invite.id)}
+    {#each invites.filter(i=>matches(i.name)) as invite (invite.id)}
       <div class="row"><div>{invite.name}<small>{invite.access} · {invite.pending?'Not signed in yet':`Expires ${new Date(invite.expires).toLocaleString()}`}</small></div><div class="actions">
         <button onclick={()=>{created=invite;inviting=true;error="";void copy(invite.link);}}>{copied===invite.link?'Copied':'Copy link'}</button>
         <button disabled={busy} onclick={()=>act(async()=>{await request(invite.pending?'member-remove':'invite-cancel',{id:invite.id});await load();})}>Cancel invite</button>

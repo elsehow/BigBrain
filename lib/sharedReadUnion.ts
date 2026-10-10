@@ -19,7 +19,8 @@ import type {RecentEntry} from './viewTypes';
 import {entityAliasResolver} from './entityAliasLog';
 import type {ProjectedEntityAssertion} from './assertionEntityView';
 const remotePath=(c:SharedConnection,id:string)=>`shared/${c.id}/${id}.md`;
-async function pages<T>(c:SharedConnection,kind:string):Promise<T[]>{const rows:T[]=[];let cursor:string|null=null;do{const p:{items:T[];next_cursor:string|null}=await sharedRequest(c,`/v1/${kind}?limit=200${cursor?'&cursor='+encodeURIComponent(cursor):''}`);rows.push(...p.items);cursor=p.next_cursor;}while(cursor);return rows;}
+/** Every row of one of a server's paged lists (`/v1/evidence`, `/v1/assertions`). */
+export async function pages<T>(c:SharedConnection,kind:string):Promise<T[]>{const rows:T[]=[];let cursor:string|null=null;do{const p:{items:T[];next_cursor:string|null}=await sharedRequest(c,`/v1/${kind}?limit=200${cursor?'&cursor='+encodeURIComponent(cursor):''}`);rows.push(...p.items);cursor=p.next_cursor;}while(cursor);return rows;}
 export function vaultFilter(header: string | string[] | undefined): string[] { return typeof header === "string" ? [...new Set(header.split(",").filter(Boolean))] : []; }
 export const includesPersonal = (filter: string[]) => !filter.length || filter.includes("personal");
 async function views(filter: string[] = []){const results=await Promise.allSettled(readConnections(connectionStorePath()).filter(c => !filter.length || filter.includes(c.id)).map(async c=>({c,view:sharedProjection(await pages<SourceInsertion>(c,'evidence'),await pages<AssertionView>(c,'assertions'))})));return results.flatMap(r=>r.status==='fulfilled'?[r.value]:[]);}
