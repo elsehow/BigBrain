@@ -122,6 +122,13 @@ append and projection, a file copied into `log/`). It runs once per process
 and projection generation, in a worker when the viewer starts, and whenever the
 viewer's watcher sees `log/` change.
 
+Every commit that moves the revision also writes what moved it to `changes`
+(revision, kind, id, op) in the same transaction, so the projection's commits
+are one ordered stream: `projectionChangesSince` reads it past a
+`generation:revision`, and answers nothing when the reader must start again
+from a snapshot. It is what views maintained on commit and pushes to clients
+read (`docs/plans/2026-10-10-change-log.md`).
+
 [`vaultReadModel.ts`](../lib/vaultReadModel.ts) is the shared snapshot boundary.
 A synchronous `withVaultSnapshot` callback borrows one SQLite read transaction;
 nested readers borrow the same transaction. Callers must not hold it across
