@@ -63,6 +63,7 @@ import { buildEntityFeed, buildSortedFeed, buildV2Feed, type V2Source } from "..
 import { addedAt, currentFeed, feedRecords } from "../lib/feedJournal";
 import { feedConversationOf } from "../lib/feedConversation";
 import { readV2Source } from "../lib/v2Read";
+import { tendJournalFiles } from "../lib/tend";
 import { withVaultSnapshot } from "../lib/vaultReadModel";
 import { frozenMessagesForRefs, sortFrozenDesc } from "../lib/frozenQueue";
 import { queueHead } from "../lib/queueHead";
@@ -533,7 +534,10 @@ function search({ req, res, url }: Ctx): void {
 // graph itself comes from /api/graph; this adds only who and what.
 let v2Held: { revision: string; src: V2Source } | undefined;
 const v2Source = (): V2Source => withVaultSnapshot(ROOT, (db, revision) => {
-  if (v2Held?.revision !== revision) v2Held = { revision, src: readV2Source(db) };
+  // a gardener run's journal, which names the model its rows don't, lands
+  // after them: read again when one does
+  const key = `${revision}:${tendJournalFiles(ROOT).length}`;
+  if (v2Held?.revision !== key) v2Held = { revision: key, src: readV2Source(db, ROOT) };
   return v2Held.src;
 });
 function v2({ res }: Ctx): void {

@@ -18,7 +18,9 @@
 // as tend filing in the background does: the field is redrawn under you.
 // `?hostRequest` has a coding desktop whose agent asks to reach a site, and
 // the chat's card until you answer; `?hostRequest=untrusted`, one that read
-// content from outside you.
+// content from outside you. `?claims` has no sorted feed, so the latest
+// assertions show: the gardener's named by the model its run was on, claims
+// longer than a row, one mentioning nothing in the field; click one.
 import { mount } from "svelte";
 import "../design/tokens.css";
 import "../app.css";
@@ -62,8 +64,19 @@ const hostUntrusted = new URLSearchParams(location.search).get("hostRequest") ==
 let hostAnswer = "";
 const HOST_DESK = { id: "d-0000beef", kind: "coding", title: "Tide calculator", titleSource: "human", model: "claude-opus-5-5", phase: "answered",
   lifecycle: "active", created: at(20), updated: at(22), lastActivityAt: at(22), contextNodes: [] };
-const feed = empty ? [] : NAMES.slice(0, 4).map((name, i) => ({ id: `ast_${i}`, at: at(i), author: null, by: "you", model: false, text: `${name} was noted.`, entities: [`ent_${i}`] }));
-const sorted = empty ? [] : [
+const claimsScene = new URLSearchParams(location.search).has("claims");
+const CLAIMS: Array<[by: string, author: string | null, model: boolean, text: string, entities: string[]]> = [
+  ["claude-sonnet-5-5", "gardener", true, "Kit Brennan said the orrery repair needs a new brass escapement before the spring exhibition, and asked Briar Lowe to source one.", ["ent_2", "ent_0", "ent_3"]],
+  ["gpt-6-astra", "gardener", true, "The Atlas survey's second leg finished three days early along the Ridgeway trail.", ["ent_1", "ent_5"]],
+  ["claude-code", "claude-code", false, "Harbor lab's Lantern grant application cites the Tidewater review as prior work, with Marlow studio named as the design partner for its public exhibit.", ["ent_4", "ent_6", "ent_8", "ent_9"]],
+  ["gpt-6-astra", "gardener", true, "Quill press will print the survey's field notes as a limited run.", ["ent_7", "ent_1"]],
+  ["you", null, false, "Remember to call about the shelving.", []],
+  ["claude-sonnet-5-5", "gardener", true, "On October 4, 2026, Briar Lowe confirmed that Harbor lab will lend the Orrery repair team a bench for six weeks, provided the Lantern grant's reporting deadline is met first.", ["ent_3", "ent_4", "ent_0", "ent_6"]],
+];
+const feed = empty ? [] : claimsScene
+  ? CLAIMS.map(([by, author, model, text, entities], i) => ({ id: `ast_${i}`, at: at(i * 7), author, by, model, text, entities }))
+  : NAMES.slice(0, 4).map((name, i) => ({ id: `ast_${i}`, at: at(i), author: null, by: "you", model: false, text: `${name} was noted.`, entities: [`ent_${i}`] }));
+const sorted = empty || claimsScene ? [] : [
   { source: "ins_a", section: "needs-you", headline: "Kit asks for the orrery repair estimate by Friday.", due: null, added: at(30), entities: ["ent_0", "ent_2"],
     title: "Orrery estimate", path: "log/insertions/2026-10/ins_a.json", via: "email" },
   { source: "ins_b", section: "know", headline: "The Atlas survey's second leg is complete.", due: null, added: at(20), entities: ["ent_1"],
