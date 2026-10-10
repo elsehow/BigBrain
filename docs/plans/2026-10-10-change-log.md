@@ -171,10 +171,10 @@ Each step ships alone and deletes something.
    process to start projects them, within five minutes since tend starts one
    that often, and logs them for the viewer. `bigbrain recover` does it at once.
    *Recommended; awaiting confirmation.*
+4. **Retention:** keep every change row. Rows are about 100 bytes, every rebuild
+   starts the log over, and a reader past the start falls back to a snapshot,
+   which is always correct. *Recommended; awaiting confirmation.*
 5. **Journals** (`journal/tend`, `journal/feed`) feed the v2 views but are not
    in the change log, so those views cannot be kept from it yet. Proposed:
    journal writes append change rows too (`kind: journal`), so the log is
    every engine write the viewer reads, not only the projection's. *Open.*
-4. **Retention:** keep every change row. Rows are about 100 bytes, every rebuild
-   starts the log over, and a reader past the start falls back to a snapshot,
-   which is always correct. *Recommended; awaiting confirmation.*
