@@ -37,7 +37,7 @@
 
 {#if lapsed.length}
   <StackNotice id="connection:expired" title={only ? only.name : "BigBrain connections expired"} kind="connection"
-    action={only ? { label: "Renew", run: () => act("renew", [only.id]) } : { label: "Open Connected clients", run: () => goto("connectedClients") }}
+    action={only ? { label: "Renew", run: () => act("renew", [only.id]) } : { label: "Open Connected agents", run: () => goto("connectedClients") }}
     onclear={() => act("dismiss", lapsed.map(c => c.id))}>
     {#snippet status()}<span class="state">expired</span>{/snippet}
     {#if only}<p>Expired after 30 days unused. A client tried to use it at {new Date(only.expiredUse!).toLocaleString()}. Renew to restore the same access; nothing changes in the client.</p>

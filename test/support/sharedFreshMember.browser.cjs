@@ -18,7 +18,7 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
  // Before joining, the empty vault says so.
  await page.goto(fixture.base+'/');await page.getByText('Nothing here yet').waitFor();
  // Connecting changes no view: the joined vault's records join the same field.
- await page.goto(fixture.base+'/#sharedVaultSettings');await page.getByRole('button',{name:'+ Connect vault',exact:true}).click();
+ await page.goto(fixture.base+'/#sharedVaultSettings');await page.getByRole('button',{name:'+ Connect a server',exact:true}).click();
  await page.getByLabel('Invite link',{exact:true}).fill(fixture.invite);await page.getByRole('dialog').getByRole('button',{name:'Connect',exact:true}).click();
  await page.getByRole('dialog').waitFor({state:'detached'});
  const url=new URL(page.url());assert(!url.searchParams.has('vaults')&&!url.searchParams.has('workspace'),url.href);

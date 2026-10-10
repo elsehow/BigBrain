@@ -91,12 +91,12 @@ export async function sharedWorkspace(req: IncomingMessage, res: ServerResponse,
       if (!who.permissions.includes('write')) throw new SharedConnectionError(403, 'This connection is read-only.');
       if (path === '/api/drop') {
         const body = JSON.parse(await readBody(req));
-        if (body.attachments?.length) throw new SharedConnectionError(400, 'Shared vaults currently accept text and Markdown files. Attachments are not supported yet.');
+        if (body.attachments?.length) throw new SharedConnectionError(400, 'Servers currently accept text and Markdown files. Attachments are not supported yet.');
         const receipt = await sharedRequest<{ id: string; source_id: string }>(connection, '/v1/evidence', { title: body.name, body: body.content });
         const source = await sharedRequest<SourceInsertion>(connection, `/v1/evidence/${receipt.id}`);
         json(res, 200, { id: receipt.source_id, path: insertionEventRel(source), ref_path: insertionEventRel(source), via: 'shared' }); return true;
       }
-      throw new SharedConnectionError(403, 'This action is not available in shared vaults yet.');
+      throw new SharedConnectionError(403, 'This action is not available on servers yet.');
     }
     if (req.method !== 'GET') throw new SharedConnectionError(405, 'Method not allowed.');
     // Only explicit, inert compatibility responses. All other routes fail closed.
@@ -105,7 +105,7 @@ export async function sharedWorkspace(req: IncomingMessage, res: ServerResponse,
       '/api/note-log': { entries: [] }, '/api/entity/folds': { groups: [], proposedAt: null },
     };
     if (path in empty) { json(res, 200, empty[path]); return true; }
-    if (!['/api/vault','/api/recent','/api/graph','/api/note','/api/search','/api/notes'].includes(path)) throw new SharedConnectionError(403, 'This feature is unavailable in shared vaults.');
+    if (!['/api/vault','/api/recent','/api/graph','/api/note','/api/search','/api/notes'].includes(path)) throw new SharedConnectionError(403, 'This feature is unavailable on servers.');
     const [sources, assertions] = await Promise.all([pages<SharedSource>(connection, 'evidence'), pages<AssertionView>(connection, 'assertions')]);
     if (path === '/api/note') {
       const id = url.searchParams.get('path')?.match(/(ins_[a-f0-9]{24})\.json$/)?.[1];

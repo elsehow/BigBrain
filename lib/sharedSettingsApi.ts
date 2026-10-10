@@ -53,6 +53,6 @@ export async function sharedSettingsApi(req:IncomingMessage,res:ServerResponse,r
     void tickPublishing(root,store,c.id); // retract claims that cited a withdrawn source now, not on the next tick
    }else json(res,404,{error:'Not found'});
   }else json(res,405,{error:'Method not allowed'});
- }catch(e){json(res,e instanceof SharedConnectionError?e.status:400,{error:e instanceof Error?e.message:'Shared vault request failed'});}
+ }catch(e){json(res,e instanceof SharedConnectionError?e.status:400,{error:e instanceof Error?e.message:'Server request failed'});}
  return true;
 }

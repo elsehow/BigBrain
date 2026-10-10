@@ -16,7 +16,7 @@
     setup:SetupState;onPick?:(path:string)=>Promise<void>|void;onConnect?:()=>Promise<void>|void;
     onName?:(name:string,email?:string)=>Promise<void>|void;telemetryPending?:boolean;onConsent?:(enabled:boolean)=>Promise<void>;
   }=$props();
-  const steps=['Vault','Providers','Clients','Integrations'];
+  const steps=['Vault','Providers','Agents','Integrations'];
   const phases=['vault','providers','clients','integrations','analytics'] as const;
   function initial(){const i=phases.indexOf(setup.onboarding as typeof phases[number]);return i>=0?i:setup.vault&&setup.identity?1:0;}
   let step=$state(untrack(initial)), name=$state(''),email=$state(''),needsEmail=$state(false);
@@ -96,7 +96,7 @@
         <footer><button disabled={saving} onclick={()=>consent()}>Finish →</button></footer>
       {/if}
     {:else}
-      <header><div class="eyebrow">Step {step+1} of {telemetryPending?5:4}</div><h1 bind:this={heading} tabindex="-1">{['Where should your vault live?','Connect providers','Connect clients','Connect integrations'][step]}</h1><p class="intro">{['Pick an empty folder, or one that already holds a BigBrain vault.','BigBrain will use your subscriptions to maintain your vault.','Let your agents to access BigBrain. (This is where the magic happens!).','Integrations help BigBrain pull the stuff that matters to you.'][step]}</p></header>
+      <header><div class="eyebrow">Step {step+1} of {telemetryPending?5:4}</div><h1 bind:this={heading} tabindex="-1">{['Where should your vault live?','Connect providers','Connect agents','Connect integrations'][step]}</h1><p class="intro">{['Pick an empty folder, or one that already holds a BigBrain vault.','BigBrain will use your subscriptions to maintain your vault.','Let your agents to access BigBrain. (This is where the magic happens!).','Integrations help BigBrain pull the stuff that matters to you.'][step]}</p></header>
       <div class="body settings">
         {#if step===0}
           {#if setup.vault}<div class="chosen"><span>{setup.vault.path}</span><span class="status">Selected</span></div>{/if}
@@ -109,10 +109,10 @@
           </div>
         {:else if step===2}<ClientChecklist onBusy={value=>clientBusy=value} />
         {:else}<IntegrationLibrary />
-          <section class="shared-invite" aria-label="Shared vault">
-            <h2>Shared vault</h2>
+          <section class="shared-invite" aria-label="Server">
+            <h2>Server</h2>
             {#if joined}<div class="chosen"><span>{joined.name}</span><span class="status">Connected</span></div>
-            {:else}<p>Joining someone's shared vault? Paste the invite link they sent you.</p>
+            {:else}<p>Joining someone's server? Paste the invite link they sent you.</p>
               <form onsubmit={join}><label>Invite link<input type="url" required bind:value={invite} disabled={joining} placeholder="https://vault.example.org/invite#…" autocomplete="off"/></label><button disabled={joining||!invite.trim()}>{joining?'Connecting…':'Connect'}</button></form>{/if}
           </section>{/if}
       </div>

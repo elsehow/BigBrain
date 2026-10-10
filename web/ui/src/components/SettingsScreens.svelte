@@ -6,7 +6,6 @@
   import ConnectedClientsView from "./ConnectedClientsView.svelte";
   import DiagnosticsView from "./DiagnosticsView.svelte";
   import IntegrationsView from "./IntegrationsView.svelte";
-  import PilotSettingsView from "./PilotSettingsView.svelte";
   import SecurityView from "./SecurityView.svelte";
   import SharedVaultSettings from "./SharedVaultSettings.svelte";
   import VaultSettingsView from "./VaultSettingsView.svelte";
@@ -17,8 +16,6 @@
   <IntegrationsView />
 {:else if app.view === "connectedClients"}
   <ConnectedClientsView />
-{:else if app.view === "pilotSettings"}
-  <PilotSettingsView />
 {:else if app.view === "agents"}
   <AgentsView />
 {:else if app.view === "sharedVaultSettings"}

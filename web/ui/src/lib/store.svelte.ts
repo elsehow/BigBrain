@@ -19,7 +19,6 @@ export type View =
   | "vault"
   | "graph"
   | "connectedClients"
-  | "pilotSettings"
   | "integrations"
   | "agents"
   | "sharedVaultSettings"
@@ -99,10 +98,9 @@ function parseHash(): { view: View; note: string | null; q: string; pilot?: stri
   }
   if (head === "top") return { view: "top", note: null, q: "" };
   if (head === "graph") return { view: "graph", note: null, q: "" };
-  if (head === "connectedClients" || (head === "settings" && rest === "connected-clients")) return { view: "connectedClients", note: null, q: "" };
-  if (head === "connectedAgents" || head === "agentOrchestration" || (head === "settings" && rest === "agent-orchestration") || (head === "settings" && rest === "connected-agents")) return { view: "pilotSettings", note: null, q: "" };
-  if (head === "pilotSettings" || (head === "settings" && rest === "pilot")) return { view: "agents", note: null, q: "" };
-  if (head === "connections" || (head === "settings" && rest === "connections")) return { view: "pilotSettings", note: null, q: "" };
+  if (head === "connectedClients" || head === "connectedAgents" || (head === "settings" && (rest === "connected-clients" || rest === "connected-agents"))) return { view: "connectedClients", note: null, q: "" };
+  // Retired Pilot and orchestration screens' links land on models.
+  if (head === "agentOrchestration" || head === "pilotSettings" || head === "connections" || (head === "settings" && (rest === "agent-orchestration" || rest === "pilot" || rest === "connections"))) return { view: "agents", note: null, q: "" };
   if (head === "integrations") return { view: "integrations", note: null, q: "" };
   if (head === "agents" || head === "models" || (head === "settings" && rest === "models")) return { view: "agents", note: null, q: "" };
   // settings → vault: the folder in use. NOT #/vault — that head is the note

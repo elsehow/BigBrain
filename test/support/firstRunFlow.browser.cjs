@@ -51,9 +51,9 @@ const assert=require('node:assert/strict');
  await page.getByRole('button',{name:'Connect ChatGPT',exact:true}).click();await page.getByRole('region',{name:'ChatGPT provider'}).getByText('Connected',{exact:true}).waitFor();
  assert.equal(step,'providers');assert.equal(await page.getByRole('heading',{name:'Connect providers',exact:true}).count(),1);
  fail=true;await page.getByRole('button',{name:'Next →',exact:true}).click();await page.getByRole('alert').filter({hasText:'Save failed'}).waitFor();fail=false;
- await page.getByRole('button',{name:'Next →',exact:true}).click();await page.getByRole('heading',{name:'Connect clients',exact:true}).waitFor();
+ await page.getByRole('button',{name:'Next →',exact:true}).click();await page.getByRole('heading',{name:'Connect agents',exact:true}).waitFor();
  await page.getByRole('checkbox',{name:/Codex/}).check();await page.getByText('Access enabled',{exact:true}).waitFor();assert.equal(local[1].connected,true);
- await page.reload();await page.getByRole('heading',{name:'Connect clients',exact:true}).waitFor();assert(await page.getByRole('checkbox',{name:/Codex/}).isChecked());
+ await page.reload();await page.getByRole('heading',{name:'Connect agents',exact:true}).waitFor();assert(await page.getByRole('checkbox',{name:/Codex/}).isChecked());
  await page.getByRole('navigation',{name:'Setup steps'}).getByRole('button',{name:/Integrations/}).click();await page.getByRole('heading',{name:'Connect integrations',exact:true}).waitFor();
  await page.locator('article').filter({hasText:'Granola'}).getByRole('button',{name:'+ Add',exact:true}).click();
  // an account's settings open from its row
@@ -64,7 +64,7 @@ const assert=require('node:assert/strict');
  await pilot.selectOption('off');await page.getByRole('button',{name:'Save',exact:true}).click();await page.getByText('Saved.',{exact:true}).waitFor();
  assert.deepEqual(posted,[[{caller:'pilot',access:'off'}]],'Save sends only the caller that changed');assert.deepEqual(account.grants,[]);assert.equal(await pilot.inputValue(),'off');
  // A member joining a shared vault redeems the invite here and finishes setup inside it.
- const sharedInvite=page.getByRole('region',{name:'Shared vault'}),inviteLink='https://vault.example.test/invite#'+'A'.repeat(43);
+ const sharedInvite=page.getByRole('region',{name:'Server'}),inviteLink='https://vault.example.test/invite#'+'A'.repeat(43);
  await sharedInvite.getByLabel('Invite link',{exact:true}).fill(inviteLink);await sharedInvite.getByRole('button',{name:'Connect',exact:true}).click();
  await sharedInvite.getByText('Example team',{exact:true}).waitFor();await sharedInvite.getByText('Connected',{exact:true}).waitFor();assert.deepEqual(invites,[inviteLink]);
  await page.setViewportSize({width:600,height:1000});await page.screenshot({path:'/tmp/bb-first-run-integrations.png'});
