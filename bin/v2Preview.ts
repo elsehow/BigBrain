@@ -23,7 +23,7 @@ if (!vault) {
 }
 const db = new Database(join(vault, ".state", "assertions.db"), { readonly: true });
 try {
-  const src = readV2Source(db);
+  const src = readV2Source(db, vault);
   process.stdout.write(JSON.stringify(entity ? { rows: buildEntityFeed(src, entity) } : buildV2Feed(src)));
 } finally {
   db.close();

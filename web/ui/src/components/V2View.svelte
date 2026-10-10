@@ -89,6 +89,10 @@
    * with Quick's summary of it ("" while it is written). */
   let cursor: string | null = $state(null);
   let src: { row: V2SortedRow; text?: string } | null = $state(null);
+  /** An assertion clicked in the feed: what it mentions selected in the
+   * field, the claim itself where an opened thing's name goes. `rows` is the
+   * feed it was clicked in, held while it's open. */
+  let claim: { row: V2FeedRow; rows: V2FeedRow[] } | null = $state(null);
   let searching = $state(false);
   let query = $state("");
   let matches: number[] = $state([]);
@@ -646,12 +650,13 @@
   // the feed: an opened entity's own record, else the vault's latest
   /** What the opened entity offers to fold into one (F): its proposal, else its twins. */
   const offer = $derived(field && ent != null && !data ? foldOffer(field, ent, twins, folds, foldsApart) : null);
-  let rows = $derived.by(() => (!writing ? [] : ent != null && entRows ? entRows.slice(-6) : writing.feed.slice(-6)));
+  let rows = $derived.by(() => (!writing ? [] : claim ? claim.rows : ent != null && entRows ? entRows.slice(-6) : writing.feed.slice(-6)));
   /** `same`: what it may be the same thing as, said where F and X answer it. */
-  let hud = $derived.by((): { eyebrow: string; name: string; status: string; writing?: boolean; same?: string } | null => {
+  let hud = $derived.by((): { eyebrow: string; name: string; status: string; writing?: boolean; same?: string; claim?: boolean } | null => {
     if (!field || !writing || searching || openPilot) return null;
     const titled = (r: V2SortedRow) => ({ eyebrow: [r.via, when(r.added)].filter(Boolean).join(" · "), name: r.title ?? r.headline });
     if (src) return { ...titled(src.row), status: src.text ?? "", writing: src.text === "" };
+    if (claim) return { eyebrow: [when(claim.row.at), claim.row.by].join(" · "), name: claim.row.text, status: "", claim: true };
     // the row walked to: its source's full title, as an opened source's
     const walked = ent == null ? cursorRow() : null;
     if (walked) return { ...titled(walked), status: "", writing: false };
@@ -719,7 +724,7 @@
   }
   let heldGraph: GraphData | null = null;
   function redrawIfIdle(): void {
-    if (!graphStale || !heldGraph || ent != null || src || searching || openPilot || scene?.dragging()) return;
+    if (!graphStale || !heldGraph || ent != null || src || claim || searching || openPilot || scene?.dragging()) return;
     graphStale = false;
     void drawField(heldGraph).then(unlight);
     heldGraph = null;
@@ -752,7 +757,7 @@
 
   /** A click in the field: open what's under it; empty space backs out. */
   function onPick(i: number | null): void {
-    if (i == null) { if (openPilot) closePilot(); else if ((ent != null || src) && !searching) overview(); return; }
+    if (i == null) { if (openPilot) closePilot(); else if ((ent != null || src || claim) && !searching) overview(); return; }
     if (searching) { searching = false; scene?.search(null); }
     if (openPilot) { openPilot = null; detail = null; scene?.focusPilot(null); }
     if (i !== ent) openNode(i);
@@ -781,7 +786,7 @@
   /** Slide the field's centre clear of the panels: right of a left column, left of the sidebar. */
   const shiftFor = () => {
     const chatW = (chatWidth ?? Math.min(1000, Math.max(520, innerWidth * 0.44))) + GUTTER; // .v2's --chat-w, plus a gutter
-    const left = searching ? Math.min(600, innerWidth * 0.4) : openPilot ? chatW : ent != null || src || cursor ? Math.min(380, innerWidth * 0.26) : 0;
+    const left = searching ? Math.min(600, innerWidth * 0.4) : openPilot ? chatW : ent != null || src || claim || cursor ? Math.min(380, innerWidth * 0.26) : 0;
     if (openPilot && !showDesktop && !searching) return 0; // the chat stands alone, centred
     const right = showDesktop ? innerWidth - chatW - GUTTER : 0;
     return (left - right) / 2;
@@ -799,8 +804,8 @@
   }
 
   // ── walking the feed ──────────────────────────────────────────────────
-  function closeSource(): void { if (src) { src = null; scene?.search(null); } }
-  const feedEntities = (r: V2SortedRow) => r.entities.map((id) => field!.byId.get(id)).filter((x): x is number => x != null);
+  function closeSource(): void { if (src || claim) { src = null; claim = null; scene?.search(null); } }
+  const feedEntities = (r: { entities: string[] }) => r.entities.map((id) => field!.byId.get(id)).filter((x): x is number => x != null);
   const cursorRow = () => sorted.find((r) => r.source === cursor) ?? null;
   /** The feed row under the pointer: set as the pointer moves, not on enter,
    * so a row the walk scrolls under a resting pointer isn't taken for one pointed at. */
@@ -850,6 +855,7 @@
   function openSource(r: V2SortedRow): void {
     if (r.path && !data) return openDraft(r, r.path);
     if (ent != null) { ent = null; entRows = null; }
+    claim = null;
     cursor = r.source;
     rowOver = null;
     src = { row: r, text: r.path && !data ? "" : undefined };
@@ -858,6 +864,19 @@
     scene?.shift(shiftFor());
     if (r.path && !data) void briefing(r.path, (text) => { if (src?.row.source === r.source) src = { row: r, text }; })
       .then((ok) => { if (!ok && src?.row.source === r.source && !src.text) src = { row: r }; });
+  }
+  /** Click an assertion: what it mentions, selected and framed; the claim
+   * as the title. Clicked again, it lets go, as Esc does. */
+  function openClaim(r: V2FeedRow): void {
+    if (claim?.row.id === r.id) { overview(); unlight(); return; }
+    const shown = rows;
+    if (ent != null) { ent = null; entRows = null; scene?.openEntity(null); }
+    src = null;
+    claim = { row: r, rows: shown };
+    const lit = feedEntities(r);
+    scene?.hover(null);
+    scene?.search({ matches: lit, active: null, move: lit.length ? "frame" : "none", ties: true });
+    scene?.shift(shiftFor());
   }
   // The feed unmounts while a desktop or an entity is open; where you left it
   // is kept here and restored when it comes back. At the newest, it keeps
@@ -1080,7 +1099,7 @@
     else scene?.search({ matches: recentRow ? feedEntities(recentRow) : [], active: null, move: "none" });
   }
   function openSearch(): void {
-    searching = true; query = ""; matches = []; active = 0; recentRow = null; vaultHits = { q: "", items: [] };
+    searching = true; query = ""; matches = []; active = 0; recentRow = null; claim = null; vaultHits = { q: "", items: [] };
     if (!data) loadMentionRecents();
     showActive();
     sayActive();
@@ -1180,7 +1199,7 @@
     getSelection()?.removeAllRanges();
     if (pickerOpen) pickerOpen = false;
     else if (openPilot) closePilot();
-    else if (ent != null || src) { overview(); unlight(); }
+    else if (ent != null || src || claim) { overview(); unlight(); }
     else if (cursor) leaveFeed();
     else return false;
     return true;
@@ -1301,7 +1320,7 @@
   {/if}
 
   {#if hud}
-    <header class="hud" bind:this={hudEl}>
+    <header class="hud" class:claim={hud.claim} bind:this={hudEl}>
       <span class="eyebrow">{[hud.eyebrow, original() && hint("original", "Open")].filter(Boolean).join(" · ")}</span>
       <h1>{hud.name}</h1>
       {#if hud.writing}<p><span class="spin" aria-label="Writing a summary"></span></p>{:else if hud.status}<p>{hud.status}</p>{/if}
@@ -1385,11 +1404,12 @@
   {:else if rows.length && !openPilot}
     <div class="feed" bind:this={feedEl} onscroll={onFeedScroll} aria-label="Latest assertions">
       {#each rows as r (r.id)}
-        <div class="row" role="presentation"
-          onmouseenter={() => scene?.hover(r.entities.map((id) => field!.byId.get(id)).filter((x): x is number => x != null))}
-          onmouseleave={() => scene?.hover(null)}>
+        <div class="row" class:open={r.id === claim?.row.id} role="button" tabindex="-1"
+          onmouseenter={() => scene?.hover(feedEntities(r))}
+          onmouseleave={() => scene?.hover(null)}
+          onclick={() => openClaim(r)} onkeydown={() => {}}>
           <span class="w" title={r.writtenAt ? `First recorded ${when(r.at)}; this version written ${when(r.writtenAt)}` : undefined}>{when(r.at)}</span>
-          <span class="a" class:client={!r.model} title={r.model ? `Written by ${r.by}` : r.author ? `Written through ${authorName(r.author)}; the model it ran isn’t recorded` : "Written by you"}>{r.by}</span>
+          <span class="a" class:client={!r.model} title={r.model ? (r.author === "gardener" ? `Filed by the gardener on ${r.by}` : `Written by ${r.by}`) : r.author ? `Written through ${authorName(r.author)}; the model it ran isn’t recorded` : "Written by you"}>{r.by}</span>
           <span class="x">{r.text}</span>
         </div>
       {/each}
@@ -1780,6 +1800,9 @@
     pointer-events: none; text-shadow: 0 0 8px var(--bg), 0 0 18px var(--bg); }
   .eyebrow { font: 600 10px/1 var(--font-app); letter-spacing: 0.24em; text-transform: uppercase; color: var(--v2-muted); }
   h1 { margin: 0; font: 500 clamp(28px, 2.5vw, 36px)/1.05 var(--font-app); letter-spacing: -0.03em; }
+  /* an assertion opened from the feed: a sentence for a title, not a name */
+  .hud.claim { width: min(620px, calc(100% - 32px)); }
+  .hud.claim h1 { font-size: clamp(20px, 1.7vw, 25px); line-height: 1.28; letter-spacing: -0.015em; }
   .hud p { margin: 0; max-width: 44ch; font: 400 14.5px/1.5 var(--font-app); color: color-mix(in srgb, var(--fg) 80%, var(--bg)); }
   .same { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; padding-left: 12px; border-left: 2px solid var(--rule); }
   .same-head { font: 600 10px/1 var(--font-app); letter-spacing: 0.24em; text-transform: uppercase; color: var(--v2-muted); }
@@ -1814,7 +1837,7 @@
 
   .feed { position: absolute; left: var(--app-gutter, 34px); bottom: 26px; width: min(880px, calc(100% - 68px)); display: flex; flex-direction: column; gap: 1px;
     font: 400 12.5px/1.35 var(--font-app); text-shadow: 0 0 6px var(--bg), 0 0 14px var(--bg); }
-  .row { display: grid; grid-template-columns: 92px 120px minmax(0, 1fr); gap: 12px; align-items: baseline; padding: 2px 0; white-space: nowrap; cursor: default; transition: opacity .12s ease; }
+  .row { display: grid; grid-template-columns: 92px 120px minmax(0, 1fr); gap: 12px; align-items: baseline; padding: 2px 0; white-space: nowrap; cursor: pointer; transition: opacity .12s ease; }
   .row .w { font: 500 9.5px/1 var(--font-mono); letter-spacing: .06em; text-transform: uppercase; color: var(--v2-faint); font-variant-numeric: tabular-nums; }
   .row .a { font: 500 11px/1 var(--font-mono); overflow: hidden; text-overflow: ellipsis; }
   .row .a.client { color: var(--v2-muted); }
@@ -1822,6 +1845,7 @@
   .row:nth-last-child(2) { opacity: .7; } .row:nth-last-child(3) { opacity: .5; } .row:nth-last-child(4) { opacity: .36; }
   .row:nth-last-child(5) { opacity: .25; } .row:nth-last-child(6) { opacity: .16; }
   .feed:hover .row { opacity: .45; } .feed .row:hover { opacity: 1; } .row:hover .x { color: var(--fg); }
+  .feed .row.open, .feed:hover .row.open { opacity: 1; } .row.open .x { color: var(--fg); }
   /* the sorted feed: weight by section, not age */
   .sorted .row { opacity: 1; grid-template-columns: 92px minmax(0, 1fr); } .sorted .row.s-agent { opacity: .78; } .sorted .row.s-know { opacity: .55; }
   .sorted .due { margin-left: 10px; font: 500 9.5px/1 var(--font-mono); letter-spacing: .06em; text-transform: uppercase; color: var(--activity); }
@@ -1829,7 +1853,6 @@
   .feed.sorted { display: block; max-height: 156px; overflow-y: auto; scrollbar-width: none; overscroll-behavior: contain;
     mask-image: linear-gradient(to bottom, transparent, #000 40px); padding-top: 40px; }
   .feed.sorted::-webkit-scrollbar { display: none; }
-  .sorted .row { cursor: pointer; }
   /* the row in hand scrolls clear of the fade (the padding above lets the oldest) */
   .sorted .row.at { scroll-margin-top: 40px; }
   .sorted .row.at, .sorted .row.open { opacity: 1; } .sorted .row.at .x, .sorted .row.open .x { color: var(--fg); }
