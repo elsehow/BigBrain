@@ -64,6 +64,14 @@ function addEvents(root:string,store:string,events:LensEvent[]){
  if(!events.length)return;const path=lensEventsPath(root,store);mkdirSync(dirname(path),{recursive:true,mode:0o700});
  appendFileSync(path,events.map(e=>JSON.stringify(e)+'\n').join(''),{mode:0o600});
 }
+const CAUSE={model:'A model upgrade',vault:'A vault change',update:'A BigBrain update'} as const;
+/** A sharing event as the feed says it (decisions D2 and D3). */
+export function lensEventHeadline(e:LensEvent):string{
+ const servers=e.servers.join(', ');
+ if(e.kind==='shared'){const t=e.title??'';return `${t.length>48?t.slice(0,48).trimEnd()+'…':t} is shared with ${servers}`;}
+ const cause=CAUSE[e.reason??'model'];
+ return e.kind==='paused'?`${cause} would cause you to share new items with ${servers}. Lens is paused until you review.`:`${cause} has caused you to share new items with ${servers}.`;
+}
 export function readLensEvents(root:string,store:string,limit=200):LensEvent[]{
  const path=lensEventsPath(root,store);if(!existsSync(path))return [];
  return readFileSync(path,'utf8').trim().split('\n').filter(Boolean).slice(-limit).map(l=>JSON.parse(l) as LensEvent);

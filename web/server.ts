@@ -9,7 +9,7 @@ import { unionGraph, unionRecent, unionSearch, unionNote, vaultFilter, includesP
 import { jevSettingsApi } from '../lib/jevSettingsApi';
 import { optionalJevKey } from '../lib/jevSettings';
 import { sharedSettingsApi } from '../lib/sharedSettingsApi';
-import { tickLenses } from '../lib/lensSync';
+import { lensEventHeadline, readLensEvents, tickLenses } from '../lib/lensSync';
 import { tickPublishing } from '../lib/sharedAssertionPublish';
 import { connectionStorePath } from '../lib/sharedConnections';
 import { sharedWorkspace } from "../lib/sharedWorkspace";
@@ -59,7 +59,7 @@ import { walkMarkdown } from "../lib/vaultRead";
 import { parseBlobRef, readBlob } from "../lib/blobs";
 import { recentSourcePageAsync } from "../lib/sourceFeed";
 import { primaryGraphWithLayoutAsync, primaryGraphAsync } from "../lib/graphCache";
-import { buildEntityFeed, buildSortedFeed, buildV2Feed, type V2Source } from "../lib/v2Feed";
+import { buildEntityFeed, buildSortedFeed, buildV2Feed, type V2SortedRow, type V2Source } from "../lib/v2Feed";
 import { addedAt, currentFeed, feedRecords } from "../lib/feedJournal";
 import { feedConversationOf } from "../lib/feedConversation";
 import { readV2Source } from "../lib/v2Read";
@@ -563,15 +563,20 @@ function v2Entity({ res, url }: Ctx): void {
 // keeps showing the latest assertions.
 function v2Sorted({ res }: Ctx): void {
   try {
-    const records = loadManifest(ROOT).feed ? feedRecords(ROOT) : [];
+    const feedOn = !!loadManifest(ROOT).feed, records = feedOn ? feedRecords(ROOT) : [];
     const added = addedAt(records);
     const entries = currentFeed(records, new Date().toLocaleDateString("en-CA"), feedConversationOf(ROOT, records)).map((e) => ({ ...e, added: added.get(e.source)! }));
     const rows = buildSortedFeed(v2Source(), entries);
     const heads = projectedSourceHeads(ROOT, rows.map((r) => r.source));
-    json(res, 200, { rows: rows.map((r) => {
+    const sources = rows.map((r) => {
       const h = heads.get(r.source);
       return h ? { ...r, title: h.title, path: insertionEventRel(h), ...(h.source ? { via: h.source } : {}) } : r;
-    }) });
+    });
+    // What lenses shared, and changes that grew a shared lens (D2, D3), among what arrived.
+    const sharing = feedOn ? readLensEvents(ROOT, connectionStorePath()).map((e, i): V2SortedRow => ({
+      source: `lens:${e.at}:${i}`, section: e.kind === "shared" ? "know" : "needs-you", headline: lensEventHeadline(e), due: null, added: e.at, entities: [], lens: e.lens,
+    })) : [];
+    json(res, 200, { rows: [...sources, ...sharing].sort((a, b) => b.added.localeCompare(a.added)) });
   } catch (error) {
     json(res, 500, { error: errText(error) });
   }

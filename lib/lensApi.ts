@@ -27,6 +27,7 @@ import {rmSync} from 'node:fs';
 import {resolveRuleMentions} from './sharedRuleMentions';
 import {fitThreshold,lensScope,listLenses,membership,newLens,readLens,removeLens,setSharingMode,sharingMode,updateLens,writeLens,type Lens} from './lenses';
 import {lensNotes,scorePass,type LensPass} from './lensScoring';
+import {insertionEventRel} from './insertionLog';
 import {readLensEvents,tickLenses} from './lensSync';
 
 const LENS_ID=/^lens_[a-f0-9]{12}$/;
@@ -42,7 +43,7 @@ function previewRows(p:Preview,lens:Lens|undefined){
  // The rule's own answer, before hand edits: ratings, then score, then the note's old place.
  const ruled=membership({labels:p.labels,pins:[],exclusions:[],members:lens?.members??[],calibration:{identity:'',model:'',threshold:p.threshold!}},notes,p.pass.scores);
  return notes.filter(n=>ruled.has(n.source_id)||was.has(n.source_id)||pins.has(n.source_id)||exclusions.has(n.source_id)).map(n=>({
-  id:n.source_id,title:n.title,date:(n.insertion.received_at??n.insertion.occurred_at??'').slice(0,10),
+  id:n.source_id,title:n.title,date:(n.insertion.received_at??n.insertion.occurred_at??'').slice(0,10),path:insertionEventRel(n.insertion),
   rule:ruled.has(n.source_id),was:was.has(n.source_id),summarized:p.pass!.summarized.has(n.source_id),failed:p.pass!.failed.has(n.source_id),
  }));
 }
@@ -109,7 +110,7 @@ function summary(store:string,lens:Lens){
 }
 function detail(root:string,store:string,lens:Lens){
  const byId=new Map(lensNotes(root).map(n=>[n.source_id,n]));
- const row=(sid:string)=>{const n=byId.get(sid);return n?[{id:sid,title:n.title,date:(n.insertion.received_at??n.insertion.occurred_at??'').slice(0,10)}]:[];};
+ const row=(sid:string)=>{const n=byId.get(sid);return n?[{id:sid,title:n.title,date:(n.insertion.received_at??n.insertion.occurred_at??'').slice(0,10),path:insertionEventRel(n.insertion)}]:[];};
  return {...summary(store,lens),pins:lens.pins,exclusions:lens.exclusions,summarized:lens.summarized,
   notes:lens.members.flatMap(row),review:lens.review&&lens.review.at?{...lens.review,joins:lens.review.joins.flatMap(row),leaves:lens.review.leaves.flatMap(row)}:undefined};
 }
@@ -123,8 +124,8 @@ export async function lensApi(req:IncomingMessage,res:ServerResponse,root:string
    if(action===''){json(res,200,{lenses:listLenses(root,store).map(l=>summary(store,l)),servers:readConnections(store).map(c=>({id:c.id,name:c.name})),mode:sharingMode(store)});return true;}
    if(action==='lens'){const lens=readLens(root,store,checkId(url.searchParams.get('id')));if(!lens)throw Error('This lens no longer exists.');json(res,200,detail(root,store,lens));return true;}
    if(action==='notes'){
-    const words=(url.searchParams.get('q')??'').toLowerCase().trim().split(/\s+/).filter(Boolean),out:{id:string;title:string;date:string}[]=[];
-    for(const n of lensNotes(root).reverse()){if(out.length>=20)break;const text=(n.title+'\n'+n.body).toLowerCase();if(words.every(w=>text.includes(w)))out.push({id:n.source_id,title:n.title,date:(n.insertion.received_at??n.insertion.occurred_at??'').slice(0,10)});}
+    const words=(url.searchParams.get('q')??'').toLowerCase().trim().split(/\s+/).filter(Boolean),out:{id:string;title:string;date:string;path:string}[]=[];
+    for(const n of lensNotes(root).reverse()){if(out.length>=20)break;const text=(n.title+'\n'+n.body).toLowerCase();if(words.every(w=>text.includes(w)))out.push({id:n.source_id,title:n.title,date:(n.insertion.received_at??n.insertion.occurred_at??'').slice(0,10),path:insertionEventRel(n.insertion)});}
     json(res,200,{items:out});return true;
    }
    if(action==='preview'){const p=previews.get(url.searchParams.get('id')??'');if(!p||p.root!==root)throw Error('This preview expired. Edit the rule again.');json(res,200,previewView(p));return true;}

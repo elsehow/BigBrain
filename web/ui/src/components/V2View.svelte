@@ -9,7 +9,7 @@
   // context, and their chat opens here as a flat column over the field.
   import { onMount, tick } from "svelte";
   import { api } from "../lib/api";
-  import { app, goto } from "../lib/store.svelte";
+  import { app, goto, gotoLens } from "../lib/store.svelte";
   import type { FoldGroup, GraphData } from "../lib/types";
   import { barPilots, buildField, foldOffer, latestPerFamily, neighbours, placePilots, searchFound, searchNames, sourceItems, twinsOf, type Field, type PilotSummary, type V2Feed, type V2FeedRow } from "../lib/v2/model";
   import { md, sanitizeHtml } from "../lib/markdown";
@@ -853,6 +853,7 @@
   /** Open a feed row's source: its entities lit and framed, the source and
    * Quick's summary of it where an opened entity's name goes. */
   function openSource(r: V2SortedRow): void {
+    if (r.lens) return gotoLens(r.lens); // a sharing event opens its lens
     if (r.path && !data) return openDraft(r, r.path);
     if (ent != null) { ent = null; entRows = null; }
     claim = null;

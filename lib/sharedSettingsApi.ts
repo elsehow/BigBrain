@@ -29,8 +29,8 @@ export async function sharedSettingsApi(req:IncomingMessage,res:ServerResponse,r
   // A server note opens as your own when it came from your vault.
   const local=()=>new Map(readSourceInsertionLog(root,{strict:true}).map(s=>['origin:'+sourceKey(s),insertionEventRel(s)]));
   if(req.method==='GET'&&action==='vault'){
-   const mine=local();
-   const items=(await contributions(c)).map(item=>({...item,path:mine.get(item.source_id)??`shared/${c.id}/${item.insertion_id}.md`}));
+   const mine=local(),notes=new Map(lensNotes(root).map(n=>[originOf(n.source_id),n.source_id])),lenses=listLenses(root,store).filter(l=>l.servers.includes(c.id));
+   const items=(await contributions(c)).map(item=>{const sid=notes.get(item.source_id);return {...item,path:mine.get(item.source_id)??`shared/${c.id}/${item.insertion_id}.md`,lenses:sid?lenses.filter(l=>l.members.includes(sid)).map(l=>l.name):[]};});
    json(res,200,{...publicConnection(c),identity:await sharedRequest(c,'/v1/whoami'),evaluator:jevSettingsStatus(store).evaluator,items});
   }
   else if(req.method==='GET'&&action==='notes'){

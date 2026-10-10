@@ -2,6 +2,7 @@
   import ThemeView from "./ThemeView.svelte";
   import GraphSettingsView from "./GraphSettingsView.svelte";
   import ShortcutsView from "./ShortcutsView.svelte";
+  import SharingSettings from "./SharingSettings.svelte";
   import SettingsPage from "./SettingsPage.svelte";
   import VaultPicker from "./VaultPicker.svelte";
   import { guardNotice, type Notice } from "../lib/notice";
@@ -65,6 +66,8 @@
   <GraphSettingsView />
 
   <ShortcutsView />
+
+  <SharingSettings />
 </SettingsPage>
 
 <style>
