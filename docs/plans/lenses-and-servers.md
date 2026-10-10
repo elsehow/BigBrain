@@ -194,6 +194,22 @@ targets that no screen uses. See D5.
   summary, for the same rules. Then summarize the notes over the limit and
   record the one-time cost and the failure rate.
 
+  **Result (2026-10-09).** Same vault and rules as E1.
+  - *Summaries keep most of the signal.* On 129 notes Jev could read whole, a
+    summary (median about 4k characters) agreed with the full note on 92 to
+    100% of notes at a 0.6 cut-off. It lost 0 to 16% of matches (6 of 41, 0 of
+    11, 7 of 43) and added 0 to 3. Scores moved by 0.05 to 0.08 on average.
+  - *Summarizing is reliable.* 329 of 329 summaries succeeded; 2 needed a
+    retry. Quick's failures in E1 were in the JSON-scored call, not in Haiku
+    itself.
+  - *It costs a one-time pass:* all 200 notes over the limit took about $16 at
+    Haiku 5.5's API price (an upper bound: 157 prompts were over 100K tokens
+    and were priced whole at the higher rate). One call cost $0.31, so the
+    summary cap has to sit well above the $0.05 Quick cap. Median 28 s a note.
+  - *It matters for some lenses.* Scored on their summaries, 36, 3 and 83 of
+    the 200 oversized notes would join the three lenses at 0.6, mostly agent
+    chats.
+
 - **E2. Read speed with servers.** Every request pages through all of every
   server's evidence and assertions, uncached (`lib/sharedReadUnion.ts:25`). Time
   search, graph and note with 0, 1, 2 and 5 servers of realistic size. This
@@ -212,7 +228,7 @@ the server (`docs/plans/shared-source-withdrawal.md`).
 
 ## Order
 
-1. 0a now (one PR). Then 0b. Run E1b, E2 and E3 alongside (E1 is done).
+1. 0a now (one PR). Then 0b. Run E2 and E3 alongside (E1 and E1b are done).
 2. Phase 1 in three PRs: store and migration (1a, 1b); exact edits and
    publishing (1c, 1d); screens (1e).
 3. Phase 2 in two PRs: invite page and links (2a, 2b); first run and the AI
