@@ -49,6 +49,12 @@ export interface FeedRecord {
   error?: { message: string };
 }
 
+/** Every record read so far, by path. A record is written once and never
+ * rewritten, so a later read lists the journal and parses only what is new:
+ * the viewer reads the feed on every vault change, and the journal grows a
+ * file per call. Shared between reads: never mutate a record. */
+const parsed = new Map<string, FeedRecord>();
+
 export function feedRecords(root: string): FeedRecord[] {
   const base = join(root, FEED_JOURNAL_DIR);
   let months: string[];
@@ -60,9 +66,15 @@ export function feedRecords(root: string): FeedRecord[] {
   const out: FeedRecord[] = [];
   for (const month of months)
     for (const f of readdirSync(join(base, month)).filter((n) => n.endsWith(".json")).sort()) {
-      try {
-        out.push(JSON.parse(readFileSync(join(base, month, f), "utf8")) as FeedRecord);
-      } catch { /* a damaged record is skipped, never fatal */ }
+      const path = join(base, month, f);
+      let record = parsed.get(path);
+      if (!record) {
+        try {
+          record = JSON.parse(readFileSync(path, "utf8")) as FeedRecord;
+        } catch { continue; /* a damaged record is skipped, never fatal */ }
+        parsed.set(path, record);
+      }
+      out.push(record);
     }
   return out.sort((a, b) => a.completed_at.localeCompare(b.completed_at) || a.invocation_id.localeCompare(b.invocation_id));
 }

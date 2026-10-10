@@ -238,6 +238,22 @@ describe("the feed stage", () => {
     expect(dueOf({ ...legacy, section: "needs-you", due: null })).toBeNull();
   });
 
+  test("the journal is read once: a later read parses only the records that are new", async () => {
+    const [a, b] = [insertion({ title: "alpha" }), insertion({ title: "beta" })];
+    const root = vault(FEED_YAML("  batch: 1\n"), a, b);
+    claim(root, a, "Something about alpha.");
+    await runFeed({ root, manifest: loadManifest(root), runner: scripted().runner, now: ticking() });
+    const [first] = feedRecords(root);
+    // a record is never rewritten: what is on disk now is not read again
+    const file = join(root, "journal", "feed", first!.started_at.slice(0, 7), `${first!.invocation_id}.json`);
+    writeFileSync(file, "not json");
+    claim(root, b, "Something about beta.");
+    await runFeed({ root, manifest: loadManifest(root), runner: scripted().runner, now: ticking("2026-08-25T02:00:00.000Z") });
+    const records = feedRecords(root);
+    expect(records.map((r) => r.entries.map((e) => e.headline))).toEqual([["headline for alpha"], ["headline for beta"]]);
+    expect(records[0]).toBe(first!);
+  });
+
   test("single-flight: a second run skips, naming the process that holds the lock, and runs once that one is killed", async () => {
     const a = insertion({ title: "garden" });
     const root = vault(FEED_YAML(), a);

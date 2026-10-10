@@ -5,7 +5,10 @@ import { entityAliasResolution } from "../lib/entityAliasLog";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { authorName, authorOf, buildEntityFeed, buildSortedFeed, buildV2Feed, firstRecordedAt, plainText, type ChainLink, type V2Source } from "../lib/v2Feed";
+import {
+  authorName, authorOf, buildEntityFeed, buildSortedFeed, buildV2Feed, firstRecordedAt, newestFirst, pageSortedFeed, plainText, refreshSortedPages,
+  type ChainLink, type V2SortedRow, type V2Source,
+} from "../lib/v2Feed";
 import { gardenerModels } from "../lib/v2Read";
 
 const ent = (label: string) => ({ id: assertionEntityId(label), label });
@@ -149,5 +152,56 @@ describe("sorted feed", () => {
 
   test("an entry whose claims were all revoked since, or that was skipped, is not shown", () => {
     expect(buildSortedFeed(source([a]), [entry("ins_gone", "needs-you", ["ast_revoked"]), entry("ins_skip", "skip", [a.id])])).toEqual([]);
+  });
+});
+
+describe("sorted feed pages", () => {
+  // three items to an arrival, so pages cut through one call's items
+  const feed = (n: number, from = 0): V2SortedRow[] => Array.from({ length: n }, (_, i) => ({
+    source: `ins_${String(from + i).padStart(3, "0")}`, section: (["know", "needs-you", "agent"] as const)[i % 3]!,
+    headline: `Item ${from + i}`, due: null, added: day(1 + Math.floor((from + i) / 3)), entities: [],
+  })).sort(newestFirst);
+  const walk = (rows: V2SortedRow[], limit: number) => {
+    const pages: string[][] = [];
+    let before: string | undefined;
+    do {
+      const page = pageSortedFeed(rows, limit, before);
+      pages.push(page.rows.map((r) => r.source));
+      before = page.next ?? undefined;
+    } while (before);
+    return pages;
+  };
+
+  test("pages walk the whole feed newest first, each row once, and the last says there's no more", () => {
+    const rows = feed(25);
+    const pages = walk(rows, 10);
+    expect(pages.map((p) => p.length)).toEqual([10, 10, 5]);
+    expect(pages.flat()).toEqual(rows.map((r) => r.source));
+    expect(pageSortedFeed(rows, 25).next).toBeNull();
+    expect(pageSortedFeed([], 10)).toEqual({ rows: [], next: null });
+  });
+
+  test("what arrives between two pages doesn't shift the second; a row gone since still cuts in its place", () => {
+    const rows = feed(20);
+    const first = pageSortedFeed(rows, 8);
+    const arrived = [...feed(4, 30), ...rows].sort(newestFirst);
+    expect(pageSortedFeed(arrived, 8, first.next!).rows).toEqual(rows.slice(8, 16));
+    const revoked = rows.filter((r) => r.source !== first.rows.at(-1)!.source);
+    expect(pageSortedFeed(revoked, 8, first.next!).rows).toEqual(rows.slice(8, 16));
+  });
+
+  test("a refresh reads the loaded pages again: new rows on top, a revoked row gone, the rows pushed past it kept", () => {
+    const rows = feed(30);
+    const first = pageSortedFeed(rows, 10), second = pageSortedFeed(rows, 10, first.next!);
+    const loaded = { rows: [...first.rows, ...second.rows], next: second.next };
+    // three arrive and one loaded row is revoked; the refresh asks for as many as were loaded
+    const now = [...feed(3, 40), ...rows.filter((r) => r.source !== rows[4]!.source)].sort(newestFirst);
+    const merged = refreshSortedPages(loaded, pageSortedFeed(now, loaded.rows.length));
+    expect(merged.rows).toEqual(now.slice(0, 22));
+    expect(merged.next).toBe(second.next);
+    expect(pageSortedFeed(now, 10, merged.next!).rows).toEqual(rows.slice(20, 30));
+    // nothing pushed past: the fresh read's own next
+    const fresh = pageSortedFeed(rows, 20);
+    expect(refreshSortedPages(loaded, fresh)).toEqual(fresh);
   });
 });
