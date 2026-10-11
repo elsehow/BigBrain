@@ -17,7 +17,7 @@ import {fitThreshold,listLenses,previewThreshold,membership,newLens,readLens,set
 import {lensNotes,scorePass,READ_LIMIT} from '../lib/lensScoring';
 import {feedLensEvents,lensEventHeadline,migrateRules,originOf,passLens,readLensEvents,syncServer,tickLenses} from '../lib/lensSync';
 import {publishedPath,tickPublishing} from '../lib/sharedAssertionPublish';
-import type {inclusionEvaluator} from '../lib/inclusionEvaluation';
+import {EVALUATOR_VERSION,type inclusionEvaluator} from '../lib/inclusionEvaluation';
 
 /** Scores are the last word of a note's body; `model` stands in for the evaluator's model. */
 const scorer=(model='jev-a'):typeof inclusionEvaluator=>(_root,_store,text,labels=[])=>({identity:JSON.stringify([model,text,labels.length]),model,score:async(source:{body:string})=>Number(source.body.split(' ').at(-1))});
@@ -133,6 +133,16 @@ describe('passLens',()=>{
   expect(after.members.sort()).toEqual([idOf(v.root,'Compost'),idOf(v.root,'Seed swap')].sort());
   expect(after.review).toMatchObject({reason:'model',hold:false});
   expect(readLensEvents(v.root,v.store).at(-1)).toMatchObject({kind:'expanded'});
+ });
+ test('an update that changes what the evaluator reads holds its additions too, and says it was an update',async()=>{
+  const v=await shared('conservative');
+  // scored before the evaluator read claims; the same model now scores Compost up
+  updateLens(v.root,v.store,v.lens.id,l=>{delete l.calibration.version;});
+  const reread:typeof inclusionEvaluator=(...args)=>{const e=scorer()(...args);return {...e,identity:e.identity+' claims',score:async(s:{title:string;body:string})=>s.title==='Compost'?.95:e.score(s)};};
+  const after=(await passLens(v.root,v.store,readLens(v.root,v.store,v.lens.id)!,lensNotes(v.root),{factory:reread}))!;
+  expect(after.review).toMatchObject({reason:'update',hold:true,joins:[idOf(v.root,'Compost')]});
+  expect(after.calibration.version).toBe(EVALUATOR_VERSION);
+  expect(lensEventHeadline(readLensEvents(v.root,v.store).at(-1)!)).toBe('A BigBrain update would cause you to share new items with Garden club. Lens is paused until you review.');
  });
  test('a private lens just follows its rule',async()=>{
   const v=vault();v.note('ex-1','Seed swap',.9);

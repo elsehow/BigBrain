@@ -97,7 +97,7 @@ export interface PassOptions {
  summaries?:number;
 }
 /** Score every note against a rule and its ratings. Never throws for one note; stops at no credits. */
-export async function scorePass(root:string,store:string,rule:{text:string;labels:InclusionLabel[]},notes:LensNote[],opts:PassOptions={}):Promise<LensPass>{
+export async function scorePass(root:string,store:string,rule:{text:string;labels:InclusionLabel[]},notes:ReturnType<typeof lensNotes>,opts:PassOptions={}):Promise<LensPass>{
  const evaluator=(opts.factory??inclusionEvaluator)(root,store,rule.text,rule.labels),summarize=opts.summarize??noteSummary;
  const pass:LensPass={identity:evaluator.identity,model:evaluator.model,scores:new Map(),failed:new Map(),summarized:new Set(),outOfCredits:false};
  if(includesEverything(rule.text)){for(const n of notes)pass.scores.set(n.source_id,1);return pass;}
@@ -109,11 +109,12 @@ export async function scorePass(root:string,store:string,rule:{text:string;label
    const note=notes[next++]!,key=evaluator.identity+note.digest,earlier=recent(key);
    if(earlier){pass.failed.set(note.source_id,earlier);opts.progress?.(++done,notes.length);continue;}
    try{
-    if(note.title.length+note.body.length<=READ_LIMIT)pass.scores.set(note.source_id,await evaluator.score(note,note.digest));
+    const id=note.insertion.id;
+    if(note.title.length+note.body.length<=READ_LIMIT)pass.scores.set(note.source_id,await evaluator.score({id,title:note.title,body:note.body},note.digest));
     else{
      let body=opts.summarize?undefined:cachedSummary(root,store,note);
      if(body===undefined){if(summaries<=0){pass.failed.set(note.source_id,'Waiting for a summary');opts.progress?.(++done,notes.length);continue;}summaries--;body=await summarize(root,store,note);}
-     pass.scores.set(note.source_id,await evaluator.score({title:note.title,body}));pass.summarized.add(note.source_id);
+     pass.scores.set(note.source_id,await evaluator.score({id,title:note.title,body}));pass.summarized.add(note.source_id);
     }
    }catch(e){if(e instanceof OutOfCredits)pass.outOfCredits=true;else{const why=modelErrText(e);pass.failed.set(note.source_id,why);rest(key,why);errors++;}}
    opts.progress?.(++done,notes.length);
