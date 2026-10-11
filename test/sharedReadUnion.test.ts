@@ -116,5 +116,11 @@ test("a server's own field is the same for every member, whatever their own vaul
   const briar=assertionEntityId('Briar Calder'),ada=assertionEntityId('Ada Example');
   expect(a.field.edges.some(e=>[e.source,e.target].sort().join()===[briar,ada].sort().join())).toBe(true);
   expect(a.field.nodes.find(n=>n.id===ada)).toMatchObject({path:`shared/${a.c.id}/${ada}.md`,vaults:[a.c.id]});
+  // Ada leaves her own view, by her declared name or id, as she leaves her own field; nothing else moves
+  for(const you of [{ids:[],names:['ada example']},{ids:[ada],names:[]}]){
+   const mine=await serverGraph(b.c.id,you);
+   expect(picture(mine)).toEqual(picture(b.field).filter(([id])=>id!==ada));
+   expect(mine.edges.some(e=>e.source===ada||e.target===ada)).toBe(false);
+  }
  }finally{server.stop(true);if(old===undefined)delete process.env.BIGBRAIN_SHARED_CONNECTIONS;else process.env.BIGBRAIN_SHARED_CONNECTIONS=old;}
 });

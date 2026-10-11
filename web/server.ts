@@ -615,10 +615,12 @@ async function graph({ req, res }: Ctx): Promise<void> {
   }
 }
 
-// One server's own field, as everyone who reads it sees it (lib/sharedReadUnion.ts serverGraph).
+/** You, as your own field leaves you out of it (lib/assertionGraph.ts): left out of your view of a server's too. */
+const you = async () => (await primaryGraphAsync(ROOT)).userNote;
+// One server's own field, as everyone who reads it sees it, without you (lib/sharedReadUnion.ts serverGraph).
 async function serverGraphRoute({ res, url }: Ctx): Promise<void> {
   try {
-    json(res, 200, await serverGraph(url.searchParams.get("id") ?? ""));
+    json(res, 200, await serverGraph(url.searchParams.get("id") ?? "", await you()));
   } catch (error) {
     json(res, 500, { error: errText(error) });
   }
@@ -941,7 +943,7 @@ export function start(): void {
     if (await lensApi(req,res,ROOT,(ids) => entitiesCiting(v2Source(), ids))) return;
     if (await jevSettingsApi(req,res,ROOT)) return;
     if (await sharedSettingsApi(req,res,ROOT)) return;
-    if (await sharedWorkspace(req, res)) return;
+    if (await sharedWorkspace(req, res, undefined, you)) return;
     if (!allowVaultRequest(req, res, vaultIdentity(ROOT))) return;
     const path = (req.url ?? "").split("?")[0] ?? "";
     const reads: Partial<Record<string, Operation>> = { "/api/search": "search", "/api/graph": "graph", "/api/note": "note" };

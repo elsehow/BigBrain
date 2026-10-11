@@ -11,6 +11,7 @@ import type { AssertionView } from './sharedVault';
 import { arrivalLayout, edgeKey } from './graphLayout';
 import type { Graph, GraphNode, GraphEdge } from './graph';
 import { sha256hex } from './hash';
+import { isUserNode, isUserNote } from './userNote';
 
 async function pages<T>(c: SharedConnection, kind: string): Promise<T[]> {
   const items: T[] = []; let cursor: string | null = null;
@@ -65,8 +66,11 @@ export function sharedProjection(sources: SharedSource[], views: AssertionView[]
 
 const fields = new Map<string, Graph>();
 /** A server's own field, as everyone who reads it sees it: its record alone,
- * nothing of a reader's vault, laid out by when each part arrived. */
-export function serverField(view: ReturnType<typeof sharedProjection>): Graph {
+ * nothing of a reader's vault, laid out by when each part arrived. `you`
+ * (your graph's `userNote`) leave your own view of it, as you leave your own
+ * field (lib/assertionGraph.ts); every other place, line and size stays as
+ * everyone sees it. */
+export function serverField(view: ReturnType<typeof sharedProjection>, you?: Graph['userNote']): Graph {
   let field = fields.get(view.graph.hash);
   if (!field) {
     const at = arrivalLayout(view.graph, view.arrivals);
@@ -74,10 +78,12 @@ export function serverField(view: ReturnType<typeof sharedProjection>): Graph {
     if (fields.size >= 8) fields.delete(fields.keys().next().value!);
     fields.set(view.graph.hash, field);
   }
-  return field;
+  const self = new Set(field.nodes.filter(n => n.entity && (isUserNode(n, you) || isUserNote(n.title, you))).map(n => n.id));
+  return self.size ? { ...field, nodes: field.nodes.filter(n => !self.has(n.id)), edges: field.edges.filter(e => !self.has(e.source) && !self.has(e.target)) } : field;
 }
 
-export async function sharedWorkspace(req: IncomingMessage, res: ServerResponse, store = connectionStorePath()): Promise<boolean> {
+/** `you`: who leaves your view of the server's field (serverField). */
+export async function sharedWorkspace(req: IncomingMessage, res: ServerResponse, store = connectionStorePath(), you?: () => Promise<Graph['userNote']>): Promise<boolean> {
   let url: URL;
   try { url = new URL(req.url ?? '/', 'http://localhost'); } catch { json(res, 400, { error: 'Invalid URL.' }); return true; }
   if (!url.pathname.startsWith('/api/')) return false;
@@ -143,7 +149,7 @@ export async function sharedWorkspace(req: IncomingMessage, res: ServerResponse,
     const view = sharedProjection(sources, assertions);
     const offset = Math.max(0, Number(url.searchParams.get('offset')) || 0), limit = Math.min(200, Math.max(1, Number(url.searchParams.get('limit')) || 50));
     if (path === '/api/vault') json(res, 200, { view: { references: sources.length, entities: view.graph.nodes.filter(n => n.group === 'entity').length }, inbox: { pending: 0, unsorted: 0 }, requests: { open: 0, done: 0 } });
-    else if (path === '/api/graph') json(res, 200, serverField(view));
+    else if (path === '/api/graph') json(res, 200, serverField(view, await you?.()));
     else if (path === '/api/recent') json(res, 200, { recent: view.recent.slice(offset, offset+limit), total: sources.length, nextOffset: offset+limit < sources.length ? offset+limit : null });
     else if (path === '/api/note') { const note = view.note(url.searchParams.get('path') ?? ''); json(res, note ? 200 : 404, note ?? { error: 'Not found.' }); }
     else if (path === '/api/notes') json(res, 200, { dir: url.searchParams.get('dir'), notes: [] });
