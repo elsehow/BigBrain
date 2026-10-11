@@ -5,7 +5,7 @@ import {logIntegrationCalls} from '../lib/readLog';
 import {inclusionReviewApi} from '../lib/inclusionReviewApi';
 import {lensApi} from '../lib/lensApi';
 import {tickIntegrationAdmission} from '../lib/integrationAdmission';
-import { unionGraph, unionRecent, unionSearch, unionNote, vaultFilter, includesPersonal, sharedEntityClaims } from '../lib/sharedReadUnion';
+import { unionGraph, unionRecent, unionSearch, unionNote, vaultFilter, includesPersonal, serverGraph, sharedEntityClaims } from '../lib/sharedReadUnion';
 import { jevSettingsApi } from '../lib/jevSettingsApi';
 import { optionalJevKey } from '../lib/jevSettings';
 import { sharedSettingsApi } from '../lib/sharedSettingsApi';
@@ -615,6 +615,15 @@ async function graph({ req, res }: Ctx): Promise<void> {
   }
 }
 
+// One server's own field, as everyone who reads it sees it (lib/sharedReadUnion.ts serverGraph).
+async function serverGraphRoute({ res, url }: Ctx): Promise<void> {
+  try {
+    json(res, 200, await serverGraph(url.searchParams.get("id") ?? ""));
+  } catch (error) {
+    json(res, 500, { error: errText(error) });
+  }
+}
+
 // A note's "touched by" record (phase 4 item 3): frontmatter provenance +
 // bounded git history + a bounded queue-journal scan, merged newest-first
 // (lib/noteLog.ts — the pure merge is tested there; this route is just the
@@ -815,6 +824,7 @@ export const ROUTES: readonly Route[] = [
   { method: "GET", path: "/api/recent", handler: recentFeed },
   { method: "GET", path: "/api/search", handler: search },
   { method: "GET", path: "/api/graph", handler: graph },
+  { method: "GET", path: "/api/graph/server", handler: serverGraphRoute },
   { method: "GET", path: "/api/v2", handler: v2 },
   { method: "GET", path: "/api/v2/entity", handler: v2Entity },
   { method: "GET", path: "/api/v2/sorted", handler: v2Sorted },

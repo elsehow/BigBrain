@@ -8,8 +8,8 @@ import { insertionEventRel, sourceMoment, type SourceInsertion, type SourceMetad
 import { sourceInsertionMarkdown, insertionFiler } from './sourceFeed';
 import { assertionSourceReferences, type AssertionEvent } from './assertionLog';
 import type { AssertionView } from './sharedVault';
-import { sharedGraphLayout } from './sharedGraphLayout';
-import type { GraphNode, GraphEdge } from './graph';
+import { arrivalLayout, edgeKey } from './graphLayout';
+import type { Graph, GraphNode, GraphEdge } from './graph';
 import { sha256hex } from './hash';
 
 async function pages<T>(c: SharedConnection, kind: string): Promise<T[]> {
@@ -28,13 +28,27 @@ export function sharedProjection(sources: SharedSource[], views: AssertionView[]
   const entities = new Map(assertions.flatMap(a => a.entities.map(e => [e.id, e] as const)));
   const nodes: GraphNode[] = sources.map(s => ({ id: `source:${s.id}`, title: s.title, path: insertionEventRel(s), group: 'source', degree: 0, ...insertionFiler(s) }));
   nodes.push(...[...entities.values()].map(e => ({ id: e.id, title: e.label, path: entityPath(e.id), group: 'entity', entity: true as const, degree: 0 })));
-  const edges: GraphEdge[] = [];
-  for (const a of assertions) for (const e of a.entities) for (const ref of assertionSourceReferences(a)) {
-    if (byId.has(ref.insertion_id) && !edges.some(edge => edge.source === e.id && edge.target === `source:${ref.insertion_id}`))
-      edges.push({ source: e.id, target: `source:${ref.insertion_id}` });
-  }
-  for (const node of nodes) node.degree = edges.filter(e => e.source === node.id || e.target === node.id).length;
   const received = (s: SharedSource) => s.submitted_at ?? sourceMoment(s);
+  // Edges as a vault's own graph draws them (lib/assertionGraph.ts): each
+  // entity to each source its claim cites, entities named together to each
+  // other, a repeat a heavier thread. `arrivals`: when each node and edge
+  // first appeared on the server, by its clock (lib/graphLayout.ts arrivalLayout).
+  const edges: GraphEdge[] = [], edgeAt = new Map<string, GraphEdge>(), degree = new Map<string, number>(), arrivals = new Map<string, string>();
+  const arrive = (key: string, at: string) => { const was = arrivals.get(key); if (was === undefined || at < was) arrivals.set(key, at); };
+  const link = (a: string, b: string, at: string) => {
+    const key = edgeKey(a, b), seen = edgeAt.get(key); arrive(key, at);
+    if (seen) { seen.weight = (seen.weight ?? 1) + 1; return; }
+    const edge: GraphEdge = { source: a, target: b }; edgeAt.set(key, edge); edges.push(edge);
+    for (const end of [a, b]) degree.set(end, (degree.get(end) ?? 0) + 1);
+  };
+  for (const s of sources) arrive(`source:${s.id}`, received(s));
+  for (const a of assertions) {
+    const named = [...new Set(a.entities.map(e => e.id))];
+    const cited = assertionSourceReferences(a).filter(ref => byId.has(ref.insertion_id)).map(ref => `source:${ref.insertion_id}`);
+    for (const id of named) { arrive(id, a.created_at); for (const source of cited) link(id, source, a.created_at); }
+    for (let i = 0; i < named.length; i++) for (let j = i + 1; j < named.length; j++) link(named[i]!, named[j]!, a.created_at);
+  }
+  for (const node of nodes) node.degree = degree.get(node.id) ?? 0;
   const recent = [...sources].sort((a,b) => received(b).localeCompare(received(a))).map(s => ({ path: insertionEventRel(s), title: s.title, modified: Date.parse(received(s)) || 0, author: s.author.id, action: 'created', ...insertionFiler(s), id: s.source_id, insertionId: s.id, type: 'source' }));
   const assertionView = (a: AssertionEvent) => ({ id: a.id, text: a.text, confidence: a.confidence, created_at: a.created_at, author: a.author,
     entities: a.entities.map(e => ({ ...e, path: entityPath(e.id) })),
@@ -46,7 +60,21 @@ export function sharedProjection(sources: SharedSource[], views: AssertionView[]
     if (entity) { const list = assertions.filter(a => a.entities.some(e => e.id === entity.id)).map(assertionView); return { path, content: `# ${entity.label}\n\n${list.map(a => a.text).join('\n\n')}`, projectedEntity: { ...entity, assertions: list } }; }
     return null;
   };
-  return { sources, assertions, recent, note, graph: { nodes, edges, projection: 'assertions' as const, hash: sha256hex(JSON.stringify([sources, assertions])) } };
+  return { sources, assertions, recent, note, arrivals, graph: { nodes, edges, projection: 'assertions' as const, hash: sha256hex(JSON.stringify([sources, assertions])) } };
+}
+
+const fields = new Map<string, Graph>();
+/** A server's own field, as everyone who reads it sees it: its record alone,
+ * nothing of a reader's vault, laid out by when each part arrived. */
+export function serverField(view: ReturnType<typeof sharedProjection>): Graph {
+  let field = fields.get(view.graph.hash);
+  if (!field) {
+    const at = arrivalLayout(view.graph, view.arrivals);
+    field = { ...view.graph, nodes: view.graph.nodes.map(n => ({ ...n, x: at[n.id]![0], y: at[n.id]![1] })) };
+    if (fields.size >= 8) fields.delete(fields.keys().next().value!);
+    fields.set(view.graph.hash, field);
+  }
+  return field;
 }
 
 export async function sharedWorkspace(req: IncomingMessage, res: ServerResponse, store = connectionStorePath()): Promise<boolean> {
@@ -115,7 +143,7 @@ export async function sharedWorkspace(req: IncomingMessage, res: ServerResponse,
     const view = sharedProjection(sources, assertions);
     const offset = Math.max(0, Number(url.searchParams.get('offset')) || 0), limit = Math.min(200, Math.max(1, Number(url.searchParams.get('limit')) || 50));
     if (path === '/api/vault') json(res, 200, { view: { references: sources.length, entities: view.graph.nodes.filter(n => n.group === 'entity').length }, inbox: { pending: 0, unsorted: 0 }, requests: { open: 0, done: 0 } });
-    else if (path === '/api/graph') json(res, 200, sharedGraphLayout(view.graph));
+    else if (path === '/api/graph') json(res, 200, serverField(view));
     else if (path === '/api/recent') json(res, 200, { recent: view.recent.slice(offset, offset+limit), total: sources.length, nextOffset: offset+limit < sources.length ? offset+limit : null });
     else if (path === '/api/note') { const note = view.note(url.searchParams.get('path') ?? ''); json(res, note ? 200 : 404, note ?? { error: 'Not found.' }); }
     else if (path === '/api/notes') json(res, 200, { dir: url.searchParams.get('dir'), notes: [] });

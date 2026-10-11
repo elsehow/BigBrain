@@ -718,13 +718,14 @@
     }
   }
   let graphHash = "";
-  /** The field from /api/graph, drawn anew (a fresh scene: indices change). */
-  async function drawField(graph: GraphData): Promise<void> {
+  /** The field from /api/graph, drawn anew (a fresh scene: indices change).
+   * `fresh`: another field altogether, framed anew rather than from where you were. */
+  async function drawField(graph: GraphData, fresh = false): Promise<void> {
     graphHash = graph.hash;
     field = buildField(graph);
     twins = twinsOf(field);
     const { createV2Scene } = await import("../lib/v2/scene");
-    const camera = scene?.camera();
+    const camera = fresh ? undefined : scene?.camera();
     scene?.dispose();
     scene = createV2Scene(host, field, {
       blockers: () => [hudEl, feedEl, searching ? searchEl : undefined, chatEl, sidebarEl, lensesEl].filter((e): e is HTMLElement => !!e).map((e) => e.getBoundingClientRect()).filter((r) => r.height > 0),
@@ -748,7 +749,7 @@
     refreshSorted();
     void api.v2().then((v) => { writing = v; }).catch(() => {});
     try {
-      const g = await api.graph();
+      const g = await shownGraph();
       if (g.hash !== graphHash) { graphStale = true; heldGraph = g; }
     } catch { /* the next ping tries again */ }
     redrawIfIdle();
@@ -865,25 +866,39 @@
     scene?.shift(shiftFor());
   }
 
-  // ── lenses and servers: one filters the field ─────────────────────────
+  // ── lenses and servers: a lens filters your field; a server is its own ─
   type LensRow = { id: string; name: string; kind: "lens" | "server" };
   let lensRows: LensRow[] = $state([]);
   let lensOn: string | null = $state(null);
   let lensIds: string[] = [];
+  /** The server whose own field is drawn in place of yours: what everyone who reads it sees. */
+  let serverOn: string | null = null;
+  const shownGraph = () => (serverOn ? api.serverGraph(serverOn) : api.graph());
   async function loadLensRows(): Promise<void> {
     const r = await lensRequest<{ lenses: LensSummary[]; servers: ServerRef[] }>("").catch(() => null);
     if (r) lensRows = [...r.lenses.map((l): LensRow => ({ id: l.id, name: l.name, kind: "lens" })), ...r.servers.map((s): LensRow => ({ id: s.id, name: s.name, kind: "server" }))];
   }
-  /** The chosen lens or server, as the field's filter. */
-  const applyLens = () => scene?.filter(lensOn && field ? indicesOf(lensIds) : null);
+  /** The chosen lens, as the field's filter. */
+  const applyLens = () => scene?.filter(lensOn && !serverOn && field ? indicesOf(lensIds) : null);
   async function toggleLens(v: LensRow): Promise<void> {
     if (!field) return;
-    if (lensOn === v.id) { lensOn = null; lensIds = []; applyLens(); return; }
-    lensOn = v.id;
-    const ids = v.kind === "server" ? field.nodes.flatMap((n) => n.servers.includes(v.id) ? [n.id] : [])
-      : (await lensRequest<{ entities: string[] }>(`entities?id=${v.id}`).catch(() => ({ entities: [] }))).entities;
-    if (lensOn !== v.id) return;
-    lensIds = ids;
+    const on = lensOn === v.id ? null : v.id, server = on && v.kind === "server" ? on : null;
+    lensOn = on; lensIds = [];
+    const before = serverOn;
+    if (server !== before) {
+      // another field altogether: the server's own, or yours again
+      const graph = await (server ? api.serverGraph(server) : api.graph()).catch((e) => { flash(`Couldn’t open ${v.name}: ${errText(e)}`); return null; });
+      if (lensOn !== on) return;
+      if (!graph) { lensOn = before; applyLens(); return; }
+      serverOn = server;
+      closeSource(); ent = null; entRows = null;
+      await drawField(graph, true);
+    }
+    if (on && !server) {
+      const ids = (await lensRequest<{ entities: string[] }>(`entities?id=${on}`).catch(() => ({ entities: [] }))).entities;
+      if (lensOn !== on) return;
+      lensIds = ids;
+    }
     applyLens();
   }
 
@@ -1024,7 +1039,7 @@
     try {
       const done = await act;
       await loadFolds();
-      const graph = await api.graph();
+      const graph = await shownGraph();
       ent = null; entRows = null;
       await drawField(graph);
       // back on the page you were on, unless it was the one folded away

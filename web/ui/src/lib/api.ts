@@ -201,6 +201,8 @@ export const api = {
     get<{ hits: import("./omnibox.svelte").SearchHit[]; nextOffset: number | null }>(
       `/api/search?q=${encodeURIComponent(q)}&limit=${limit}&offset=${offset}${mention ? "&purpose=mention" : ""}`, signal),
   graph: () => get<GraphData>(U.graph()),
+  /** One server's own field, as everyone who reads it sees it (lib/sharedReadUnion.ts serverGraph). */
+  serverGraph: (id: string) => get<GraphData>(`/api/graph/server?id=${encodeURIComponent(id)}`),
   /** The v2 view's who and what (lib/v2Feed.ts): agents and the latest assertions. */
   v2: () => get<import("./v2/model").V2Feed>("/api/v2"),
   /** A page of the sorted feed (lib/feedStage.ts), newest first; empty when
