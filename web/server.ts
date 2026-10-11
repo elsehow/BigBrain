@@ -580,10 +580,12 @@ function v2Sorted({ res, url }: Ctx): void {
     const feedOn = !!loadManifest(ROOT).feed, records = feedOn ? feedRecords(ROOT) : [];
     const limit = Math.min(SORTED_MAX, Math.max(1, Math.trunc(Number(url.searchParams.get("limit"))) || SORTED_PAGE));
     // What lenses shared, and changes that grew a shared lens (D2, D3), among what arrived.
-    const sharing = feedOn ? feedLensEvents(ROOT, connectionStorePath()).map(({ event: e, count }, i): V2SortedRow => ({
-      source: `lens:${e.at}:${i}`, section: e.kind === "shared" ? "know" : "needs-you", headline: lensEventHeadline(e, count), due: null, added: e.at, entities: [], lens: e.lens,
+    const src = v2Source();
+    const sharing = feedOn ? feedLensEvents(ROOT, connectionStorePath()).map(({ event: e, count, sources }, i): V2SortedRow => ({
+      source: `lens:${e.at}:${i}`, section: e.kind === "shared" ? "know" : "needs-you", headline: lensEventHeadline(e, count), due: null, added: e.at,
+      entities: entitiesCiting(src, new Set(sources)), lens: e.lens,
     })) : [];
-    const sorted = [...buildSortedFeed(v2Source(), feedItems(records).map((e) => ({ ...e, due: dueOf(e) }))), ...sharing].sort(newestFirst);
+    const sorted = [...buildSortedFeed(src, feedItems(records).map((e) => ({ ...e, due: dueOf(e) }))), ...sharing].sort(newestFirst);
     const { rows, next } = pageSortedFeed(sorted, limit, url.searchParams.get("before") ?? undefined);
     const heads = projectedSourceHeads(ROOT, rows.map((r) => r.source));
     json(res, 200, { next, rows: rows.map((r) => {

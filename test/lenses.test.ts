@@ -15,7 +15,7 @@ import {readConnections,saveConnection,type SharedConnection} from '../lib/share
 import {contributions,getRule,sendSources} from '../lib/sharedRules';
 import {fitThreshold,listLenses,previewThreshold,membership,newLens,readLens,setSharingMode,updateLens,writeLens,type Lens} from '../lib/lenses';
 import {lensNotes,scorePass,READ_LIMIT} from '../lib/lensScoring';
-import {feedLensEvents,lensEventHeadline,migrateRules,originOf,passLens,readLensEvents,syncServer,tickLenses} from '../lib/lensSync';
+import {feedLensEvents,lensEventHeadline,lensEventsPath,migrateRules,originOf,passLens,readLensEvents,syncServer,tickLenses} from '../lib/lensSync';
 import {publishedPath,tickPublishing} from '../lib/sharedAssertionPublish';
 import {EVALUATOR_VERSION,type inclusionEvaluator} from '../lib/inclusionEvaluation';
 
@@ -105,6 +105,14 @@ describe('passLens',()=>{
   setSystemTime(Date.now()+60_000);
   try{await passLens(v.root,v.store,readLens(v.root,v.store,v.lens.id)!,lensNotes(v.root),{factory:scorer()});}finally{setSystemTime();}
   expect(feedLensEvents(v.root,v.store).map(r=>lensEventHeadline(r.event,r.count))).toEqual(['Seed swap is shared with Garden club','2 items are shared with Garden club']);
+  // each row carries the notes it brought, so the feed can select them
+  expect(feedLensEvents(v.root,v.store).map(r=>r.sources.sort())).toEqual([[idOf(v.root,'Seed swap')],[idOf(v.root,'Plot plan'),idOf(v.root,'Rain barrels')].sort()]);
+ });
+ test('a shared event from before events named their note finds it by title',async()=>{
+  const v=await shared();
+  const path=lensEventsPath(v.root,v.store),[e]=readLensEvents(v.root,v.store);
+  writeFileSync(path,JSON.stringify({...e,source:undefined})+'\n');
+  expect(feedLensEvents(v.root,v.store).map(r=>r.sources)).toEqual([[idOf(v.root,'Seed swap')]]);
  });
  test('Conservative: a model upgrade that adds notes holds every addition until reviewed, and still drops leavers',async()=>{
   const v=await shared('conservative');

@@ -58,6 +58,8 @@ export interface LensEvent {
  /** Server names, as the feed says them. */
  servers:string[];
  title?:string;
+ /** shared: the note's source id. */
+ source?:string;
  reason?:LensReview['reason'];
 }
 export const lensEventsPath=(root:string,store:string)=>join(dirname(store),'lens-events',sha256hex(root)+'.jsonl');
@@ -76,14 +78,19 @@ export function lensEventHeadline(e:LensEvent,count=1):string{
 }
 /** The feed's lens rows: what a lens shared stays, a review only until it is
  * cleared (Looks OK, or a new rule saved), and what one pass shared from a
- * lens is one row, so a review released all at once doesn't bury the feed. */
-export function feedLensEvents(root:string,store:string):{event:LensEvent;count:number}[]{
- const open=new Set(listLenses(root,store).flatMap(l=>l.review?.at?[`${l.id} ${l.review.at}`]:[]));
- const rows=new Map<string,{event:LensEvent;count:number}>();
+ * lens is one row, so a review released all at once doesn't bury the feed.
+ * `sources`: the notes a shared row brought. */
+export function feedLensEvents(root:string,store:string):{event:LensEvent;count:number;sources:string[]}[]{
+ const lenses=listLenses(root,store),open=new Set(lenses.flatMap(l=>l.review?.at?[`${l.id} ${l.review.at}`]:[]));
+ // A shared event written before events named their note: the lens's members of that title.
+ let titles:Map<string,string>|undefined;
+ const named=(e:LensEvent)=>{titles??=new Map(lensNotes(root).map(n=>[n.source_id,n.title]));return lenses.find(l=>l.id===e.lens)?.members.filter(id=>titles!.get(id)===e.title)??[];};
+ const rows=new Map<string,{event:LensEvent;count:number;sources:string[]}>();
  for(const e of readLensEvents(root,store,Infinity)){
   if(e.kind!=='shared'&&!open.has(`${e.lens} ${e.at}`))continue;
-  const key=`${e.kind} ${e.lens} ${e.at}`,row=rows.get(key);
-  if(row)row.count++;else rows.set(key,{event:e,count:1});
+  const key=`${e.kind} ${e.lens} ${e.at}`,row=rows.get(key)??{event:e,count:0,sources:[]};
+  row.count++;rows.set(key,row);
+  if(e.kind==='shared')row.sources.push(...(e.source?[e.source]:named(e)));
  }
  return [...rows.values()];
 }
@@ -144,7 +151,7 @@ export async function passLens(root:string,store:string,lens:Lens,notes:ReturnTy
   addEvents(root,store,opened
    // A change nobody made is one event, not one per note.
    ?[{at:opened.at,kind:opened.hold?'paused':'expanded',lens:lens.id,servers:names,reason:opened.reason}]
-   :added.map(id=>({at:now,kind:'shared',lens:lens.id,servers:names,title:titles.get(id)??''})));
+   :added.map(id=>({at:now,kind:'shared',lens:lens.id,servers:names,title:titles.get(id)??'',source:id})));
  }
  return written;
 }

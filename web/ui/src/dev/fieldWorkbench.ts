@@ -97,6 +97,12 @@ if (new URLSearchParams(location.search).has("longFeed"))
     headline: `Field note ${i}: the north pier tide gauge was read.`, due: null, added: at(-i * 5), entities: [`ent_${i % 4}`],
     title: `Field note ${i}`, path: `log/insertions/2026-10/ins_n${i}.json`, via: "rss" });
 sorted.sort(newestFirst);
+// `?servers`: what a pass shared from Garden logistics (a click selects what
+// it brought), and a paused review (a click opens the lens)
+const LENS_ROWS: V2SortedRow[] = serversScene && !empty ? [
+  { source: "lens:shared", section: "know", headline: "3 items are shared with Garden club", due: null, added: at(25), entities: ["ent_0", "ent_3", "ent_9"], lens: "lens_00000000000a" },
+  { source: "lens:paused", section: "needs-you", headline: "A model upgrade would cause you to share new items with Garden club. Lens is paused until you review.", due: null, added: at(15), entities: [], lens: "lens_00000000000a" },
+] : [];
 
 let outOfCredits = new URLSearchParams(location.search).has("credits");
 const reading = new URLSearchParams(location.search).has("reading");
@@ -190,7 +196,7 @@ const fake = window.fetch;
   }
   if (url.pathname === "/api/v2") return json({ authors: [], feed });
   if (url.pathname === "/api/v2/sorted")
-    return json(pageSortedFeed(sorted, Number(url.searchParams.get("limit")) || SORTED_PAGE, url.searchParams.get("before") ?? undefined));
+    return json(pageSortedFeed([...sorted, ...LENS_ROWS].sort(newestFirst), Number(url.searchParams.get("limit")) || SORTED_PAGE, url.searchParams.get("before") ?? undefined));
   if (url.pathname === "/api/v2/entity") return json({ rows: feed.filter((r) => r.entities.includes(url.searchParams.get("id") ?? "")) });
   // the chat's agent picker: two connected agents, more models than a short window holds
   if (url.pathname === "/api/pilot/chat/models") return json({ agents: [
