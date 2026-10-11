@@ -706,7 +706,7 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
       const r = rel[i]!;
       sizes[i] = baseSize[i]! * look.entSize * (isNamed[i] ? 1 : THREE.MathUtils.lerp(1, entScale[i]!, look.entByTies)) * (1 + 0.7 * h) * (1 + 0.45 * r * dim);
       const rest = Math.min(1, (isNamed[i] ? 0.95 : 0.6) * look.entAlpha) * (isNamed[i] ? 1 : byMentions(entRank[i]!, look.entAlphaByTies));
-      alphas[i] = Math.max(h, THREE.MathUtils.lerp(rest, THREE.MathUtils.lerp(isNamed[i] ? 0.22 : 0.12, 1, r), dim)) * THREE.MathUtils.lerp(searchDim, 1, match[i]!) * (1 - 0.92 * out[i]!);
+      alphas[i] = Math.max(h, THREE.MathUtils.lerp(rest, THREE.MathUtils.lerp(isNamed[i] ? 0.22 : 0.12, 1, r), dim)) * THREE.MathUtils.lerp(searchDim, 1, match[i]!) * (i === ent?.i ? 1 : 1 - 0.92 * out[i]!);
       c1.copy(isNamed[i] || r > 0.5 ? col.fg : entInk).lerp(col.act, h * 0.9).toArray(colors, i * 3);
     }
     let srcHeld = 0;
@@ -846,8 +846,9 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
       const full = related || (i === inHand && handText !== undefined);
       const restOp = isNamed[i] && (hubs.has(i) || n.memory) ? 1 : 0;
       let op = srch && srch.matches.size ? match[i]! : Math.max(heat[i]!, THREE.MathUtils.lerp(restOp, rel[i]!, dim)) * (srch ? searchDim : 1);
-      if (i === inHand || related) op = 1;
+      // a lens's filter fades what is outside it, but never what you opened
       op *= 1 - out[i]!;
+      if (i === inHand || related) op = 1;
       // the dot under the pointer always says its name
       const pointed = point[i]! > 0.04;
       op = Math.max(op, point[i]!);

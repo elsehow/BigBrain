@@ -4,8 +4,9 @@ import {readLogRoutes} from '../lib/readLogRoutes';
 import {logIntegrationCalls} from '../lib/readLog';
 import {inclusionReviewApi} from '../lib/inclusionReviewApi';
 import {lensApi} from '../lib/lensApi';
+import {lensClaims,readLens} from '../lib/lenses';
 import {tickIntegrationAdmission} from '../lib/integrationAdmission';
-import { unionGraph, unionRecent, unionSearch, unionNote, vaultFilter, includesPersonal, serverGraph, sharedEntityClaims } from '../lib/sharedReadUnion';
+import { unionGraph, unionRecent, unionSearch, unionNote, vaultFilter, includesPersonal, serverBriefingRecord, serverGraph, sharedEntityClaims } from '../lib/sharedReadUnion';
 import { jevSettingsApi } from '../lib/jevSettingsApi';
 import { optionalJevKey } from '../lib/jevSettings';
 import { sharedSettingsApi } from '../lib/sharedSettingsApi';
@@ -76,7 +77,7 @@ import { assertionsFromSource, projectedEntityMarkdown, truncatedEntityView, sou
 import { insertionEventRel, sourceMoment } from "../lib/insertionLog";
 import { foldsRoutes } from "../lib/entityFolds";
 import { copyReview, sourceCopyRoutes } from "../lib/sourceCopyReview";
-import { createNoteBriefingService, noteBriefingRoutes, readNoteBriefingInput } from "../lib/noteBriefing";
+import { briefingInput, claimsOnly, createNoteBriefingService, noteBriefingRoutes, readNoteBriefingInput, type NoteBriefingInput, type NoteBriefingRequest } from "../lib/noteBriefing";
 import { noteRelationRoutes } from "../lib/noteRelation";
 import { sourceReadStateRoutes, graphWithReadState } from "../lib/sourceReadStateApi";
 import { sourceOrigin, sourceOrigins, type SourceOrigin } from "../lib/sourceOrigin";
@@ -615,6 +616,19 @@ async function graph({ req, res }: Ctx): Promise<void> {
   }
 }
 
+/** What a briefing reads: with a lens on, only the claims its notes alone
+ * support; with a server on, only that server's record; else the whole vault
+ * and what your servers say about the entities it names. */
+async function briefingFor(root: string, request: NoteBriefingRequest): Promise<NoteBriefingInput> {
+  const scope = typeof request === "string" ? undefined : request.scope;
+  if (scope && "server" in scope) return briefingInput(await serverBriefingRecord(scope.server, request, await you()), request);
+  if (scope) {
+    const lens = readLens(root, connectionStorePath(), scope.lens);
+    if (!lens) throw new Error("That lens is gone.");
+    return readNoteBriefingInput(root, request, undefined, claimsOnly(lensClaims(lens, v2Source().rows)));
+  }
+  return readNoteBriefingInput(root, request, (ids) => sharedEntityClaims(root, ids));
+}
 /** You, as your own field leaves you out of it (lib/assertionGraph.ts): left out of your view of a server's too. */
 const you = async () => (await primaryGraphAsync(ROOT)).userNote;
 // One server's own field, as everyone who reads it sees it, without you (lib/sharedReadUnion.ts serverGraph).
@@ -818,7 +832,7 @@ export const ROUTES: readonly Route[] = [
   { method: "GET", path: "/api/notes", handler: noteList },
   { method: "GET", path: "/api/note", handler: noteRead },
   // an entity's briefing reads the joined vaults' claims about it too
-  ...noteBriefingRoutes(ROOT, createNoteBriefingService(undefined, (root, request) => readNoteBriefingInput(root, request, (ids) => sharedEntityClaims(root, ids)))),
+  ...noteBriefingRoutes(ROOT, createNoteBriefingService(undefined, briefingFor)),
   ...noteRelationRoutes(ROOT),
   ...sourceReadStateRoutes(ROOT, undefined, applicationActions),
   { method: "GET", path: "/api/file", handler: fileRead },
