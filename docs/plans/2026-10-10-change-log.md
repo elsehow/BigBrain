@@ -95,7 +95,8 @@ CREATE TABLE views (name TEXT PRIMARY KEY, revision TEXT NOT NULL, hash TEXT, bo
 |---|---|---|
 | `graph` (+ layout) | rebuilt per revision in a one-shot worker, cloned back with tens of MB of evidence, stringified per request | saved bytes and hash; `/api/graph` answers `If-None-Match` with 304 |
 | `v2`, `v2/sorted`, `v2/entity` | decoded and sorted per request | indexed queries over facts the commit keeps beside each row (built in step 6) |
-| folds proposals, vault counts, copy groups, identity | computed per request on the main thread (#231) | saved per revision |
+| folds proposals | a census of every entity per request, the reject log read from disk (#231) | lookups of the members proposed, with their own stamp (built in step 6) |
+| vault counts, copy groups, identity | computed per request on the main thread (#231) | saved per revision |
 | briefing evidence | 76k connections scanned per hover | queried by id; not a view (#228) |
 
 **Freshness.** Freshness is a comparison: a route serves the saved view and its
@@ -122,11 +123,12 @@ vault's identity, so the stamps have their own event):
 
 ```
 event: views
-data: {"generation":"…","revision":"…","views":{"graph":"<hash>","joined":"<ids>","feed":"<generation:rev>","files":"<epoch:n>"}}
+data: {"generation":"…","revision":"…","views":{"graph":"<hash>","joined":"<ids>","feed":"<generation:rev>","folds":"<generation:rev>","files":"<epoch:n>"}}
 ```
 
 `graph` is the maintained view's content hash and `/api/graph`'s ETag; `feed`
-is the last commit the v2 feed reads; `joined` names the shared vaults the
+is the last commit the v2 feed reads, and `folds` the last the fold proposals
+read; `joined` names the shared vaults the
 graph merges in; `files` counts watched files outside the projection, for the
 views that have no stamp of their own. A client keeps the stamps it fetched
 and fetches only a view whose stamp moved. Every connection opens with the
@@ -160,7 +162,7 @@ Each step ships alone and deletes something.
 | 3 (#238) | `event: views` with view stamps; `journal` change rows (decision 5); ETag and `?current` on `/api/graph`; desktops on the application channel | `{"changed":true}` and refetch-everything; Field polling; the v2 journal listing; the read-state overlay on the graph |
 | 4 (#239) | wake on WAL + `data_version`; `bigbrain recover` | watching `log/`; `projectionHolds`; watcher-triggered recovery; the Markdown walk on every commit |
 | 5 (#245) | the notes door (#225) writing change rows: the viewer's watcher names what changed, the memory pass what it wrote, each process's first read takes the census | the per-read Markdown walk; the one-second clock; read-model hints |
-| 6 | remaining views (#231): record and layout incremental (#242, #244), the v2 feed as queries (#248) | per-request O(vault) routes; the v2 decode per revision and its journal reads |
+| 6 | remaining views (#231): record and layout incremental (#242, #244), the v2 feed as queries (#248), folds as lookups (#250) | per-request O(vault) routes; the v2 decode per revision and its journal reads; the folds census per request and its reads of the reject log |
 
 ## What a commit still costs (measured after step 4)
 
@@ -191,7 +193,11 @@ assertions, one entity's, and a sorted page are each read off an index,
 decoding only the rows returned. Its outputs match the old builders exactly
 on a large vault; an entity's feed 13 ms → 0.2 ms, and the 360 ms decode per
 revision is gone. The author tally is the one count left over live rows,
-held per feed stamp.
+held per feed stamp. Part 4 (#250) does the same for fold proposals: the
+reject log becomes a log kind and the pass's proposals file is projected
+as it is written, so the view validates the members proposed rather than a
+census of every entity, and has its own stamp: 250 ms per request → 4 ms,
+and new proposals or another tab's reject reach an open Field.
 
 ## Decisions
 
