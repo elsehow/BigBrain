@@ -10,6 +10,7 @@ import { assertionSourceReferences, type AssertionEvent } from './assertionLog';
 import type { AssertionView } from './sharedVault';
 import { arrivalLayout, edgeKey } from './graphLayout';
 import type { Graph, GraphNode, GraphEdge } from './graph';
+import type { ConnectionEvidence } from './markdownGraph';
 import { sha256hex } from './hash';
 import { isUserNode, isUserNote } from './userNote';
 
@@ -34,10 +35,13 @@ export function sharedProjection(sources: SharedSource[], views: AssertionView[]
   // entity to each source its claim cites, entities named together to each
   // other, a repeat a heavier thread. `arrivals`: when each node and edge
   // first appeared on the server, by its clock (lib/graphLayout.ts arrivalLayout).
+  // `connections`: the claim behind each tie, as a vault's graph observes them (lib/noteBriefing.ts reads them).
   const edges: GraphEdge[] = [], edgeAt = new Map<string, GraphEdge>(), degree = new Map<string, number>(), arrivals = new Map<string, string>();
+  const connections: Array<{ from: string; to: string; evidence: ConnectionEvidence }> = [];
   const arrive = (key: string, at: string) => { const was = arrivals.get(key); if (was === undefined || at < was) arrivals.set(key, at); };
-  const link = (a: string, b: string, at: string) => {
-    const key = edgeKey(a, b), seen = edgeAt.get(key); arrive(key, at);
+  const link = (a: string, b: string, claim: AssertionEvent) => {
+    const at = claim.created_at, key = edgeKey(a, b), seen = edgeAt.get(key); arrive(key, at);
+    connections.push({ from: a, to: b, evidence: { assertion: claim.id, text: claim.text } });
     if (seen) { seen.weight = (seen.weight ?? 1) + 1; return; }
     const edge: GraphEdge = { source: a, target: b }; edgeAt.set(key, edge); edges.push(edge);
     for (const end of [a, b]) degree.set(end, (degree.get(end) ?? 0) + 1);
@@ -46,8 +50,8 @@ export function sharedProjection(sources: SharedSource[], views: AssertionView[]
   for (const a of assertions) {
     const named = [...new Set(a.entities.map(e => e.id))];
     const cited = assertionSourceReferences(a).filter(ref => byId.has(ref.insertion_id)).map(ref => `source:${ref.insertion_id}`);
-    for (const id of named) { arrive(id, a.created_at); for (const source of cited) link(id, source, a.created_at); }
-    for (let i = 0; i < named.length; i++) for (let j = i + 1; j < named.length; j++) link(named[i]!, named[j]!, a.created_at);
+    for (const id of named) { arrive(id, a.created_at); for (const source of cited) link(id, source, a); }
+    for (let i = 0; i < named.length; i++) for (let j = i + 1; j < named.length; j++) link(named[i]!, named[j]!, a);
   }
   for (const node of nodes) node.degree = degree.get(node.id) ?? 0;
   const recent = [...sources].sort((a,b) => received(b).localeCompare(received(a))).map(s => ({ path: insertionEventRel(s), title: s.title, modified: Date.parse(received(s)) || 0, author: s.author.id, action: 'created', ...insertionFiler(s), id: s.source_id, insertionId: s.id, type: 'source' }));
@@ -61,7 +65,7 @@ export function sharedProjection(sources: SharedSource[], views: AssertionView[]
     if (entity) { const list = assertions.filter(a => a.entities.some(e => e.id === entity.id)).map(assertionView); return { path, content: `# ${entity.label}\n\n${list.map(a => a.text).join('\n\n')}`, projectedEntity: { ...entity, assertions: list } }; }
     return null;
   };
-  return { sources, assertions, recent, note, arrivals, graph: { nodes, edges, projection: 'assertions' as const, hash: sha256hex(JSON.stringify([sources, assertions])) } };
+  return { sources, assertions, recent, note, arrivals, connections, graph: { nodes, edges, projection: 'assertions' as const, hash: sha256hex(JSON.stringify([sources, assertions])) } };
 }
 
 const fields = new Map<string, Graph>();

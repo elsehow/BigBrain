@@ -1074,10 +1074,12 @@
     try { return (await api.v2Entity(n.id)).rows; } catch { return writing!.feed.filter((r) => r.entities.includes(n.id)); }
   }
   /** Quick's briefing on a note — the summary the app shows when you select it.
-   * Cached by the engine per note and evidence; a fresh one streams as it's written. */
+   * Cached by the engine per note and evidence; a fresh one streams as it's written.
+   * With a lens or a server on, it reads only that lens's or server's evidence. */
   async function briefing(path: string, onText: (text: string) => void): Promise<boolean> {
+    const scope = serverOn ? { server: serverOn } : lensOn ? { lens: lensOn } : undefined;
     try {
-      const r = await fetch("/api/note/briefing", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ path, stream: true }) });
+      const r = await fetch("/api/note/briefing", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ path, stream: true, ...(scope ? { scope } : {}) }) });
       if (!r.ok || !r.body) return false;
       const reader = r.body.getReader(), dec = new TextDecoder();
       let buf = "", done = false;

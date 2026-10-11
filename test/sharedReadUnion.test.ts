@@ -8,7 +8,8 @@ import {makeSharedApiHandler} from '../lib/sharedVaultApi';
 import {saveConnection} from '../lib/sharedConnections';
 import {sourceInsertion,appendSourceInsertionEvent,insertionEventRel} from '../lib/insertionLog';
 import {sourceKey} from '../lib/sharedRules';
-import {serverGraph,unionGraph,unionRecent,unionNote,sharedEntityClaims} from '../lib/sharedReadUnion';
+import {serverBriefingRecord,serverGraph,unionGraph,unionRecent,unionNote,sharedEntityClaims} from '../lib/sharedReadUnion';
+import {briefingInput} from '../lib/noteBriefing';
 import {assertionEntityId} from '../lib/assertionLog';
 import {appendEntityAliasEvent,createEntityAliasEvent} from '../lib/entityAliasLog';
 test('combined reads link own copies, expose shared-only sources and preserve personal originals after withdrawal',async()=>{
@@ -122,5 +123,13 @@ test("a server's own field is the same for every member, whatever their own vaul
    expect(picture(mine)).toEqual(picture(b.field).filter(([id])=>id!==ada));
    expect(mine.edges.some(e=>e.source===ada||e.target===ada)).toBe(false);
   }
+  // a briefing on the server's field reads the server's record alone, and without you
+  const on=(key:string,you?:{ids:string[];names:string[]})=>serverBriefingRecord(b.c.id,key,you).then(r=>briefingInput(r,key));
+  const adaBrief=await on(`shared/${b.c.id}/${ada}.md`);
+  expect(adaBrief.items[0]).toMatchObject({title:'Ada Example',kind:'entity'});
+  expect(adaBrief.items[0]!.text).toContain('brings seeds');
+  expect(adaBrief.links.map(l=>l.title).sort()).toEqual(['Briar Calder','Garden plan','Seed swap']);
+  expect((await on(`shared/${b.c.id}/${plan.id}.md`)).items[0]).toMatchObject({title:'Garden plan',kind:'source',text:'Example body'});
+  expect((await on(`shared/${b.c.id}/${briar}.md`,{ids:[ada],names:[]})).links.map(l=>l.title)).toEqual(['Garden plan']);
  }finally{server.stop(true);if(old===undefined)delete process.env.BIGBRAIN_SHARED_CONNECTIONS;else process.env.BIGBRAIN_SHARED_CONNECTIONS=old;}
 });
