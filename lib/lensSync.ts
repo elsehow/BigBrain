@@ -30,6 +30,7 @@ import {sha256hex} from './hash';
 import {readConnections,sharedRequest,updateConnection,SharedConnectionError,type SharedConnection} from './sharedConnections';
 import {contributions,dropRule,getRule,sendSources,sourceKey,type Contribution} from './sharedRules';
 import {inclusionPath,readInclusionPolicy,sharedRuleScope} from './inclusionPolicy';
+import {EVALUATOR_VERSION} from './inclusionEvaluation';
 import {listLenses,membership,newLens,readLens,sharingMode,writeLens,type Lens,type LensReview} from './lenses';
 import {lensNotes,scorePass,type PassOptions} from './lensScoring';
 
@@ -126,7 +127,7 @@ export async function passLens(root:string,store:string,lens:Lens,notes:ReturnTy
  const now=new Date().toISOString();
  let review=lens.review;
  if(first&&review?.reason==='update')review=joins.length?{...review,joins,leaves,at:now}:undefined;
- else if(changed&&shared&&joins.length)review={reason:pass.model!==lens.calibration.model?'model':'vault',hold:review?.hold||sharingMode(store)==='conservative',joins,leaves,at:now};
+ else if(changed&&shared&&joins.length)review={reason:pass.model!==lens.calibration.model?'model':lens.calibration.version!==EVALUATOR_VERSION?'update':'vault',hold:review?.hold||sharingMode(store)==='conservative',joins,leaves,at:now};
  else if(review?.hold)review={...review,joins};
  // A held lens loses what stopped matching and gains nothing.
  const members=review?.hold?lens.members.filter(id=>next.has(id)):[...next];
@@ -134,7 +135,7 @@ export async function passLens(root:string,store:string,lens:Lens,notes:ReturnTy
  const failures=[...new Set(pass.failed.values())];
  const written:Lens={...lens,members,review,
   summarized:members.filter(id=>pass.summarized.has(id)),
-  calibration:{...lens.calibration,identity:pass.identity,model:pass.model},
+  calibration:{...lens.calibration,identity:pass.identity,model:pass.model,version:EVALUATOR_VERSION},
   error:failures.length?`${pass.failed.size} ${pass.failed.size===1?'note':'notes'} could not be scored: ${failures[0]}`:undefined};
  writeLens(root,store,written);
  if(shared){

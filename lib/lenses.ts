@@ -41,8 +41,8 @@ export interface Lens {
  /** Personal source ids added or removed by hand. */
  pins:string[];
  exclusions:string[];
- /** What the members were scored with: the evaluator's full identity, its model part, and the cut-off. */
- calibration:{identity:string;model:string;threshold:number};
+ /** What the members were scored with: the evaluator's full identity, its model part, the cut-off, and the evaluator version (lib/inclusionEvaluation.ts), which lenses scored before version 3 lack. */
+ calibration:{identity:string;model:string;threshold:number;version?:number};
  /** Connection ids this lens is shared with. */
  servers:string[];
  /** The membership last applied, by personal source id. */

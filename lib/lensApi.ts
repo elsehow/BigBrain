@@ -23,6 +23,7 @@ import {json,readBody} from './httpx';
 import {allowVaultRequest,vaultIdentity} from './vaultBoundary';
 import {connectionStorePath,readConnections,sharedRequest} from './sharedConnections';
 import {inclusionPath,readInclusionPolicy,sourceDigest,type InclusionLabel} from './inclusionPolicy';
+import {EVALUATOR_VERSION} from './inclusionEvaluation';
 import {rmSync} from 'node:fs';
 import {resolveRuleMentions} from './sharedRuleMentions';
 import {fitThreshold,lensScope,previewThreshold,listLenses,membership,newLens,readLens,removeLens,setSharingMode,sharingMode,updateLens,writeLens,type Lens} from './lenses';
@@ -79,7 +80,7 @@ function save(root:string,store:string,body:{id?:unknown;name?:unknown;text?:unk
  if(typeof body.text!=='string'||body.text.trim()!==p.text)throw Error('The rule changed. Wait for the new preview.');
  const pins=ids(body.pins),exclusions=ids(body.exclusions).filter(x=>!pins.includes(x));
  const before=readLens(root,store,id),notes=lensNotes(root);
- const fields={name:body.name.trim(),text:p.text,labels:p.labels,pins,exclusions,calibration:{identity:p.pass.identity,model:p.pass.model,threshold:p.threshold!}};
+ const fields={name:body.name.trim(),text:p.text,labels:p.labels,pins,exclusions,calibration:{identity:p.pass.identity,model:p.pass.model,threshold:p.threshold!,version:EVALUATOR_VERSION}};
  const members=[...membership({...fields,members:before?.members??[]},notes,p.pass.scores)];
  const joins=members.filter(m=>!before?.members.includes(m));
  if(before?.servers.length&&joins.length&&!confirmed(before,body.confirm))throw Error('Type the lens’s name to share these notes.');
