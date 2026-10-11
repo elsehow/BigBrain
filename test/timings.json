@@ -177,7 +177,6 @@
   "test/projectionWriteLock.test.ts": 0.2,
   "test/providerConnection.test.ts": 0.0,
   "test/providerCredits.test.ts": 0.0,
-  "test/queueHead.test.ts": 0.1,
   "test/readModelFreshness.test.ts": 0.5,
   "test/readerContracts.test.ts": 0.0,
   "test/readerDependencies.test.ts": 0.0,

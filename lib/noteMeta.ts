@@ -6,7 +6,7 @@
  * noteWhen()/fmProvenance() lives here instead. Side-effect-free at import.
  */
 
-import { isEntity, type Envelope } from "./envelope";
+import type { Envelope } from "./envelope";
 import { INTERNAL_PERSONAS } from "./personas";
 
 /** Parse a note's own date-ish value, tolerant of bare-date vs full
@@ -144,25 +144,6 @@ export function mergeRecent<
     };
   });
   return [...enriched, ...kept].sort((a, b) => b.modified - a.modified).slice(0, limit);
-}
-
-export interface EntityMeta {
-  entity?: true;
-  entityType?: string;
-}
-
-/** Additive node/row metadata for a `kind: entity` note (phase 3 —
- * recognition only, see lib/envelope.ts's isEntity/entity_type): `{ entity:
- * true, entityType }` so the graph, feed, and search surfaces can render it
- * distinctly (person/place/document/thread chips). Every other note gets
- * `{}` — the empty object spreads to nothing, keeping every payload this
- * feeds additive-compatible with clients that don't know the field yet.
- * entity_type is tolerant, per the envelope contract: whatever value a note
- * carries renders as-is, never validated against the known set. */
-export function entityMeta(env: Envelope): EntityMeta {
-  if (!isEntity(env)) return {};
-  const et = typeof env.entity_type === "string" ? env.entity_type.trim() : "";
-  return et ? { entity: true, entityType: et } : { entity: true };
 }
 
 /** Provenance banding over an already-parsed envelope. Callers that read

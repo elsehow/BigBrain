@@ -5,10 +5,9 @@ import { pushRoute, replaceRoute, initRouteHistory } from "./routeHistory.svelte
 import type { GardenerProgress } from "../../../../lib/gardenerProgressTypes";
 import { openConversationAlias } from "./noteNavigation";
 import { usageAction } from "./telemetry";
-import { swr } from "./api";
+import { api } from "./api";
 import { RETRY_MIN_MS, nextRetryMs, retryDelayMs } from "./live";
 import { recordMoved, type ViewStamps } from "./viewStamps";
-import type { VaultInfo } from "./types";
 import { isPilotChatId } from "../../../../lib/pilotChatTypes";
 import { isNotePath } from "./noteRoute";
 import { titleOf } from "./utils";
@@ -32,7 +31,6 @@ export type View =
 
 export const app = $state({
   view: "home" as View,
-  vault: null as VaultInfo | null,
   // live wiring: `views` is the engine's latest stamp per view (`event:
   // views`); a view with a stamp fetches when its stamp moves. rev bumps when
   // the record or a watched file moved, for the views without one (settings,
@@ -58,11 +56,12 @@ export const app = $state({
   searchSource: "",
 });
 
-export async function refreshVault(): Promise<void> {
-  const { cached, fresh } = swr.vault(); // cache-first: the shell paints before the fetch lands
-  if (cached && !app.vault) app.vault = cached;
+/** Ask the engine whether this session still stands: a plain GET of the
+ * vault's door (which says only which vault this is) surfaces what a stream's
+ * error hides. */
+async function checkSession(): Promise<void> {
   try {
-    app.vault = await fresh;
+    await api.vault();
   } catch {
     /* server down — views show their own empty states */
   }
@@ -240,7 +239,7 @@ function connect(): void {
     try { next = JSON.parse(e.data); } catch { return; }
     const moved = recordMoved(app.views, next);
     app.views = next;
-    if (moved) { app.rev++; void refreshVault(); }
+    if (moved) app.rev++;
   });
   es.addEventListener("usage", () => { app.usageRev++; });
   es.addEventListener("credits", () => { app.creditsRev++; });
@@ -284,7 +283,7 @@ function scheduleReconnect(): void {
  * surfaces the failure. Without this, an expired session would retry a
  * stream it can never open, quietly, forever. */
 function reconnect(): void {
-  void refreshVault().finally(connect);
+  void checkSession().finally(connect);
 }
 
 /** A tab that comes back, or a network that does, should not sit out a
@@ -303,7 +302,7 @@ export function init(): void {
   if (initialized) return;
   initialized = true;
   addEventListener("hashchange", () => applyHash());
-  void refreshVault();
+  void checkSession();
   // The engine pushes each view's stamp on /api/events when the vault changes.
   connect();
   addEventListener("online", reconnectNow);

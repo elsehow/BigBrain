@@ -15,7 +15,9 @@ test('shared shell adapter isolates records, protects credentials, and respects 
   const owner = initMemberStore(members, root, {handle:'owner'});
   addMember(members, {handle:'reader', permissions:['read'] });
   const reader = mintCredential(members, 'reader', {name:'reader device',kind:'person',scopes:['read']});
-  const remote = Bun.serve({hostname:'127.0.0.1',port:0,fetch:makeSharedApiHandler({root,storePath:members,log:()=>{}})});
+  const api = makeSharedApiHandler({root,storePath:members,log:()=>{}});
+  let remoteCalls = 0;
+  const remote = Bun.serve({hostname:'127.0.0.1',port:0,fetch:(req) => { remoteCalls++; return api(req); }});
   let personalCalls = 0;
   const local = createServer(async (req,res) => { if (!allowLoopbackRequest(req,res)) return; if (await sharedWorkspace(req,res,store)) return; personalCalls++; res.end('personal sentinel'); });
   await new Promise<void>(r => local.listen(0,'127.0.0.1',r));
@@ -38,6 +40,10 @@ test('shared shell adapter isolates records, protects credentials, and respects 
     const note = await (await request('/api/note?path='+encodeURIComponent(receipt.path))).json() as {content:string;sourceAssertions:unknown[]};
     expect(note.content).toContain('launches next week'); expect(note.sourceAssertions).toHaveLength(1);
     expect((await request('/api/search?q=launches')).status).toBe(200);
+    // the vault's door asks only whether the member may still read: no pull of the vault
+    const before = remoteCalls;
+    expect(await (await request('/api/vault')).json()).toEqual({});
+    expect(remoteCalls - before).toBe(1);
     for (const path of ['/api/config','/api/pilot/chat/send','/api/setup/vault','/api/enqueue']) expect((await request(path,{})).status).toBe(403);
     expect((await request('/api/note?path=../../personal.md')).status).toBe(404);
     expect((await request('/api/drop',{name:'Denied',content:'No'},readonly.id)).status).toBe(403);

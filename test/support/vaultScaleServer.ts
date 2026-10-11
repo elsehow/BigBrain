@@ -10,7 +10,7 @@ process.env.BIGBRAIN_VAULT = root;
 delete process.env.BIGBRAIN_DESKTOP;
 delete process.env.BIGBRAIN_DEV;
 const { ROUTES } = await import("../../web/server");
-const allowed = new Set(["/", "/assets/*", "/api/vault", "/api/notes", "/api/note", "/api/recent", "/api/search", "/api/graph", "/api/config"]);
+const allowed = new Set(["/", "/assets/*", "/api/vault", "/api/note", "/api/recent", "/api/search", "/api/graph", "/api/config"]);
 const routes = ROUTES.filter(r => r.method === "GET" && allowed.has(r.path));
 createServer((req, res) => {
   try {
