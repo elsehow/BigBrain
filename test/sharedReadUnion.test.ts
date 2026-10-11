@@ -2,13 +2,13 @@ import {test,expect} from 'bun:test';
 import {mkdtempSync,mkdirSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {initMemberStore,verifyCredential} from '../lib/sharedMembers';
+import {addMember,initMemberStore,mintCredential,verifyCredential} from '../lib/sharedMembers';
 import {SharedVault} from '../lib/sharedVault';
 import {makeSharedApiHandler} from '../lib/sharedVaultApi';
 import {saveConnection} from '../lib/sharedConnections';
 import {sourceInsertion,appendSourceInsertionEvent,insertionEventRel} from '../lib/insertionLog';
 import {sourceKey} from '../lib/sharedRules';
-import {unionGraph,unionRecent,unionNote,sharedEntityClaims} from '../lib/sharedReadUnion';
+import {serverGraph,unionGraph,unionRecent,unionNote,sharedEntityClaims} from '../lib/sharedReadUnion';
 import {assertionEntityId} from '../lib/assertionLog';
 import {appendEntityAliasEvent,createEntityAliasEvent} from '../lib/entityAliasLog';
 test('combined reads link own copies, expose shared-only sources and preserve personal originals after withdrawal',async()=>{
@@ -95,5 +95,32 @@ test("a server's history is paged in again only when its change feed moves",asyn
   await titles();await titles();expect(paged).toBe(1);
   vault.dropEvidence(verified.actor,{title:'Second note',body:'Example body'});
   expect(await titles()).toEqual(['First note','Second note']);expect(paged).toBe(2);
+ }finally{server.stop(true);if(old===undefined)delete process.env.BIGBRAIN_SHARED_CONNECTIONS;else process.env.BIGBRAIN_SHARED_CONNECTIONS=old;}
+});
+test("a server's own field is the same for every member, whatever their own vault holds",async()=>{
+ const dir=mkdtempSync(join(tmpdir(),'server-field-')),shared=join(dir,'shared'),members=join(dir,'members.json');mkdirSync(shared);
+ const owner=initMemberStore(members,shared,{handle:'owner'}),verified=verifyCredential(members,owner.token);if(!verified.ok)throw Error('auth');
+ addMember(members,{handle:'ines',display:'Ines Example',permissions:['read']});const ines=mintCredential(members,'ines',{name:'laptop'});
+ const vault=new SharedVault(shared);
+ const plan=vault.dropEvidence(verified.actor,{title:'Garden plan',body:'Example body'}).insertion,swap=vault.dropEvidence(verified.actor,{title:'Seed swap',body:'Example body'}).insertion;
+ vault.assert(verified.actor,{text:'[[Briar Calder]] and [[Ada Example]] plan the beds.',sources:[plan.id]});
+ vault.assert(verified.actor,{text:'[[Ada Example]] brings seeds.',sources:[swap.id]});
+ const server=Bun.serve({hostname:'127.0.0.1',port:0,fetch:makeSharedApiHandler({root:shared,storePath:members,vault,log:()=>{}})});const old=process.env.BIGBRAIN_SHARED_CONNECTIONS;
+ const read=async(name:string,token:string)=>{const store=join(dir,`${name}.json`);process.env.BIGBRAIN_SHARED_CONNECTIONS=store;const c=await saveConnection(store,{name:'Garden club',endpoint:`http://127.0.0.1:${server.port}`,token});return {c,field:await serverGraph(c.id)};};
+ try{
+  const a=await read('owner',owner.token),b=await read('ines',ines.token);
+  const picture=(f:typeof a.field)=>f.nodes.map(n=>[n.id,n.title,n.x,n.y]).sort();
+  expect(picture(a.field)).toEqual(picture(b.field));
+  expect(picture(a.field)).toHaveLength(4);
+  // entities named together are tied, as in a vault's own graph
+  const briar=assertionEntityId('Briar Calder'),ada=assertionEntityId('Ada Example');
+  expect(a.field.edges.some(e=>[e.source,e.target].sort().join()===[briar,ada].sort().join())).toBe(true);
+  expect(a.field.nodes.find(n=>n.id===ada)).toMatchObject({path:`shared/${a.c.id}/${ada}.md`,vaults:[a.c.id]});
+  // Ada leaves her own view, by her declared name or id, as she leaves her own field; nothing else moves
+  for(const you of [{ids:[],names:['ada example']},{ids:[ada],names:[]}]){
+   const mine=await serverGraph(b.c.id,you);
+   expect(picture(mine)).toEqual(picture(b.field).filter(([id])=>id!==ada));
+   expect(mine.edges.some(e=>e.source===ada||e.target===ada)).toBe(false);
+  }
  }finally{server.stop(true);if(old===undefined)delete process.env.BIGBRAIN_SHARED_CONNECTIONS;else process.env.BIGBRAIN_SHARED_CONNECTIONS=old;}
 });

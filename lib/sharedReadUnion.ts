@@ -6,7 +6,7 @@ import { sharedGraphLayout } from './sharedGraphLayout';
 import {readConnections,connectionStorePath,sharedRequest,type SharedConnection} from './sharedConnections';
 import {sourceKey} from './sharedRules';
 import {readSourceInsertionLog,insertionEventRel,type SourceInsertion} from './insertionLog';
-import {sharedProjection} from './sharedWorkspace';
+import {serverField,sharedProjection} from './sharedWorkspace';
 import type {AssertionView} from './sharedVault';
 import type {Graph} from './graph';
 import {sourceInsertionMarkdown} from './sourceFeed';
@@ -35,6 +35,12 @@ async function viewOf(c:SharedConnection):Promise<View>{
  let pending=loading.get(key);
  if(!pending){pending=Promise.all([pages<SourceInsertion>(c,'evidence'),pages<AssertionView>(c,'assertions')]).then(([evidence,assertions])=>sharedProjection(evidence,assertions)).finally(()=>loading.delete(key));loading.set(key,pending);}
  const view=await pending;cached.set(key,{head,view});return view;
+}
+/** One server's own field, as its window draws it (lib/sharedWorkspace.ts serverField), without `you`, opening through this vault's shared paths. */
+export async function serverGraph(id:string,you?:Graph['userNote']):Promise<Graph>{
+ const c=readConnections(connectionStorePath()).find(x=>x.id===id);if(!c)throw Error('That server is no longer connected.');
+ const field=serverField(await viewOf(c),you);
+ return {...field,nodes:field.nodes.map(n=>({...n,path:remotePath(c,n.id.replace(/^source:/,'')),vaults:[c.id]}))};
 }
 async function views(filter: string[] = []){const results=await Promise.allSettled(readConnections(connectionStorePath()).filter(c => !filter.length || filter.includes(c.id)).map(async c=>({c,view:await viewOf(c)})));return results.flatMap(r=>r.status==='fulfilled'?[r.value]:[]);}
 function localSources(root:string){return new Map(readSourceInsertionLog(root,{strict:true}).map(s=>['origin:'+sourceKey(s),s]));}

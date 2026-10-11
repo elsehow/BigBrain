@@ -43,6 +43,15 @@ const LENS_ENTITIES: Record<string, string[]> = { lens_00000000000a: ["ent_0", "
 const vaultsOf = (id: string) => !serversScene ? {} : id === "ent_7" ? { vaults: ["garden"] } : LENS_ENTITIES.lens_00000000000a!.includes(id) ? { vaults: ["personal", "garden"] } : {};
 const entities = empty ? [] : NAMES.map((title, i) => ({ id: `ent_${i}`, title, group: "entity", entity: true as const, degree: 10 - i,
   path: `projection/entities/ent_${i}.md`, x: Math.cos(i * 0.9) * (80 + i * 18), y: Math.sin(i * 0.9) * (80 + i * 18), ...vaultsOf(`ent_${i}`) }));
+// Garden club's own field (lib/sharedReadUnion.ts serverGraph): the server's
+// record alone, laid out by itself, with what other members brought.
+const GARDEN_NAMES = ["Orrery repair", "Kit Brennan", "Briar Lowe", "Marlow studio", "Ridgeway trail", "Seed library", "Allotment rota", "Compost bays"];
+const gardenField = {
+  hash: "garden-field", projection: "assertions",
+  nodes: GARDEN_NAMES.map((title, i) => ({ id: `ent_g${i}`, title, group: "entity", entity: true as const, degree: 6 - (i % 4),
+    path: `shared/garden/ent_g${i}.md`, vaults: ["garden"], x: Math.cos(i * 1.7) * (60 + i * 22), y: Math.sin(i * 1.7) * (60 + i * 22) })),
+  edges: [[0, 1], [1, 2], [2, 5], [5, 6], [6, 7], [1, 5], [3, 4], [0, 3]].map(([a, b]) => ({ source: `ent_g${a}`, target: `ent_g${b}` })),
+};
 const twinScene = new URLSearchParams(location.search).has("twins");
 const hex = (c: string) => `ent_${c.repeat(20)}`;
 const TWINS = twinScene ? [
@@ -156,6 +165,7 @@ const fake = window.fetch;
   const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url, location.origin);
   const json = (v: unknown, status = 200) => new Response(JSON.stringify(v), { status, headers: { "content-type": "application/json" } });
   if (url.pathname === "/api/graph") return json(graph);
+  if (serversScene && url.pathname === "/api/graph/server") return json(gardenField);
   if (serversScene && url.pathname === "/api/lenses/entities") return json({ entities: LENS_ENTITIES[url.searchParams.get("id") ?? ""] ?? [] });
   // recents from this vault, not the fixture's: what search lists before you type.
   // One row per path, as the engine's: a feed source is a graph node too.
