@@ -8,7 +8,7 @@ import { json, readBody, type Route } from "./httpx";
 import { insertionEventRel, type EventAuthor } from "./insertionLog";
 import { commitSourceCopyEvents, createSourceCopyEvent, type SourceCopyEvent } from "./sourceCopyLog";
 import { readSourceInsertionPath } from "./sourceFeed";
-import { copyProposals, projectedSource, sourceCopiesRecord, sourceRecord } from "./vaultReadModel";
+import { copyGroups, copyProposals, projectedSource, sourceSummaries, withVaultSnapshot } from "./vaultReadModel";
 import type { CopyWhy } from "./sourceCopies";
 
 /** A person's word on two sources, by path or id. "Same" is one event.
@@ -25,7 +25,7 @@ export function declareCopies(root: string, input: { a: string; b: string; same:
   const [a, b] = [id(input.a), id(input.b)];
   if (a === b) throw new Error("source copies: a source is its own copy already");
   if (typeof input.same !== "boolean") throw new Error("source copies: say same, true or false");
-  const groups = sourceCopiesRecord(root), members = (x: string): string[] => groups.get(x)?.members.map((m) => m.id) ?? [x];
+  const groups = copyGroups(root, [a, b]), members = (x: string): string[] => groups.get(x)?.members.map((m) => m.id) ?? [x];
   const together = groups.get(a) !== undefined && groups.get(a) === groups.get(b);
   const pairs: [string, string][] = input.same ? [[a, b]]
     : together ? members(a).filter((m) => m !== b).map((m) => [m, b])
@@ -45,21 +45,25 @@ export interface CopyReview {
   proposals: { path: string; title: string; score?: number }[];
 }
 export function copyReview(root: string, insertionId: string): CopyReview {
-  const groups = sourceCopiesRecord(root), group = groups.get(insertionId), { sources } = sourceRecord(root);
-  const at = (id: string) => { const s = sources.get(id); return s && { path: insertionEventRel(s), title: s.title }; };
-  const copies = (group?.members ?? []).filter((m) => m.id !== insertionId).map((m) => {
-    const why = group!.why(insertionId, m.id);
-    return { path: insertionEventRel(m), title: m.title, ...(why ? { why } : {}) };
+  return withVaultSnapshot(root, () => {
+    const group = copyGroups(root, [insertionId]).get(insertionId);
+    const copies = (group?.members ?? []).filter((m) => m.id !== insertionId).map((m) => {
+      const why = group!.why(insertionId, m.id);
+      return { path: insertionEventRel(m), title: m.title, ...(why ? { why } : {}) };
+    });
+    const mine = new Set(group?.members.map((m) => m.id) ?? [insertionId]);
+    const proposals = copyProposals(root, insertionId);
+    const others = [...new Set(proposals.map((p) => (mine.has(p.a) ? p.b : p.a)))];
+    const groups = copyGroups(root, others), alone = sourceSummaries(root, others);
+    const rows = new Map<string, CopyReview["proposals"][number]>();
+    for (const p of proposals) {
+      const other = mine.has(p.a) ? p.b : p.a, lead = groups.get(other)?.members[0] ?? alone.get(other);
+      const held = lead && rows.get(lead.id);
+      if (!lead || (held && (held.score ?? -1) >= (p.score ?? -1))) continue;
+      rows.set(lead.id, { path: insertionEventRel(lead), title: lead.title, ...(p.score !== undefined ? { score: p.score } : {}) });
+    }
+    return { copies, proposals: [...rows.values()] };
   });
-  const mine = new Set(group?.members.map((m) => m.id) ?? [insertionId]);
-  const rows = new Map<string, CopyReview["proposals"][number]>();
-  for (const p of copyProposals(root, insertionId)) {
-    const other = mine.has(p.a) ? p.b : p.a, lead = groups.get(other)?.members[0]!.id ?? other;
-    const held = rows.get(lead), row = at(lead);
-    if (!row || (held && (held.score ?? -1) >= (p.score ?? -1))) continue;
-    rows.set(lead, { ...row, ...(p.score !== undefined ? { score: p.score } : {}) });
-  }
-  return { copies, proposals: [...rows.values()] };
 }
 
 /** The viewer's door: a person's word on a pair. */

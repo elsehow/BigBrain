@@ -72,6 +72,7 @@ import {
   type RevocationEvent,
 } from "./revocationLog";
 import { sourceThreads } from "./sourceThreads";
+import { copyKeys, titleBuckets, titleForms } from "./sourceCopies";
 import type { SourceMetadata } from "./insertionLog";
 import { withProjectionWrite } from "./projectionWriteLock";
 
@@ -98,7 +99,9 @@ import { withProjectionWrite } from "./projectionWriteLock";
 //     journals those come from, and narrow columns ahead of the event.
 // 25: entity folds — the operator's rejects as a log kind, and the pass's
 //     standing proposals (lib/entityFolds.ts).
-const SCHEMA_VERSION = "25";
+// 26: what finds a source's copies (lib/sourceCopies.ts): its exact keys and
+//     its title's buckets, kept as it lands. A change to either rule bumps it.
+const SCHEMA_VERSION = "26";
 
 export interface AssertionSearchHit {
   id: string;
@@ -209,6 +212,13 @@ function schema(db: Database): void {
     intake_priority INTEGER,
     intake_at TEXT NOT NULL
   )`);
+  // What finds a source's copies (lib/sourceCopies.ts): the keys that make two
+  // sources one document, and the buckets where titles that name each other
+  // meet. A work's alone; talk and mail have neither.
+  db.run("CREATE TABLE IF NOT EXISTS source_copy_keys (key TEXT NOT NULL, insertion_id TEXT NOT NULL, PRIMARY KEY (key, insertion_id)) WITHOUT ROWID");
+  db.run("CREATE INDEX IF NOT EXISTS source_copy_keys_insertion ON source_copy_keys(insertion_id)");
+  db.run("CREATE TABLE IF NOT EXISTS source_title_keys (bucket TEXT NOT NULL, insertion_id TEXT NOT NULL, PRIMARY KEY (bucket, insertion_id)) WITHOUT ROWID");
+  db.run("CREATE INDEX IF NOT EXISTS source_title_keys_insertion ON source_title_keys(insertion_id)");
   // The whole insertion event, body included, stored once: what a note read,
   // an evidence check or a snippet opens, by id.
   db.run("CREATE TABLE IF NOT EXISTS source_documents (insertion_id TEXT PRIMARY KEY, event_json TEXT NOT NULL)");
@@ -486,6 +496,10 @@ function insertSourceRow(db: Database, source: SourceInsertion, root: string): b
       source.envelope.source === "agent-chat" ? savedClaudeModel(root, source.envelope.attachments) ?? null : null
     );
     db.run("INSERT OR REPLACE INTO meta(k,v) VALUES ('threads_dirty','1')");
+    const key = db.query("INSERT OR IGNORE INTO source_copy_keys(key, insertion_id) VALUES (?, ?)");
+    for (const k of copyKeys(source)) key.run(k, source.id);
+    const forms = titleForms(source), bucket = db.query("INSERT INTO source_title_keys(bucket, insertion_id) VALUES (?, ?)");
+    for (const b of forms ? titleBuckets(forms) : []) bucket.run(b, source.id);
     db.query("INSERT INTO source_fts(insertion_id, source_id, title, body) VALUES (?, ?, ?, ?)")
       .run(source.id, source.source_id, source.title, source.body);
     writeDocumentLinks(db, `source:${source.id}`, source.content_sha256,

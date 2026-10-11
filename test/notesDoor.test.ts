@@ -3,7 +3,8 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { projectNotes, projectionChangesSince, projectionRevision, syncAssertionProjection } from "../lib/assertionProjection";
-import { vaultRecord } from "../lib/vaultReadModel";
+import { walkMarkdown } from "../lib/vaultRead";
+import { noteCount, vaultRecord } from "../lib/vaultReadModel";
 import { mdVault } from "./support/vault";
 
 // The notes door (#225): Markdown, the one input people edit outside the
@@ -68,4 +69,20 @@ test("notes edited while no process watched are found by the next process's cens
   `], { env: { ...process.env, BIGBRAIN_VAULT: root, BIGBRAIN_ASSERTION_DB: "" }, encoding: "utf8" });
   expect(next.status, next.stderr).toBe(0);
   expect(JSON.parse(next.stdout.trim().split("\n").at(-1)!)).toEqual(["Gears", "Orrery, edited while closed"]);
+});
+
+test("the vault's note counts are the projected notes, counted as the folder walk counts them", () => {
+  const root = mdVault({ dirs: ["inbox/unsorted/a/b/c/d", "inbox/.hidden", "requests/done"] }); roots.push(root);
+  for (const rel of ["inbox/one.md", "inbox/two.md", "inbox/unsorted/u.md", "inbox/unsorted/a/b/c/deep.md", "inbox/unsorted/a/b/c/d/deeper.md",
+    "inbox/.hidden/h.md", "inbox/notes.txt", "requests/done/r.md"]) writeFileSync(join(root, rel), "# Note\n");
+  syncAssertionProjection(root);
+  for (const [dir, depth] of [["inbox", 0], ["inbox", 3], ["inbox/unsorted", 3], ["requests", 0], ["requests/done", 3], ["entities", 3]] as const)
+    expect(noteCount(root, dir, depth)).toBe(walkMarkdown(join(root, dir), [""], { maxDepth: depth, skipDotted: true }).length);
+  expect(noteCount(root, "inbox", 0)).toBe(2);
+  expect(noteCount(root, "inbox/unsorted")).toBe(2);
+  // a note the door has not been told of is not counted until it is
+  writeFileSync(join(root, "inbox", "three.md"), "# Note\n");
+  expect(noteCount(root, "inbox", 0)).toBe(2);
+  projectNotes(root, ["inbox/three.md"]);
+  expect(noteCount(root, "inbox", 0)).toBe(3);
 });

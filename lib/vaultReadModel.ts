@@ -15,7 +15,10 @@ import { withProjectionWrite } from "./projectionWriteLock";
 import type { RecentEntry } from "./viewTypes";
 import { threadsByInsertion, type SourceThread } from "./sourceThreads";
 import { supersededInsertionIds, liveAssertionSql, liveSourceSql } from "./sourceSupersede";
-import { copyCandidates, copyCutoff, foldCopyEvents, PROPOSE_FLOOR, sourceCopies, type CopyWhy, type SourceCopies } from "./sourceCopies";
+import {
+  copyCandidates, copyCutoff, CROWD, foldCopyEvents, PROPOSE_FLOOR, sameTitle, sourceCopies, titleBuckets, titleForms,
+  type CopyRecord, type CopyWhy, type SourceCopies, type TitleForms,
+} from "./sourceCopies";
 import { copyPairKey, type SourceCopyEvent } from "./sourceCopyLog";
 import { STUB_CHARS } from "./text";
 import { aboutIds, VOICE_KINDS } from "./voiceFacts";
@@ -49,6 +52,7 @@ interface DecodedRevision {
   record?: VaultRecord;
   sources?: SourceRecord;
   copies?: CopiesRecord;
+  copyLinks?: CopyLinks;
   catalog?: { sources: SourceMetadata[]; threads: SourceThread<SourceMetadata>[] };
   linkTexts?: Map<string, string[]>;
   memory?: { inss: SourceMetadata[]; asserted: AssertionEvent[]; voice: SourceInsertion[];
@@ -106,11 +110,8 @@ export function sourceRecord(root: string): SourceRecord {
   return withVaultSnapshot(root, (db, revision) => {
     const held = decodedRevision(root, revision);
     if (held.sources) return held.sources;
-    const sources = new Map((db.query("SELECT header_json, excerpt, intake_priority, transcript_model FROM sources WHERE present = 1 ORDER BY coalesce(received_at, occurred_at, ''), insertion_id").all() as
-      { header_json: string; excerpt: string; intake_priority: number | null; transcript_model: string | null }[]).map(row => {
-        const source: SourceSummary = { ...JSON.parse(row.header_json), excerpt: row.excerpt, intakePriority: row.intake_priority, transcriptModel: row.transcript_model };
-        return [source.id, source];
-      }));
+    const sources = summariesById(db.query(`SELECT ${SUMMARY} FROM sources s WHERE s.present = 1
+      ORDER BY coalesce(s.received_at, s.occurred_at, ''), s.insertion_id`).all() as SummaryRow[]);
     const ids = (sql: string) => new Set((db.query(sql).all() as { insertion_id: string }[]).map(row => row.insertion_id));
     const declined = ids("SELECT DISTINCT insertion_id FROM declines");
     // Withdrawal alone never makes an arrival pending again. A decline wins
@@ -165,36 +166,58 @@ interface CopiesRecord {
   unjudged: [string, string][];
 }
 
+/** What links copies besides their keys (lib/sourceCopies.ts), read whole
+ * (these logs are small): an entity bound to each landing, a person's word
+ * and a model's judgment per pair. `landing` names the live landing a
+ * binding's insertion stands for: itself, or when a later landing of its
+ * source superseded it, that one, as the graph follows it. */
+interface CopyLinks {
+  said: CopyRecord;
+  joins: Map<string, string[]>;
+  pairs: [string, string, CopyWhy][];
+  apart: (a: string, b: string) => boolean;
+}
+function copyLinks(db: Database, landing: (insertionId: string) => string | undefined): CopyLinks {
+  const canonical = db.query("SELECT entity_id FROM entity_aliases WHERE alias_id = ?");
+  const joins = new Map<string, string[]>();
+  for (const binding of entitySourcesIn(db)) {
+    const id = binding.bound ? landing(binding.insertion_id) : undefined;
+    const entity = (canonical.get(binding.entity.id) as { entity_id: string } | null)?.entity_id ?? binding.entity.id;
+    if (id) joins.set(id, [...(joins.get(id) ?? []), `entity:${entity}`]);
+  }
+  const said = foldCopyEvents(decoded<SourceCopyEvent>(db, "SELECT event_json FROM source_copy_events"));
+  const cutoff = copyCutoff(said);
+  const pair = (key: string): [string, string] => key.split("|") as [string, string];
+  const pairs: [string, string, CopyWhy][] = [];
+  for (const [key, same] of said.declared) if (same) pairs.push([...pair(key), "you"]);
+  for (const [key, j] of said.judged) if (j.score >= cutoff && !said.declared.has(key)) pairs.push([...pair(key), "judged"]);
+  return { said, joins, pairs, apart: (a, b) => said.declared.get(copyPairKey(a, b)) === false };
+}
+/** A copy whose text the vault does not hold leads no group (lib/text.ts). */
+function stubIn(db: Database): (source: SourceSummary) => boolean {
+  const prose = db.query("SELECT prose_chars FROM sources WHERE insertion_id = ?");
+  return (source) => ((prose.get(source.id) as { prose_chars: number } | null)?.prose_chars ?? 0) < STUB_CHARS;
+}
+
 /** Copies of one document (lib/sourceCopies.ts) over live arrivals outside
  * mail threads. Exact keys, an entity binding (a superseded landing followed
  * to its live one, as the graph does), a person's "same" and a judgment at or
- * above the cut-off link a pair; a person's "not the same" cuts it. */
+ * above the cut-off link a pair; a person's "not the same" cuts it. The whole
+ * record, for the graph and the judging pass; a note asks copyGroups. */
 function copiesRecord(root: string): CopiesRecord {
   return withVaultSnapshot(root, (db, revision) => {
     const held = decodedRevision(root, revision);
     if (held.copies) return held.copies;
     const { sources, superseded, threadByInsertion } = sourceRecord(root);
-    const aliases = aliasesIn(db);
     const live = new Map<string, string>();
     for (const source of sources.values()) if (!superseded.has(source.id)) live.set(source.source_id, source.id);
-    const joins = new Map<string, string[]>();
-    for (const binding of entitySourcesIn(db)) {
-      const landed = binding.bound ? sources.get(binding.insertion_id) : undefined;
-      const id = landed && (superseded.has(landed.id) ? live.get(landed.source_id) : landed.id);
-      if (id) joins.set(id, [...(joins.get(id) ?? []), `entity:${(aliases.canonical.get(binding.entity.id) ?? binding.entity).id}`]);
-    }
-    const said = foldCopyEvents(decoded<SourceCopyEvent>(db, "SELECT event_json FROM source_copy_events"));
-    const cutoff = copyCutoff(said);
-    const pair = (key: string): [string, string] => key.split("|") as [string, string];
-    const pairs: [string, string, CopyWhy][] = [];
-    for (const [key, same] of said.declared) if (same) pairs.push([...pair(key), "you"]);
-    for (const [key, j] of said.judged) if (j.score >= cutoff && !said.declared.has(key)) pairs.push([...pair(key), "judged"]);
-    const prose = db.query("SELECT prose_chars FROM sources WHERE insertion_id = ?");
-    const works = [...sources.values()].filter((s) => !superseded.has(s.id) && !threadByInsertion.has(s.id));
-    const groups = sourceCopies(works, {
-      joins, pairs, apart: (a, b) => said.declared.get(copyPairKey(a, b)) === false,
-      stub: (source) => ((prose.get(source.id) as { prose_chars: number } | null)?.prose_chars ?? 0) < STUB_CHARS,
+    const links = copyLinks(db, (id) => {
+      const landed = sources.get(id);
+      return landed && (superseded.has(landed.id) ? live.get(landed.source_id) : landed.id);
     });
+    const { said } = links;
+    const works = [...sources.values()].filter((s) => !superseded.has(s.id) && !threadByInsertion.has(s.id));
+    const groups = sourceCopies(works, { ...links, stub: stubIn(db) });
     const proposals = new Map<string, CopyProposal[]>(), unjudged: [string, string][] = [];
     const members = (id: string): string[] => groups.get(id)?.members.map((m) => m.id) ?? [id];
     for (const [a, b] of copyCandidates(works)) {
@@ -215,15 +238,115 @@ function copiesRecord(root: string): CopiesRecord {
 /** Copies of one document (lib/sourceCopies.ts), by insertion id. */
 export const sourceCopiesRecord = (root: string): Map<string, SourceCopies<SourceSummary>> => copiesRecord(root).groups;
 
-/** The pairs still to settle that a source's document is part of. */
-export const copyProposals = (root: string, insertionId: string): CopyProposal[] => copiesRecord(root).proposals.get(insertionId) ?? [];
-
 /** Candidates for the judging pass (lib/sourceCopyJudge.ts). */
 export const unjudgedCopies = (root: string): [string, string][] => copiesRecord(root).unjudged;
 
+const SUMMARY = "s.header_json, s.excerpt, s.intake_priority, s.transcript_model";
+type SummaryRow = { header_json: string; excerpt: string; intake_priority: number | null; transcript_model: string | null };
+const summaryOf = (row: SummaryRow): SourceSummary =>
+  ({ ...JSON.parse(row.header_json), excerpt: row.excerpt, intakePriority: row.intake_priority, transcriptModel: row.transcript_model });
+const summariesById = (rows: readonly SummaryRow[]): Map<string, SourceSummary> =>
+  new Map(rows.map((row) => { const source = summaryOf(row); return [source.id, source]; }));
+/** What copiesRecord groups: a live arrival, outside any mail thread. */
+const GROUPED = `s.present = 1 AND ${liveSourceSql("s")} AND NOT EXISTS (SELECT 1 FROM read_thread_members m
+  JOIN read_thread_members o ON o.thread_id = m.thread_id AND o.insertion_id != m.insertion_id WHERE m.insertion_id = s.insertion_id)`;
+const GROUPED_SOURCE = `SELECT ${SUMMARY} FROM sources s WHERE s.insertion_id = ? AND ${GROUPED}`;
+const LANDING = `SELECT CASE WHEN ${liveSourceSql("s")} THEN s.insertion_id ELSE (SELECT t.insertion_id FROM sources t
+    WHERE t.present = 1 AND t.source_id = s.source_id AND ${liveSourceSql("t")}
+    ORDER BY coalesce(t.received_at, t.occurred_at, '') DESC, t.insertion_id DESC LIMIT 1) END AS id
+  FROM sources s WHERE s.insertion_id = ? AND s.present = 1`;
+
+/** copyLinks at this revision, with each landing looked up as copiesRecord
+ * follows it: the latest live landing of a superseded one's source. Held
+ * for the revision, so it keeps no statement of the snapshot's. */
+function linksIn(db: Database, revision: string, root: string): CopyLinks {
+  return decodedRevision(root, revision).copyLinks ??=
+    copyLinks(db, (id) => (db.query(LANDING).get(id) as { id: string | null } | null)?.id ?? undefined);
+}
+
+/** The copy groups `ids` belong to, by insertion id, exactly as copiesRecord
+ * groups the whole record: the arrivals reachable from them through a shared
+ * key (source_copy_keys), a bound entity or a pair, grouped by the same rule.
+ * Nothing outside that reach can join them. */
+function copyGroupsIn(db: Database, ids: readonly string[], links: CopyLinks): Map<string, SourceCopies<SourceSummary>> {
+  const add = (map: Map<string, string[]>, key: string, id: string): void => { const held = map.get(key); if (held) held.push(id); else map.set(key, [id]); };
+  const byJoin = new Map<string, string[]>(), paired = new Map<string, string[]>();
+  for (const [id, keys] of links.joins) for (const key of keys) add(byJoin, key, id);
+  for (const [a, b] of links.pairs) { add(paired, a, b); add(paired, b, a); }
+  const grouped = db.query(GROUPED_SOURCE);
+  const keyed = db.query("SELECT DISTINCT o.insertion_id AS id FROM source_copy_keys k JOIN source_copy_keys o ON o.key = k.key WHERE k.insertion_id = ?");
+  const seen = new Set<string>(), works: SourceSummary[] = [], next = [...ids];
+  while (next.length) {
+    const id = next.pop()!;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const row = grouped.get(id) as SummaryRow | null;
+    if (!row) continue;
+    works.push(summaryOf(row));
+    for (const mate of keyed.all(id) as { id: string }[]) next.push(mate.id);
+    for (const key of links.joins.get(id) ?? []) next.push(...byJoin.get(key)!);
+    next.push(...(paired.get(id) ?? []));
+  }
+  return sourceCopies(works, { ...links, stub: stubIn(db) });
+}
+
+/** The copy groups of these sources (lib/sourceCopies.ts), by insertion id:
+ * a source with no other copy has none. */
+export function copyGroups(root: string, ids: readonly string[]): Map<string, SourceCopies<SourceSummary>> {
+  return withVaultSnapshot(root, (db, revision) => copyGroupsIn(db, ids, linksIn(db, revision, root)));
+}
+
+/** The pairs still to settle that a source's document is part of: each
+ * candidate (lib/sourceCopies.ts copyCandidates) with one of its copies on
+ * one side, found through the title buckets its copies sit in, as
+ * copiesRecord finds them over the whole record. Pair order. */
+export function copyProposals(root: string, insertionId: string): CopyProposal[] {
+  return withVaultSnapshot(root, (db, revision) => {
+    const links = linksIn(db, revision, root);
+    const group = copyGroupsIn(db, [insertionId], links).get(insertionId);
+    const self = group ? undefined : db.query(GROUPED_SOURCE).get(insertionId) as SummaryRow | null;
+    const members = group?.members ?? (self ? [summaryOf(self)] : []);
+    const ours = new Set(members.map((m) => m.id));
+    const mates = db.query(`SELECT ${SUMMARY} FROM source_title_keys t JOIN sources s ON s.insertion_id = t.insertion_id
+      WHERE t.bucket = ? AND ${GROUPED}`);
+    const forms = new Map<string, TitleForms | undefined>();
+    const formsOf = (source: SourceSummary): TitleForms | undefined => {
+      if (!forms.has(source.id)) forms.set(source.id, titleForms(source));
+      return forms.get(source.id);
+    };
+    const candidates = new Map<string, [string, string]>();
+    for (const member of members) {
+      const mine = formsOf(member);
+      for (const bucket of mine ? titleBuckets(mine) : []) {
+        const met = (mates.all(bucket) as SummaryRow[]).map(summaryOf);
+        if (met.length < 2 || met.length > CROWD) continue;
+        for (const other of met) {
+          if (other.id === member.id || !sameTitle(mine!, formsOf(other)!)) continue;
+          const pair = [member.id, other.id].sort() as [string, string];
+          candidates.set(copyPairKey(...pair), pair);
+        }
+      }
+    }
+    const out: CopyProposal[] = [];
+    for (const [key, [a, b]] of [...candidates].sort(([x], [y]) => x.localeCompare(y))) {
+      const judged = links.said.judged.get(key);
+      if (links.said.declared.has(key) || (ours.has(a) && ours.has(b))) continue;
+      if (judged && judged.score < PROPOSE_FLOOR) continue;
+      out.push({ a, b, ...(judged ? { score: judged.score } : {}) });
+    }
+    return out;
+  });
+}
+
+/** Present sources' summaries, by insertion id. */
+export function sourceSummaries(root: string, ids: readonly string[]): Map<string, SourceSummary> {
+  return withVaultSnapshot(root, (db) => summariesById(db.query(`SELECT ${SUMMARY} FROM sources s
+    WHERE s.present = 1 AND s.insertion_id IN (SELECT value FROM json_each(?))`).all(JSON.stringify(ids)) as SummaryRow[]));
+}
+
 /** A source's other copies, best first; none when it has none. */
 export function otherCopies(root: string, insertionId: string): SourceSummary[] {
-  return (sourceCopiesRecord(root).get(insertionId)?.members ?? []).filter((copy) => copy.id !== insertionId);
+  return (copyGroups(root, [insertionId]).get(insertionId)?.members ?? []).filter((copy) => copy.id !== insertionId);
 }
 
 /** Publish derived rows only for the revision from which they were prepared.
@@ -310,7 +433,8 @@ export function entityReadModel(root: string, asked: string) {
     const sources = sourcesFor(db, [...rows, ...declarations]);
     const bound = boundSources(db, ids);
     // the copies the bound sources belong to, best first, an unbound copy included
-    const documents = bound.map((source) => sourceCopiesRecord(root).get(source.id)).find((c) => c)?.members ?? bound;
+    const groups = copyGroupsIn(db, bound.map((source) => source.id), linksIn(db, revision, root));
+    const documents = bound.map((source) => groups.get(source.id)).find((c) => c)?.members ?? bound;
     return { revision, id, aliases, rows, sources, bound: documents, owner: userIdentityDeclarationsFromEvents(declarations, sources).at(-1) };
   });
 }
@@ -336,6 +460,15 @@ export function sourceAssertionReadModel(root: string, ids: readonly string[]) {
 }
 export function projectedSource(root: string, id: string): SourceInsertion | undefined {
   return withVaultSnapshot(root, db => decoded<SourceInsertion>(db, "SELECT event_json FROM sources JOIN source_documents USING (insertion_id) WHERE present = 1 AND insertion_id = ?", id)[0]);
+}
+
+/** How many notes the projection holds under `dir` (vault-relative), at
+ * most `depth` folders below it: walkMarkdown's count of the same tree, as
+ * the notes door last projected it. */
+export function noteCount(root: string, dir: string, depth = 3): number {
+  return withVaultSnapshot(root, (db) => (db.query(`SELECT count(*) AS n FROM markdown_documents
+    WHERE path > ?1 AND path < ?2 AND length(path) - length(replace(path, '/', '')) <= ?3`)
+    .get(`${dir}/`, `${dir}0`, dir.split("/").length + depth) as { n: number }).n);
 }
 
 export function projectedMarkdown(root: string, path: string): string | undefined {
