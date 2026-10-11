@@ -704,7 +704,7 @@
   });
 
   /** The stamps of the graph and the feed this view holds (lib/viewStamps.ts). */
-  const fetched: Rendered = { graph: "", joined: "", feed: "" };
+  const fetched: Rendered = { graph: "", joined: "", feed: "", folds: "" };
   /** A graph response's stamp: its ETag, else the pushed stamps it was fetched under. */
   function fetchedGraph(etag: string, pushed: { graph: string; joined: string } | undefined): void {
     fetched.graph = etag || (pushed?.graph ?? ""); fetched.joined = pushed?.joined ?? "";
@@ -765,7 +765,8 @@
         if (!stamps) break;
         const behind = viewsBehind(fetched, stamps);
         if (behind.graph || behind.feed) relations.clear();
-        await Promise.all([behind.graph && refreshGraph(stamps.views), behind.feed && refreshFeed(stamps.views.feed)]);
+        await Promise.all([behind.graph && refreshGraph(stamps.views), behind.feed && refreshFeed(stamps.views.feed),
+          behind.folds && loadFolds(stamps.views.folds)]);
       } while (again);
     } finally { syncing = false; }
   }
@@ -1033,8 +1034,11 @@
     } catch (e) { flash(`Couldn’t fold: ${errText(e)}`); }
     finally { folding = false; }
   }
-  async function loadFolds(): Promise<void> {
-    try { const f = await api.folds(); folds = f.groups; foldsApart = f.rejected ?? []; } catch { /* no folds door: nothing offered */ }
+  async function loadFolds(pushed = app.views?.views.folds ?? ""): Promise<void> {
+    try {
+      const f = await api.folds();
+      folds = f.data.groups; foldsApart = f.data.rejected ?? []; fetched.folds = f.stamp || pushed;
+    } catch { /* no folds door: nothing offered */ }
   }
   /** Reject `from` → the keeper: two things — remembered (the fold log),
    * never offered together again. */

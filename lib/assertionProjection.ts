@@ -54,6 +54,13 @@ import {
   validateSourceCopyEvent,
   type SourceCopyEvent,
 } from "./sourceCopyLog";
+import {
+  ENTITY_FOLDS_FILE,
+  appendEntityFoldRejectEvent,
+  listEntityFoldRejectEventFiles,
+  validateEntityFoldRejectEvent,
+  type EntityFoldRejectEvent,
+} from "./entityFoldLog";
 import type { LabelRow } from "./entityLookalikes";
 import { assertionDb } from "./env";
 import { dueOf, FEED_SECTIONS, type FeedRecord } from "./feedJournal";
@@ -89,7 +96,9 @@ import { withProjectionWrite } from "./projectionWriteLock";
 // 24: what a feed row needs, kept beside each assertion (when its claim was
 //     first recorded, the model of the gardener run that wrote it), the run
 //     journals those come from, and narrow columns ahead of the event.
-const SCHEMA_VERSION = "24";
+// 25: entity folds — the operator's rejects as a log kind, and the pass's
+//     standing proposals (lib/entityFolds.ts).
+const SCHEMA_VERSION = "25";
 
 export interface AssertionSearchHit {
   id: string;
@@ -328,6 +337,17 @@ function schema(db: Database): void {
     event_json TEXT NOT NULL
   )`);
   db.run("CREATE INDEX IF NOT EXISTS revocations_assertion ON revocations(assertion_id, created_at, id)");
+  // Entity folds (lib/entityFolds.ts): pairs the operator said are two
+  // things, as written (readers resolve each side through the alias table),
+  // and the pass's standing proposals, the file whole (projectFolds).
+  db.run(`CREATE TABLE IF NOT EXISTS entity_fold_rejects (
+    id TEXT PRIMARY KEY,
+    a TEXT NOT NULL,
+    b TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    event_json TEXT NOT NULL
+  )`);
+  db.run("CREATE TABLE IF NOT EXISTS entity_folds (body TEXT NOT NULL)");
   // The run journals (lib/runJournal.ts), each projected once, with a
   // change row: a tend round's model and window, and the sorted feed's items
   // as the feed stage first placed each source (lib/feedJournal.ts feedItems).
@@ -388,9 +408,11 @@ function openReadonly(root: string): Database {
 const encoded = (value: unknown): string => JSON.stringify(value);
 
 /** What a revision changed: an event projected (`add`), a source retracted or
- * restored by hand (`remove`/`add`), a note created, edited or deleted, or a
- * run journal written (projectJournal). */
-export type ChangeKind = "source" | "assertion" | "decline" | "revocation" | "alias" | "entity_source" | "copy" | "markdown" | "journal";
+ * restored by hand (`remove`/`add`), a note created, edited or deleted, a
+ * run journal written (projectJournal), or the fold proposals rewritten
+ * (projectFolds). */
+export type ChangeKind = "source" | "assertion" | "decline" | "revocation" | "alias" | "entity_source" | "copy" | "fold_reject"
+  | "markdown" | "journal" | "folds";
 export interface ProjectionChange { revision: number; kind: ChangeKind; id: string; op: "add" | "edit" | "remove" }
 
 /** Advance the revision and log what advanced it, in the caller's
@@ -681,6 +703,14 @@ function insertSourceCopyRow(db: Database, event: SourceCopyEvent): boolean {
   });
 }
 
+function insertEntityFoldRejectRow(db: Database, event: EntityFoldRejectEvent): boolean {
+  validateEntityFoldRejectEvent(event);
+  return insertOnce(db, "fold_reject", "entity_fold_rejects", "id", event.id, event, (eventJson) => {
+    db.query("INSERT INTO entity_fold_rejects(id, a, b, created_at, event_json) VALUES (?, ?, ?, ?, ?)")
+      .run(event.id, event.pair[0].id, event.pair[1].id, event.created_at, eventJson);
+  });
+}
+
 /** Durable append first, disposable projection second. A projection failure
  * leaves the event safe in its log, where sync and rebuild deterministically
  * heal it — the discipline every kind follows, so it is written once. The
@@ -705,6 +735,7 @@ export const appendAndProjectDecline = appendAndProject(appendDeclineEvent, inse
 export const appendAndProjectEntityAlias = appendAndProject(appendEntityAliasEvent, insertEntityAliasRow);
 export const appendAndProjectEntitySource = appendAndProject(appendEntitySourceEvent, insertEntitySourceRow);
 export const appendAndProjectSourceCopy = appendAndProject(appendSourceCopyEvent, insertSourceCopyRow);
+export const appendAndProjectEntityFoldReject = appendAndProject(appendEntityFoldRejectEvent, insertEntityFoldRejectRow);
 // Last of its kind on purpose: a revocation needs its assertion — and, when
 // it supersedes, that successor — already projected.
 export const appendAndProjectRevocation = appendAndProject(appendRevocationEvent, insertRevocationRow);
@@ -844,6 +875,12 @@ const KINDS: readonly ProjectionKind[] = [
     validate: validateSourceCopyEvent,
     insert: insertSourceCopyRow,
   }),
+  projectionKind<EntityFoldRejectEvent>({
+    held: "SELECT id FROM entity_fold_rejects",
+    listFiles: listEntityFoldRejectEventFiles,
+    validate: validateEntityFoldRejectEvent,
+    insert: insertEntityFoldRejectRow,
+  }),
   projectionKind<RevocationEvent>({
     held: "SELECT id FROM revocations",
     listFiles: listRevocationEventFiles,
@@ -859,9 +896,9 @@ interface Probe { generation: string; pending: boolean }
 
 /** What reconciliation would have to do, read on a READONLY connection —
  * never a write transaction. The census — a directory listing and id scans
- * per log kind and for the run journals, and Markdown's metadata stamps,
- * without body reads — runs only when `census` asks for it: recovery does, a
- * read never does.
+ * per log kind and for the run journals, the fold proposals against their
+ * file, and Markdown's metadata stamps, without body reads — runs only when
+ * `census` asks for it: recovery does, a read never does.
  * `undefined` when there is no projection to compare against: absent,
  * damaged, or built by another schema — the write path rebuilds. */
 function probe(root: string, census: boolean): Probe | undefined {
@@ -874,6 +911,7 @@ function probe(root: string, census: boolean): Probe | undefined {
     if (census) {
       const journals = heldIds(db, "SELECT rel AS id FROM journals");
       if (journalFiles(root).some((rel) => !journals.has(rel))) pending = true;
+      if (foldsFile(root) !== heldFolds(db)) pending = true;
     }
     if (census) for (const kind of KINDS) {
       const held = heldIds(db, kind.held), files = new Set(kind.listFiles(root).map(file => file.id));
@@ -967,6 +1005,7 @@ function reconcile(db: Database, root: string): AssertionProjectionStats {
       }
     }
   }
+  reconcileFolds(db, root);
   reconcileMarkdown(db, root);
   reconcileThreads(db);
   db.run("INSERT OR REPLACE INTO meta(k,v) VALUES ('complete','1')");
@@ -1170,6 +1209,36 @@ function reconcileJournals(db: Database, root: string): void {
   const held = heldIds(db, "SELECT rel AS id FROM journals");
   const added = journalFiles(root).filter((rel) => !held.has(rel) && insertJournalRow(db, root, rel));
   commitChanges(db, added.map((id) => ({ kind: "journal", id, op: "add" })));
+}
+
+/** The fold pass rewrote its proposals (lib/entityFolds.ts): project them,
+ * with a change row when they differ from what the projection holds. The
+ * file was written first; a projection lost to a crash is the next
+ * process's census to heal. */
+export function projectFolds(root: string): void {
+  try {
+    withProjectionWrite(root, () => {
+      const db = open(root);
+      try { db.transaction(() => reconcileFolds(db, root))(); }
+      finally { db.close(); }
+    });
+  } catch { /* the next process's census projects them */ }
+}
+
+function foldsFile(root: string): string | undefined {
+  try { return readFileSync(join(root, ENTITY_FOLDS_FILE), "utf8"); } catch { return undefined; }
+}
+const heldFolds = (db: Database): string | undefined =>
+  (db.query("SELECT body FROM entity_folds").get() as { body: string } | null)?.body;
+
+/** The proposals as their file holds them now, whole: small, and rewritten
+ * whole by each pass. */
+function reconcileFolds(db: Database, root: string): void {
+  const body = foldsFile(root), held = heldFolds(db);
+  if (body === held) return;
+  db.run("DELETE FROM entity_folds");
+  if (body !== undefined) db.query("INSERT INTO entity_folds(body) VALUES (?)").run(body);
+  commitChanges(db, [{ kind: "folds", id: ENTITY_FOLDS_FILE, op: body === undefined ? "remove" : held === undefined ? "add" : "edit" }]);
 }
 
 /** The projection's coordinate, with the coordinate of its last commit that

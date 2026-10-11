@@ -7,11 +7,21 @@
  */
 import { describe, expect, test } from "bun:test";
 import { MEMORY_PROTOCOL_VERSION, writeMemoryStamp } from "../lib/memory";
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { assertionEntityId, createAssertionEvent, type AssertionEntity } from "../lib/assertionLog";
-import { appendAndProjectAssertion, appendAndProjectEntityAlias, projectSourceInsertion, searchAssertionEntities } from "../lib/assertionProjection";
+import {
+  appendAndProjectAssertion,
+  appendAndProjectEntityAlias,
+  appendAndProjectRevocation,
+  projectSourceInsertion,
+  rebuildAssertionProjection,
+  recoverAssertionProjection,
+  searchAssertionEntities,
+} from "../lib/assertionProjection";
+import { createRevocationEvent } from "../lib/revocationLog";
+import { withVaultSnapshot } from "../lib/vaultReadModel";
 import { scanSurface } from "../lib/searchCore";
 import { createEntityAliasEvent } from "../lib/entityAliasLog";
 import {
@@ -218,7 +228,7 @@ describe("a proposal run", () => {
 
 import { dispatch } from "../lib/httpx";
 import { createEntityFoldRejectEvent, appendEntityFoldRejectEvent, readEntityFoldRejectLog, validateEntityFoldRejectEvent } from "../lib/entityFoldLog";
-import { acceptFold, changedSince, foldsRoutes, liveFolds, rejectFold, rejectedPairs } from "../lib/entityFolds";
+import { acceptFold, changedSince, foldsRoutes, liveFolds, rejectFold, rejectedPairList, rejectedPairs } from "../lib/entityFolds";
 import { readEntityAliasLog } from "../lib/entityAliasLog";
 import { runMemory } from "../lib/memoryRun";
 import { appendAssertionEvent } from "../lib/assertionLog";
@@ -266,7 +276,7 @@ describe("the reject log", () => {
     rejectFold(root, { member: SITE.id, others: [RIDGE_WAYS.id] }, USER);
     // Ridge Ways folds into Ridgeways afterwards: the refusal follows it
     acceptFold(root, { canonical: RIDGEWAYS.id, members: [RIDGE_WAYS.id] }, USER);
-    const rejected = rejectedPairs(root);
+    const rejected = rejectedPairs(withVaultSnapshot(root, rejectedPairList));
     expect(rejected(SITE.id, RIDGEWAYS.id)).toBe(true);
     expect(rejected(RIDGEWAYS.id, SITE.id)).toBe(true);
     expect(rejected(SITE.id, AUTO_MAP.id)).toBe(false);
@@ -356,6 +366,40 @@ describe("the live view and the two acts", () => {
     expect(surface.ok && surface.hits[0]).toMatchObject({ title: "Ridgeways", alias: "Auto-MAP" });
     expect(() => acceptFold(root, { canonical: RIDGEWAYS.id, members: [RIDGEWAYS.id] }, USER)).toThrow("nothing to fold");
     expect(() => acceptFold(root, { canonical: "ent_00000000000000000000", members: [EVAN.id] }, USER)).toThrow("not in the record");
+  });
+
+  test("the view counts each member as the census does, live claims only", async () => {
+    const root = vault(...CLAIMS);
+    await seed(root);
+    const [claim] = withVaultSnapshot(root, (db) =>
+      db.query("SELECT assertion_id AS id FROM assertion_entities WHERE entity_id = ? ORDER BY assertion_id LIMIT 1").all(RIDGEWAYS.id)) as { id: string }[];
+    appendAndProjectRevocation(root, createRevocationEvent({ assertion_id: claim!.id, reason: "wrong", author: USER, created_at: stamp(), produced_by: PRODUCED }));
+    const census = new Map(entityCensus(root).map((r) => [r.id, r]));
+    const members = liveFolds(root).groups.flatMap((g) => g.members);
+    expect(members.find((m) => m.id === RIDGEWAYS.id)!.assertions).toBe(1);
+    for (const m of members) expect(m).toEqual({ id: m.id, label: census.get(m.id)!.label, assertions: census.get(m.id)!.assertions });
+  });
+
+  test("the view is the projection's: proposals and rejects project as written; a census or a rebuild reads them back", async () => {
+    const root = vault(...CLAIMS);
+    await seed(root);
+    rejectFold(root, { member: EVAN.id, others: [EK.id] }, USER);
+    expect(withVaultSnapshot(root, (db) => db.query("SELECT kind, op FROM changes WHERE kind IN ('folds', 'fold_reject') ORDER BY revision").all()))
+      .toEqual([{ kind: "folds", op: "add" }, { kind: "fold_reject", op: "add" }]);
+    const live = liveFolds(root);
+    expect(live.groups).toHaveLength(1);
+    expect(live.rejected).toEqual([[EVAN.id, EK.id].sort() as [string, string]]);
+    // the file rewritten while no pass ran: a read never looks; the next census does
+    writeFileSync(entityFoldsFile(root), `${JSON.stringify({ ...readEntityFolds(root)!, groups: [] })}\n`);
+    expect(liveFolds(root)).toEqual(live);
+    recoverAssertionProjection(root);
+    expect(liveFolds(root)).toEqual({ ...live, groups: [] });
+    rebuildAssertionProjection(root);
+    expect(liveFolds(root)).toEqual({ ...live, groups: [] });
+    // and gone: no proposals, and still the pair you kept apart
+    rmSync(entityFoldsFile(root));
+    recoverAssertionProjection(root);
+    expect(liveFolds(root)).toEqual({ proposedAt: null, groups: [], rejected: live.rejected });
   });
 
   test("reject splits the pair in the view and the pass never re-forms it", async () => {

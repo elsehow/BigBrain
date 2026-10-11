@@ -21,7 +21,7 @@ import { readModelRevision, vaultRecord, withVaultSnapshot } from "./vaultReadMo
 
 const NAME = "graph";
 /** What the graph does not read. */
-const IGNORES: readonly ChangeKind[] = ["journal"];
+const IGNORES: readonly ChangeKind[] = ["journal", "fold_reject", "folds"];
 /** A burst of commits saves once: the view in memory serves meanwhile. */
 const SAVE_AFTER_MS = 5_000;
 

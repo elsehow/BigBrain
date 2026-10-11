@@ -86,8 +86,9 @@ async function get<T>(url: string, signal?: AbortSignal): Promise<T> {
 }
 
 /** A read model and the stamp it was served at (lib/viewStamps.ts): the
- * graph's ETag, or the feed's x-bigbrain-stamp. Not cached here: the stamp
- * says when to read again, and the browser revalidates the graph's bytes. */
+ * graph's ETag, or the x-bigbrain-stamp of the feed or the folds. Not cached
+ * here: the stamp says when to read again, and the browser revalidates the
+ * graph's bytes. */
 async function stamped<T>(url: string, header: "etag" | "x-bigbrain-stamp"): Promise<{ data: T; stamp: string }> {
   const r = await fetch(url);
   if (!r.ok) throw new Error(`${url} → ${r.status}`);
@@ -223,7 +224,8 @@ export const api = {
     get<import("../../../../lib/v2Feed").SortedPage>(`/api/v2/sorted?limit=${limit}${before ? `&before=${encodeURIComponent(before)}` : ""}`),
   /** One entity's latest assertions, dated by when each claim was first recorded. */
   v2Entity: (id: string) => get<{ rows: import("./v2/model").V2FeedRow[] }>(`/api/v2/entity?id=${encodeURIComponent(id)}`),
-  folds: () => get<FoldsView>(U.folds()),
+  /** The standing fold proposals against today's record, and their stamp. */
+  folds: () => stamped<FoldsView>(U.folds(), "x-bigbrain-stamp"),
   /** ACCEPT a fold: every member's label becomes an alias of the canonical. */
   acceptFold: (canonical: string, members: string[]) =>
     post<{ canonical: { id: string; label: string }; aliased: { id: string; label: string }[] }>("/api/entity/folds/accept", { canonical, members }),
