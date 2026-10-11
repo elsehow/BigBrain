@@ -94,7 +94,7 @@ CREATE TABLE views (name TEXT PRIMARY KEY, revision TEXT NOT NULL, hash TEXT, bo
 | View | Today | Becomes |
 |---|---|---|
 | `graph` (+ layout) | rebuilt per revision in a one-shot worker, cloned back with tens of MB of evidence, stringified per request | saved bytes and hash; `/api/graph` answers `If-None-Match` with 304 |
-| `v2`, `v2/sorted`, `v2/entity` | decoded and sorted per request | saved per revision, like `read_feed` already is |
+| `v2`, `v2/sorted`, `v2/entity` | decoded and sorted per request | indexed queries over facts the commit keeps beside each row (built in step 6) |
 | folds proposals, vault counts, copy groups, identity | computed per request on the main thread (#231) | saved per revision |
 | briefing evidence | 76k connections scanned per hover | queried by id; not a view (#228) |
 
@@ -160,7 +160,7 @@ Each step ships alone and deletes something.
 | 3 (#238) | `event: views` with view stamps; `journal` change rows (decision 5); ETag and `?current` on `/api/graph`; desktops on the application channel | `{"changed":true}` and refetch-everything; Field polling; the v2 journal listing; the read-state overlay on the graph |
 | 4 (#239) | wake on WAL + `data_version`; `bigbrain recover` | watching `log/`; `projectionHolds`; watcher-triggered recovery; the Markdown walk on every commit |
 | 5 (#245) | the notes door (#225) writing change rows: the viewer's watcher names what changed, the memory pass what it wrote, each process's first read takes the census | the per-read Markdown walk; the one-second clock; read-model hints |
-| 6 | remaining views (#231); incremental graph and v2 from change rows | per-request O(vault) routes |
+| 6 | remaining views (#231): record and layout incremental (#242, #244), the v2 feed as queries (#248) | per-request O(vault) routes; the v2 decode per revision and its journal reads |
 
 ## What a commit still costs (measured after step 4)
 
@@ -184,7 +184,14 @@ transcript's model at projection: one new source now reaches open tabs in
 what changed into the standing layout: only nodes whose connections changed
 move, among nodes held still, and the whole graph settles again after a tenth
 of it has moved. Layout 5.5 s → 40–150 ms; a new source reaches open tabs in
-0.5–1.6 s.
+0.5–1.6 s. Part 3 (#248) makes the v2 feed queries rather than a view: the
+projection keeps each assertion's first-recorded date and its gardener
+run's model, and the feed stage's items (decision 5), so the latest
+assertions, one entity's, and a sorted page are each read off an index,
+decoding only the rows returned. Its outputs match the old builders exactly
+on a large vault; an entity's feed 13 ms → 0.2 ms, and the 360 ms decode per
+revision is gone. The author tally is the one count left over live rows,
+held per feed stamp.
 
 ## Decisions
 
@@ -205,3 +212,6 @@ of it has moved. Layout 5.5 s → 40–150 ms; a new source reaches open tabs in
    journal writes append change rows too (`kind: journal`), so the log is
    every engine write the viewer reads, not only the projection's. The v2 build
    keeps reading the files, which are written once. *Decided; built in step 3.*
+   Step 6 goes further: a journal's write projects what it says (a tend
+   run's model and window, the feed's items), and the census and rebuild
+   read journals as they read `log/`. The v2 reads open no file.
