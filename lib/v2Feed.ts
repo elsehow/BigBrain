@@ -164,7 +164,8 @@ export interface V2SortedRow {
   title?: string;
   path?: string;
   via?: string;
-  /** A sharing event's lens (lib/lensSync.ts): the row opens it, not a source. */
+  /** A lens event's lens (lib/lensSync.ts): the row is no source. A review
+   * opens its lens; what a pass shared selects `entities`, what those notes' claims name. */
   lens?: string;
 }
 

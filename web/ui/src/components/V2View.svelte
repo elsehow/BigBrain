@@ -907,6 +907,8 @@
   $effect(() => {
     void sceneRev;
     const r = sourceInHand;
+    // a lens's row is no source: what it shared is lit instead
+    if (r?.lens) { scene?.source(null); if (!src) scene?.hover(feedEntities(r)); return; }
     // walked to (j/k), it opens as an entity does, its headline beside it;
     // only pointed at, it's named and the camera holds still
     scene?.source(r && field ? { label: r.title ?? r.headline, entities: feedEntities(r), open: !openPilot && !src && r !== rowOver, text: r.headline, path: r.path } : null);
@@ -941,7 +943,9 @@
   /** Open a feed row's source: its entities lit and framed, the source and
    * Quick's summary of it where an opened entity's name goes. */
   function openSource(r: V2SortedRow): void {
-    if (r.lens) return gotoLens(r.lens); // a sharing event opens its lens
+    if (r.lens && r.section === "needs-you") return gotoLens(r.lens); // a review opens its lens
+    // what a lens shared: its entities, one selection; clicked again, it lets go
+    if (r.lens && src?.row.source === r.source) { overview(); unlight(); cursor = null; return; }
     if (r.path && !data) return openDraft(r, r.path);
     if (ent != null) { ent = null; entRows = null; }
     claim = null;
@@ -949,7 +953,7 @@
     rowOver = null;
     src = { row: r, text: r.path && !data ? "" : undefined };
     scene?.hover(null);
-    scene?.search({ matches: feedEntities(r), active: null, move: "frame" });
+    scene?.search({ matches: feedEntities(r), active: null, move: "frame", ties: !!r.lens });
     scene?.shift(shiftFor());
     if (r.path && !data) void briefing(r.path, (text) => { if (src?.row.source === r.source) src = { row: r, text }; })
       .then((ok) => { if (!ok && src?.row.source === r.source && !src.text) src = { row: r }; });
