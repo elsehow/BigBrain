@@ -99,7 +99,7 @@ CREATE TABLE views (name TEXT PRIMARY KEY, revision TEXT NOT NULL, hash TEXT, bo
 | copy groups | the whole record grouped per revision (#231) | a note's neighbours walked through keys kept as each source lands (built in step 6) |
 | vault counts, folder listing | four folder walks per push; a frontmatter read per note per listing (#231) | deleted: nothing read them (step 6) |
 | identity | — | already a query over an index |
-| briefing evidence | 76k connections scanned per hover | queried by id; not a view (#228) |
+| briefing evidence | a second graph build per revision with every link's text, 76k connections cloned and scanned per briefing (#228) | the graph view's build keeps where each connection was written; a briefing reads its selection's rows by id (built in step 6) |
 
 **Freshness.** Freshness is a comparison: a route serves the saved view and its
 revision. When the projection is ahead, the maintainer is already working,
@@ -164,7 +164,7 @@ Each step ships alone and deletes something.
 | 3 (#238) | `event: views` with view stamps; `journal` change rows (decision 5); ETag and `?current` on `/api/graph`; desktops on the application channel | `{"changed":true}` and refetch-everything; Field polling; the v2 journal listing; the read-state overlay on the graph |
 | 4 (#239) | wake on WAL + `data_version`; `bigbrain recover` | watching `log/`; `projectionHolds`; watcher-triggered recovery; the Markdown walk on every commit |
 | 5 (#245) | the notes door (#225) writing change rows: the viewer's watcher names what changed, the memory pass what it wrote, each process's first read takes the census | the per-read Markdown walk; the one-second clock; read-model hints |
-| 6 | remaining views (#231): record and layout incremental (#242, #244), the v2 feed as queries (#248), folds as lookups (#250), copies as lookups (#252), the unread routes deleted (#253) | per-request O(vault) routes; the v2 decode per revision and its journal reads; the folds census per request and its reads of the reject log; the copy record on the main thread; `/api/notes`, `/api/vault`'s counts and queue head, and the viewer's refetch of them on every push |
+| 6 | remaining views (#231): record and layout incremental (#242, #244), the v2 feed as queries (#248), folds as lookups (#250), copies as lookups (#252), the unread routes deleted (#253), briefing evidence by id (#254) | per-request O(vault) routes; the v2 decode per revision and its journal reads; the folds census per request and its reads of the reject log; the copy record on the main thread; `/api/notes`, `/api/vault`'s counts and queue head, and the viewer's refetch of them on every push; the evidence graph, its 62 MB clone and the whole-record link-text read |
 
 ## What a commit still costs (measured after step 4)
 
@@ -206,7 +206,13 @@ group what they reach by the same rule, instead of the whole record grouped
 on the main thread once per revision (62 ms warm, 1.3 s cold → under 1 ms).
 Part 6 (#253) found the rest of #231 had no reader: the folder listing and
 `/api/vault`'s counts and queue head are deleted, and `/api/vault` is the
-vault's identity door alone.
+vault's identity door alone. Part 7 (#254) takes briefing evidence off the
+per-revision path: the graph view's build hears where each connection was
+written (an assertion, a document's link or citation) and keeps it, run by
+run, rewriting only the runs that changed; a briefing reads its selection's
+rows by id and their text from the projection. The second graph build (1.9 s
+per revision, 66 MB of link text) and its 62 MB clone are gone, and briefing
+inputs are unchanged.
 
 ## Decisions
 
