@@ -4,9 +4,9 @@
  * It also HELD the note-link builder (extracted from web/server.ts so it was
  * importable and testable): nodes were notes under the view tree, edges
  * resolved wikilinks, with three hides (#317) over the top. That picture was
- * only ever drawn for a vault with no assertion events — lib/graphCache.ts's
- * primaryGraphCached prefers the assertion projection the moment one lands —
- * and a vault that new has nothing to draw either. It went on 2026-08-30;
+ * only ever drawn for a vault with no assertion events — the assertion
+ * projection took over the moment one landed — and a vault that new has
+ * nothing to draw either. It went on 2026-08-30;
  * lib/assertionGraph.ts builds the one graph now, and lib/links.ts still
  * enforces the same resolution rule for `bigbrain links check`.
  */

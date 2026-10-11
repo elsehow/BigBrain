@@ -1,11 +1,11 @@
-import { assertionGraphEvidenceAsync } from "./graphCache";
+import { freshGraph } from "./maintainedGraph";
 import { createNoteBriefingService } from "./noteBriefing";
 import { memoryCategoryCatalogue } from "./memoryCategories";
 
 /** Sequential, content-addressed warming after a successful memory pass.
  * A Quick failure never changes the committed memory or its success status. */
 export async function warmMemoryBriefings(root: string, generate = createNoteBriefingService()) {
-  const { graph } = await assertionGraphEvidenceAsync(root);
+  const { graph } = await freshGraph(root);
   try { await memoryCategoryCatalogue(root); }
   catch (error) { console.warn(`Quick memory catalogue: ${error instanceof Error ? error.message : error}`); }
   const paths = graph.nodes.filter(n => n.group === "memory" && n.path && !/(^|\/)MEMORY\.md$/.test(n.path))

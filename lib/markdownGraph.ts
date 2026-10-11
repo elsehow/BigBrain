@@ -8,7 +8,10 @@ import { maskFences, parseWikilinks } from "./linkSyntax";
 import { walkMarkdown, noteText } from "./vaultRead";
 
 export interface ConnectionEvidence { text: string; path?: string; assertion?: string }
-export type ObserveConnection = (from: string, to: string, evidence: ConnectionEvidence) => void;
+/** Where a document's connection was written: the document (its
+ * document_links key) and, for a link, which of its links. */
+export interface ConnectionAt { doc: string; link?: number }
+export type ObserveConnection = (from: string, to: string, evidence: ConnectionEvidence, at?: ConnectionAt) => void;
 export interface MarkdownIdentity { id: string; path: string; title: string }
 export interface MarkdownDocument extends MarkdownIdentity { body: string }
 
@@ -107,14 +110,16 @@ export function parseDocumentLinks(document: MarkdownDocument, fencedText = mask
   return { links, citations: [...new Set([...fencedText.matchAll(AST_CITE)].map(m => m[1]!))] };
 }
 
-export function resolveDocumentLinks(document: Pick<MarkdownIdentity, "id" | "path">, parsed: DocumentLinkTargets, resolve: ReturnType<typeof noteLinkResolver>): Array<{ target: string; evidence: ConnectionEvidence }> {
-  return parsed.links.flatMap(hit => {
+/** A document's links that name a node, each with its index among the
+ * document's links. */
+export function resolveDocumentLinks(document: Pick<MarkdownIdentity, "id" | "path">, parsed: DocumentLinkTargets, resolve: ReturnType<typeof noteLinkResolver>): Array<{ target: string; link: number; evidence: ConnectionEvidence }> {
+  return parsed.links.flatMap((hit, link) => {
     const target = resolve(hit.target, document.path, hit.markdown);
-    return !target || target === document.id ? [] : [{ target, evidence: { path: document.path, text: hit.text ?? "" } }];
+    return !target || target === document.id ? [] : [{ target, link, evidence: { path: document.path, text: hit.text ?? "" } }];
   });
 }
 
-export function explicitNoteLinks(document: MarkdownDocument, resolve: ReturnType<typeof noteLinkResolver>, fencedText = maskFences(document.body)): Array<{ target: string; evidence: ConnectionEvidence }> {
+export function explicitNoteLinks(document: MarkdownDocument, resolve: ReturnType<typeof noteLinkResolver>, fencedText = maskFences(document.body)): Array<{ target: string; link: number; evidence: ConnectionEvidence }> {
   return resolveDocumentLinks(document, parseDocumentLinks(document, fencedText), resolve);
 }
 

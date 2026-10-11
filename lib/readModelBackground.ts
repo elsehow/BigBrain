@@ -1,6 +1,5 @@
-/** One-shot background jobs: the graph view, briefing evidence, the feed, recovery. */
-export type ReadModelWorkerRequest = { kind: "graph"; root: string; knownRevision?: string }
-  | { kind: "feed"; root: string }
+/** One-shot background jobs: the graph view, the feed, recovery. */
+export type ReadModelWorkerRequest = { kind: "feed"; root: string }
   | { kind: "recover"; root: string }
   | { kind: "graph-view"; root: string };
 

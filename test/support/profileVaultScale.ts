@@ -4,7 +4,8 @@
 import { existsSync, writeFileSync } from "node:fs";
 import { join, basename } from "node:path";
 import { performance } from "node:perf_hooks";
-import { primaryGraphCached, graphWithLayout } from "../../lib/graphCache";
+import { graphWithLayout } from "../../lib/graphCache";
+import { graphNow as primaryGraphCached } from "../../lib/maintainedGraph";
 import { assertionEntityView } from "../../lib/assertionEntityView";
 import { noteBriefingInput, briefingPrompt, createNoteBriefingService } from "../../lib/noteBriefing";
 import { syncAssertionProjection } from "../../lib/assertionProjection";

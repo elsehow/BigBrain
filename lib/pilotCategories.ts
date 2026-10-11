@@ -1,4 +1,4 @@
-import { assertionGraphEvidenceAsync } from "./graphCache";
+import { freshGraph } from "./maintainedGraph";
 import type { Graph } from "./graph";
 import { sha256hex } from "./hash";
 import { rankPilotCategories, PILOT_CATEGORY_GRAPH_VERSION } from "./pilotCategoryGraph";
@@ -30,7 +30,7 @@ export class PilotCategories {
   private read: () => Promise<Graph>;
   private now: () => number;
   constructor(root: string, private host: Host, private options: PilotCategoryOptions = {}) {
-    this.read = options.graph ?? (async () => (await assertionGraphEvidenceAsync(root)).graph);
+    this.read = options.graph ?? (async () => (await freshGraph(root)).graph);
     this.now = options.now ?? Date.now;
   }
   changed(s: PilotChatSession): void {

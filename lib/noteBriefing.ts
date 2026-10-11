@@ -1,9 +1,10 @@
 import { resolveNote } from "./noteResolution";
 /** One disposable Quick-model response: orientation and every direct link. */
-import { withVaultSnapshot, projectedMarkdown } from "./vaultReadModel";
+import { graphEvidence, withVaultSnapshot, projectedMarkdown } from "./vaultReadModel";
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { assertionGraphEvidenceCached, assertionGraphEvidenceAsync } from "./graphCache";
+import type { Graph } from "./graph";
+import { freshGraph, graphNow } from "./maintainedGraph";
 import { sourceInsertionCached, type ProjectedEntityAssertion, type ProjectedEntityView } from "./assertionEntityView";
 import { briefingEvidence, runBriefingModel, type BriefingModel } from "./entityBriefing";
 import { findNode } from "./graphIdentity";
@@ -42,7 +43,7 @@ export type NoteBriefingRequest = string | (GraphViewState & { purpose?: "unread
  * lib/sharedReadUnion.ts), by entity id: read alongside its own. */
 export type OtherClaims = ReadonlyMap<string, readonly ProjectedEntityAssertion[]>;
 
-function readBriefingItem(root: string, path: string, graph: ReturnType<typeof assertionGraphEvidenceCached>["graph"], others?: OtherClaims): BriefingItem {
+function readBriefingItem(root: string, path: string, graph: Graph, others?: OtherClaims): BriefingItem {
   const selected = graph.nodes[findNode(graph.nodes, path)];
   const resolvedPath = selected?.path ?? path;
   const note = resolveNote(root, resolvedPath, { source: sourceInsertionCached, markdown: path => {
@@ -61,12 +62,14 @@ function readBriefingItem(root: string, path: string, graph: ReturnType<typeof a
     : note.kind === "thread" || note.kind === "source" ? "source" : "markdown", text: text.slice(0, 16_000), revision: sha256hex(text) };
 }
 
+/** The graph view the selection is read against — held, or built here —
+ * before the snapshot opens, so the snapshot sees the evidence it kept. */
 export function noteBriefingInput(root: string, request: NoteBriefingRequest, others?: OtherClaims): NoteBriefingInput {
-  return withVaultSnapshot(root, () => briefingInputFromSnapshot(root, request, others));
+  const graph = graphNow(root);
+  return withVaultSnapshot(root, () => briefingInputFromSnapshot(root, request, graph, others));
 }
 
-function briefingInputFromSnapshot(root: string, request: NoteBriefingRequest, others?: OtherClaims): NoteBriefingInput {
-  const { graph, connections: observed } = assertionGraphEvidenceCached(root);
+function briefingInputFromSnapshot(root: string, request: NoteBriefingRequest, graph: Graph, others?: OtherClaims): NoteBriefingInput {
   const state = canonicalGraphView(graph.nodes, typeof request === "string" ? { selected: [request], excluded: [] } : request);
   const items = state.selected.map(id => readBriefingItem(root, id, graph, others)).filter(item => !isUserNode(item, graph.userNote));
   if (!items.length) throw new Error("Choose at least one note for a briefing.");
@@ -77,7 +80,7 @@ function briefingInputFromSnapshot(root: string, request: NoteBriefingRequest, o
   const candidates = new Map(links.map(link => [link.id, link]));
   const relationships = new Map<string, NoteBriefingInput["relationships"][number]>();
   const sameEvidence = (a: ConnectionEvidence, b: ConnectionEvidence) => a.text === b.text && a.path === b.path && a.assertion === b.assertion;
-  for (const edge of observed) {
+  for (const edge of graphEvidence(root, [...selected])) {
     const fromSelected = selected.has(edge.from), toSelected = selected.has(edge.to);
     if (fromSelected && toSelected && edge.from !== edge.to) {
       const [from, to] = [edge.from, edge.to].sort() as [string, string];
@@ -250,7 +253,7 @@ export const requestedEntities = (request: NoteBriefingRequest): string[] =>
  * lies beyond this vault about the entities it names. */
 export async function readNoteBriefingInput(root: string, request: NoteBriefingRequest,
   others?: (ids: string[]) => Promise<OtherClaims>): Promise<NoteBriefingInput> {
-  await assertionGraphEvidenceAsync(root);
+  await freshGraph(root);
   const ids = requestedEntities(request);
   return noteBriefingInput(root, request, others && ids.length ? await others(ids) : undefined);
 }

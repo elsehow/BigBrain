@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { assertionGraphEvidenceAsync } from "./graphCache";
+import { freshGraph } from "./maintainedGraph";
 import { projectedMarkdown, withVaultSnapshot } from "./vaultReadModel";
 import { sha256hex } from "./hash";
 import { writeAtomic } from "./fsx";
@@ -15,7 +15,7 @@ const cached = new Map<string, { revision: string; catalogue: MemoryCatalogue }>
 /** The same complete memories used by Quick previews, without a lossy model
  * summary. Rebuilt in the background; menu navigation never reads this cache. */
 export async function memoryCategoryCatalogue(root: string): Promise<MemoryCatalogue> {
-  const { graph, revision } = await assertionGraphEvidenceAsync(root);
+  const { graph, revision } = await freshGraph(root);
   const previous = cached.get(root);
   if (previous?.revision === revision) return previous.catalogue;
   const memories = withVaultSnapshot(root, () => graph.nodes

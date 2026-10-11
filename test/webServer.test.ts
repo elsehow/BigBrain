@@ -346,7 +346,6 @@ describe("a source note carries the assertions grounded in it", () => {
 test("search keeps grouped thread rows fresh across the live invalidation path", async () => {
   const root = process.env["BIGBRAIN_VAULT"]!;
   const { createLive } = await import("../lib/liveEvents");
-  const { primaryGraphCached, invalidateGraphCaches } = await import("../lib/graphCache");
   const { syncAssertionProjection } = await import("../lib/assertionProjection");
   const rows = [1, 2, 3].map(n => insertion({
     id: `ins_${(90000 + n).toString(16).padStart(24, "0")}`,
@@ -358,20 +357,22 @@ test("search keeps grouped thread rows fresh across the live invalidation path",
     dispatch(server.ROUTES, { url: "/api/search?q=Threadsearchprobe&limit=1&offset=0", method: "GET" } as never,
       { writeHead: () => {}, end: resolve } as never);
   }));
-  const live = createLive({ root, debounceMs: 1, watch: () => ({ close() {} }), warmLayout: primaryGraphCached });
+  const live = createLive({ root, debounceMs: 1, watch: () => ({ close() {} }), warmLayout: () => {} });
   try {
     for (const row of rows.slice(0, 2)) { appendSourceInsertionEvent(root, row); projectSourceInsertion(root, row); }
-    syncAssertionProjection(root); invalidateGraphCaches(root);
+    syncAssertionProjection(root);
     const first = await search();
     expect(first.hits).toHaveLength(1);
     expect(first.nextOffset).toBeNull();
     expect(first.hits[0]).toMatchObject({ title: "Threadsearchprobe archive acquisition discussion", threadCount: 2, source: "email" });
     live.start();
-    // the connection's stamps, then the push once the landing has settled
-    let opened = false;
+    // the connection's stamps, then the push that moves the feed's: the
+    // landing settled (a graph view landing meanwhile pushes too, earlier)
+    let opened: string | undefined;
     const changed = new Promise<void>(resolve => live.addClient({ write: text => {
       if (!text.startsWith("event: views")) return;
-      if (opened) resolve(); else opened = true;
+      const feed = (JSON.parse(text.split("\ndata: ")[1]!) as { views: { feed: string } }).views.feed;
+      if (opened === undefined) opened = feed; else if (feed !== opened) resolve();
     } }));
     appendSourceInsertionEvent(root, rows[2]!);
     live.handleChange(insertionEventRel(rows[2]!));
@@ -385,6 +386,5 @@ test("search keeps grouped thread rows fresh across the live invalidation path",
     live.stop();
     rows.forEach(row => rmSync(join(root, insertionEventRel(row)), { force: true }));
     recoverAssertionProjection(root); // a read no longer censuses log/: heal the removal here
-    invalidateGraphCaches(root);
   }
 });

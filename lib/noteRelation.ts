@@ -1,7 +1,7 @@
 /** One disposable Quick-model gloss: how a hovered note relates to the open one. */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { assertionGraphEvidenceAsync, assertionGraphEvidenceCached } from "./graphCache";
+import { freshGraph, graphNow } from "./maintainedGraph";
 import { runBriefingModel, type BriefingModel } from "./entityBriefing";
 import { writeAtomic } from "./fsx";
 import { findNode } from "./graphIdentity";
@@ -48,7 +48,7 @@ function spread<T>(rows: T[], count: number): T[] {
 
 export function noteRelationInput(root: string, focus: string, hovered: string): NoteRelationInput {
   const full = noteBriefingInput(root, { selected: [focus, hovered], excluded: [] });
-  const { graph } = assertionGraphEvidenceCached(root);
+  const graph = graphNow(root);
   const id = (key: string) => graph.nodes[findNode(graph.nodes, key)]?.id ?? key;
   const f = full.items.find(item => item.id === id(focus)), h = full.items.find(item => item.id === id(hovered));
   if (!f || !h || f.id === h.id) throw new Error("Hover a different note to see how it relates.");
@@ -91,7 +91,7 @@ export function parseNoteRelation(text: string): string {
 }
 
 async function readNoteRelationInput(root: string, focus: string, hovered: string): Promise<NoteRelationInput> {
-  await assertionGraphEvidenceAsync(root);
+  await freshGraph(root);
   return noteRelationInput(root, focus, hovered);
 }
 

@@ -8,11 +8,17 @@
  * Readers get the last view at once — a request is a lookup — and a start
  * serves the view saved last session when nothing changed while the app was
  * closed. The view's hash is its body's: the stamp the viewer pushes and the
- * ETag /api/graph answers with. Briefing evidence is not part of the view;
- * its readers still prepare it (graphCache.assertionGraphEvidenceAsync). */
+ * ETag /api/graph answers with. Each build also keeps what it drew each
+ * connection from (graph_evidence), the briefing's evidence: a briefing reads
+ * the rows for its selection (vaultReadModel.graphEvidence), never the
+ * record. */
 import type { Graph } from "./graph";
 import { buildAssertionGraph } from "./assertionGraph";
-import { lastChangeExcept, projectionView, saveProjectionView, type ChangeKind, type ProjectionView } from "./assertionProjection";
+import {
+  lastChangeExcept, projectionView, saveGraphEvidence, saveProjectionView,
+  type ChangeKind, type GraphEvidenceRow, type ProjectionView,
+} from "./assertionProjection";
+import type { ObserveConnection } from "./markdownGraph";
 import { sha256hex } from "./hash";
 import { EMPTY_GRAPH, graphWithLayout } from "./graphCache";
 import { background } from "./readModelBackground";
@@ -25,17 +31,32 @@ const IGNORES: readonly ChangeKind[] = ["journal", "fold_reject", "folds"];
 /** A burst of commits saves once: the view in memory serves meanwhile. */
 const SAVE_AFTER_MS = 5_000;
 
+/** Each connection as the build draws it, by where it was written, in runs
+ * of one assertion's or one document's. */
+function evidenceRows(rows: GraphEvidenceRow[]): ObserveConnection {
+  let pos = 0;
+  return (a, b, evidence, at) => {
+    const grp = at?.doc ?? evidence.assertion ?? "";
+    pos = grp === rows.at(-1)?.grp ? pos + 1 : 0;
+    rows.push({ grp, pos, a, b, assertion: evidence.assertion ?? "", path: evidence.path ?? "", link: at?.link ?? -1 });
+  };
+}
+
 /** Worker side: the drawable graph — structure with settled positions — at
- * the snapshot's revision, serialized once. The feed page for the same
- * revision is published alongside, as live warming always did. */
+ * the snapshot's revision, serialized once, and its connections kept as the
+ * briefing's evidence. The feed page for the same revision is published
+ * alongside, as live warming always did. */
 export function buildGraphView(root: string): ProjectionView {
   recentSourcePage(root, 0, 1);
-  return withVaultSnapshot(root, (_db, revision) => {
-    const built = buildAssertionGraph(root, undefined, vaultRecord(root)); // no evidence: none of its text is read
+  const rows: GraphEvidenceRow[] = [];
+  const view = withVaultSnapshot(root, (_db, revision) => {
+    const built = buildAssertionGraph(root, evidenceRows(rows), vaultRecord(root)); // no text: only where each came from
     const graph = graphWithLayout(root, built.nodes.length ? built : { ...EMPTY_GRAPH, nodes: [], edges: [] });
     const body = JSON.stringify(graph);
     return { revision, hash: sha256hex(body).slice(0, 16), body };
   });
+  try { saveGraphEvidence(root, view.revision, rows); } catch { /* the next build keeps them */ }
+  return view;
 }
 
 interface Held extends ProjectionView { graph?: Graph }
@@ -94,6 +115,14 @@ function holds(root: string, view: Held | undefined): boolean {
   return true;
 }
 
+/** A built view is the current one: saved after the burst, its stamp heard. */
+function land(root: string, view: ProjectionView): void {
+  const before = held.get(root)?.hash;
+  held.set(root, view);
+  scheduleSave(root, view);
+  if (view.hash !== before) for (const listener of landed) listener(root);
+}
+
 /** Bring the view up to the projection's revision. Resolves once it is. */
 export function maintainGraphView(root: string, build: BuildGraphView = inWorker): Promise<void> {
   const running = builds.get(root);
@@ -102,11 +131,7 @@ export function maintainGraphView(root: string, build: BuildGraphView = inWorker
     do {
       behind.delete(root);
       if (holds(root, current(root))) continue;
-      const view = await build(root);
-      const before = held.get(root)?.hash;
-      held.set(root, view);
-      scheduleSave(root, view);
-      if (view.hash !== before) for (const listener of landed) listener(root);
+      land(root, await build(root));
     } while (behind.has(root));
   })().finally(() => builds.delete(root));
   builds.set(root, run);
@@ -131,6 +156,21 @@ export async function currentGraphView(root: string, build?: BuildGraphView): Pr
 /** The same, parsed. */
 export async function currentGraph(root: string, build?: BuildGraphView): Promise<Graph> {
   await currentGraphView(root, build);
+  return savedGraph(root) ?? EMPTY_GRAPH;
+}
+
+/** The view at the projection's revision, for a reader that needs what is
+ * committed now (a briefing, the memory pass's catalogue), with its revision. */
+export async function freshGraph(root: string, build?: BuildGraphView): Promise<{ revision: string; graph: Graph }> {
+  await maintainGraphView(root, build);
+  return { revision: current(root)?.revision ?? "", graph: savedGraph(root) ?? EMPTY_GRAPH };
+}
+
+/** The same without waiting on a worker: the held view when it holds, else
+ * built here, on this thread. For a caller with no maintainer to wait on (a
+ * command, a test); the viewer awaits freshGraph first, so this finds it held. */
+export function graphNow(root: string): Graph {
+  if (!holds(root, current(root))) land(root, buildGraphView(root));
   return savedGraph(root) ?? EMPTY_GRAPH;
 }
 

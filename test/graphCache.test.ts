@@ -3,7 +3,8 @@ import { chmodSync, existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Graph } from "../lib/graph";
-import { assertionGraphCached, graphWithLayout, readLayoutCache } from "../lib/graphCache";
+import { graphWithLayout, readLayoutCache } from "../lib/graphCache";
+import { forgetGraphView, graphNow as assertionGraphCached } from "../lib/maintainedGraph";
 import { appendSourceInsertionEvent } from "../lib/insertionLog";
 import { appendAndProjectAssertion, appendAndProjectDecline, openAssertionProjectionReadonly, projectSourceInsertion } from "../lib/assertionProjection";
 import { assertionEntityId, createAssertionEvent } from "../lib/assertionLog";
@@ -110,7 +111,7 @@ describe("layout cache", () => {
   });
 });
 
-describe("assertionGraphCached", () => {
+describe("the graph view, now", () => {
   for (const verdict of ["declined", "filed"] as const) {
     for (const holdWal of [false, true]) {
       test(`${verdict} replaces a cached spinner before the watcher fires (${holdWal ? "live WAL" : "checkpointed database"})`, () => {
@@ -140,7 +141,7 @@ describe("assertionGraphCached", () => {
             }, sources));
           }
           expect(recentFromSourceLog(root)[0]!.status).toBe(verdict);
-          // No invalidateGraphCaches, no timer: the very next request must
+          // No notification, no timer: the very next request must
           // agree with the feed even if the watcher is late or unavailable.
           const next = assertionGraphCached(root);
           const node = next.nodes.find((n) => n.id === `source:${drop.id}`);
@@ -169,14 +170,13 @@ describe("assertionGraphCached", () => {
 });
 
 test("periodic reconciliation preserves an unchanged graph rather than expiring it", async () => {
-  const { invalidateGraphCaches } = await import("../lib/graphCache");
   const root = fresh();
   const now = Date.now;
   try {
     const first = assertionGraphCached(root);
     Date.now = () => now() + 120_000;
     expect(assertionGraphCached(root)).toBe(first);
-    invalidateGraphCaches(root);
+    forgetGraphView(root);
     const changed = assertionGraphCached(root);
     expect(changed).not.toBe(first);
     Date.now = () => now() + 240_000;

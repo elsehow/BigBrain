@@ -1,8 +1,7 @@
-import { background } from "./readModelBackground";
 /**
- * graphCache.ts — the graph routes' state, extracted from web/server.ts
- * (#260 seam list): the revision-keyed build memo, and the settled layout in
- * .state/, keyed by the structure hash.
+ * graphCache.ts — the graph's settled layout in .state/, keyed by the
+ * structure hash (extracted from web/server.ts, #260). The graph itself is a
+ * view its maintainer keeps (lib/maintainedGraph.ts).
  *
  * The layout used to be computed in the browser and POSTed back here. That
  * upload was refused by the read-only gate on every hosted vault and dropped
@@ -12,13 +11,10 @@ import { background } from "./readModelBackground";
  * belongs on the side that owns the structure. See lib/graphLayout.ts.
  */
 
-import type { ConnectionEvidence } from "./markdownGraph";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { Graph } from "./graph";
 import { computeLayout, neighbourSignatures, placeLayout, type Positions } from "./graphLayout";
-import { buildAssertionGraph } from "./assertionGraph";
-import { vaultRecord, currentReadRevision, withVaultSnapshot, readModelRevision } from "./vaultReadModel";
 export { readModelRevision } from "./vaultReadModel";
 
 /** One projection is left — the assertion graph. The link graph it replaced
@@ -102,73 +98,5 @@ export function graphWithLayout(root: string, graph: Graph): Graph {
   return graph;
 }
 
-export interface GraphWithEvidence {
-  revision: string;
-  graph: ReturnType<typeof buildAssertionGraph>;
-  connections: Array<{ from: string; to: string; evidence: ConnectionEvidence }>;
-}
-const assertionMemo = new Map<string, GraphWithEvidence>();
-
-export function assertionGraphEvidenceCached(root: string): GraphWithEvidence {
-  return withVaultSnapshot(root, (_db, revision) => {
-    const held = assertionMemo.get(root);
-    if (held?.revision === revision) return held;
-    const record = vaultRecord(root);
-    const connections: GraphWithEvidence["connections"] = [];
-    const graph = buildAssertionGraph(root, (from, to, evidence) => connections.push({ from, to, evidence }), record);
-    const result = { revision, graph, connections };
-    assertionMemo.set(root, result);
-    return result;
-  });
-}
-
-export function assertionGraphCached(root: string): ReturnType<typeof buildAssertionGraph> {
-  return assertionGraphEvidenceCached(root).graph;
-}
-
-/** The vault's one graph: the assertion projection. A vault with no
- * assertions yet draws nothing — the markdown link graph that used to
- * stand in for it went on 2026-08-30, and a vault that new has no
- * entities/ to draw either. */
-export function primaryGraphCached(root: string): Graph {
-  const assertions = assertionGraphCached(root);
-  return assertions.nodes.length ? assertions : EMPTY_GRAPH;
-}
-
 export const EMPTY_GRAPH: Graph = { nodes: [], edges: [], hash: "empty", projection: "assertions" };
-
-/** Drop the evidence memo and reject workers started before this. */
-export function invalidateGraphCaches(root: string): void {
-  assertionMemo.delete(root);
-  generations.set(root, (generations.get(root) ?? 0) + 1);
-}
-
-// The synchronous reader remains available to command-line callers. Viewer
-// requests and live warming share one in-flight background build per vault.
-// Workers terminate after each job, retaining no second vault copy while idle.
-const generations = new Map<string, number>();
-const builds = new Map<string, Promise<void>>();
-export type GraphSnapshot = GraphWithEvidence | { revision: string };
-
-export async function assertionGraphEvidenceAsync(root: string): Promise<GraphWithEvidence> {
-  // Resolve inside an already borrowed transaction before returning a promise.
-  if (currentReadRevision(root)) return assertionGraphEvidenceCached(root);
-  for (;;) {
-    const held = assertionMemo.get(root);
-    if (held?.revision === readModelRevision(root)) return held;
-    let pending = builds.get(root);
-    if (!pending) {
-      const generation = generations.get(root) ?? 0;
-      pending = background<GraphSnapshot>({ kind: "graph", root, knownRevision: held?.revision }).then(result => {
-        const prepared = "graph" in result ? result : assertionMemo.get(root);
-        // Reuse an unchanged graph; a worker started before an invalidation
-        // publishes nothing.
-        if (generation !== (generations.get(root) ?? 0) || prepared?.revision !== result.revision) return;
-        assertionMemo.set(root, prepared);
-      }).finally(() => builds.delete(root));
-      builds.set(root, pending);
-    }
-    await pending;
-  }
-}
 

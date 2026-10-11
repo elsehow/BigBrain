@@ -14,7 +14,10 @@ const cache = await import(join(engine, "lib/graphCache.ts"));
 // Engines before the notes door (#225) needed a hint to drop decoded records; later ones key them by revision.
 const invalidateAssertionRecord: (root: string) => void = (await import(join(engine, "lib/assertionEntityView.ts"))).invalidateAssertionRecord ?? (() => {});
 const { createLive } = await import(join(engine, "lib/liveEvents.ts"));
-const build = cache.primaryGraphAsync ?? cache.primaryGraphCached;
+// Engines since the briefing's evidence moved into the graph view (#228) keep the graph as a view.
+const view = await import(join(engine, "lib/maintainedGraph.ts")).catch(() => ({} as Record<string, never>));
+const build = cache.primaryGraphAsync ?? cache.primaryGraphCached ?? view.graphNow;
+const forget: (root: string) => void = cache.invalidateGraphCaches ?? view.forgetGraphView;
 const layout = cache.graphWithLayoutAsync ?? cache.graphWithLayout;
 const server = createServer((_req, res) => res.end("ok"));
 await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
@@ -72,7 +75,7 @@ try {
   let graph;
   const digests: string[] = [];
   for (let i = 0; i < 3; i++) {
-    cache.invalidateGraphCaches(root); invalidateAssertionRecord(root);
+    forget(root); invalidateAssertionRecord(root);
     graph = await measure("graph", () => Promise.resolve(build(root)));
     digests.push(createHash("sha256").update(JSON.stringify(graph)).digest("hex"));
   }
