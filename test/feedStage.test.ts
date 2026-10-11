@@ -164,7 +164,7 @@ describe("the feed stage", () => {
     expect(second.calls[0]!.prompt).toContain("- Kit proposed a call on Monday.");
     expect(second.calls[0]!.prompt).not.toContain("- Kit proposed a call.");
     // the first landing's claims are superseded, so the viewer no longer
-    // shows its item (lib/v2Feed.ts buildSortedFeed), and the call isn't told of it
+    // shows its item (lib/v2Read.ts readSortedPage), and the call isn't told of it
     expect(second.calls[0]!.prompt).not.toContain("in the feed:");
     expect(feedNow(root).map((e) => [e.source, e.section])).toEqual([[first.id, "needs-you"], [revised.id, "know"]]);
   });

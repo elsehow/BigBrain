@@ -6,7 +6,7 @@ import { savedClaudeModel } from "./sourceModel";
 import { Database } from "bun:sqlite";
 import { searchMatch as matchQuery, searchAlternatives, searchTerms as matchTerms } from "./searchQuery";
 import { searchNames } from "./searchNames";
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve, sep } from "node:path";
 import { parseEventFile, type EventFile } from "./eventLog";
 import { sha256hex } from "./hash";
@@ -56,6 +56,8 @@ import {
 } from "./sourceCopyLog";
 import type { LabelRow } from "./entityLookalikes";
 import { assertionDb } from "./env";
+import { dueOf, FEED_SECTIONS, type FeedRecord } from "./feedJournal";
+import { FEED_JOURNAL_DIR, runJournalFiles, TEND_JOURNAL_DIR } from "./runJournal";
 import {
   appendRevocationEvent,
   listRevocationEventFiles,
@@ -83,7 +85,11 @@ import { withProjectionWrite } from "./projectionWriteLock";
 // 21: the change log — what each revision changed, written in its commit
 //     (docs/plans/2026-10-10-change-log.md).
 // 22: saved views — read models kept by the viewer, each with its revision.
-const SCHEMA_VERSION = "23";
+// 23: link evidence apart from links; a transcript's model at projection.
+// 24: what a feed row needs, kept beside each assertion (when its claim was
+//     first recorded, the model of the gardener run that wrote it), the run
+//     journals those come from, and narrow columns ahead of the event.
+const SCHEMA_VERSION = "24";
 
 export interface AssertionSearchHit {
   id: string;
@@ -224,12 +230,23 @@ function schema(db: Database): void {
     author_invocation_id TEXT,
     confidence TEXT NOT NULL,
     created_at TEXT NOT NULL,
+    -- When the claim was first recorded: a rewrite (one that supersedes
+    -- another) keeps its original's date.
+    first_at TEXT NOT NULL,
     production_json TEXT NOT NULL,
-    event_json TEXT NOT NULL,
     supersedes TEXT,
     revoked_by TEXT,
-    superseded_by TEXT
+    superseded_by TEXT,
+    -- The model of the gardener run a row was written during, for a row the
+    -- gardener wrote through its agent: the record names only the agent, and
+    -- the run's journal names the model (projectJournal).
+    run_model TEXT,
+    -- Wide last: a narrow column — liveness above all — is read without
+    -- walking the event's overflow pages.
+    event_json TEXT NOT NULL
   )`);
+  db.run("CREATE INDEX IF NOT EXISTS assertions_first ON assertions(first_at, id)");
+  db.run("CREATE INDEX IF NOT EXISTS assertions_supersedes ON assertions(supersedes) WHERE supersedes IS NOT NULL");
   db.run("CREATE INDEX IF NOT EXISTS assertions_procedure ON assertions(author_kind, json_extract(production_json, '$.procedure'), json_extract(production_json, '$.version'))");
   db.run(`CREATE TABLE IF NOT EXISTS entities (
     id TEXT PRIMARY KEY,
@@ -311,6 +328,22 @@ function schema(db: Database): void {
     event_json TEXT NOT NULL
   )`);
   db.run("CREATE INDEX IF NOT EXISTS revocations_assertion ON revocations(assertion_id, created_at, id)");
+  // The run journals (lib/runJournal.ts), each projected once, with a
+  // change row: a tend round's model and window, and the sorted feed's items
+  // as the feed stage first placed each source (lib/feedJournal.ts feedItems).
+  db.run("CREATE TABLE IF NOT EXISTS journals (rel TEXT PRIMARY KEY) WITHOUT ROWID");
+  db.run("CREATE TABLE IF NOT EXISTS tend_runs (rel TEXT PRIMARY KEY, started_at TEXT NOT NULL, completed_at TEXT NOT NULL, model TEXT NOT NULL)");
+  db.run("CREATE INDEX IF NOT EXISTS tend_runs_start ON tend_runs(started_at, rel)");
+  // `rank` orders an arrival's items, the most pressing first (lib/v2Feed.ts
+  // newestFirst): the section's place in FEED_SECTIONS, -1 for none of them.
+  db.run(`CREATE TABLE IF NOT EXISTS feed_items (
+    source TEXT PRIMARY KEY, section TEXT NOT NULL, rank INTEGER NOT NULL, headline TEXT NOT NULL,
+    due TEXT, added TEXT NOT NULL, invocation_id TEXT NOT NULL
+  )`);
+  db.run("CREATE INDEX IF NOT EXISTS feed_items_order ON feed_items(added DESC, rank, source)");
+  db.run(`CREATE TABLE IF NOT EXISTS feed_item_assertions (
+    source TEXT NOT NULL, position INTEGER NOT NULL, assertion_id TEXT NOT NULL, PRIMARY KEY (source, position)
+  ) WITHOUT ROWID`);
 }
 
 /** Keep the database inode stable: readers in WAL transactions retain the
@@ -457,17 +490,45 @@ function referencedSources(db: Database, event: AssertionEvent): Map<string, Sou
   return sources;
 }
 
+/** The rows the gardener writes through its agent, under one of the client
+ * names it runs as (lib/run/sessionJob.ts, bin/gardenerMcp.ts). */
+const GARDENER_CLIENTS = ["pi", "claude"];
+const GARDENER_ROW = `author_kind = 'model' AND author_id IN (${GARDENER_CLIENTS.map((c) => `'${c}'`).join(", ")})
+  AND json_extract(production_json, '$.procedure') = 'bigbrain-mcp'`;
+
+/** The model of the run a gardener row was written during: the last run
+ * started at or before it, if the row came before that run ended. The tend
+ * lock keeps runs from overlapping, so that run is the one. */
+function gardenerRunModel(db: Database, event: AssertionEvent): string | null {
+  if (event.author.kind !== "model" || !GARDENER_CLIENTS.includes(event.author.id) || event.produced_by.procedure !== "bigbrain-mcp") return null;
+  const run = db.query("SELECT model, completed_at FROM tend_runs WHERE started_at <= ? ORDER BY started_at DESC, rel DESC LIMIT 1")
+    .get(event.created_at) as { model: string; completed_at: string } | null;
+  return run && event.created_at <= run.completed_at ? run.model : null;
+}
+
 function insertAssertionRow(db: Database, event: AssertionEvent): boolean {
   validateAssertionEvidence(event, referencedSources(db, event));
   return insertOnce(db, "assertion", "assertions", "id", event.id, event, (eventJson) => {
+    const prior = event.supersedes
+      ? (db.query("SELECT first_at FROM assertions WHERE id = ?").get(event.supersedes) as { first_at: string } | null)?.first_at
+      : undefined;
+    const firstAt = prior && prior < event.created_at ? prior : event.created_at;
     db.query(`INSERT INTO assertions(
-      id, text, author_kind, author_id, author_invocation_id, confidence, created_at, production_json, event_json,
-      supersedes
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      id, text, author_kind, author_id, author_invocation_id, confidence, created_at, first_at, production_json,
+      supersedes, run_model, event_json
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
       event.id, event.text, event.author.kind, event.author.id,
       event.author.kind === "model" ? event.author.invocation_id ?? null : null,
-      event.confidence, event.created_at, encoded(event.produced_by), eventJson, event.supersedes ?? null
+      event.confidence, event.created_at, firstAt,
+      encoded(event.produced_by), event.supersedes ?? null, gardenerRunModel(db, event), eventJson
     );
+    // A rebuild reads a month's events in id order, so a rewrite can land
+    // before its original: carry the date down to the rewrites already here.
+    db.query(`WITH RECURSIVE down(id, first_at) AS (
+        SELECT id, min(created_at, ?1) FROM assertions WHERE supersedes = ?2
+        UNION SELECT a.id, min(a.created_at, down.first_at) FROM assertions a JOIN down ON a.supersedes = down.id)
+      UPDATE assertions SET first_at = down.first_at FROM down WHERE assertions.id = down.id AND down.first_at < assertions.first_at`)
+      .run(firstAt, event.id);
     for (const entity of event.entities) {
       const normalized = norm(entity.label);
       const prior = db.query("SELECT label, normalized_label FROM entities WHERE id = ?").get(entity.id) as
@@ -798,8 +859,9 @@ interface Probe { generation: string; pending: boolean }
 
 /** What reconciliation would have to do, read on a READONLY connection —
  * never a write transaction. The census — a directory listing and id scans
- * per log kind, and Markdown's metadata stamps, without body reads — runs
- * only when `census` asks for it: recovery does, a read never does.
+ * per log kind and for the run journals, and Markdown's metadata stamps,
+ * without body reads — runs only when `census` asks for it: recovery does, a
+ * read never does.
  * `undefined` when there is no projection to compare against: absent,
  * damaged, or built by another schema — the write path rebuilds. */
 function probe(root: string, census: boolean): Probe | undefined {
@@ -809,6 +871,10 @@ function probe(root: string, census: boolean): Probe | undefined {
     const meta = Object.fromEntries((db.query("SELECT k, v FROM meta WHERE k IN ('schema','complete','generation','threads_dirty')").all() as { k: string; v: string }[]).map(r => [r.k, r.v]));
     if (meta.schema !== SCHEMA_VERSION || !meta.complete || !meta.generation) return undefined;
     let pending = Boolean(meta.threads_dirty);
+    if (census) {
+      const journals = heldIds(db, "SELECT rel AS id FROM journals");
+      if (journalFiles(root).some((rel) => !journals.has(rel))) pending = true;
+    }
     if (census) for (const kind of KINDS) {
       const held = heldIds(db, kind.held), files = new Set(kind.listFiles(root).map(file => file.id));
       if ([...files].some(id => !held.has(id))) pending = true;
@@ -882,6 +948,8 @@ function reconcileThreads(db: Database): void {
 /** All event kinds and the completion marker share one transaction. A bad
  * event leaves the previously published revision untouched. */
 function reconcile(db: Database, root: string): AssertionProjectionStats {
+  // Runs before the rows they name: a rebuild's gardener rows find theirs.
+  reconcileJournals(db, root);
   for (const kind of KINDS) {
     const held = heldIds(db, kind.held);
     const files = kind.listFiles(root);
@@ -1036,18 +1104,72 @@ export function projectionChangesSince(root: string, since: string, db?: Databas
   });
 }
 
-/** A journal file the viewer reads (tend's runs, the feed stage's items) was
- * written: log it, so a view built from journals moves with the record. The
- * file is the truth and was written first; a row lost to a crash costs that
- * view its freshness until the next commit, never data. */
+/** A run journal the viewer reads was written (lib/runJournal.ts): project
+ * it, with its change row. The file is the truth and was written first; a
+ * projection lost to a crash is the next process's census to heal. */
 export function projectJournal(root: string, rel: string): void {
   try {
     withProjectionWrite(root, () => {
       const db = open(root);
-      try { db.transaction(() => commitChanges(db, [{ kind: "journal", id: rel, op: "add" }]))(); }
+      try { db.transaction(() => { if (insertJournalRow(db, root, rel)) commitChanges(db, [{ kind: "journal", id: rel, op: "add" }]); })(); }
       finally { db.close(); }
     });
-  } catch { /* the next commit carries the view forward */ }
+  } catch { /* the next process's census projects it */ }
+}
+
+const journalFiles = (root: string): string[] =>
+  [TEND_JOURNAL_DIR, FEED_JOURNAL_DIR].flatMap((dir) => runJournalFiles(root, dir));
+
+/** Project one journal file, once. False when it was already, or is not
+ * there to read; a damaged record counts as projected, with nothing in it. */
+function insertJournalRow(db: Database, root: string, rel: string): boolean {
+  if (db.query("SELECT 1 FROM journals WHERE rel = ?").get(rel)) return false;
+  let text: string;
+  try { text = readFileSync(join(root, rel), "utf8"); } catch { return false; }
+  let record: Record<string, unknown> | undefined;
+  try { record = JSON.parse(text) as Record<string, unknown>; } catch { /* nothing in it */ }
+  db.query("INSERT INTO journals(rel) VALUES (?)").run(rel);
+  if (record && rel.startsWith(`${TEND_JOURNAL_DIR}/`)) insertTendRun(db, rel, record);
+  if (record && rel.startsWith(`${FEED_JOURNAL_DIR}/`)) insertFeedItems(db, record as unknown as FeedRecord);
+  return true;
+}
+
+/** A tend round names its model and window; the gardener rows written in
+ * that window are its (gardenerRunModel). Each row from its start up to the
+ * next run's start now belongs to it: named when written before it ended. */
+function insertTendRun(db: Database, rel: string, run: Record<string, unknown>): void {
+  const { model, started_at: start, completed_at: end } = run;
+  if (typeof model !== "string" || !model || typeof start !== "string" || typeof end !== "string") return;
+  db.query("INSERT INTO tend_runs(rel, started_at, completed_at, model) VALUES (?, ?, ?, ?)").run(rel, start, end, model);
+  db.query(`UPDATE assertions SET run_model = CASE WHEN created_at <= ? THEN ? END
+    WHERE ${GARDENER_ROW} AND created_at >= ?
+      AND NOT EXISTS (SELECT 1 FROM tend_runs r WHERE r.started_at > ? AND r.started_at <= assertions.created_at)`)
+    .run(end, model, start, start);
+}
+
+/** A feed call's items. A source keeps the item the first successful call
+ * to place it gave it, by completion then call id, whatever order the
+ * records are projected in; a skip places nothing (feedJournal.ts feedItems). */
+function insertFeedItems(db: Database, record: FeedRecord): void {
+  if (record.error || !Array.isArray(record.entries) || typeof record.completed_at !== "string") return;
+  const item = db.query(`INSERT INTO feed_items(source, section, rank, headline, due, added, invocation_id) VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(source) DO UPDATE SET section = excluded.section, rank = excluded.rank, headline = excluded.headline,
+      due = excluded.due, added = excluded.added, invocation_id = excluded.invocation_id
+    WHERE (excluded.added, excluded.invocation_id) < (feed_items.added, feed_items.invocation_id) RETURNING source`);
+  const claim = db.query("INSERT INTO feed_item_assertions(source, position, assertion_id) VALUES (?, ?, ?)");
+  for (const e of record.entries) {
+    if (e.section === "skip") continue;
+    if (!item.get(e.source, e.section, FEED_SECTIONS.indexOf(e.section), e.headline, dueOf(e), record.completed_at, record.invocation_id)) continue;
+    db.query("DELETE FROM feed_item_assertions WHERE source = ?").run(e.source);
+    e.assertions.forEach((id, i) => claim.run(e.source, i, id));
+  }
+}
+
+/** Journals the projection has not read: a write whose projection was lost. */
+function reconcileJournals(db: Database, root: string): void {
+  const held = heldIds(db, "SELECT rel AS id FROM journals");
+  const added = journalFiles(root).filter((rel) => !held.has(rel) && insertJournalRow(db, root, rel));
+  commitChanges(db, added.map((id) => ({ kind: "journal", id, op: "add" })));
 }
 
 /** The projection's coordinate, with the coordinate of its last commit that

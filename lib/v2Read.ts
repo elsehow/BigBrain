@@ -1,63 +1,100 @@
 /**
- * v2Read.ts — the v2 view's one read of the projection (engine side;
- * lib/v2Feed.ts stays pure so the viewer can share it). The route reads
- * it inside withVaultSnapshot; the dev preview reads a vault's projection
- * opened read-only (bin/v2Preview.ts). Given the vault root, it also reads
- * the gardener's run journals, which name the model its rows don't.
+ * v2Read.ts — the v2 view's reads of the projection (engine side;
+ * lib/v2Feed.ts stays pure so the viewer can share it). Each is a query its
+ * indexes answer: the projection keeps what a feed row needs beside each
+ * assertion (when its claim was first recorded, the model of the gardener
+ * run that wrote it) and the sorted feed's items from the stage's journal
+ * (schema 24), so a read decodes only the rows it returns and never opens a
+ * journal. The author tally alone counts every live row. The routes read
+ * inside withVaultSnapshot; the dev preview reads a vault's projection
+ * opened read-only (bin/v2Preview.ts).
  */
 import type { Database } from "bun:sqlite";
-import { readFileSync } from "node:fs";
 import type { AssertionEvent } from "./assertionLog";
-import { entityAliasResolution, type EntityAliasEvent } from "./entityAliasLog";
+import { projectedSourceHeads } from "./assertionProjection";
+import { FEED_SECTIONS } from "./feedJournal";
+import { insertionEventRel } from "./insertionLog";
 import { liveAssertionSql } from "./sourceSupersede";
-import { tendJournalFiles } from "./tend";
-import { firstRecordedAt, type ChainLink, type V2Source } from "./v2Feed";
+import { authorName, feedRow, type SortedPage, type V2Author, type V2Feed, type V2FeedRow, type V2SortedRow } from "./v2Feed";
 
-export function readV2Source(db: Database, root?: string): V2Source {
-  const events = <T>(sql: string): T[] => (db.query(sql).all() as { event_json: string }[]).map((r) => JSON.parse(r.event_json) as T);
-  const rows = events<AssertionEvent>(`SELECT a.event_json FROM assertions a WHERE a.revoked_by IS NULL AND ${liveAssertionSql("a")} ORDER BY a.created_at, a.id`);
-  const aliases = entityAliasResolution(events<EntityAliasEvent>("SELECT event_json FROM entity_alias_events"));
-  const chain = db.query("SELECT id, created_at, json_extract(event_json, '$.supersedes') AS supersedes FROM assertions").all() as ChainLink[];
-  return { rows, aliases, firstAt: firstRecordedAt(rows, new Map(chain.map((c) => [c.id, c]))), ...(root ? { models: gardenerModels(root, rows) } : {}) };
+const LIVE = `a.revoked_by IS NULL AND ${liveAssertionSql("a")}`;
+/** The latest assertions the feed shows. */
+const FEED = 60;
+
+/** An entity id folded through the alias table: the entity it names. */
+function folding(db: Database): (id: string) => string {
+  const alias = db.query("SELECT entity_id FROM entity_aliases WHERE alias_id = ?");
+  const folded = new Map<string, string>();
+  return (id) => {
+    let to = folded.get(id);
+    if (to === undefined) folded.set(id, to = (alias.get(id) as { entity_id: string } | null)?.entity_id ?? id);
+    return to;
+  };
 }
 
-/** The client names the gardener writes under (lib/run/sessionJob.ts, bin/gardenerMcp.ts). */
-const GARDENER_CLIENTS = new Set(["pi", "claude"]);
-interface TendRun { start: string; end: string; model: string }
-/** Each journal read once: a run's journal is written whole when it ends and never again. */
-const journals = new Map<string, TendRun | null>();
-function tendRuns(root: string): TendRun[] {
-  const out: TendRun[] = [];
-  for (const { path } of tendJournalFiles(root)) {
-    let run = journals.get(path);
-    if (run === undefined) {
-      try {
-        const j = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
-        run = typeof j["model"] === "string" && j["model"] && typeof j["started_at"] === "string" && typeof j["completed_at"] === "string"
-          ? { start: j["started_at"], end: j["completed_at"], model: j["model"] } : null;
-      } catch { run = null; }
-      journals.set(path, run);
-    }
-    if (run) out.push(run);
-  }
-  return out.sort((a, b) => a.start.localeCompare(b.start));
+/** Assertions as feed rows, in the order given. A query picks ids on narrow
+ * columns; only the rows it returns are decoded. */
+function feedRows(db: Database, ids: readonly { id: string }[]): V2FeedRow[] {
+  const row = db.query("SELECT first_at AS firstAt, run_model AS runModel, event_json FROM assertions WHERE id = ?");
+  const canonical = folding(db);
+  return ids.map(({ id }) => {
+    const { firstAt, runModel, event_json } = row.get(id) as { firstAt: string; runModel: string | null; event_json: string };
+    return feedRow({ event: JSON.parse(event_json) as AssertionEvent, firstAt, runModel }, canonical);
+  });
 }
 
-/** The model behind each row the gardener wrote through its agent. The
- * record names only the agent (lib/vaultTools.ts: run attribution is the
- * journal's job); the journal of the run it was written during names the
- * model. The tend lock keeps runs from overlapping, so that run is one. */
-export function gardenerModels(root: string, rows: readonly AssertionEvent[]): Map<string, string> {
-  const out = new Map<string, string>();
-  const theirs = rows.filter((r) => r.author.kind === "model" && GARDENER_CLIENTS.has(r.author.id) && r.produced_by.procedure === "bigbrain-mcp");
-  if (!theirs.length) return out;
-  const runs = tendRuns(root);
-  for (const row of theirs) {
-    // the last run started at or before it
-    let lo = 0, hi = runs.length;
-    while (lo < hi) { const mid = (lo + hi) >> 1; if (runs[mid]!.start <= row.created_at) lo = mid + 1; else hi = mid; }
-    const run = runs[lo - 1];
-    if (run && row.created_at <= run.end) out.set(row.id, run.model);
-  }
-  return out;
+/** Every author's live assertions, most recent first: authorOf, as a tally. */
+function authors(db: Database): V2Author[] {
+  const tally = db.query(`SELECT CASE WHEN a.run_model IS NOT NULL
+      OR substr(json_extract(a.production_json, '$.procedure'), -16) = '-assertion-agent' THEN 'gardener' ELSE a.author_id END AS id,
+      count(*) AS count, max(a.created_at) AS lastAt
+    FROM assertions a WHERE a.author_kind IN ('model', 'agent') AND ${LIVE} GROUP BY 1`).all() as Omit<V2Author, "name">[];
+  return tally.map(({ id, count, lastAt }) => ({ id, name: authorName(id), count, lastAt }))
+    .sort((a, b) => b.lastAt.localeCompare(a.lastAt) || a.id.localeCompare(b.id));
+}
+
+/** The authors, and the latest assertions by when each claim was first
+ * recorded, oldest first: a cleanup pass's rewrites sit at their originals'
+ * dates instead of crowding the top. */
+export function readV2Feed(db: Database): V2Feed {
+  const latest = db.query(`SELECT a.id FROM assertions a WHERE ${LIVE}
+    ORDER BY a.first_at DESC, a.id DESC LIMIT ?`).all(FEED) as { id: string }[];
+  return { authors: authors(db), feed: feedRows(db, latest.reverse()) };
+}
+
+/** One entity's latest assertions, its aliases folded in, dated and ordered as the feed is. */
+export function readEntityFeed(db: Database, entityId: string, limit = 6): V2FeedRow[] {
+  const id = folding(db)(entityId);
+  const latest = db.query(`SELECT a.id FROM assertions a
+    WHERE a.id IN (SELECT assertion_id FROM assertion_entities
+      WHERE entity_id IN (SELECT ? UNION ALL SELECT alias_id FROM entity_aliases WHERE entity_id = ?)) AND ${LIVE}
+    ORDER BY a.first_at DESC, a.id DESC LIMIT ?`).all(id, id, limit) as { id: string }[];
+  return feedRows(db, latest.reverse());
+}
+
+/** One page of the sorted feed (lib/v2Feed.ts pageSortedFeed, as a query):
+ * the stage's items newest first, after the row `before` names, each joined
+ * to its live claims' entities and to its source. An item whose claims have
+ * all been revoked or superseded since it was sorted drops out: the record
+ * no longer says it. */
+export function readSortedPage(root: string, db: Database, limit: number, before?: string): SortedPage {
+  const [added = "", section = "", source = ""] = before?.split("|") ?? [];
+  const rank = (FEED_SECTIONS as readonly string[]).indexOf(section);
+  const items = db.query(`SELECT f.source, f.section, f.headline, f.due, f.added FROM feed_items f
+    WHERE f.rank >= 0 AND (?1 = 0 OR f.added < ?2 OR (f.added = ?2 AND (f.rank > ?3 OR (f.rank = ?3 AND f.source > ?4))))
+      AND EXISTS (SELECT 1 FROM feed_item_assertions i JOIN assertions a ON a.id = i.assertion_id WHERE i.source = f.source AND ${LIVE})
+    ORDER BY f.added DESC, f.rank, f.source LIMIT ?5`).all(before ? 1 : 0, added, rank, source, limit + 1) as Omit<V2SortedRow, "entities">[];
+  const page = items.slice(0, limit);
+  const claims = db.query(`SELECT a.id FROM feed_item_assertions i JOIN assertions a ON a.id = i.assertion_id
+    WHERE i.source = ? AND ${LIVE} ORDER BY i.position`);
+  const heads = projectedSourceHeads(root, page.map((r) => r.source), db);
+  const rows = page.map((item): V2SortedRow => {
+    const h = heads.get(item.source);
+    return {
+      ...item, entities: [...new Set(feedRows(db, claims.all(item.source) as { id: string }[]).flatMap((r) => r.entities))],
+      ...(h ? { title: h.title, path: insertionEventRel(h), ...(h.source ? { via: h.source } : {}) } : {}),
+    };
+  });
+  const last = rows.at(-1);
+  return { rows, next: last && items.length > limit ? `${last.added}|${last.section}|${last.source}` : null };
 }

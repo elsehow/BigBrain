@@ -60,10 +60,10 @@ import { parseBlobRef, readBlob } from "../lib/blobs";
 import { recentSourcePageAsync } from "../lib/sourceFeed";
 import { currentGraph, currentGraphView, maintainGraphView } from "../lib/maintainedGraph";
 import { feedStamp, STAMP_HEADER } from "../lib/viewStamps";
+import type { Database } from "bun:sqlite";
 import type { ProjectionView } from "../lib/assertionProjection";
-import { buildEntityFeed, buildSortedFeed, buildV2Feed, pageSortedFeed, SORTED_PAGE, type V2Source } from "../lib/v2Feed";
-import { dueOf, feedItems, feedRecords } from "../lib/feedJournal";
-import { readV2Source } from "../lib/v2Read";
+import { SORTED_PAGE, type V2Feed } from "../lib/v2Feed";
+import { readEntityFeed, readSortedPage, readV2Feed } from "../lib/v2Read";
 import { otherCopies, withVaultSnapshot } from "../lib/vaultReadModel";
 import { frozenMessagesForRefs, sortFrozenDesc } from "../lib/frozenQueue";
 import { queueHead } from "../lib/queueHead";
@@ -71,7 +71,7 @@ import { noteLog } from "../lib/noteLog";
 import type { NoteMeta } from "../lib/viewTypes";
 import { errText } from "../lib/errText";
 import { hasAssertionEvents } from "../lib/assertionLog";
-import { projectedSourceHeads, syncAssertionProjection } from "../lib/assertionProjection";
+import { syncAssertionProjection } from "../lib/assertionProjection";
 import { agentWritten, insertionFiler, sourceInsertionMarkdown } from "../lib/sourceFeed";
 import { assertionsFromSource, projectedEntityMarkdown, truncatedEntityView, sourceThreadForInsertion, sourceInsertionCached } from "../lib/assertionEntityView";
 import { insertionEventRel, sourceMoment } from "../lib/insertionLog";
@@ -542,38 +542,37 @@ function search({ req, res, url }: Ctx): void {
   });
 }
 
-// The v2 view's read (lib/v2Feed.ts): the agents writing this vault,
-// what each centres on lately, and the latest assertions as a feed. The
-// graph itself comes from /api/graph; this adds only who and what.
-// A gardener run's journal, which names the model its rows don't, lands
-// after them and logs a change row (lib/tend.ts): the revision covers it.
-let v2Held: { revision: string; src: V2Source; stamp: string } | undefined;
-const v2Source = (): { src: V2Source; stamp: string } => withVaultSnapshot(ROOT, (db, revision) => {
-  if (v2Held?.revision !== revision) v2Held = { revision, src: readV2Source(db, ROOT), stamp: feedStamp(ROOT, db) };
-  return v2Held;
-});
-/** JSON read from the feed's snapshot, reporting the stamp it was read at. */
-function feedJson(res: ServerResponse, stamp: string, value: unknown): void {
-  res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store", [STAMP_HEADER]: stamp });
-  res.end(JSON.stringify(value));
-}
-function v2({ res }: Ctx): void {
+// The v2 view's reads (lib/v2Read.ts): the agents writing this vault, the
+// latest assertions as a feed, one entity's, and the sorted feed. The graph
+// itself comes from /api/graph; these add only who and what, each a query
+// the projection answers from its indexes, stamped with the last commit the
+// feed reads (lib/viewStamps.ts feedStamp).
+/** JSON read from one snapshot, reporting the feed stamp it was read at. */
+function feedJson<T>(res: ServerResponse, read: (db: Database, stamp: string) => T): void {
   try {
-    const { src, stamp } = v2Source();
-    feedJson(res, stamp, buildV2Feed(src));
+    const [stamp, value] = withVaultSnapshot(ROOT, (db) => {
+      const stamp = feedStamp(ROOT, db);
+      return [stamp, read(db, stamp)] as const;
+    });
+    res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store", [STAMP_HEADER]: stamp });
+    res.end(JSON.stringify(value));
   } catch (error) {
     json(res, 500, { error: errText(error) });
   }
+}
+// The author tally counts every live row: once per feed stamp, not per tab.
+let v2Held: { stamp: string; feed: V2Feed } | undefined;
+function v2({ res }: Ctx): void {
+  feedJson(res, (db, stamp) => {
+    if (!stamp || v2Held?.stamp !== stamp) v2Held = { stamp, feed: readV2Feed(db) };
+    return v2Held.feed;
+  });
 }
 // One entity's latest assertions, dated as the feed is (first recorded).
 function v2Entity({ res, url }: Ctx): void {
   const id = url.searchParams.get("id") ?? "";
   if (!id) return json(res, 400, { error: "Which entity? Pass ?id=." });
-  try {
-    json(res, 200, { rows: buildEntityFeed(v2Source().src, id) });
-  } catch (error) {
-    json(res, 500, { error: errText(error) });
-  }
+  feedJson(res, (db) => ({ rows: readEntityFeed(db, id) }));
 }
 
 // The sorted feed (lib/feedStage.ts): what needs the owner, what an agent
@@ -582,20 +581,9 @@ function v2Entity({ res, url }: Ctx): void {
 // first, and `before`, the `next` of the page before): the feed only grows.
 const SORTED_MAX = 5_000;
 function v2Sorted({ res, url }: Ctx): void {
-  try {
-    const records = loadManifest(ROOT).feed ? feedRecords(ROOT) : [];
-    const limit = Math.min(SORTED_MAX, Math.max(1, Math.trunc(Number(url.searchParams.get("limit"))) || SORTED_PAGE));
-    const { src, stamp } = v2Source();
-    const { rows, next } = pageSortedFeed(buildSortedFeed(src, feedItems(records).map((e) => ({ ...e, due: dueOf(e) }))),
-      limit, url.searchParams.get("before") ?? undefined);
-    const heads = projectedSourceHeads(ROOT, rows.map((r) => r.source));
-    feedJson(res, stamp, { next, rows: rows.map((r) => {
-      const h = heads.get(r.source);
-      return h ? { ...r, title: h.title, path: insertionEventRel(h), ...(h.source ? { via: h.source } : {}) } : r;
-    }) });
-  } catch (error) {
-    json(res, 500, { error: errText(error) });
-  }
+  const limit = Math.min(SORTED_MAX, Math.max(1, Math.trunc(Number(url.searchParams.get("limit"))) || SORTED_PAGE));
+  const before = url.searchParams.get("before") ?? undefined;
+  feedJson(res, (db) => loadManifest(ROOT).feed ? readSortedPage(ROOT, db, limit, before) : { rows: [], next: null });
 }
 
 // Serve the graph as a FINISHED PICTURE: structure plus settled positions,

@@ -4,8 +4,8 @@ import { startGardenerProgress } from "./gardenerProgress";
 import type { ToolObserver } from "./run/toolActivity";
 import type { PiSDK } from "./run/piSession";
 type PiLoader = () => Promise<PiSDK>;
-import { readFileSync, readdirSync } from "node:fs";
-import { join } from "node:path";
+import { readFileSync } from "node:fs";
+import { basename, join } from "node:path";
 import {
   acquireAssertionLock,
   ASSERTION_AGENT_TIMEOUT_MS,
@@ -27,9 +27,10 @@ import { stagedIds } from "./stage";
 import { dueIntakeIds } from "./work";
 import { creditsPaused } from "./providerCredits";
 import { projectJournal } from "./assertionProjection";
+import { runJournalFiles, TEND_JOURNAL_DIR } from "./runJournal";
 
 const TEND_PROMPT_VERSION = "tend/v5";
-export const TEND_JOURNAL_DIR = "journal/tend";
+export { TEND_JOURNAL_DIR };
 
 /** Bounded rounds per tick: each round is one provider session draining
  * available `next` batches. A backlog drains tick by tick; a stuck model that
@@ -98,30 +99,7 @@ function journalRecord(root: string, record: TendRunRecord): string {
  * and is skipped. The one walk (#642) for the readers that used to each
  * re-implement it (/v1/status.last_run, the queue feed's executions). */
 export function tendJournalFiles(root: string): { runId: string; path: string }[] {
-  const base = join(root, TEND_JOURNAL_DIR);
-  let months: string[];
-  try {
-    months = readdirSync(base)
-      .filter((m) => /^\d{4}-\d{2}$/.test(m))
-      .sort()
-      .reverse();
-  } catch {
-    return [];
-  }
-  const out: { runId: string; path: string }[] = [];
-  for (const month of months) {
-    let names: string[];
-    try {
-      names = readdirSync(join(base, month))
-        .filter((f) => f.endsWith(".json"))
-        .sort()
-        .reverse();
-    } catch {
-      continue;
-    }
-    for (const f of names) out.push({ runId: f.slice(0, -5), path: join(base, month, f) });
-  }
-  return out;
+  return runJournalFiles(root, TEND_JOURNAL_DIR).reverse().map((rel) => ({ runId: basename(rel, ".json"), path: join(root, rel) }));
 }
 
 /** The tick's cheap gate: is there anything to do at all? */

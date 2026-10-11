@@ -78,6 +78,8 @@ test("a connection opens with the stamps; a change pushes them only when one mov
     await Bun.sleep(30);
     expect(writes).toEqual([]);
     // a journal row: the feed's stamp moves
+    mkdirSync(join(root, "journal", "feed", "2026-10"), { recursive: true });
+    writeFileSync(join(root, "journal", "feed", "2026-10", "run-2.json"), "{}\n");
     projectJournal(root, "journal/feed/2026-10/run-2.json");
     live.handleChange("journal/feed/2026-10/run-2.json");
     await Bun.sleep(30);
