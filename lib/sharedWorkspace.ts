@@ -177,5 +177,5 @@ export async function sharedWorkspace(req: IncomingMessage, res: ServerResponse,
 /** A joined vault's views move together, with its feed head (lib/viewStamps.ts). */
 function sharedStamps(identity: string, head: number): import('./viewStamps').ViewStamps {
   const at = String(head);
-  return { generation: identity, revision: at, views: { graph: at, joined: '', feed: at, files: at } };
+  return { generation: identity, revision: at, views: { graph: at, joined: '', feed: at, folds: at, files: at } };
 }

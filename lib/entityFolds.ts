@@ -25,16 +25,17 @@ import type { ModelChoice } from "./modelChoice";
  * tools, one turn — the first full-census run cost $9.95 over eleven
  * verifying turns, a daily shape costs cents. Proposals accumulate until
  * settled. The output is DERIVED: `.state/entity-folds.json`, written by
- * this runner after validation and never by the model; the READ is
- * `liveFolds`, the file against today's record — a member folded or
- * retired since is gone, a pair the operator rejected
- * (lib/entityFoldLog.ts) never re-forms. Accept and reject are the routes
- * at the end, and stay the operator's.
+ * this runner after validation and never by the model, and projected as it
+ * is written; the READ is `readFolds`, the projection's copy against today's
+ * record — a member folded or retired since is gone, a pair the operator
+ * rejected (lib/entityFoldLog.ts) never re-forms — looking up only the
+ * members proposed. Accept and reject are the routes at the end, and stay
+ * the operator's.
  */
 
 import type { PiSDK } from "./run/piSession";
 type PiLoader = () => Promise<PiSDK>;
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
 import { userInfo } from "node:os";
 import { join } from "node:path";
 import type { Database } from "bun:sqlite";
@@ -42,20 +43,16 @@ import type { AssertionEntity } from "./assertionLog";
 import {
   DATED_ASSERTIONS,
   appendAndProjectEntityAlias,
+  appendAndProjectEntityFoldReject,
   openAssertionProjectionReadonly,
   projectedAssertionEntity,
+  projectFolds,
   syncAssertionProjection,
 } from "./assertionProjection";
 import { ENGINE_ROOT } from "./engine";
 import { ownerEmail } from "./env";
 import { commitEntityAliasEvents, createEntityAliasEvent } from "./entityAliasLog";
-import {
-  appendEntityFoldRejectEvent,
-  commitEntityFoldRejectEvents,
-  createEntityFoldRejectEvent,
-  pairKey,
-  readEntityFoldRejectLog,
-} from "./entityFoldLog";
+import { ENTITY_FOLDS_FILE, commitEntityFoldRejectEvents, createEntityFoldRejectEvent, pairKey } from "./entityFoldLog";
 import { writeAtomic } from "./fsx";
 import { json, readBody, type Ctx, type Route } from "./httpx";
 import { ENT_ID, ENTITY_LINK } from "./ids";
@@ -63,7 +60,10 @@ import type { EventAuthor } from "./insertionLog";
 import type { Auth } from "./manifest";
 import { MEMORY_ROLE } from "./memory";
 import { runModel, type RunUsage } from "./run/model";
+import { liveAssertionSql } from "./sourceSupersede";
 import { clip } from "./text";
+import { withVaultSnapshot } from "./vaultReadModel";
+import { foldsStamp, serveStamped } from "./viewStamps";
 
 /** One live canonical entity, as the model is shown it. */
 export interface CensusRow {
@@ -178,32 +178,21 @@ export interface FoldGroup {
 /** "The operator said these two are not one thing." */
 export type RejectedPair = (a: string, b: string) => boolean;
 
-/** The reject log as a predicate, both sides resolved through the alias
+/** Every refused pair, ascending, each side resolved through the alias
  * table so a pair refused before one side was folded holds against the
- * canonical it folded into. */
-export function rejectedPairs(root: string): RejectedPair {
-  const keys = new Set(rejectedPairList(root).map(([a, b]) => pairKey(a, b)));
-  return (a, b) => keys.has(pairKey(a, b));
+ * canonical it folded into: what the viewer needs to stop offering a
+ * same-name pair you said are two. */
+export function rejectedPairList(db: Database): Array<[string, string]> {
+  return db.query(`SELECT DISTINCT min(a, b), max(a, b) FROM (
+      SELECT coalesce(xa.entity_id, r.a) AS a, coalesce(xb.entity_id, r.b) AS b FROM entity_fold_rejects r
+        LEFT JOIN entity_aliases xa ON xa.alias_id = r.a LEFT JOIN entity_aliases xb ON xb.alias_id = r.b)
+    WHERE a != b ORDER BY 1, 2`).values() as Array<[string, string]>;
 }
 
-/** Every refused pair, each side resolved as rejectedPairs resolves it: what
- * the viewer needs to stop offering a same-name pair you said are two. */
-export function rejectedPairList(root: string): Array<[string, string]> {
-  const out = new Map<string, [string, string]>();
-  const canon = new Map<string, string>();
-  const resolve = (id: string): string => {
-    let c = canon.get(id);
-    if (c === undefined) {
-      c = projectedAssertionEntity(root, id)?.id ?? id;
-      canon.set(id, c);
-    }
-    return c;
-  };
-  for (const event of readEntityFoldRejectLog(root)) {
-    const a = resolve(event.pair[0].id), b = resolve(event.pair[1].id);
-    if (a !== b) out.set(pairKey(a, b), a < b ? [a, b] : [b, a]);
-  }
-  return [...out.values()];
+/** Refused pairs as a predicate, whichever way round each is asked. */
+export function rejectedPairs(pairs: ReadonlyArray<readonly [string, string]>): RejectedPair {
+  const keys = new Set(pairs.map(([a, b]) => pairKey(a, b)));
+  return (a, b) => keys.has(pairKey(a, b));
 }
 
 /** A group as the model writes it — and as a standing group is fed back
@@ -221,7 +210,7 @@ const cited = (g: FoldGroup): number => g.members.reduce((n, m) => n + m.asserti
  * beside the proposals. */
 export function validateFolds(
   raw: unknown,
-  census: readonly CensusRow[],
+  census: readonly FoldMember[],
   rejected: RejectedPair = () => false
 ): { groups: FoldGroup[]; dropped: string[] } {
   if (!Array.isArray(raw)) throw new Error("entity-folds: the folds block must be a JSON array of groups");
@@ -292,16 +281,15 @@ export interface EntityFolds {
   wallMs: number;
 }
 
-export const entityFoldsFile = (root: string): string => join(root, ".state", "entity-folds.json");
+export const entityFoldsFile = (root: string): string => join(root, ENTITY_FOLDS_FILE);
+
+/** The proposals a copy of the file holds: undefined for none, or unreadable. */
+function foldsIn(text: string | undefined): EntityFolds | undefined {
+  try { return text === undefined ? undefined : (JSON.parse(text) as EntityFolds); } catch { return undefined; }
+}
 
 export function readEntityFolds(root: string): EntityFolds | undefined {
-  const file = entityFoldsFile(root);
-  if (!existsSync(file)) return undefined;
-  try {
-    return JSON.parse(readFileSync(file, "utf8")) as EntityFolds;
-  } catch {
-    return undefined;
-  }
+  try { return foldsIn(readFileSync(entityFoldsFile(root), "utf8")); } catch { return undefined; }
 }
 
 export interface ProposeOpts {
@@ -330,9 +318,8 @@ export interface ProposeResult {
 /** Run the feeder once: census → model → validated groups → the state
  * file. The model runs as the memory pass (its role, its runner). */
 export async function proposeEntityFolds(root: string, opts: ProposeOpts): Promise<ProposeResult> {
-  syncAssertionProjection(root);
-  const census = entityCensus(root);
-  const rejected = opts.rejected ?? rejectedPairs(root);
+  const [census, refused] = withVaultSnapshot(root, (db) => [entityCensus(root, db), rejectedPairList(db)] as const);
+  const rejected = opts.rejected ?? rejectedPairs(refused);
   const now = opts.now ?? (() => new Date());
   const standing = opts.since !== undefined ? readEntityFolds(root) : undefined;
   const changed = opts.since !== undefined ? changedSince(census, opts.since).length : census.length;
@@ -378,6 +365,7 @@ export async function proposeEntityFolds(root: string, opts: ProposeOpts): Promi
 function write(root: string, folds: EntityFolds): void {
   mkdirSync(join(root, ".state"), { recursive: true });
   writeAtomic(entityFoldsFile(root), `${JSON.stringify(folds, null, 2)}\n`);
+  projectFolds(root);
 }
 
 /** What the viewer shows: the standing proposals against TODAY's record —
@@ -392,14 +380,27 @@ export interface FoldsView {
   rejected: Array<[string, string]>;
 }
 
-export function liveFolds(root: string): FoldsView {
-  const folds = readEntityFolds(root);
-  syncAssertionProjection(root);
-  const rejected = rejectedPairList(root);
+/** The census rows validation reads, for these ids alone: each live
+ * canonical entity's label and live count, as entityCensus counts them. */
+function memberCensus(db: Database, ids: readonly string[]): FoldMember[] {
+  return db.query(`SELECT e.id AS id, e.label AS label, count(*) AS assertions FROM entities e
+      JOIN assertion_entities ae ON ae.entity_id = e.id JOIN assertions a ON a.id = ae.assertion_id
+    WHERE e.id IN (SELECT value FROM json_each(?)) AND e.id NOT IN (SELECT alias_id FROM entity_aliases)
+      AND a.revoked_by IS NULL AND ${liveAssertionSql("a")}
+    GROUP BY e.id`).all(JSON.stringify(ids)) as FoldMember[];
+}
+
+/** The standing proposals in `db` against the record beside them. */
+export function readFolds(db: Database): FoldsView {
+  const rejected = rejectedPairList(db);
+  const folds = foldsIn((db.query("SELECT body FROM entity_folds").get() as { body: string } | null)?.body);
   if (!folds) return { proposedAt: null, groups: [], rejected };
-  const { groups } = validateFolds(folds.groups.map(rawGroup), entityCensus(root), rejectedPairs(root));
+  const raw = folds.groups.map(rawGroup);
+  const { groups } = validateFolds(raw, memberCensus(db, raw.flatMap((g) => g.members)), rejectedPairs(rejected));
   return { proposedAt: folds.proposedAt, model: folds.model, groups, rejected };
 }
+
+export const liveFolds = (root: string): FoldsView => withVaultSnapshot(root, readFolds);
 
 /** The proposals for a terminal. */
 export function describeFolds(f: EntityFolds, groups: FoldGroup[] = f.groups): string {
@@ -472,7 +473,7 @@ export function rejectFold(
   const paths: string[] = [];
   for (const o of others) {
     const event = createEntityFoldRejectEvent({ a: member, b: o, author, created_at: now().toISOString(), produced_by: REJECT });
-    paths.push(appendEntityFoldRejectEvent(root, event).path);
+    paths.push(appendAndProjectEntityFoldReject(root, event).path);
   }
   commitEntityFoldRejectEvents(root, paths, `entity folds: "${member.label}" is not ${others.map((o) => `"${o.label}"`).join(", ")}`);
   return { member, against: others };
@@ -490,7 +491,7 @@ export function foldsRoutes(root: string, author: () => EventAuthor = operatorAu
     })();
   };
   return [
-    { method: "GET", path: "/api/entity/folds", handler: ({ res }) => json(res, 200, liveFolds(root)) },
+    { method: "GET", path: "/api/entity/folds", handler: ({ res }) => serveStamped(res, root, foldsStamp, readFolds) },
     {
       method: "POST",
       path: "/api/entity/folds/accept",

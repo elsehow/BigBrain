@@ -9,13 +9,18 @@ import type { ViewStamps } from "../../../../lib/viewStamps";
 export type { ViewStamps };
 
 /** The stamps a view rendered: from its response (the graph's ETag, the
- * feed's x-bigbrain-stamp), or the pushed stamp it fetched for. "" is none. */
-export interface Rendered { graph: string; joined: string; feed: string }
+ * feed's and the folds' x-bigbrain-stamp), or the pushed stamp it fetched
+ * for. "" is none. */
+export interface Rendered { graph: string; joined: string; feed: string; folds: string }
 
 /** Which of the Field's views are behind the pushed stamps. The graph merges
  * in the joined shared vaults, so joining or leaving one moves it too. */
-export function viewsBehind(have: Rendered, stamps: ViewStamps): { graph: boolean; feed: boolean } {
-  return { graph: stamps.views.graph !== have.graph || stamps.views.joined !== have.joined, feed: stamps.views.feed !== have.feed };
+export function viewsBehind(have: Rendered, stamps: ViewStamps): { graph: boolean; feed: boolean; folds: boolean } {
+  return {
+    graph: stamps.views.graph !== have.graph || stamps.views.joined !== have.joined,
+    feed: stamps.views.feed !== have.feed,
+    folds: stamps.views.folds !== have.folds,
+  };
 }
 
 /** Whether the views that have no stamp of their own (settings, setup) should

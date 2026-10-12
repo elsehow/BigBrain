@@ -18,6 +18,10 @@ import { ENT_ID } from "./ids";
 import { validEventAuthor, type EventAuthor } from "./insertionLog";
 
 export const ENTITY_FOLD_REJECT_LOG_DIR = "log/entity-fold-rejects";
+/** The pass's standing proposals (lib/entityFolds.ts): derived and
+ * regenerable, so state rather than record, but the projection reads them
+ * beside the rejects (projectFolds). */
+export const ENTITY_FOLDS_FILE = ".state/entity-folds.json";
 
 export interface EntityFoldRejectEvent {
   event: "entity.fold-rejected";
@@ -83,6 +87,7 @@ export function createEntityFoldRejectEvent(input: EntityFoldRejectInput): Entit
 
 export const appendEntityFoldRejectEvent = log.append;
 export const readEntityFoldRejectLog = log.read;
+export const listEntityFoldRejectEventFiles = log.listFiles;
 export const commitEntityFoldRejectEvents = log.commit;
 
 /** The key one pair has, whichever way round it is asked. */

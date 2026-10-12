@@ -60,7 +60,7 @@ import { walkMarkdown } from "../lib/vaultRead";
 import { parseBlobRef, readBlob } from "../lib/blobs";
 import { recentSourcePageAsync } from "../lib/sourceFeed";
 import { currentGraph, currentGraphView, maintainGraphView } from "../lib/maintainedGraph";
-import { feedStamp, STAMP_HEADER } from "../lib/viewStamps";
+import { feedStamp, serveStamped } from "../lib/viewStamps";
 import type { Database } from "bun:sqlite";
 import type { ProjectionView } from "../lib/assertionProjection";
 import { SORTED_PAGE, withRows, type V2Feed, type V2SortedRow } from "../lib/v2Feed";
@@ -549,18 +549,7 @@ function search({ req, res, url }: Ctx): void {
 // the projection answers from its indexes, stamped with the last commit the
 // feed reads (lib/viewStamps.ts feedStamp).
 /** JSON read from one snapshot, reporting the feed stamp it was read at. */
-function feedJson<T>(res: ServerResponse, read: (db: Database, stamp: string) => T): void {
-  try {
-    const [stamp, value] = withVaultSnapshot(ROOT, (db) => {
-      const stamp = feedStamp(ROOT, db);
-      return [stamp, read(db, stamp)] as const;
-    });
-    res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store", [STAMP_HEADER]: stamp });
-    res.end(JSON.stringify(value));
-  } catch (error) {
-    json(res, 500, { error: errText(error) });
-  }
-}
+const feedJson = <T>(res: ServerResponse, read: (db: Database, stamp: string) => T): void => serveStamped(res, ROOT, feedStamp, read);
 // The author tally counts every live row: once per feed stamp, not per tab.
 let v2Held: { stamp: string; feed: V2Feed } | undefined;
 function v2({ res }: Ctx): void {
