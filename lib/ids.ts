@@ -26,6 +26,10 @@ export const AST_ID = /^ast_[a-f0-9]{24}$/u;
  * retraction is not itself withdrawn. */
 export const RETRACTABLE_ID = /^(ast|dec|eal|esb|scp|efr)_[a-f0-9]{24}$/u;
 
+/** An event in one of those retired logs: what `bigbrain migrate` converted
+ * an assertion from (its `migrated_from`). */
+export const RETIRED_EVENT_ID = /^(dec|rev|eal|esb|scp|efr)_[a-f0-9]{24}$/u;
+
 /** Every wikilink in assertion text — `[[target]]` or `[[target|display]]`.
  * The target is a bare label as a model writes it and an entity id once
  * intake has canonicalized it (lib/assertionAgent.ts). */
