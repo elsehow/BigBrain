@@ -7,7 +7,7 @@ import { sourceThreads, threadsByInsertion } from "../lib/sourceThreads";
 import { insertion, nativeVault } from "./support/vault";
 import { appendSourceInsertionEvent, insertionEventRel, type SourceInsertion } from "../lib/insertionLog";
 import { appendAssertionEvent, createAssertionEvent, assertionEntityId } from "../lib/assertionLog";
-import { sourceThreadView, invalidateAssertionRecord } from "../lib/assertionEntityView";
+import { sourceThreadView } from "../lib/assertionEntityView";
 import { recentSourcePage } from "../lib/sourceFeed";
 import { notePayload, resolveLink } from "../lib/noteRead";
 import { buildAssertionGraph } from "../lib/assertionGraph";
@@ -74,7 +74,7 @@ test("feed pages conversations, combined reader preserves all assertions and ori
   expect(node.memberPaths).toHaveLength(2);
   expect(graph.edges.find(e => e.source === node.id || e.target === node.id)!.weight).toBe(3);
   expect(node.memberPaths).toContain(insertionEventRel(a));
-  const newer = email(3); appendSourceInsertionEvent(root, newer); projectSourceInsertion(root, newer); invalidateAssertionRecord(root);
+  const newer = email(3); appendSourceInsertionEvent(root, newer); projectSourceInsertion(root, newer);
   expect(recentSourcePage(root, 0, 1).recent[0]).toMatchObject({ path: row.path, threadCount: 3, status: "pending" });
   expect(sourceThreadView(root, row.path)!.members).toHaveLength(3);
   expect(notePayload(root, `projection/threads/thread_${"f".repeat(24)}.md`).status).toBe(404);

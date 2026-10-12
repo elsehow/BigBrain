@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
-import { projectJournal, projectSourceInsertion, syncAssertionProjection } from "../lib/assertionProjection";
+import { projectJournal, projectNotes, projectSourceInsertion, syncAssertionProjection } from "../lib/assertionProjection";
 import { appendSourceInsertionEvent, insertionEventRel } from "../lib/insertionLog";
 import { buildGraphView, forgetGraphView, maintainGraphView, type BuildGraphView } from "../lib/maintainedGraph";
 import { invalidateGraphCaches } from "../lib/graphCache";
@@ -49,6 +49,7 @@ test("each view's stamp moves only with what it reads", async () => {
   // a memory note: the graph draws it, the feed does not read Markdown
   mkdirSync(join(root, "memory"), { recursive: true });
   writeFileSync(join(root, "memory", "index.md"), `# Memory\n\n[[${insertionEventRel(first)}]]\n`);
+  projectNotes(root, ["memory/index.md"]); // as the viewer's watcher does
   const noted = await settled(root);
   expect(noted.revision).not.toBe(journaled.revision);
   expect(noted.views.feed).toBe(journaled.views.feed);

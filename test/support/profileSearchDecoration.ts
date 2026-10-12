@@ -12,7 +12,8 @@ process.env.BIGBRAIN_VAULT = root;
 const { ROUTES } = await import(join(engine, 'web/server.ts'));
 const { dispatch } = await import(join(engine, 'lib/httpx.ts'));
 const { invalidateGraphCaches } = await import(join(engine, 'lib/graphCache.ts'));
-const { invalidateAssertionRecord } = await import(join(engine, 'lib/assertionEntityView.ts'));
+// Engines before the notes door (#225) needed a hint to drop decoded records; later ones key them by revision.
+const invalidateAssertionRecord: (root: string) => void = (await import(join(engine, 'lib/assertionEntityView.ts'))).invalidateAssertionRecord ?? (() => {});
 const { createLive } = await import(join(engine, 'lib/liveEvents.ts'));
 const samples: { phase: string; ms: number; hits: number; digest: string }[] = [];
 async function search(phase: string, query: string) {

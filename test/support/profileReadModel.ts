@@ -12,7 +12,10 @@ const { appendSourceInsertionEvent } = await mod("lib/insertionLog.ts");
 const { createAssertionEvent, appendAssertionEvent, assertionEntityId } = await mod("lib/assertionLog.ts");
 const { syncAssertionProjection } = await mod("lib/assertionProjection.ts");
 const { buildAssertionGraph } = await mod("lib/assertionGraph.ts");
-const { assertionEntityView, assertionEntityPath, invalidateAssertionRecord } = await mod("lib/assertionEntityView.ts");
+const entityView = await mod("lib/assertionEntityView.ts");
+const { assertionEntityView, assertionEntityPath } = entityView;
+// Engines before the notes door (#225) needed a hint to drop decoded records; later ones key them by revision.
+const invalidateAssertionRecord: (root: string) => void = entityView.invalidateAssertionRecord ?? (() => {});
 const { recentSourcePage } = await mod("lib/sourceFeed.ts");
 // Compare the actual viewer wrapper too: the baseline already cached its
 // complete feed, even though Pilot called the uncached helper directly.

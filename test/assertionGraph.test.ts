@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildAssertionGraph } from "../lib/assertionGraph";
-import { assertionEntityMarkdown, assertionEntityPath, assertionEntityView, invalidateAssertionRecord, projectedEntityMarkdown, truncatedEntityView } from "../lib/assertionEntityView";
+import { assertionEntityMarkdown, assertionEntityPath, assertionEntityView, projectedEntityMarkdown, truncatedEntityView } from "../lib/assertionEntityView";
 import { assertionEntityId, createAssertionEvent, appendAssertionEvent } from "../lib/assertionLog";
 import { appendSourceInsertionEvent, type SourceInsertion } from "../lib/insertionLog";
 import { appendAndProjectAssertion, appendAndProjectDecline, projectSourceInsertion } from "../lib/assertionProjection";
@@ -300,8 +300,6 @@ describe("assertion graph", () => {
     assert("one");
     expect(assertionEntityView(root, assertionEntityPath(ada.id))!.assertions).toHaveLength(1);
     assert("two");
-    expect(assertionEntityView(root, assertionEntityPath(ada.id))!.assertions).toHaveLength(2);
-    invalidateAssertionRecord(root);
     expect(assertionEntityView(root, assertionEntityPath(ada.id))!.assertions).toHaveLength(2);
   });
 });

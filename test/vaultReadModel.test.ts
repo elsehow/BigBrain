@@ -1,13 +1,14 @@
 import { sourceThreads } from "../lib/sourceThreads";
 import { afterEach, expect, spyOn, test } from "bun:test";
-import { join } from "node:path";
+import { Database } from "bun:sqlite";
+import { dirname, join } from "node:path";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { mdVault, insertion } from "./support/vault";
 import { appendAssertionEvent, createAssertionEvent, assertionEntityId } from "../lib/assertionLog";
 import { assertionEntityView, assertionEntityPath } from "../lib/assertionEntityView";
 import { appendSourceInsertionEvent, insertionEventRel } from "../lib/insertionLog";
-import { projectSourceInsertion, rebuildAssertionProjection, openAssertionProjectionReadonly, projectionRevision, recoverAssertionProjection, syncAssertionProjection } from "../lib/assertionProjection";
-import { documentLinkTexts, sourceCatalog, sourceReadTargets, threadReadModel, invalidateVaultReadModel, publishReadModel, vaultRecord, withVaultSnapshot, projectedSource, projectedMarkdown, sourceRecord } from "../lib/vaultReadModel";
+import { assertionDbPath, projectSourceInsertion, rebuildAssertionProjection, openAssertionProjectionReadonly, projectionRevision, projectNotes, recoverAssertionProjection } from "../lib/assertionProjection";
+import { documentLinkTexts, sourceCatalog, sourceReadTargets, threadReadModel, publishReadModel, vaultRecord, withVaultSnapshot, projectedSource, projectedMarkdown, sourceRecord } from "../lib/vaultReadModel";
 import { buildAssertionGraph } from "../lib/assertionGraph";
 import { recentSourcePage } from "../lib/sourceFeed";
 
@@ -19,6 +20,14 @@ function fixture() {
   appendSourceInsertionEvent(root, source);
   return { root, source };
 }
+
+test("a read that opens the projection before its first schema commits builds it instead of failing", () => {
+  const { root, source } = fixture();
+  // the file as a first writer leaves it the instant it opens: no tables yet
+  mkdirSync(dirname(assertionDbPath(root)), { recursive: true });
+  new Database(assertionDbPath(root)).close();
+  expect(withVaultSnapshot(root, () => sourceRecord(root).sources.has(source.id))).toBe(true);
+});
 
 test("a feed-only miss decodes no assertion text, Markdown metadata, or link evidence", () => {
   const { root, source } = fixture();
@@ -81,9 +90,11 @@ test("Markdown edits and deletion atomically advance the record and its extracte
   expect(first.edges).toHaveLength(1);
   const revision = projectionRevision(root);
   writeFileSync(path, "# Topic\n\nNo links.");
+  projectNotes(root, ["memory/topic.md"]); // the notes door, as the watcher calls it
   expect(buildAssertionGraph(root).edges).toHaveLength(0);
   expect(projectionRevision(root)).not.toBe(revision);
   rmSync(path);
+  projectNotes(root, ["memory/topic.md"]);
   expect(buildAssertionGraph(root).nodes.some(n => n.id === "memory/topic.md")).toBe(false);
   withVaultSnapshot(root, db => {
     expect(db.query("SELECT count(*) AS n FROM document_links WHERE path LIKE 'markdown:%'").get()).toEqual({ n: 0 });
@@ -113,7 +124,6 @@ test("retracting/restoring a source updates openable views while preserving its 
   // A hand retraction is the census's to find: reads alone do not scan log/.
   expect(recentSourcePage(root, 0, 10).total).toBe(1);
   recoverAssertionProjection(root);
-  invalidateVaultReadModel(root);
   expect(recentSourcePage(root, 0, 10).total).toBe(0);
   expect(buildAssertionGraph(root).nodes).toHaveLength(0);
   expect(projectionRevision(root)).not.toBe(revision);
@@ -143,7 +153,7 @@ test("failed catch-up keeps Markdown and the feed at the last complete revision"
     expect(db.query("SELECT count(*) AS n FROM read_feed").get()).toEqual({ n: 1 });
   } finally { db.close(); }
   rmSync(broken);
-  syncAssertionProjection(root);
+  recoverAssertionProjection(root); // the census, run again, catches up whole
   expect(vaultRecord(root).documents[0]!.title).toBe("After");
 });
 
@@ -195,7 +205,7 @@ test("thread membership and metadata stay at the borrowed revision across append
     expect(threadReadModel(root, path)).toEqual(view);
   });
   expect(threadReadModel(root, path)).toEqual(view);
-  rmSync(join(root, insertionEventRel(b))); recoverAssertionProjection(root); invalidateVaultReadModel(root);
+  rmSync(join(root, insertionEventRel(b))); recoverAssertionProjection(root);
   expect(sourceCatalog(root).threads[0]!.members.map(s => s.id)).toEqual([a.id]);
   expect(threadReadModel(root, a.id, true)).toBeUndefined();
 });

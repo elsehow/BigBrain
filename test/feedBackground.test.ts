@@ -4,7 +4,6 @@ import { join } from "node:path";
 import { mdVault, insertion } from "./support/vault";
 import { appendSourceInsertionEvent, insertionEventRel } from "../lib/insertionLog";
 import { recentSourcePage, recentSourcePageAsync } from "../lib/sourceFeed";
-import { invalidateVaultReadModel } from "../lib/vaultReadModel";
 import { appendAndProjectDecline, projectSourceInsertion, recoverAssertionProjection } from "../lib/assertionProjection";
 import { createDeclineEvent } from "../lib/declineLog";
 
@@ -36,7 +35,7 @@ test("direct cold feed readers preserve ordering, pagination, filters and filing
 test("a change during preparation cannot satisfy freshness with an obsolete result", async () => {
   const { root, b } = fixture();
   const first = recentSourcePageAsync(root, 0, 10);
-  appendSourceInsertionEvent(root, b); projectSourceInsertion(root, b); invalidateVaultReadModel(root);
+  appendSourceInsertionEvent(root, b); projectSourceInsertion(root, b);
   const second = recentSourcePageAsync(root, 0, 10);
   const pages = await Promise.all([first, second]);
   expect(pages[0]).toEqual(pages[1]); expect(pages[0]!.total).toBe(2);

@@ -155,9 +155,12 @@ projection as the request found it, for a client reading its own write.
 A synchronous `withVaultSnapshot` callback borrows one SQLite read transaction;
 nested readers borrow the same transaction. Callers must not hold it across
 asynchronous work. Decoded views share a bounded per-vault revision cache.
-People edit Markdown outside the engine, so its metadata stamps are checked on
-a one-second fallback when notifications are missed; a read takes the
-projection write lock only when that check finds a change.
+A read never checks the filesystem. People edit Markdown outside the engine,
+so notes have one door, `projectNotes` in
+[`assertionProjection.ts`](../lib/assertionProjection.ts): the viewer's watcher
+passes the paths it saw change, the memory pass the tree it wrote, and each
+process's recovery census, run once at its first read, finds what changed
+while nothing watched.
 
 The feed borrows a narrow `SourceRecord`: source headers, short excerpts, intake
 priorities, thread membership, and settlement/supersession facts. Settlement
@@ -172,12 +175,10 @@ Persisted feed pages are published only if their input revision is still current
 
 [`graphCache.ts`](../lib/graphCache.ts) and
 [`graphWorker.ts`](../lib/graphWorker.ts) prepare graph/feed data and layouts
-away from the viewer's event loop. Graph readers use the same one-second
-reconciliation gate as other snapshot readers. An async reader delegates a due
-freshness check to a worker; concurrent requests share that preparation. If the revision
+away from the viewer's event loop. An async reader whose revision has moved
+delegates the build to a worker; concurrent requests share it. If the revision
 is unchanged, the worker returns only its revision and the existing graph is
-reused. An obsolete worker can neither publish a graph nor satisfy the shared
-freshness clock. The fallback runs on demand, so this adds no idle polling timer.
+reused. An obsolete worker cannot publish a graph.
 Layout reuse follows the graph's structure hash; content/evidence follows the
 record revision. A graph call inside an existing snapshot borrows that revision.
 

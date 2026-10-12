@@ -51,7 +51,7 @@ export interface SourceBindingPlan {
  * Reads the projection; writes nothing. */
 export function planEntitySourceSeed(root: string): SourceBindingPlan {
   syncAssertionProjection(root);
-  const record = vaultRecord(root, true);
+  const record = vaultRecord(root);
   const { rows, superseded, sources, aliases } = record;
   const resolve = (entity: AssertionEntity) => aliases.canonical.get(entity.id) ?? entity;
   const decided = new Set(record.entitySources.flatMap((event) => [

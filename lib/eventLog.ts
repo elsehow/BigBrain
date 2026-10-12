@@ -14,7 +14,6 @@
  * strictly, and a separate homogeneous log costs one directory where a mixed
  * one costs a guard in every reader forever (lib/declineLog.ts's reason).
  */
-import { markVaultChanged } from "./vaultChanges";
 
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
@@ -134,7 +133,6 @@ export function eventLog<T extends { id: string }>(spec: EventLogSpec<T>): Event
           throw new Error(`${name}-log: immutable event collision: ${event.id}`);
         return { event, path: at, deduped: true };
       }
-      markVaultChanged(root);
       return { event, path: at, deduped: false };
     },
 

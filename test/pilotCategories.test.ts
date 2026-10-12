@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { nativeVault, insertion } from "./support/vault";
 import { assertionEntityId, appendAssertionEvent, createAssertionEvent } from "../lib/assertionLog";
 import { memoryCategoryCatalogue } from "../lib/memoryCategories";
-import { invalidateGraphCaches } from "../lib/graphCache";
+import { projectNotes } from "../lib/assertionProjection";
 import { PilotCategories } from "../lib/pilotCategories";
 import { newPilotChatSession } from "../lib/pilotChatTypes";
 import { PILOT_CATEGORY_GRAPH_VERSION, rankPilotCategories } from "../lib/pilotCategoryGraph";
@@ -35,11 +35,11 @@ test("full memory catalogue excludes root and refreshes after text-only changes"
   const first=await memoryCategoryCatalogue(root);
   expect(first.memories).toHaveLength(1); expect(first.memories[0]!.text).toContain("Original scope");
   expect(await memoryCategoryCatalogue(root)).toBe(first);
-  writeFileSync(join(root,"memory/research.md"),"# Research\nRevised scope with the same graph"); invalidateGraphCaches(root);
+  writeFileSync(join(root,"memory/research.md"),"# Research\nRevised scope with the same graph"); projectNotes(root,["memory/research.md"]);
   const next=await memoryCategoryCatalogue(root);
   expect(next.key).not.toBe(first.key); expect(next.memories[0]!.text).toContain("Revised scope");
   expect(JSON.parse(readFileSync(join(root,".state/memory-categories.json"),"utf8")).key).toBe(next.key);
-  rmSync(join(root,"memory/research.md")); invalidateGraphCaches(root);
+  rmSync(join(root,"memory/research.md")); projectNotes(root,["memory/research.md"]);
   expect((await memoryCategoryCatalogue(root)).memories).toHaveLength(0);
 });
 
@@ -145,6 +145,6 @@ test("default worker uses the real scratch-vault graph and reclassifies after me
   const s=newPilotChatSession([entity.id]);s.messages.push({id:"u",role:"user",at:s.created,text:"Work on Atlas"});
   const worker=new PilotCategories(root,{list:()=>[s],publish:(session,category)=>{session.category=category;}});workers.push(worker);
   await worker.refresh();expect(s.category?.memory).toBe("memory/research.md");
-  writeFileSync(join(root,"memory/research.md"),"# Research");writeFileSync(join(root,"memory/software.md"),`# Software\n${link}`);invalidateGraphCaches(root);
+  writeFileSync(join(root,"memory/research.md"),"# Research");writeFileSync(join(root,"memory/software.md"),`# Software\n${link}`);projectNotes(root,["memory"]);
   await worker.refresh();expect(s.category?.memory).toBe("memory/software.md");
 });

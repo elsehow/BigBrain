@@ -3,7 +3,6 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { sourceExcerpt, recentSourcePage } from "../lib/sourceFeed";
-import { invalidateVaultReadModel } from "../lib/vaultReadModel";
 import { createLive } from "../lib/liveEvents";
 import { appendSourceInsertionEvent } from "../lib/insertionLog";
 import { projectSourceInsertion } from "../lib/assertionProjection";
@@ -31,5 +30,5 @@ test("recent pages share a feed and watcher events invalidate it before the live
     expect(refreshed.nextOffset).toBe(1);
     expect(recentSourcePage(root, 1, 12).recent[0].title).toBe("Earlier");
     expect(recentSourcePage(root, 1, 12).nextOffset).toBeNull();
-  } finally { live.stop(); invalidateVaultReadModel(root); rmSync(root, { recursive: true, force: true }); }
+  } finally { live.stop(); rmSync(root, { recursive: true, force: true }); }
 });

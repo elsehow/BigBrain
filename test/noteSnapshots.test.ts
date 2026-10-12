@@ -6,7 +6,7 @@ import { declareOwner } from "./support/identity";
 import { appendSourceInsertionEvent, insertionEventRel } from "../lib/insertionLog";
 import { createDeclineEvent } from "../lib/declineLog";
 import { appendAndProjectDecline, claimProjectionRecovery, projectSourceInsertion, syncAssertionProjection } from "../lib/assertionProjection";
-import { invalidateVaultReadModel, withVaultSnapshot } from "../lib/vaultReadModel";
+import { withVaultSnapshot } from "../lib/vaultReadModel";
 import { userIdentityDeclarations } from "../lib/userIdentity";
 import { readMemoryInputs, memoryInputDelta } from "../lib/memoryInputs";
 import { voiceMessagesFor } from "../lib/voice";
@@ -66,7 +66,6 @@ test("failed reconciliation retains tolerant memory inputs and the pending voice
   expect(() => syncAssertionProjection(root)).not.toThrow();
   const withdraw = claimProjectionRecovery(root);
   withdraw();
-  invalidateVaultReadModel(root);
   expect(readMemoryInputs(root).checkpoint).toEqual(checkpoint);
   expect(voiceMessagesFor(root, [source.source_id])[0]).toMatchObject({ state: "pending", guidance: voice.body });
   // Raw fallback never revives a missing source from a stale projection.
@@ -84,6 +83,6 @@ test("identity recovery requires sources only for a claimed declaration and vali
   expect(userIdentityDeclarations(root)).toEqual([]);
   rmSync(broken);
   declareOwner(root, { account: "me", verified_email: "me@example.com", name: "Owner" });
-  writeFileSync(broken, "{}"); invalidateVaultReadModel(root);
+  writeFileSync(broken, "{}");
   expect(() => userIdentityDeclarations(root)).toThrow("unreadable event");
 });

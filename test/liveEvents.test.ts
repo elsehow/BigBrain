@@ -281,6 +281,38 @@ describe("createLive — lifecycle", () => {
   });
 });
 
+describe("createLive — the notes door", () => {
+  test("a note change hands the door exactly what changed; other trees never reach it", async () => {
+    const asked: (string[] | undefined)[] = [];
+    const live = createLive({ root: "/nonexistent-vault", watch: () => ({ close() {} }), refresh: (_root, paths) => { asked.push(paths); },
+      warmLayout: () => {}, recover: async () => {}, debounceMs: 5, heartbeatMs: 60_000 });
+    try {
+      live.handleChange(join("memory", "orrery.md"));
+      live.handleChange(join("memory", "workshop"));
+      live.handleChange("vault.yaml");
+      await sleep(20);
+      expect(asked).toEqual([[join("memory", "orrery.md"), join("memory", "workshop")]]);
+      live.handleChange(join("queue", "inbox", "c.json"));
+      await sleep(20);
+      expect(asked).toHaveLength(1);
+    } finally { live.stop(); }
+  });
+
+  test("a lost watcher may have missed notes: every note is projected within the backstop", async () => {
+    const asked: (string[] | undefined)[] = [];
+    let fail!: Parameters<LiveWatchFn>[2];
+    const live = createLive({ root: "/nonexistent-vault", watch: (_root, _change, onError) => { fail = onError; return { close() {} }; },
+      refresh: (_root, paths) => { asked.push(paths); }, warmLayout: () => {}, recover: async () => {},
+      wake: () => ({ moved: () => false, close() {} }), debounceMs: 5, heartbeatMs: 60_000, backstopMs: 20 });
+    try {
+      live.start();
+      fail(Object.assign(new Error("gone"), { code: "ENOENT", path: "/nonexistent-vault/.state/x.tmp" }));
+      await sleep(80);
+      expect(asked).toEqual([undefined]); // every note, no event naming one
+    } finally { live.stop(); }
+  });
+});
+
 describe("createLive — commits", () => {
   /** A live viewer over a real projection, with every view stamp real. */
   function viewer(backstopMs = 60_000) {

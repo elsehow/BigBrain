@@ -1,10 +1,11 @@
 /** The shared, versioned read model. Only reconciliation reads event files;
  * consumers borrow a complete SQLite snapshot and reuse its decoded records.
- * Filesystem notifications are hints; a periodic census repairs missed ones. */
+ * Nothing here checks the filesystem: every engine write projects itself, and
+ * notes come in through their door (assertionProjection.projectNotes). */
 import type { SourceSummary } from "./sourceSummary";
 import { USER_IDENTITY_PROCEDURE, USER_IDENTITY_VERSION, userIdentityDeclarationsFromEvents } from "./userIdentityPolicy";
 import type { DocumentLinkTargets, MarkdownDocument, MarkdownIdentity } from "./markdownGraph";
-import { assertionDbPath, openAssertionProjectionReadonly, projectionRevision, syncAssertionProjection } from "./assertionProjection";
+import { assertionDbPath, openAssertionProjectionReadonly, projectionRecovered, projectionRevision, syncAssertionProjection } from "./assertionProjection";
 import { entityAliasResolution, type EntityAliasEvent, type EntityAliasResolution } from "./entityAliasLog";
 import { assertionSourceReferences, type AssertionEvent } from "./assertionLog";
 import { latestEntitySourceDeclarations, type EntitySourceEvent } from "./entitySourceLog";
@@ -18,7 +19,6 @@ import { copyCandidates, copyCutoff, foldCopyEvents, PROPOSE_FLOOR, sourceCopies
 import { copyPairKey, type SourceCopyEvent } from "./sourceCopyLog";
 import { STUB_CHARS } from "./text";
 import { aboutIds, VOICE_KINDS } from "./voiceFacts";
-import { markVaultChanged, vaultChangeVersion } from "./vaultChanges";
 import { Database } from "bun:sqlite";
 
 /** Source summaries and settlement shared by feed and graph construction. */
@@ -44,7 +44,6 @@ export interface VaultRecord extends SourceRecord {
   copies: Map<string, SourceCopies<SourceSummary>>;
   revoked: Map<string, RevocationEvent>;
 }
-const reconciled = new Map<string, { change: number; at: number }>();
 interface DecodedRevision {
   revision: string;
   record?: VaultRecord;
@@ -60,23 +59,11 @@ function decodedRevision(root: string, revision: string): DecodedRevision {
   const held = records.get(root);
   if (held?.revision === revision) return held;
   // One bounded owner for decoded views; revision changes invalidate all of them.
-  if (!records.has(root) && records.size >= 4) { const oldest = records.keys().next().value!; records.delete(oldest); reconciled.delete(oldest); }
+  if (!records.has(root) && records.size >= 4) records.delete(records.keys().next().value!);
   const next = { revision }; records.set(root, next); return next;
 }
 const reading = new Map<string, { db: Database; revision: string }>();
 export const currentReadRevision = (root: string): string | undefined => reading.get(root)?.revision;
-
-export function invalidateVaultReadModel(root: string): void {
-  markVaultChanged(root); // A pending background census must not consume this hint.
-  reconciled.delete(root);
-}
-
-/** One fallback clock for synchronous readers and background preparation. */
-export function vaultReconciliationDue(root: string): boolean {
-  if (reading.has(root)) return false;
-  const held = reconciled.get(root);
-  return !held || held.change !== vaultChangeVersion(root) || Date.now() - held.at >= 1000;
-}
 
 /** Published content revision, or the revision borrowed by a nested reader.
  * This cheap probe does not reconcile or decode record content. */
@@ -90,34 +77,21 @@ export function readModelRevision(root: string): string {
   } catch { return "missing"; }
 }
 
-/** A background census satisfies the same clock only if no local hint or
- * projection publication superseded it while it ran. */
-export function acceptReadModelRevision(root: string, revision: string, change: number): boolean {
-  if (change !== vaultChangeVersion(root) || revision !== readModelRevision(root)) return false;
-  reconciled.set(root, { change, at: Date.now() });
-  return true;
-}
-
-/** Local appends and watcher hints reconcile immediately. External writers
- * are also discovered without a working watcher, within one second. The
- * callback is synchronous; nested readers borrow the same transaction. */
+/** One complete snapshot, at the revision every write so far has published.
+ * It syncs only for what a snapshot cannot be read without: a projection
+ * this process has not recovered, or sources not yet grouped into threads.
+ * The callback is synchronous; nested readers borrow the same transaction. */
 export function withVaultSnapshot<T>(root: string, read: (db: Database, revision: string) => T): T {
   const active = reading.get(root);
   if (active) return read(active.db, active.revision);
-  if (vaultReconciliationDue(root)) {
-    const change = vaultChangeVersion(root);
-    syncAssertionProjection(root);
-    reconciled.set(root, { change, at: Date.now() });
-  }
   let db: Database;
   try { db = openAssertionProjectionReadonly(root); }
-  catch { invalidateVaultReadModel(root); syncAssertionProjection(root); db = openAssertionProjectionReadonly(root); }
+  catch { syncAssertionProjection(root); db = openAssertionProjectionReadonly(root); }
   try {
     db.run("BEGIN");
     const revision = projectionRevision(root, db);
-    if (!revision || db.query("SELECT 1 FROM meta WHERE k = 'threads_dirty'").get()) {
+    if (!revision || !projectionRecovered(root, revision.split(":")[0]!) || db.query("SELECT 1 FROM meta WHERE k = 'threads_dirty'").get()) {
       db.run("ROLLBACK");
-      invalidateVaultReadModel(root);
       syncAssertionProjection(root);
       return withVaultSnapshot(root, read);
     }
@@ -151,8 +125,7 @@ export function sourceRecord(root: string): SourceRecord {
   });
 }
 
-export function vaultRecord(root: string, reconcile = false): VaultRecord {
-  if (reconcile) invalidateVaultReadModel(root);
+export function vaultRecord(root: string): VaultRecord {
   return withVaultSnapshot(root, (db, revision) => {
     const held = decodedRevision(root, revision);
     if (held.record) return held.record;

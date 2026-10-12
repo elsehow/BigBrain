@@ -17,7 +17,7 @@ import { isUserNode } from "./userNote";
 
 /** `linkTexts` (vaultReadModel.documentLinkTexts) is the evidence a link's
  * connection carries to `observe`, read only when there is an observer. */
-export function buildAssertionGraph(root: string, observe?: ObserveConnection, record: VaultRecord = vaultRecord(root, true),
+export function buildAssertionGraph(root: string, observe?: ObserveConnection, record: VaultRecord = vaultRecord(root),
   linkTexts: ReadonlyMap<string, string[]> | undefined = observe && documentLinkTexts(root)): Graph {
   const { revoked, rows: assertions, superseded, threadByInsertion: threads, sources: sourceByInsertion, copies } = record;
   const events = [...sourceByInsertion.values()];

@@ -1,6 +1,6 @@
 /** Read-only virtual notes over entities projected from assertion prose. */
 import { ENTITY_ID_LINK } from "./ids";
-import { entityExists, threadReadModel, withVaultSnapshot, invalidateVaultReadModel, entityReadModel, sourceAssertionReadModel, projectedSource } from "./vaultReadModel";
+import { entityExists, threadReadModel, withVaultSnapshot, entityReadModel, sourceAssertionReadModel, projectedSource } from "./vaultReadModel";
 import { assertionSourceReferences } from "./assertionLog";
 import type { AssertionEvent } from "./assertionLog";
 import { insertionEventRel } from "./insertionLog";
@@ -61,9 +61,6 @@ export interface ProjectedEntityView {
    * be led to the document, not left with what the record says of it. */
   documents?: Pick<ProjectedEntitySource, "insertion_id" | "title" | "path">[];
 }
-
-/** All readers share the complete projection revision, independently of graph construction. */
-export const invalidateAssertionRecord = invalidateVaultReadModel;
 
 /** Does this path have the SHAPE of a projected dossier, whether or not the
  * record holds one? Same job as sourceFeed's isSourceInsertionPath: it lets

@@ -1,6 +1,5 @@
 import { background } from "./readModelBackground";
-import { preparedFeedPage, vaultReconciliationDue, acceptReadModelRevision, currentReadRevision } from "./vaultReadModel";
-import { vaultChangeVersion } from "./vaultChanges";
+import { preparedFeedPage, currentReadRevision } from "./vaultReadModel";
 /** User-facing rows and reads over the native append-only source log.
  *
  * This is a projection, not a second copy of the source. The virtual note
@@ -349,16 +348,12 @@ const feedBuilds = new Map<string, Promise<void>>();
 export async function recentSourcePageAsync(root: string, offset: number, limit: number, source?: string): Promise<RecentSourcePage> {
   if (currentReadRevision(root)) return recentSourcePage(root, offset, limit, source);
   for (;;) {
-    if (!vaultReconciliationDue(root)) {
-      const page = preparedFeedPage(root, offset, limit, source);
-      if (page) return page;
-    }
+    const page = preparedFeedPage(root, offset, limit, source);
+    if (page) return page;
     let pending = feedBuilds.get(root);
     if (!pending) {
-      const change = vaultChangeVersion(root);
-      pending = background<{ revision: string }>({ kind: "feed", root }).then(result => {
-        acceptReadModelRevision(root, result.revision, change);
-      }).finally(() => feedBuilds.delete(root));
+      pending = background<{ revision: string }>({ kind: "feed", root }).then(() => {})
+        .finally(() => feedBuilds.delete(root));
       feedBuilds.set(root, pending);
     }
     await pending;

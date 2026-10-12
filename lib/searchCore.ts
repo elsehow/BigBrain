@@ -24,7 +24,6 @@ import {
   searchAssertionSources,
   sourceMatchWindows,
   sourceRefsForAssertions,
-  syncMarkdownProjection,
   type SourceHead,
 } from "./assertionProjection";
 import { assertionEntityPath } from "./assertionEntityView";
@@ -369,8 +368,7 @@ export function scanSurface(
   const { now, filters = {}, relax = true, ledger = true, includeMemory = via !== "gardener" } = opts;
   try {
     searchAlternatives(q); // validate before touching the projection
-    // Reconcile mutable Markdown before taking the shared search snapshot.
-    if (includeMemory) syncMarkdownProjection(root);
+    // Notes are current as their door projected them (projectNotes).
     return withVaultSnapshot(root, () => {
       const ranked = (mode: "all" | "any"): RankedHit[] => {
         const record = assertionRanked(root, q, limit, filters, mode);
