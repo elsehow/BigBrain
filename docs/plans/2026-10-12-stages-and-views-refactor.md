@@ -135,7 +135,8 @@ door, is independent of all of them.
   commit, and the saved view is a cache by revision, served only when
   current. `Live`, `InLens` and `Publishable`. The digest is unchanged;
   the layout is still today's.
-- **R5. Lenses as a stage and a view** (step 4, after the decision below).
+- **R5. Lenses as a stage and a view** (step 4; lenses live in the vault,
+  decided below).
   The inclusion kind; scoring as a stage; members a view with no fallback
   to the previous membership, so an unscored note is pending rather than
   kept; sync diffs that view against the server; migration 5.
@@ -165,7 +166,7 @@ door, is independent of all of them.
 Left as they are, and named: read state (the mail provider is the truth),
 operational model calls, the agents' tools.
 
-## Decision needed: where a lens lives
+## Decided: a lens lives in the vault
 
 #257 makes lens verdicts assertions in the vault. `lenses-and-servers.md`
 decided that lenses live on your computer, and `lib/lenses.ts` keeps each
@@ -183,4 +184,9 @@ path.
   overwritten file, and members a view over it. A second machine, or a
   lost `~/.config`, rescores and may share a different set.
 
-Recommendation: in the vault.
+Decided 2026-10-12: **in the vault.** A lens's rule and its inclusion
+assertions are vault content; inclusion assertions are never published;
+a scoring pass lands as one assertion per lens and pass. Migration 5 moves
+the existing `~/.config/bigbrain/lenses/` files in, with the owner's
+consent, and `lenses-and-servers.md`'s "lenses live on your computer" is
+superseded.

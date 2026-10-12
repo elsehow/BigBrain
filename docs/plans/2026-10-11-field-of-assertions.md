@@ -124,7 +124,7 @@ What breaks the rule today:
   them. They become inclusion assertions, and a lens's members a view over
   them (step 4). `lenses-and-servers.md` decided that lenses live on your
   computer; whether they move into the vault is decided in the refactor
-  plan.
+  plan: they do (2026-10-12).
 - **Layout** starts from the previous layout, and the saved layout is
   state (step 5).
 
@@ -242,7 +242,7 @@ one commit in the vault. Counts are from the large vault's copy.
    source", each repeating a field of the source it cites) and
    `log/goal-assertions/` (2,492 old per-source gardening records nothing
    reads).
-5. **Lens verdicts into the vault**, if they move there. Each rating, pin
+5. **Lens verdicts into the vault** (decided 2026-10-12). Each rating, pin
    and exclusion in a lens's file (`~/.config/bigbrain/lenses/`) becomes an
    inclusion assertion citing its source, authored by the owner; the
    scores land as one assertion per lens. The files go.
