@@ -1,7 +1,8 @@
 import { afterAll, describe, expect, spyOn, test } from "bun:test";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { appendAssertionEvent, createAssertionEvent, type AssertionEvent } from "../lib/assertionLog";
+import { createAssertionEvent, type AssertionEvent } from "../lib/assertionLog";
+import { appendAndProjectAssertion, projectSourceInsertion } from "../lib/assertionProjection";
 import { chainHasWork } from "../lib/chain";
 import { dueOf, feedItems, feedRecords, sortedAssertions } from "../lib/feedJournal";
 import { FEED_PROMPT_VERSION, feedDue, feedLockFile, feedWork, runFeed } from "../lib/feedStage";
@@ -22,6 +23,7 @@ const FEED_YAML = (extra = "") => `${NATIVE_YAML}feed:\n  since: 2026-08-10\n${e
 
 const vault = (yaml: string, ...insertions: SourceInsertion[]): string => {
   const root = nativeVault({ prefix: "bb-feed-", insertions, files: { "vault.yaml": yaml } });
+  for (const event of insertions) projectSourceInsertion(root, event); // as a landing does
   scratch.push(root);
   return root;
 };
@@ -37,7 +39,7 @@ function claim(root: string, source: SourceInsertion, text: string, day = "2026-
     created_at: `${day}T12:${String(minute % 60).padStart(2, "0")}:00.000Z`,
     produced_by: { procedure: "test", version: "v1" },
   }, new Map([[source.id, source]]));
-  appendAssertionEvent(root, event);
+  appendAndProjectAssertion(root, event);
   return event;
 }
 
@@ -153,6 +155,7 @@ describe("the feed stage", () => {
     await runFeed({ root, manifest: loadManifest(root), runner: scripted(() => ({ section: "needs-you" })).runner, now: ticking() });
     const revised = insertion({ source_id: "src-standup", title: "standup", envelope: { id: "src-standup", kind: "meeting", supersedes: first.id } });
     appendSourceInsertionEvent(root, revised);
+    projectSourceInsertion(root, revised);
     claim(root, revised, "Kit proposed a call on Monday.");
     const work = feedWork(root, loadManifest(root).feed!);
     expect(work.map((c) => c.messages.map((m) => m.id))).toEqual([[revised.id]]);
@@ -196,6 +199,7 @@ describe("the feed stage", () => {
 
     const moved = mail(`Re: ${subject}`, "2026-08-21T08:00:00.000Z");
     appendSourceInsertionEvent(root, moved);
+    projectSourceInsertion(root, moved);
     claim(root, moved, "Kit moved the lesson to Wednesday.");
     await runFeed({ root, manifest: loadManifest(root), runner: scripted(() => ({ section: "know" })).runner, now: ticking("2026-08-25T04:00:00.000Z") });
     // what is new adds its own item, after the ask

@@ -5,7 +5,7 @@ import { mdVault, insertion } from "./support/vault";
 import { appendSourceInsertionEvent, insertionEventRel } from "../lib/insertionLog";
 import { recentSourcePage, recentSourcePageAsync } from "../lib/sourceFeed";
 import { invalidateVaultReadModel } from "../lib/vaultReadModel";
-import { appendAndProjectDecline } from "../lib/assertionProjection";
+import { appendAndProjectDecline, projectSourceInsertion, recoverAssertionProjection } from "../lib/assertionProjection";
 import { createDeclineEvent } from "../lib/declineLog";
 
 const roots: string[] = [];
@@ -36,22 +36,29 @@ test("direct cold feed readers preserve ordering, pagination, filters and filing
 test("a change during preparation cannot satisfy freshness with an obsolete result", async () => {
   const { root, b } = fixture();
   const first = recentSourcePageAsync(root, 0, 10);
-  appendSourceInsertionEvent(root, b); invalidateVaultReadModel(root);
+  appendSourceInsertionEvent(root, b); projectSourceInsertion(root, b); invalidateVaultReadModel(root);
   const second = recentSourcePageAsync(root, 0, 10);
   const pages = await Promise.all([first, second]);
   expect(pages[0]).toEqual(pages[1]); expect(pages[0]!.total).toBe(2);
 });
 
-test("missed notifications are discovered by the shared fallback census", async () => {
+test("an unannounced engine write is read at once; a hand-written log file waits for recovery", async () => {
   const { root, b } = fixture();
+  const c = insertion({ id: `ins_${"c".repeat(24)}`, source_id: "c", title: "Third" });
   const clock = Date.now; let now = clock(); Date.now = () => now;
   try {
     expect((await recentSourcePageAsync(root, 0, 10)).total).toBe(1);
-    mkdirSync(join(root, insertionEventRel(b), ".."), { recursive: true });
-    writeFileSync(join(root, insertionEventRel(b)), JSON.stringify(b));
-    expect((await recentSourcePageAsync(root, 0, 10)).total).toBe(1);
+    // Another process's landing projects itself: no hint, watcher or clock.
+    appendSourceInsertionEvent(root, b); projectSourceInsertion(root, b);
+    expect((await recentSourcePageAsync(root, 0, 10)).total).toBe(2);
+    // The fallback clock reconciles Markdown only: a log file written by hand,
+    // which no engine write projected, waits for recovery's census.
+    mkdirSync(join(root, insertionEventRel(c), ".."), { recursive: true });
+    writeFileSync(join(root, insertionEventRel(c)), JSON.stringify(c));
     now += 1000;
     expect((await recentSourcePageAsync(root, 0, 10)).total).toBe(2);
+    recoverAssertionProjection(root);
+    expect((await recentSourcePageAsync(root, 0, 10)).total).toBe(3);
   } finally { Date.now = clock; }
 });
 

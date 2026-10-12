@@ -22,7 +22,9 @@ import { isAbsolute, relative, sep } from "node:path";
 import { BROWSE_ROOTS } from "./browsePaths";
 import { isLedgerPath } from "./retrieval";
 import { invalidateGraphCaches, warmGraphLayoutAsync } from "./graphCache";
-import { syncAssertionProjection } from "./assertionProjection";
+import { claimProjectionRecovery, projectionHolds, syncAssertionProjection } from "./assertionProjection";
+import { background } from "./readModelBackground";
+import { readModelRevision } from "./vaultReadModel";
 
 // The watched trees. `queue` earns its place: a message's whole lifecycle
 // (enqueued → claimed → done) happens under it, and without the watch a
@@ -93,6 +95,14 @@ export interface LiveOptions {
    * warmGraphLayoutAsync by default. A seam for the same reason `refresh` is one:
    * a fan-out test must not run a force simulation. */
   warmLayout?: (root: string) => void | Promise<void>;
+  /** The log census that heals what the write path could not, run at start
+   * and after a change under `log/`; recoverInBackground by default. A seam
+   * like `refresh`: a fan-out test must not spawn a worker. Resolves whether
+   * it changed the projection. */
+  recover?: (root: string) => Promise<boolean>;
+  /** Whether the projection holds the log files a change named;
+   * projectionHolds by default. Recovery runs only when it does not. */
+  holds?: (root: string, rels: Iterable<string>) => boolean;
   /** A pull touches many files at once — one ping covers them. */
   debounceMs?: number;
   /** Comment-only heartbeat so idle connections aren't reaped by timeouts. */
@@ -118,6 +128,8 @@ export function createLive(opts: LiveOptions): Live {
     watch = defaultLiveWatch,
     refresh = syncAssertionProjection,
     warmLayout = warmGraphLayoutAsync,
+    recover = recoverInBackground,
+    holds = projectionHolds,
     debounceMs = 300,
     heartbeatMs = 30_000,
     log = (msg) => console.error(msg),
@@ -133,6 +145,8 @@ export function createLive(opts: LiveOptions): Live {
   let watchGeneration = 0;
 
   let revision = 0;
+  const changedLogs = new Set<string>();
+  let watcherLost = false;
   let stopped = false;
   let usageTimer: ReturnType<typeof setTimeout> | null = null;
   let progressTimer: ReturnType<typeof setTimeout> | null = null;
@@ -173,15 +187,34 @@ export function createLive(opts: LiveOptions): Live {
     // the search index twice a second for as long as the tab stays open
     // (#247/#248).
     if (isLedgerPath(rel) || stopped) return;
+    if (first === "log") changedLogs.add(rel);
+    announce();
+  }
+
+  /** A vault change: drop the graph now, ping once it has settled again. */
+  function announce(): void {
     revision++;
     invalidateGraphCaches(root);
     if (pingTimer) return; // debounce: a pull touches many files at once
     pingTimer = setTimeout(async () => {
       pingTimer = null;
       const current = revision;
-      // Sync the assertion projection off the same change signal, so the
-      // first search after a pull/intake is instant instead of paying the
-      // catch-up (incremental — one listing when nothing is new, #456).
+      // Engine writes have projected themselves already: each changed log
+      // file is one indexed lookup. Only one that did not (written by hand,
+      // or by a process that died mid-landing), or a lost watcher, costs the
+      // census — in a worker, before the graph is rebuilt.
+      const lost = watcherLost, logs = [...changedLogs];
+      watcherLost = false;
+      changedLogs.clear();
+      if (lost || (logs.length && !holds(root, logs))) {
+        try {
+          await recover(root);
+        } catch {
+          /* the next process to start recovers */
+        }
+      }
+      // Reconcile edited Markdown off the same signal, so the first search
+      // after an edit is instant instead of paying the catch-up.
       try {
         refresh(root);
       } catch {
@@ -228,7 +261,10 @@ export function createLive(opts: LiveOptions): Live {
       const path = (err as NodeJS.ErrnoException & { path?: string }).path;
       if (path) {
         const rel = relative(root, path);
-        if (!isAbsolute(rel) && rel !== ".." && !rel.startsWith(`..${sep}`)) handleChange(rel);
+        if (!isAbsolute(rel) && rel !== ".." && !rel.startsWith(`..${sep}`)) {
+          watcherLost = true; // what it missed meanwhile, no event will name
+          handleChange(rel);
+        }
       }
       watchGeneration++;
       watcher?.close();
@@ -256,13 +292,10 @@ export function createLive(opts: LiveOptions): Live {
         publishProgress(); // also clears a dead lock holder after a crash
         for (const c of clients) c.write(": ping\n\n");
       }, heartbeatMs);
-      // Warm the projection once at boot so the first query is fast.
-      // Best-effort: a failure here just means the first search pays the sync.
-      try {
-        refresh(root);
-      } catch {
-        /* lazy rebuild on first search */
-      }
+      // Recover once at boot, in a worker: the viewer serves the projection
+      // as it stands meanwhile, since every engine write projected itself.
+      // A heal that changed it pings like any other change.
+      void recover(root).then((changed) => { if (changed && !stopped) announce(); }, () => {});
     },
     stop(): void {
       stopped = true;
@@ -293,4 +326,19 @@ export function createLive(opts: LiveOptions): Live {
     },
     handleChange,
   };
+}
+
+/** The log census off the request path: recoverAssertionProjection in a
+ * worker, while this process counts its recovery as done so a read meanwhile
+ * does not repeat it synchronously. Resolves whether the projection moved. */
+export async function recoverInBackground(root: string): Promise<boolean> {
+  const before = readModelRevision(root);
+  const withdraw = claimProjectionRecovery(root);
+  try {
+    await background({ kind: "recover", root });
+  } catch (error) {
+    withdraw();
+    throw error;
+  }
+  return readModelRevision(root) !== before;
 }

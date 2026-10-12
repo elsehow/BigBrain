@@ -127,7 +127,7 @@ describe("assertion graph", () => {
     const directive: SourceInsertion = { ...source("ins_eeeeeeeeeeeeeeeeeeeeeeee", "read this closely"), envelope: { kind: "directive", from_kind: "person", about: [drop.source_id] } };
     const older: SourceInsertion = { ...source("ins_f0f0f0f0f0f0f0f0f0f0f0f0", "An older landing"), source_id: "ref-same" };
     const newer: SourceInsertion = { ...source("ins_f1f1f1f1f1f1f1f1f1f1f1f1", "The same, re-landed"), source_id: "ref-same", envelope: { supersedes: older.id } };
-    for (const event of [directive, older, newer]) appendSourceInsertionEvent(root, event);
+    for (const event of [directive, older, newer]) { appendSourceInsertionEvent(root, event); projectSourceInsertion(root, event); }
     graph = buildAssertionGraph(root);
     expect(graph.nodes.map((n) => n.id).sort()).toEqual([`source:${drop.id}`, `source:${newer.id}`, `source:${directive.id}`].sort());
     expect(graph.nodes.every((n) => n.pending && n.degree === 0)).toBe(true);
@@ -136,7 +136,6 @@ describe("assertion graph", () => {
 
     // the round that files the drop: the point keeps its identity and gains
     // its threads; a declined source remains as an ordinary point
-    for (const event of [drop, directive, older, newer]) projectSourceInsertion(root, event);
     const ada = { id: assertionEntityId("Ada Lovelace"), label: "Ada Lovelace" };
     const gardener = { kind: "model" as const, id: "gardener", invocation_id: "run-1" };
     const produced = { procedure: "intake-agent", version: "v1", invocation_id: "run-1", prompt_version: "p1" };
@@ -283,12 +282,12 @@ describe("assertion graph", () => {
   });
 
   test("the shared revision: appends become visible without manual cache invalidation", () => {
-    // Local appends mark reconciliation dirty before any view reads again.
+    // Engine appends project themselves, advancing the revision views read.
     const root = mkdtempSync(join(tmpdir(), "bb-assertion-memo-"));
     const cited = source("ins-memo", "Memo source");
-    appendSourceInsertionEvent(root, cited);
+    appendSourceInsertionEvent(root, cited); projectSourceInsertion(root, cited);
     const ada = { id: assertionEntityId("Ada Lovelace"), label: "Ada Lovelace" };
-    const assert = (text: string) => appendAssertionEvent(root, createAssertionEvent({
+    const assert = (text: string) => appendAndProjectAssertion(root, createAssertionEvent({
       text: `[[${ada.id}|Ada]] ${text}.`,
       entities: [ada],
       citations: [{ insertion_id: cited.id, quotes: [cited.body] }],

@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { rmSync, writeFileSync } from "node:fs";
 import { mdVault, insertion } from "./support/vault";
 import { appendSourceInsertionEvent } from "../lib/insertionLog";
-import { assertionDbPath, openAssertionProjectionReadonly, projectionRevision, rebuildAssertionProjection, syncAssertionProjection } from "../lib/assertionProjection";
+import { assertionDbPath, openAssertionProjectionReadonly, projectionRevision, rebuildAssertionProjection, recoverAssertionProjection, syncAssertionProjection } from "../lib/assertionProjection";
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -21,7 +21,10 @@ test("failed catch-up rolls back every new row and keeps the completed revision"
   const before = projectionRevision(root);
   appendSourceInsertionEvent(root, insertion({ id: "ins_new", source_id: "new" }));
   writeFileSync(join(root, dirname(file.path), "zz_bad.json"), "{}");
-  expect(() => syncAssertionProjection(root)).toThrow("unreadable event");
+  // Unprojected files are recovery's catch-up; a plain read does not scan log/.
+  syncAssertionProjection(root);
+  expect(projectionRevision(root)).toBe(before);
+  expect(() => recoverAssertionProjection(root)).toThrow("unreadable event");
   const db = openAssertionProjectionReadonly(root);
   try {
     expect(projectionRevision(root, db)).toBe(before);

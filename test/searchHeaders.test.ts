@@ -3,7 +3,10 @@ import { Database } from "bun:sqlite";
 import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { nativeVault, insertion } from "./support/vault";
-import { syncAssertionProjection, projectedSourceHeads, searchAssertionSources } from "../lib/assertionProjection";
+import { assertionProjectionStats, syncAssertionProjection, projectedSourceHeads, searchAssertionSources } from "../lib/assertionProjection";
+
+/** Sync as a read does, then count what the projection holds. */
+const synced = (root: string) => { syncAssertionProjection(root); return assertionProjectionStats(root); };
 
 test("version 9 projections rebuild source headers without changing search results", () => {
   const source = insertion({ title: "Atlas record", body: "Atlas evidence. ".repeat(10000), envelope: { kind: "meeting", source: "granola" } });
@@ -18,7 +21,7 @@ test("version 9 projections rebuild source headers without changing search resul
     db.run("ALTER TABLE sources DROP COLUMN envelope_source");
     db.run("UPDATE meta SET v='9' WHERE k='schema'");
     db.close();
-    expect(syncAssertionProjection(root).sources).toBe(1);
+    expect(synced(root).sources).toBe(1);
     expect(searchAssertionSources(root, "Atlas")).toEqual(before);
     expect(projectedSourceHeads(root, [source.id]).get(source.id)).toMatchObject({ kind: "meeting", source: "granola" });
   } finally { rmSync(root, { recursive: true, force: true }); }
