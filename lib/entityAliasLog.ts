@@ -182,10 +182,3 @@ export function entityAliasResolution(events: readonly EntityAliasEvent[]): Enti
   }
   return { canonical, labels };
 }
-
-/** The read-side resolver over a vault's alias log: an entity as an
- * assertion links it → the entity every reader should show. */
-export function entityAliasResolver(root: string): (entity: AssertionEntity) => AssertionEntity {
-  const { canonical } = entityAliasResolution(log.read(root, { strict: true }));
-  return (entity) => canonical.get(entity.id) ?? entity;
-}

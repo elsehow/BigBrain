@@ -1,0 +1,140 @@
+import { afterEach, expect, test } from "bun:test";
+import { rmSync } from "node:fs";
+import {
+  assertionEntityId, createAssertionEvent, createDeclineAssertion, createIdentityAssertion, createRetraction,
+  readAssertionLog, readRecordedAssertions, validateRecordedAssertion, type RecordedAssertion,
+} from "../lib/assertionLog";
+import { aliasEvents, entityAliasResolver } from "../lib/assertionKinds";
+import {
+  appendAndProjectAssertion, appendAndProjectEntityAlias, openAssertionProjectionReadonly, projectedAliasTarget,
+  projectionRevision, projectSourceInsertion, rebuildAssertionProjection, recoverAssertionProjection,
+} from "../lib/assertionProjection";
+import { createEntityAliasEvent } from "../lib/entityAliasLog";
+import { appendSourceInsertionEvent } from "../lib/insertionLog";
+import { otherCopies, sourceRecord } from "../lib/vaultReadModel";
+import { insertion, mdVault } from "./support/vault";
+
+const roots: string[] = [];
+afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
+
+const person = { kind: "user", id: "owner" } as const;
+const model = { kind: "model", id: "judge", invocation_id: "run-1" } as const;
+const produced_by = { procedure: "test", version: "1" };
+const said = (at: string) => ({ author: person, created_at: `2026-10-12T0${at}:00:00Z`, produced_by });
+const entity = (label: string) => ({ id: assertionEntityId(label), label });
+
+function vault() {
+  const root = mdVault(); roots.push(root);
+  const a = insertion({ id: `ins_${"a".repeat(24)}`, title: "Field notes on the river survey" });
+  const b = insertion({ id: `ins_${"b".repeat(24)}`, title: "A second look at the tidal gauges" });
+  for (const source of [a, b]) { appendSourceInsertionEvent(root, source); projectSourceInsertion(root, source); }
+  return { root, a, b, sources: new Map([[a.id, a], [b.id, b]]) };
+}
+
+const live = (root: string, table: string): string[] => {
+  const db = openAssertionProjectionReadonly(root);
+  try { return (db.query(`SELECT id FROM ${table} WHERE retracted_by IS NULL ORDER BY id`).all() as { id: string }[]).map((r) => r.id); }
+  finally { db.close(); }
+};
+
+test("prose is written as before: no kind, the same id", () => {
+  const { a, sources } = vault();
+  const prose = createAssertionEvent({ text: `[[${entity("Ada").id}|Ada]] surveyed the river.`, entities: [entity("Ada")],
+    sources: [a.id], confidence: "direct", ...said("1") }, sources);
+  expect("kind" in prose).toBe(false);
+  expect(prose.id).toMatch(/^ast_[a-f0-9]{24}$/u);
+});
+
+test("each kind is held to its own rules", () => {
+  const { a, b, sources } = vault();
+  const bad = (event: object) => () => validateRecordedAssertion(event as RecordedAssertion);
+  const decline = createDeclineAssertion({ reason: "a calendar stub", sources: [a.id], ...said("1") }, sources);
+  expect(bad({ ...decline, sources: [] })).toThrow("cites at least one source");
+  const retraction = createRetraction({ retracts: decline.id, reason: "filed after all", ...said("2") });
+  expect(bad({ ...retraction, retracts: `rev_${"0".repeat(24)}` })).toThrow("invalid retracted id");
+  expect(bad({ ...retraction, sources: [] })).toThrow("cites nothing");
+  expect(() => createIdentityAssertion({ identity: { says: "same", alias: entity("Ada"), entity: entity("Ada") }, ...said("1") }, sources))
+    .toThrow("names another entity");
+  expect(() => createIdentityAssertion({ identity: { says: "copy" }, sources: [a.id, b.id], ...said("1"), author: model }, sources))
+    .toThrow("carries its score");
+  expect(() => createIdentityAssertion({ identity: { says: "not-copy" }, sources: [a.id, b.id], ...said("1"), author: model }, sources))
+    .toThrow("by score");
+  expect(() => createIdentityAssertion({ identity: { says: "is-source", entity: entity("Survey") }, sources: [a.id, b.id], ...said("1") }, sources))
+    .toThrow("one source");
+  // a pair is ascending whichever way round it is given
+  const copy = createIdentityAssertion({ identity: { says: "copy" }, sources: [b.id, a.id], ...said("1") }, sources);
+  expect(copy.sources.map((s) => s.insertion_id)).toEqual([a.id, b.id]);
+});
+
+test("a decline settles what it cites; retracting it sends it back", () => {
+  const { root, a, sources } = vault();
+  const decline = createDeclineAssertion({ reason: "a calendar stub", sources: [a.id], ...said("1") }, sources);
+  appendAndProjectAssertion(root, decline);
+  expect(sourceRecord(root).declined.has(a.id)).toBe(true);
+  appendAndProjectAssertion(root, createRetraction({ retracts: decline.id, reason: "worth filing", ...said("2") }));
+  expect(sourceRecord(root).declined.has(a.id)).toBe(false);
+});
+
+test("an identity assertion aliases, and a retraction withdraws it or an alias from the old log", () => {
+  const { root, sources } = vault();
+  const ada = entity("Ada Lovelace"), short = entity("Ada");
+  const same = createIdentityAssertion({ identity: { says: "same", alias: short, entity: ada }, ...said("1") }, sources);
+  appendAndProjectAssertion(root, same);
+  expect(projectedAliasTarget(root, short.id)).toEqual(ada);
+  expect(entityAliasResolver(root)(short)).toEqual(ada);
+  appendAndProjectAssertion(root, createRetraction({ retracts: same.id, reason: "two people", ...said("2") }));
+  expect(projectedAliasTarget(root, short.id)).toBeUndefined();
+  expect(entityAliasResolver(root)(short)).toEqual(short);
+
+  const old = createEntityAliasEvent({ alias: "Lovelace", entity: ada, ...said("3") });
+  appendAndProjectEntityAlias(root, old);
+  expect(projectedAliasTarget(root, entity("Lovelace").id)).toEqual(ada);
+  appendAndProjectAssertion(root, createRetraction({ retracts: old.id, reason: "ambiguous", ...said("4") }));
+  expect(projectedAliasTarget(root, entity("Lovelace").id)).toBeUndefined();
+  expect(aliasEvents(root).map((e) => e.id)).toEqual([]);
+});
+
+test("a retraction a rebuild reads before what it names still withdraws it", () => {
+  const { root, a, sources } = vault();
+  const ada = entity("Ada Lovelace");
+  // the assertion log is projected before the alias log, so the retraction lands first
+  const old = createEntityAliasEvent({ alias: "Lovelace", entity: ada, ...said("1") });
+  appendAndProjectEntityAlias(root, old);
+  const bound = createIdentityAssertion({ identity: { says: "is-source", entity: ada }, sources: [a.id], ...said("2") }, sources);
+  appendAndProjectAssertion(root, bound);
+  for (const retracts of [old.id, bound.id])
+    appendAndProjectAssertion(root, createRetraction({ retracts, reason: "not so", ...said("3") }));
+  const before = { aliases: live(root, "entity_alias_events"), bindings: live(root, "entity_source_events") };
+  expect(before).toEqual({ aliases: [], bindings: [] });
+  rebuildAssertionProjection(root);
+  expect({ aliases: live(root, "entity_alias_events"), bindings: live(root, "entity_source_events") }).toEqual(before);
+  expect(projectedAliasTarget(root, entity("Lovelace").id)).toBeUndefined();
+  // and the census holds every kind: recovery finds nothing to do
+  const revision = projectionRevision(root);
+  recoverAssertionProjection(root);
+  expect(projectionRevision(root)).toBe(revision);
+});
+
+test("a person's copy and not-copy fold as declarations did: the latest stands", () => {
+  const { root, a, b, sources } = vault();
+  appendAndProjectAssertion(root, createIdentityAssertion({ identity: { says: "copy" }, sources: [a.id, b.id], ...said("1") }, sources));
+  expect(otherCopies(root, a.id).map((c) => c.id)).toEqual([b.id]);
+  appendAndProjectAssertion(root, createIdentityAssertion({ identity: { says: "not-copy" }, sources: [a.id, b.id], ...said("2") }, sources));
+  expect(otherCopies(root, a.id)).toEqual([]);
+});
+
+test("retracting prose withdraws it as a revocation does, and the log reader keeps live prose only", () => {
+  const { root, a, sources } = vault();
+  const ada = entity("Ada");
+  const prose = createAssertionEvent({ text: `[[${ada.id}|Ada]] surveyed the river.`, entities: [ada],
+    sources: [a.id], confidence: "direct", ...said("1") }, sources);
+  appendAndProjectAssertion(root, prose);
+  appendAndProjectAssertion(root, createDeclineAssertion({ reason: "nothing else here", sources: [a.id], ...said("2") }, sources));
+  expect(readAssertionLog(root).map((e) => e.id)).toEqual([prose.id]);
+  appendAndProjectAssertion(root, createRetraction({ retracts: prose.id, reason: "wrong river", ...said("3") }));
+  expect(readAssertionLog(root)).toEqual([]);
+  expect(readRecordedAssertions(root).map((e) => e.kind ?? "prose").sort()).toEqual(["decline", "prose", "retraction"]);
+  const db = openAssertionProjectionReadonly(root);
+  try { expect(db.query("SELECT revoked_by IS NOT NULL AS gone FROM assertions WHERE id = ?").get(prose.id)).toEqual({ gone: 1 }); }
+  finally { db.close(); }
+});

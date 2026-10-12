@@ -116,7 +116,7 @@ export interface DueWorkOpts {
 const DUE_INTAKE_FROM = `FROM sources s
   WHERE s.intake_priority IS NOT NULL AND ${liveSourceSql("s")}
     AND NOT EXISTS (SELECT 1 FROM assertion_sources a WHERE a.insertion_id = s.insertion_id)
-    AND NOT EXISTS (SELECT 1 FROM declines d WHERE d.insertion_id = s.insertion_id)`;
+    AND NOT EXISTS (SELECT 1 FROM declines d WHERE d.insertion_id = s.insertion_id AND d.retracted_by IS NULL)`;
 
 function dueIntakeJobs(db: Database, limit = -1): IntakeJob[] {
   const rows = db.query(`SELECT s.insertion_id, s.source_id, s.title,
@@ -340,7 +340,7 @@ export function nextWork(root: string, opts: Omit<DueWorkOpts, "limit"> & { limi
         FROM sources s
         JOIN source_documents sd ON sd.insertion_id = s.insertion_id
         LEFT JOIN assertion_sources a ON a.insertion_id = s.insertion_id
-        LEFT JOIN declines d ON d.insertion_id = s.insertion_id
+        LEFT JOIN declines d ON d.insertion_id = s.insertion_id AND d.retracted_by IS NULL
         WHERE a.assertion_id IS NULL AND d.decline_id IS NULL
           AND s.envelope_kind IN ('directive', 'request')
           AND EXISTS (SELECT 1 FROM json_each(sd.event_json, '$.envelope.about') je

@@ -16,13 +16,16 @@ import { classifyIntake } from "./intakeClass";
 import {
   appendAssertionEvent,
   assertionSourceReferences,
+  isProse,
   listAssertionEventFiles,
-  validateAssertionEvent,
   validateAssertionEvidence,
+  validateRecordedAssertion,
   type AssertionEntity,
   type AssertionEvent,
   type AssertionSourceReference,
+  type RecordedAssertion,
 } from "./assertionLog";
+import { legacyShape } from "./assertionKinds";
 import {
   listSourceInsertionEventFiles,
   validateSourceInsertion,
@@ -103,7 +106,7 @@ import { withProjectionWrite } from "./projectionWriteLock";
 //     its title's buckets, kept as it lands. A change to either rule bumps it.
 // 27: the graph view's connections by where each was written, the briefing's
 //     evidence (lib/maintainedGraph.ts).
-const SCHEMA_VERSION = "27";
+const SCHEMA_VERSION = "28";
 
 export interface AssertionSearchHit {
   id: string;
@@ -308,6 +311,18 @@ function schema(db: Database): void {
   db.run(`CREATE VIRTUAL TABLE IF NOT EXISTS entity_fts USING fts5(
     id UNINDEXED, label, tokenize='unicode61'
   )`);
+  // The assertion log's events of every kind but prose (lib/assertionLog.ts,
+  // schema 28): the census sync diffs against. Each also lands, in its old
+  // log's shape, in the table its old log fills (lib/assertionKinds.ts), so
+  // every fold over that table reads both until the old logs are migrated.
+  db.run(`CREATE TABLE IF NOT EXISTS assertion_kinds (
+    id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    event_json TEXT NOT NULL
+  )`);
+  // `retracted_by` on each table below: the retraction that withdrew a row,
+  // which readers then pass over as if it were never said. The row stays,
+  // as the census its log is diffed against.
   db.run(`CREATE TABLE IF NOT EXISTS declines (
     decline_id TEXT NOT NULL,
     insertion_id TEXT NOT NULL REFERENCES sources(insertion_id),
@@ -315,6 +330,7 @@ function schema(db: Database): void {
     reason TEXT NOT NULL,
     created_at TEXT NOT NULL,
     event_json TEXT NOT NULL,
+    retracted_by TEXT,
     PRIMARY KEY(decline_id, insertion_id)
   )`);
   db.run("CREATE INDEX IF NOT EXISTS declines_insertion ON declines(insertion_id)");
@@ -325,7 +341,8 @@ function schema(db: Database): void {
   // census on every alias event — the fold is the one rule set.
   db.run(`CREATE TABLE IF NOT EXISTS entity_alias_events (
     id TEXT PRIMARY KEY,
-    event_json TEXT NOT NULL
+    event_json TEXT NOT NULL,
+    retracted_by TEXT
   )`);
   db.run(`CREATE TABLE IF NOT EXISTS entity_aliases (
     alias_id TEXT PRIMARY KEY,
@@ -342,13 +359,15 @@ function schema(db: Database): void {
   // table to keep in step.
   db.run(`CREATE TABLE IF NOT EXISTS entity_source_events (
     id TEXT PRIMARY KEY,
-    event_json TEXT NOT NULL
+    event_json TEXT NOT NULL,
+    retracted_by TEXT
   )`);
   // Copies judged and declared (lib/sourceCopyLog.ts): the census alone,
   // folded latest-per-pair on read (lib/sourceCopyReview.ts).
   db.run(`CREATE TABLE IF NOT EXISTS source_copy_events (
     id TEXT PRIMARY KEY,
-    event_json TEXT NOT NULL
+    event_json TEXT NOT NULL,
+    retracted_by TEXT
   )`);
   // Revocations (lib/revocationLog.ts, #629): the census sync diffs against.
   // A revoked assertion keeps its `assertions` row — flagged, so its old id
@@ -371,7 +390,8 @@ function schema(db: Database): void {
     a TEXT NOT NULL,
     b TEXT NOT NULL,
     created_at TEXT NOT NULL,
-    event_json TEXT NOT NULL
+    event_json TEXT NOT NULL,
+    retracted_by TEXT
   )`);
   db.run("CREATE TABLE IF NOT EXISTS entity_folds (body TEXT NOT NULL)");
   // The run journals (lib/runJournal.ts), each projected once, with a
@@ -607,61 +627,92 @@ function insertAssertionRow(db: Database, event: AssertionEvent): boolean {
       event.id, event.text, event.entities.map((entity) => entity.label).join(" "),
       refs.map((ref) => ref.source_id).join(" ")
     );
+    applyRetraction(db, event.id);
   });
 }
 
-function insertDeclineRow(db: Database, event: DeclineEvent): boolean {
-  validateDeclineEvent(event);
+function writeDeclineRows(db: Database, event: DeclineEvent): void {
   for (const ref of event.insertions) {
     const held = db.query("SELECT insertion_id FROM sources WHERE insertion_id = ?").get(ref.insertion_id);
     if (!held) throw new Error(`assertion-projection: declined insertion is not projected: ${ref.insertion_id}`);
   }
-  return insertOnce(db, "decline", "declines", "decline_id", event.id, event, (eventJson) => {
-    for (const ref of event.insertions) {
-      db.query(`INSERT INTO declines(decline_id, insertion_id, source_id, reason, created_at, event_json)
-        VALUES (?, ?, ?, ?, ?, ?)`).run(
-        event.id, ref.insertion_id, ref.source_id, event.reason, event.created_at, eventJson
-      );
-    }
-  });
+  const eventJson = encoded(event);
+  for (const ref of event.insertions) {
+    db.query(`INSERT INTO declines(decline_id, insertion_id, source_id, reason, created_at, event_json)
+      VALUES (?, ?, ?, ?, ?, ?)`).run(
+      event.id, ref.insertion_id, ref.source_id, event.reason, event.created_at, eventJson
+    );
+  }
+  applyRetraction(db, event.id);
+}
+
+function insertDeclineRow(db: Database, event: DeclineEvent): boolean {
+  validateDeclineEvent(event);
+  return insertOnce(db, "decline", "declines", "decline_id", event.id, event, () => writeDeclineRows(db, event));
 }
 
 // ── revocations ─────────────────────────────────────────────────────────────
 
+/** The tables whose rows a retraction can withdraw besides prose, by the
+ * column naming the event. */
+const RETRACTABLE_TABLES: ReadonlyArray<readonly [table: string, column: string]> = [
+  ["declines", "decline_id"], ["entity_alias_events", "id"], ["entity_source_events", "id"],
+  ["source_copy_events", "id"], ["entity_fold_rejects", "id"],
+];
+
+/** Withdraw `target` if a retraction names it, whichever of the two was
+ * projected first: a rebuild reads a log in filename order and the logs in
+ * turn, so a retraction can land before what it names. Earliest event time,
+ * then id, wins — the log reader's rule, independent of arrival order. */
+function applyRetraction(db: Database, target: string): void {
+  const winner = db.query(`SELECT id, superseded_by FROM revocations
+    WHERE assertion_id = ? ORDER BY created_at, id LIMIT 1`).get(target) as
+    { id: string; superseded_by: string | null } | null;
+  if (!winner) return;
+  const prose = db.query("SELECT revoked_by FROM assertions WHERE id = ?").get(target) as
+    { revoked_by: string | null } | null;
+  if (!prose) {
+    for (const [table, column] of RETRACTABLE_TABLES) {
+      const moved = db.query(`UPDATE ${table} SET retracted_by = ? WHERE ${column} = ? AND retracted_by IS NOT ?`)
+        .run(winner.id, target, winner.id).changes;
+      if (moved && table === "entity_alias_events") refoldEntityAliases(db);
+    }
+    return;
+  }
+  db.query("UPDATE assertions SET revoked_by = ?, superseded_by = ? WHERE id = ?")
+    .run(winner.id, winner.superseded_by, target);
+  if (prose.revoked_by) return; // the evidence edges were already removed
+  const linked = (db.query("SELECT entity_id FROM assertion_entities WHERE assertion_id = ?")
+    .all(target) as { entity_id: string }[]).map((row) => row.entity_id);
+  db.query("DELETE FROM assertion_entities WHERE assertion_id = ?").run(target);
+  db.query("DELETE FROM assertion_fts WHERE id = ?").run(target);
+  // An entity nothing live links any more is gone from the record: its
+  // label is unclaimed again (the intake guard owns it, #628), it leaves
+  // search, and a re-mint under the same label starts it afresh.
+  for (const entityId of linked) {
+    const live = db.query("SELECT 1 FROM assertion_entities WHERE entity_id = ? LIMIT 1").get(entityId);
+    if (live) continue;
+    db.query("DELETE FROM entities WHERE id = ?").run(entityId);
+    db.query("DELETE FROM entity_fts WHERE id = ?").run(entityId);
+  }
+}
+
+function writeRevocationRow(db: Database, event: RevocationEvent): void {
+  db.query(`INSERT INTO revocations(id, assertion_id, superseded_by, reason, created_at, event_json)
+    VALUES (?, ?, ?, ?, ?, ?)`).run(
+    event.id, event.assertion_id, event.superseded_by ?? null, event.reason, event.created_at, encoded(event)
+  );
+  applyRetraction(db, event.assertion_id);
+}
+
 function insertRevocationRow(db: Database, event: RevocationEvent): boolean {
   validateRevocationEvent(event);
-  const target = db.query("SELECT revoked_by FROM assertions WHERE id = ?").get(event.assertion_id) as
-    { revoked_by: string | null } | null;
-  if (!target) throw new Error(`assertion-projection: revoked assertion is not projected: ${event.assertion_id}`);
+  // The revocation log comes last in a rebuild, so what it names is here.
+  if (!db.query("SELECT 1 FROM assertions WHERE id = ?").get(event.assertion_id))
+    throw new Error(`assertion-projection: revoked assertion is not projected: ${event.assertion_id}`);
   if (event.superseded_by && !db.query("SELECT 1 FROM assertions WHERE id = ?").get(event.superseded_by))
     throw new Error(`assertion-projection: superseding assertion is not projected: ${event.superseded_by}`);
-  return insertOnce(db, "revocation", "revocations", "id", event.id, event, (eventJson) => {
-    db.query(`INSERT INTO revocations(id, assertion_id, superseded_by, reason, created_at, event_json)
-      VALUES (?, ?, ?, ?, ?, ?)`).run(
-      event.id, event.assertion_id, event.superseded_by ?? null, event.reason, event.created_at, eventJson
-    );
-    // Earliest event time, then id: the log reader's rule, independent of
-    // arrival order or the filename order used by a rebuild.
-    const winner = db.query(`SELECT id, superseded_by FROM revocations
-      WHERE assertion_id = ? ORDER BY created_at, id LIMIT 1`).get(event.assertion_id) as
-      { id: string; superseded_by: string | null };
-    db.query("UPDATE assertions SET revoked_by = ?, superseded_by = ? WHERE id = ?")
-      .run(winner.id, winner.superseded_by, event.assertion_id);
-    if (target.revoked_by) return; // the evidence edges were already removed
-    const linked = (db.query("SELECT entity_id FROM assertion_entities WHERE assertion_id = ?")
-      .all(event.assertion_id) as { entity_id: string }[]).map((row) => row.entity_id);
-    db.query("DELETE FROM assertion_entities WHERE assertion_id = ?").run(event.assertion_id);
-    db.query("DELETE FROM assertion_fts WHERE id = ?").run(event.assertion_id);
-    // An entity nothing live links any more is gone from the record: its
-    // label is unclaimed again (the intake guard owns it, #628), it leaves
-    // search, and a re-mint under the same label starts it afresh.
-    for (const entityId of linked) {
-      const live = db.query("SELECT 1 FROM assertion_entities WHERE entity_id = ? LIMIT 1").get(entityId);
-      if (live) continue;
-      db.query("DELETE FROM entities WHERE id = ?").run(entityId);
-      db.query("DELETE FROM entity_fts WHERE id = ?").run(entityId);
-    }
-  });
+  return insertOnce(db, "revocation", "revocations", "id", event.id, event, () => writeRevocationRow(db, event));
 }
 
 /** The assertion that stands for an id today: itself, or — following
@@ -700,7 +751,7 @@ export function liveAssertionsForEntity(root: string, entityId: string, db?: Dat
  * retracts, cycles drop their oldest, chains flatten — with no incremental
  * twin to drift. */
 function refoldEntityAliases(db: Database): void {
-  const events = (db.query("SELECT event_json FROM entity_alias_events").all() as { event_json: string }[])
+  const events = (db.query("SELECT event_json FROM entity_alias_events WHERE retracted_by IS NULL").all() as { event_json: string }[])
     .map((row) => JSON.parse(row.event_json) as EntityAliasEvent);
   const { canonical } = entityAliasResolution(events);
   const aliasLabel = new Map<string, string>();
@@ -715,33 +766,65 @@ function refoldEntityAliases(db: Database): void {
   }
 }
 
+function writeEntityAliasRow(db: Database, event: EntityAliasEvent): void {
+  db.query("INSERT INTO entity_alias_events(id, event_json) VALUES (?, ?)").run(event.id, encoded(event));
+  refoldEntityAliases(db);
+  applyRetraction(db, event.id);
+}
+
+function writeEntitySourceRow(db: Database, event: EntitySourceEvent): void {
+  db.query("INSERT INTO entity_source_events(id, event_json) VALUES (?, ?)").run(event.id, encoded(event));
+  applyRetraction(db, event.id);
+}
+
+function writeSourceCopyRow(db: Database, event: SourceCopyEvent): void {
+  db.query("INSERT INTO source_copy_events(id, event_json) VALUES (?, ?)").run(event.id, encoded(event));
+  applyRetraction(db, event.id);
+}
+
+function writeEntityFoldRejectRow(db: Database, event: EntityFoldRejectEvent): void {
+  db.query("INSERT INTO entity_fold_rejects(id, a, b, created_at, event_json) VALUES (?, ?, ?, ?, ?)")
+    .run(event.id, event.pair[0].id, event.pair[1].id, event.created_at, encoded(event));
+  applyRetraction(db, event.id);
+}
+
 function insertEntityAliasRow(db: Database, event: EntityAliasEvent): boolean {
   validateEntityAliasEvent(event);
-  return insertOnce(db, "alias", "entity_alias_events", "id", event.id, event, (eventJson) => {
-    db.query("INSERT INTO entity_alias_events(id, event_json) VALUES (?, ?)").run(event.id, eventJson);
-    refoldEntityAliases(db);
-  });
+  return insertOnce(db, "alias", "entity_alias_events", "id", event.id, event, () => writeEntityAliasRow(db, event));
 }
 
 function insertEntitySourceRow(db: Database, event: EntitySourceEvent): boolean {
   validateEntitySourceEvent(event);
-  return insertOnce(db, "entity_source", "entity_source_events", "id", event.id, event, (eventJson) => {
-    db.query("INSERT INTO entity_source_events(id, event_json) VALUES (?, ?)").run(event.id, eventJson);
-  });
+  return insertOnce(db, "entity_source", "entity_source_events", "id", event.id, event, () => writeEntitySourceRow(db, event));
 }
 
 function insertSourceCopyRow(db: Database, event: SourceCopyEvent): boolean {
   validateSourceCopyEvent(event);
-  return insertOnce(db, "copy", "source_copy_events", "id", event.id, event, (eventJson) => {
-    db.query("INSERT INTO source_copy_events(id, event_json) VALUES (?, ?)").run(event.id, eventJson);
-  });
+  return insertOnce(db, "copy", "source_copy_events", "id", event.id, event, () => writeSourceCopyRow(db, event));
 }
 
 function insertEntityFoldRejectRow(db: Database, event: EntityFoldRejectEvent): boolean {
   validateEntityFoldRejectEvent(event);
-  return insertOnce(db, "fold_reject", "entity_fold_rejects", "id", event.id, event, (eventJson) => {
-    db.query("INSERT INTO entity_fold_rejects(id, a, b, created_at, event_json) VALUES (?, ?, ?, ?, ?)")
-      .run(event.id, event.pair[0].id, event.pair[1].id, event.created_at, eventJson);
+  return insertOnce(db, "fold_reject", "entity_fold_rejects", "id", event.id, event, () => writeEntityFoldRejectRow(db, event));
+}
+
+/** Any event in the assertion log. Prose is an assertion row; every other
+ * kind is held in `assertion_kinds` and lands, in its old log's shape, in
+ * that log's table, with the change kind that log's events carry. */
+function insertRecordedRow(db: Database, event: RecordedAssertion): boolean {
+  if (isProse(event)) return insertAssertionRow(db, event);
+  validateRecordedAssertion(event);
+  const legacy = legacyShape(event);
+  return insertOnce(db, legacy.kind, "assertion_kinds", "id", event.id, event, (eventJson) => {
+    db.query("INSERT INTO assertion_kinds(id, kind, event_json) VALUES (?, ?, ?)").run(event.id, event.kind, eventJson);
+    switch (legacy.kind) {
+      case "decline": return writeDeclineRows(db, legacy.event);
+      case "revocation": return writeRevocationRow(db, legacy.event);
+      case "alias": return writeEntityAliasRow(db, legacy.event);
+      case "entity_source": return writeEntitySourceRow(db, legacy.event);
+      case "copy": return writeSourceCopyRow(db, legacy.event);
+      case "fold_reject": return writeEntityFoldRejectRow(db, legacy.event);
+    }
   });
 }
 
@@ -764,7 +847,7 @@ function appendAndProject<T, R>(
   };
 }
 
-export const appendAndProjectAssertion = appendAndProject(appendAssertionEvent, insertAssertionRow);
+export const appendAndProjectAssertion = appendAndProject(appendAssertionEvent, insertRecordedRow);
 export const appendAndProjectDecline = appendAndProject(appendDeclineEvent, insertDeclineRow);
 export const appendAndProjectEntityAlias = appendAndProject(appendEntityAliasEvent, insertEntityAliasRow);
 export const appendAndProjectEntitySource = appendAndProject(appendEntitySourceEvent, insertEntitySourceRow);
@@ -878,11 +961,11 @@ const KINDS: readonly ProjectionKind[] = [
     validate: validateSourceInsertion,
     insert: insertSourceRow,
   }),
-  projectionKind<AssertionEvent>({
-    held: "SELECT id FROM assertions",
+  projectionKind<RecordedAssertion>({
+    held: "SELECT id FROM assertions UNION ALL SELECT id FROM assertion_kinds",
     listFiles: listAssertionEventFiles,
-    validate: validateAssertionEvent,
-    insert: insertAssertionRow,
+    validate: validateRecordedAssertion,
+    insert: insertRecordedRow,
   }),
   projectionKind<DeclineEvent>({
     // A decline holds one row per insertion it settles, so its id repeats.

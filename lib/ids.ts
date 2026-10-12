@@ -20,6 +20,12 @@ export const ENT_ID = /^ent_[a-f0-9]{20}$/u;
 /** An assertion: `ast_` + 24 hex. */
 export const AST_ID = /^ast_[a-f0-9]{24}$/u;
 
+/** What a retraction may name: an assertion of any kind, or an event in one
+ * of the logs assertion kinds replace (a decline, an alias, a binding, a copy
+ * judgment, a fold reject) until those are migrated. Never a revocation: a
+ * retraction is not itself withdrawn. */
+export const RETRACTABLE_ID = /^(ast|dec|eal|esb|scp|efr)_[a-f0-9]{24}$/u;
+
 /** Every wikilink in assertion text — `[[target]]` or `[[target|display]]`.
  * The target is a bare label as a model writes it and an entity id once
  * intake has canonicalized it (lib/assertionAgent.ts). */
