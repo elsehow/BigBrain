@@ -1,9 +1,10 @@
 import { resolveNote } from "./noteResolution";
 /** One disposable Quick-model response: orientation and every direct link. */
-import { withVaultSnapshot, projectedMarkdown } from "./vaultReadModel";
+import { graphEvidence, withVaultSnapshot, projectedMarkdown } from "./vaultReadModel";
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { assertionGraphEvidenceCached, assertionGraphEvidenceAsync } from "./graphCache";
+import type { Graph } from "./graph";
+import { freshGraph, graphNow } from "./maintainedGraph";
 import { sourceInsertionCached, type ProjectedEntityAssertion, type ProjectedEntityView } from "./assertionEntityView";
 import { briefingEvidence, runBriefingModel, type BriefingModel } from "./entityBriefing";
 import { findNode } from "./graphIdentity";
@@ -15,7 +16,6 @@ import { json, readBody, type Route } from "./httpx";
 import { modelErrText } from "./errText";
 import { loadManifest } from "./manifest";
 import { type ConnectionEvidence } from "./markdownGraph";
-import type { Graph } from "./graph";
 
 export interface BriefingEvidence extends ConnectionEvidence { selected?: string[] }
 export interface BriefingConnection {
@@ -48,7 +48,7 @@ export const claimsOnly = (claims: ReadonlySet<string>) => (e: ConnectionEvidenc
  * lib/sharedReadUnion.ts), by entity id: read alongside its own. */
 export type OtherClaims = ReadonlyMap<string, readonly ProjectedEntityAssertion[]>;
 
-function readBriefingItem(root: string, path: string, graph: ReturnType<typeof assertionGraphEvidenceCached>["graph"], others?: OtherClaims, keep?: (e: ConnectionEvidence) => boolean): BriefingItem {
+function readBriefingItem(root: string, path: string, graph: Graph, others?: OtherClaims, keep?: (e: ConnectionEvidence) => boolean): BriefingItem {
   const selected = graph.nodes[findNode(graph.nodes, path)];
   const resolvedPath = selected?.path ?? path;
   const note = resolveNote(root, resolvedPath, { source: sourceInsertionCached, markdown: path => {
@@ -69,24 +69,27 @@ function readBriefingItem(root: string, path: string, graph: ReturnType<typeof a
     : note.kind === "thread" || note.kind === "source" ? "source" : "markdown", text: text.slice(0, 16_000), revision: sha256hex(text) };
 }
 
-/** What a briefing reads: a graph, the claim or passage behind each of its
- * ties, and a selected item's own text. */
+/** What a briefing reads: a graph, the claim or passage behind each tie
+ * touching some of its nodes (in the order the graph was built), and a
+ * selected item's own text. */
 export interface BriefingRecord {
   graph: Graph;
-  connections: ReadonlyArray<{ from: string; to: string; evidence: ConnectionEvidence }>;
+  connections: (ids: readonly string[]) => Iterable<{ from: string; to: string; evidence: ConnectionEvidence }>;
   item: (key: string) => BriefingItem;
 }
 
-/** `keep`: the evidence a scope allows (claimsOnly); everything else is read as if it weren't there. */
+/** The graph view the selection is read against — held, or built here —
+ * before the snapshot opens, so the snapshot sees the evidence it kept.
+ * `keep`: the evidence a scope allows (claimsOnly); everything else is read
+ * as if it weren't there. */
 export function noteBriefingInput(root: string, request: NoteBriefingRequest, others?: OtherClaims, keep?: (e: ConnectionEvidence) => boolean): NoteBriefingInput {
-  return withVaultSnapshot(root, () => {
-    const { graph, connections } = assertionGraphEvidenceCached(root);
-    return briefingInput({ graph, connections: keep ? connections.filter(c => keep(c.evidence)) : connections,
-      item: key => readBriefingItem(root, key, graph, others, keep) }, request);
-  });
+  const graph = graphNow(root);
+  return withVaultSnapshot(root, () => briefingInput({ graph,
+    connections: ids => graphEvidence(root, ids).filter(c => !keep || keep(c.evidence)),
+    item: key => readBriefingItem(root, key, graph, others, keep) }, request));
 }
 
-export function briefingInput({ graph, connections: observed, item }: BriefingRecord, request: NoteBriefingRequest): NoteBriefingInput {
+export function briefingInput({ graph, connections, item }: BriefingRecord, request: NoteBriefingRequest): NoteBriefingInput {
   const state = canonicalGraphView(graph.nodes, typeof request === "string" ? { selected: [request], excluded: [] } : request);
   const items = state.selected.map(item).filter(item => !isUserNode(item, graph.userNote));
   if (!items.length) throw new Error("Choose at least one note for a briefing.");
@@ -97,7 +100,7 @@ export function briefingInput({ graph, connections: observed, item }: BriefingRe
   const candidates = new Map(links.map(link => [link.id, link]));
   const relationships = new Map<string, NoteBriefingInput["relationships"][number]>();
   const sameEvidence = (a: ConnectionEvidence, b: ConnectionEvidence) => a.text === b.text && a.path === b.path && a.assertion === b.assertion;
-  for (const edge of observed) {
+  for (const edge of connections([...selected])) {
     const fromSelected = selected.has(edge.from), toSelected = selected.has(edge.to);
     if (fromSelected && toSelected && edge.from !== edge.to) {
       const [from, to] = [edge.from, edge.to].sort() as [string, string];
@@ -270,7 +273,7 @@ export const requestedEntities = (request: NoteBriefingRequest): string[] =>
  * lies beyond this vault about the entities it names. */
 export async function readNoteBriefingInput(root: string, request: NoteBriefingRequest,
   others?: (ids: string[]) => Promise<OtherClaims>, keep?: (e: ConnectionEvidence) => boolean): Promise<NoteBriefingInput> {
-  await assertionGraphEvidenceAsync(root);
+  await freshGraph(root);
   const ids = requestedEntities(request);
   return noteBriefingInput(root, request, others && ids.length ? await others(ids) : undefined, keep);
 }

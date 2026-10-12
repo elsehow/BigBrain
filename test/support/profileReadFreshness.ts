@@ -10,14 +10,16 @@ if (!["sync", "async"].includes(mode)) throw Error("Expected sync or async");
 const { insertion } = await import(join(engine, "test/support/vault.ts"));
 const { appendSourceInsertionEvent, insertionEventRel } = await import(join(engine, "lib/insertionLog.ts"));
 const { syncAssertionProjection } = await import(join(engine, "lib/assertionProjection.ts"));
+// Engines since #228 read the graph as a view, its evidence by id (vaultReadModel.graphEvidence).
 const { assertionGraphEvidenceCached, assertionGraphEvidenceAsync } = await import(join(engine, "lib/graphCache.ts"));
+const view = await import(join(engine, "lib/maintainedGraph.ts")).catch(() => ({} as Record<string, never>));
 const root = mkdtempSync(join(tmpdir(), "bb-read-freshness-"));
 process.env["BIGBRAIN_ASSERTION_DB"] = join(root, ".state/assertions.db");
 const realNow = Date.now;
 let clock = realNow();
 const canonical = (value: any): any => Array.isArray(value) ? value.map(canonical) : value && typeof value === "object"
   ? Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])])) : value;
-const digest = (value: any) => createHash("sha256").update(JSON.stringify(canonical({ graph: value.graph, connections: value.connections }))).digest("hex");
+const digest = (value: any) => createHash("sha256").update(JSON.stringify(canonical({ graph: value.graph ?? value, connections: value.connections }))).digest("hex");
 try {
   for (let i = 0; i < 1200; i++) appendSourceInsertionEvent(root, insertion({
     id: `ins_${i.toString(16).padStart(24, "0")}`, source_id: `source-${i}`, title: `Source ${i}`,
@@ -27,7 +29,8 @@ try {
   // Freeze only the census clock so hot samples never accidentally include a
   // periodic check. Worker clocks stay real; elapsed latency uses performance.now.
   Date.now = () => clock;
-  const read = mode === "sync" ? assertionGraphEvidenceCached : assertionGraphEvidenceAsync;
+  const read = mode === "sync" ? assertionGraphEvidenceCached ?? view.graphNow
+    : assertionGraphEvidenceAsync ?? (async (r: string) => (await view.freshGraph(r)).graph);
   const timed = async () => {
     let ticks = 0; const pulse = setInterval(() => ticks++, 1);
     const start = performance.now();

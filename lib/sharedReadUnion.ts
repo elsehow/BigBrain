@@ -57,7 +57,7 @@ export async function serverBriefingRecord(id:string,request:NoteBriefingRequest
  const view=await viewOf(c),graph={...await serverGraph(id,you),...(you?{userNote:you}:{})};
  const node=(key:string)=>graph.nodes[findNode(graph.nodes,key)],bodies=new Map<string,string>();
  for(const key of typeof request==='string'?[request]:request.selected){const n=node(key);if(n?.group==='source')bodies.set(n.id,(await sharedRequest<SourceInsertion>(c,`/v1/evidence/${n.id.slice('source:'.length)}`)).body);}
- return {graph,connections:view.connections,item:key=>{
+ return {graph,connections:()=>view.connections,item:key=>{
   const n=node(key);if(!n?.path)throw Error('This note is not available for a briefing.');
   const entity=n.entity?view.note(assertionEntityPath(n.id))?.projectedEntity:undefined;
   const text=entity?briefingEvidence(entity as ProjectedEntityView).map(a=>`${a.created_at} (${a.confidence}) ${a.text}`).join('\n'):bodies.get(n.id)??'';

@@ -6,14 +6,13 @@ import { appendAndProjectEntityFoldReject, projectFolds, projectJournal, project
 import { createEntityFoldRejectEvent } from "../lib/entityFoldLog";
 import { appendSourceInsertionEvent, insertionEventRel } from "../lib/insertionLog";
 import { buildGraphView, forgetGraphView, maintainGraphView, type BuildGraphView } from "../lib/maintainedGraph";
-import { invalidateGraphCaches } from "../lib/graphCache";
 import { createLive } from "../lib/liveEvents";
 import { viewStamps, type ViewStamps } from "../lib/viewStamps";
 import { recordMoved, viewsBehind } from "../web/ui/src/lib/viewStamps";
 import { insertion, nativeVault } from "./support/vault";
 
 const roots: string[] = [];
-afterEach(() => { for (const root of roots.splice(0)) { invalidateGraphCaches(root); forgetGraphView(root); rmSync(root, { recursive: true, force: true }); } });
+afterEach(() => { for (const root of roots.splice(0)) { forgetGraphView(root); rmSync(root, { recursive: true, force: true }); } });
 const source = (digit: string) => insertion({ id: `ins_${digit.repeat(24)}`, title: `Source ${digit}` });
 let builds = 0;
 const inline: BuildGraphView = async (root) => { builds++; return buildGraphView(root); };

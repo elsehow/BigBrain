@@ -101,7 +101,9 @@ import { withProjectionWrite } from "./projectionWriteLock";
 //     standing proposals (lib/entityFolds.ts).
 // 26: what finds a source's copies (lib/sourceCopies.ts): its exact keys and
 //     its title's buckets, kept as it lands. A change to either rule bumps it.
-const SCHEMA_VERSION = "26";
+// 27: the graph view's connections by where each was written, the briefing's
+//     evidence (lib/maintainedGraph.ts).
+const SCHEMA_VERSION = "27";
 
 export interface AssertionSearchHit {
   id: string;
@@ -160,6 +162,20 @@ function schema(db: Database): void {
   // Read models the viewer keeps (lib/maintainedGraph.ts), each saved with the
   // revision it reflects, so a start serves the last one without a build.
   db.run("CREATE TABLE IF NOT EXISTS views (name TEXT PRIMARY KEY, revision TEXT NOT NULL, hash TEXT NOT NULL, body TEXT NOT NULL)");
+  // Each connection the graph view drew, by where it was written, in runs:
+  // an assertion's (`grp` its id), or a document's (`grp` its document_links
+  // key, `path` its path), a citation naming its `assertion` and a link its
+  // index (`link`). No text: a reader takes it from the assertion or the
+  // link's evidence (document_link_text). `pos` orders a run as the build
+  // made it, and a run's hash says whether a build changed it. Kept by the
+  // graph view's builds, beside the view.
+  db.run(`CREATE TABLE IF NOT EXISTS graph_evidence (
+    grp TEXT NOT NULL, pos INTEGER NOT NULL, a TEXT NOT NULL, b TEXT NOT NULL,
+    assertion TEXT NOT NULL, path TEXT NOT NULL, link INTEGER NOT NULL, PRIMARY KEY (grp, pos)
+  ) WITHOUT ROWID`);
+  db.run("CREATE INDEX IF NOT EXISTS graph_evidence_a ON graph_evidence(a)");
+  db.run("CREATE INDEX IF NOT EXISTS graph_evidence_b ON graph_evidence(b)");
+  db.run("CREATE TABLE IF NOT EXISTS graph_evidence_runs (grp TEXT PRIMARY KEY, hash TEXT NOT NULL) WITHOUT ROWID");
   db.run(`CREATE TABLE IF NOT EXISTS changes (
     revision INTEGER NOT NULL, kind TEXT NOT NULL, id TEXT NOT NULL, op TEXT NOT NULL,
     PRIMARY KEY (revision, kind, id)
@@ -1301,6 +1317,41 @@ export function saveProjectionView(root: string, name: string, view: ProjectionV
       } finally { db.close(); }
     });
   } catch { /* the view stays in memory */ }
+}
+
+/** One connection the graph view drew (graph_evidence). */
+export interface GraphEvidenceRow { grp: string; pos: number; a: string; b: string; assertion: string; path: string; link: number }
+
+/** Keep the graph view's connections as of `revision`, rewriting only the
+ * runs a build changed; a build behind the one that last kept them keeps
+ * nothing. Not a commit: the record did not change. */
+export function saveGraphEvidence(root: string, revision: string, rows: readonly GraphEvidenceRow[]): void {
+  const runs = new Map<string, GraphEvidenceRow[]>();
+  for (const r of rows) { const run = runs.get(r.grp); if (run) run.push(r); else runs.set(r.grp, [r]); }
+  withProjectionWrite(root, () => {
+    const db = new Database(assertionDbPath(root));
+    try {
+      db.run("PRAGMA busy_timeout = 5000");
+      db.transaction(() => {
+        const held = (db.query("SELECT v FROM meta WHERE k = 'graph_evidence_revision'").get() as { v: string } | null)?.v.split(":");
+        const [generation, at] = revision.split(":");
+        if (held && held[0] === generation && Number(held[1]) > Number(at)) return;
+        const hashes = new Map((db.query("SELECT grp, hash FROM graph_evidence_runs").all() as { grp: string; hash: string }[]).map((r) => [r.grp, r.hash]));
+        const clear = db.query("DELETE FROM graph_evidence WHERE grp = ?"), forget = db.query("DELETE FROM graph_evidence_runs WHERE grp = ?");
+        const put = db.query("INSERT INTO graph_evidence(grp, pos, a, b, assertion, path, link) VALUES (?, ?, ?, ?, ?, ?, ?)");
+        const mark = db.query("INSERT OR REPLACE INTO graph_evidence_runs(grp, hash) VALUES (?, ?)");
+        for (const [grp, run] of runs) {
+          const hash = Bun.hash(JSON.stringify(run.map((r) => [r.a, r.b, r.assertion, r.path, r.link]))).toString(36);
+          if (hashes.get(grp) === hash) continue;
+          clear.run(grp);
+          for (const r of run) put.run(grp, r.pos, r.a, r.b, r.assertion, r.path, r.link);
+          mark.run(grp, hash);
+        }
+        for (const grp of hashes.keys()) if (!runs.has(grp)) { clear.run(grp); forget.run(grp); }
+        db.query("INSERT OR REPLACE INTO meta(k, v) VALUES ('graph_evidence_revision', ?)").run(revision);
+      }).immediate();
+    } finally { db.close(); }
+  });
 }
 
 /** A generation changes on rebuild; revision advances for record/content changes.

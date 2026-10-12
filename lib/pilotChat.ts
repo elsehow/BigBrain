@@ -16,7 +16,7 @@ import { writeAtomic } from "./fsx";
 import { spoolDir } from "./spool";
 import { type SessionLoadIssue } from "./sessionRecords";
 import { validateSavedPilot } from "./pilotChatPersistence";
-import { primaryGraphCached } from "./graphCache";
+import { savedGraph } from "./maintainedGraph";
 import { findNode, type GraphIdentity } from "./graphIdentity";
 import { pilotToolCall, pilotTools, PilotError } from "./pilot";
 import { INTEGRATION_TOOLS } from "./integrationTools";
@@ -40,6 +40,9 @@ import { writeEnvValues } from "./envFile";
 import { savedPilotBackend } from "./pilotDefault";
 
 import { withCredits } from "./providerCredits";
+
+/** The nodes the Field draws: the graph view as last built, never a build here. */
+const viewNodes = (root: string) => savedGraph(root)?.nodes ?? [];
 
 /** The summary cache (lib/applicationHistoryIndex.ts). Bump its version when a
  * summary changes shape, so no cold archive keeps serving the old one. */
@@ -397,7 +400,7 @@ export class PilotChats {
   private resolve(input: unknown): string[] {
     if (!Array.isArray(input) || input.length > 1000 || input.some(id => typeof id !== "string" || id.length > 2000)) throw new PilotError("Context must contain at most 1000 node IDs.");
     if (!input.length) return [];
-    const graph = [...(this.options.graph?.() ?? primaryGraphCached(this.options.contextRoot ?? this.root).nodes), ...this.summaries().flatMap(s => s.contextNodes ?? [])];
+    const graph = [...(this.options.graph?.() ?? viewNodes(this.options.contextRoot ?? this.root)), ...this.summaries().flatMap(s => s.contextNodes ?? [])];
     return [...new Set(input.map(id => {
       if (this.has(id)) return id;
       const migrated = this.summaries().find(s => s.legacyWork && [s.legacyWork.id, sessionPath(s.legacyWork.id)].includes(id));
@@ -421,7 +424,7 @@ export class PilotChats {
     // A new conversation launched from a memory stays there while classification is
     // waiting for its first substantive message. Later references do not move it.
     if (seed.length === 1) {
-      const node = (this.options.graph?.() ?? primaryGraphCached(this.options.contextRoot ?? this.root).nodes).find(n => n.id === seed[0]);
+      const node = (this.options.graph?.() ?? viewNodes(this.options.contextRoot ?? this.root)).find(n => n.id === seed[0]);
       if (node && "group" in node && node.group === "memory" && !/(^|\/)MEMORY\.md$/.test(node.path ?? node.id))
         s.category = { memory: node.id, inputKey: "", model: "", assignedAt: s.created, reason: "Selected memory." };
     }
@@ -647,7 +650,7 @@ export class PilotChats {
       if (Date.now() - lastSaved > PILOT_RUNTIME.streamSaveMs) { this.save(s); lastSaved = Date.now(); }
     };
     const currentContext = () => {
-      const graph = s.context.length ? [...(this.options.graph?.() ?? primaryGraphCached(this.options.contextRoot ?? this.root).nodes), ...(s.contextNodes ?? [])] : [];
+      const graph = s.context.length ? [...(this.options.graph?.() ?? viewNodes(this.options.contextRoot ?? this.root)), ...(s.contextNodes ?? [])] : [];
       return { title: s.title, seed: s.seed, nodes: s.context.map(id => graph[findNode(graph, id)]).filter((n): n is GraphIdentity => !!n).map(n => ({ id: n.id, path: n.path, title: (n as { title?: string }).title })), revision: s.viewRevision };
     };
     const mentions = parseMentions(s.messages.findLast(m => m.role === "user")?.text ?? "")

@@ -4,7 +4,7 @@
  * notes come in through their door (assertionProjection.projectNotes). */
 import type { SourceSummary } from "./sourceSummary";
 import { USER_IDENTITY_PROCEDURE, USER_IDENTITY_VERSION, userIdentityDeclarationsFromEvents } from "./userIdentityPolicy";
-import type { DocumentLinkTargets, MarkdownDocument, MarkdownIdentity } from "./markdownGraph";
+import type { ConnectionEvidence, DocumentLinkTargets, MarkdownDocument, MarkdownIdentity } from "./markdownGraph";
 import { assertionDbPath, openAssertionProjectionReadonly, projectionRecovered, projectionRevision, syncAssertionProjection } from "./assertionProjection";
 import { entityAliasResolution, type EntityAliasEvent, type EntityAliasResolution } from "./entityAliasLog";
 import { assertionSourceReferences, type AssertionEvent } from "./assertionLog";
@@ -54,7 +54,6 @@ interface DecodedRevision {
   copies?: CopiesRecord;
   copyLinks?: CopyLinks;
   catalog?: { sources: SourceMetadata[]; threads: SourceThread<SourceMetadata>[] };
-  linkTexts?: Map<string, string[]>;
   memory?: { inss: SourceMetadata[]; asserted: AssertionEvent[]; voice: SourceInsertion[];
     revocations: RevocationEvent[]; aliases: EntityAliasEvent[] };
 }
@@ -144,14 +143,27 @@ export function vaultRecord(root: string): VaultRecord {
   });
 }
 
-/** The evidence for each document's links, in link order: the paragraph each
- * sits in. Wide, so only an evidence build reads it (graphCache). */
-export function documentLinkTexts(root: string): Map<string, string[]> {
-  return withVaultSnapshot(root, (db, revision) => {
-    const held = decodedRevision(root, revision);
-    return held.linkTexts ??= new Map((db.query("SELECT path, texts_json FROM document_link_text").all() as { path: string; texts_json: string }[])
-      .map(r => [r.path, JSON.parse(r.texts_json) as string[]]));
-  });
+/** The graph view's connections touching `ids`, each with its evidence, in
+ * the order the build drew them (graph_evidence): an assertion's, oldest
+ * first, then each document's — notes by path, then sources as they
+ * arrived. A link's text is its paragraph (document_link_text); an
+ * assertion's, its prose. */
+export function graphEvidence(root: string, ids: readonly string[]): Array<{ from: string; to: string; evidence: ConnectionEvidence }> {
+  // an assertion's run has no path; a document's runs come after them all
+  return withVaultSnapshot(root, (db) => (db.query(`WITH hit AS (
+      SELECT * FROM graph_evidence WHERE a IN (SELECT value FROM json_each(?1))
+      UNION SELECT * FROM graph_evidence WHERE b IN (SELECT value FROM json_each(?1)))
+    SELECT h.a, h.b, h.assertion, h.path, h.link,
+      CASE WHEN h.link >= 0 THEN coalesce(json_extract(t.texts_json, '$[' || h.link || ']'), '') ELSE x.text END AS text
+    FROM hit h
+      LEFT JOIN assertions x ON h.link < 0 AND x.id = h.assertion
+      LEFT JOIN document_link_text t ON h.link >= 0 AND t.path = h.grp
+      LEFT JOIN sources s ON h.grp LIKE 'source:%' AND s.insertion_id = substr(h.grp, 8)
+    ORDER BY h.path != '', CASE WHEN h.path = '' THEN x.created_at END,
+      h.grp LIKE 'source:%', coalesce(s.received_at, s.occurred_at, ''), h.grp, h.pos`)
+    .all(JSON.stringify(ids)) as Array<{ a: string; b: string; assertion: string; path: string; link: number; text: string | null }>)
+    .map(({ a, b, assertion, path, link, text }) => ({ from: a, to: b, evidence:
+      link >= 0 ? { path, text: text ?? "" } : path ? { assertion, path, text: text ?? "" } : { assertion, text: text ?? "" } })));
 }
 
 /** A pair that might be one document, still to settle: asked of a person,

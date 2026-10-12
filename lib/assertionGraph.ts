@@ -1,7 +1,8 @@
 /** Graph projection of assertion relationships and explicit internal Markdown
- * links. The optional observer supplies grounding to the note briefing without
- * shipping assertion text in the graph payload. */
-import { documentLinkTexts, vaultRecord, type VaultRecord } from "./vaultReadModel";
+ * links. The optional observer hears each connection with where it was
+ * written — an assertion, or a document's link or citation — which the graph
+ * view keeps as the briefing's evidence (maintainedGraph.ts). */
+import { vaultRecord, type VaultRecord } from "./vaultReadModel";
 
 import { createHash } from "node:crypto";
 import { assertionSourceReferences, type AssertionEvent } from "./assertionLog";
@@ -12,13 +13,12 @@ import { assertionEntityPath } from "./assertionEntityView";
 import { insertionFiler, pendingInsertionIds } from "./sourceFeed";
 import { resolveAssertionIdIn } from "./revocationLog";
 import { userIdentityDeclarationsFromEvents } from "./userIdentityPolicy";
-import { resolveDocumentLinks, noteLinkResolver, type ConnectionEvidence, type ObserveConnection } from "./markdownGraph";
+import { resolveDocumentLinks, noteLinkResolver, type ConnectionAt, type ConnectionEvidence, type ObserveConnection } from "./markdownGraph";
 import { isUserNode } from "./userNote";
 
-/** `linkTexts` (vaultReadModel.documentLinkTexts) is the evidence a link's
- * connection carries to `observe`, read only when there is an observer. */
-export function buildAssertionGraph(root: string, observe?: ObserveConnection, record: VaultRecord = vaultRecord(root),
-  linkTexts: ReadonlyMap<string, string[]> | undefined = observe && documentLinkTexts(root)): Graph {
+/** A link's evidence reaches `observe` as where it was written: its text is
+ * read from the projection by whoever wants it (vaultReadModel.graphEvidence). */
+export function buildAssertionGraph(root: string, observe?: ObserveConnection, record: VaultRecord = vaultRecord(root)): Graph {
   const { revoked, rows: assertions, superseded, threadByInsertion: threads, sources: sourceByInsertion, copies } = record;
   const events = [...sourceByInsertion.values()];
   // The arrivals the gardener has not reached yet draw too — as points
@@ -63,9 +63,9 @@ export function buildAssertionGraph(root: string, observe?: ObserveConnection, r
   // WEIGHT instead of a second edge (GraphEdge.weight — absent means once).
   // The count is the only thing the projection knows beyond "these two
   // co-occur", and the viewer draws it as a brighter thread.
-  const addEdge = (left: string, right: string, evidence?: ConnectionEvidence): void => {
+  const addEdge = (left: string, right: string, evidence?: ConnectionEvidence, at?: ConnectionAt): void => {
     if (left === right) return;
-    if (evidence) observe?.(left, right, evidence);
+    if (evidence) observe?.(left, right, evidence, at);
     const [source, target] = left < right ? [left, right] as const : [right, left] as const;
     const key = `${source}\u0000${target}`;
     const seen = seenEdges.get(key);
@@ -161,19 +161,16 @@ export function buildAssertionGraph(root: string, observe?: ObserveConnection, r
   const byAssertion = new Map(assertions.map(a => [a.id, a]));
   const sourceIds = new Set(events.map(s => sourceKey(s.id)));
   const memoryTargets = new Map<string, Set<string>>();
-  const linksOf = (key: string) => {
-    const parsed = record.documentLinks.get(key)!, texts = linkTexts?.get(key);
-    return texts ? { ...parsed, links: parsed.links.map((link, i) => ({ ...link, text: texts[i] ?? "" })) } : parsed;
-  };
-  const linkDocuments = [...documents.filter(d => !sourceIds.has(d.id)).map(d => ({ ...d, parsed: linksOf(`markdown:${d.path}`) })), ...events.filter(s => !superseded.has(s.id)).map(s => ({
-    id: sourceKey(s.id), path: s.imported_path ?? insertionEventRel(s), title: s.title, parsed: linksOf(`source:${s.id}`),
+  const linked = (key: string) => ({ key, parsed: record.documentLinks.get(key)! });
+  const linkDocuments = [...documents.filter(d => !sourceIds.has(d.id)).map(d => ({ ...d, ...linked(`markdown:${d.path}`) })), ...events.filter(s => !superseded.has(s.id)).map(s => ({
+    id: sourceKey(s.id), path: s.imported_path ?? insertionEventRel(s), title: s.title, ...linked(`source:${s.id}`),
   }))];
   for (const doc of linkDocuments) {
     const targets = doc.path.startsWith("memory/") ? new Set<string>() : undefined;
     if (targets) memoryTargets.set(doc.id, targets);
     for (const link of resolveDocumentLinks(doc, doc.parsed, linkResolver))
       if (nodes.has(link.target)) {
-        addEdge(doc.id, link.target, link.evidence);
+        addEdge(doc.id, link.target, link.evidence, { doc: doc.key, link: link.link });
         targets?.add(link.target);
       }
     // An assertion citation is grounding, not an openable node. Keep its
@@ -182,7 +179,7 @@ export function buildAssertionGraph(root: string, observe?: ObserveConnection, r
       const assertion = byAssertion.get(resolveAssertionIdIn(revoked, id));
       if (!assertion) continue;
       for (const entity of resolvedEntities(assertion)) if (nodes.has(entity.id)) {
-        addEdge(doc.id, entity.id, { assertion: assertion.id, path: doc.path, text: assertion.text });
+        addEdge(doc.id, entity.id, { assertion: assertion.id, path: doc.path, text: assertion.text }, { doc: doc.key });
         if (entity.id !== doc.id) targets?.add(entity.id);
       }
     }

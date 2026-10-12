@@ -4,8 +4,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { projectSourceInsertion } from "../lib/assertionProjection";
-import { assertionGraphEvidenceCached, invalidateGraphCaches } from "../lib/graphCache";
-import { documentLinkTexts, vaultRecord } from "../lib/vaultReadModel";
+import { forgetGraphView, graphNow } from "../lib/maintainedGraph";
+import { graphEvidence, vaultRecord } from "../lib/vaultReadModel";
 import { appendSourceInsertionEvent } from "../lib/insertionLog";
 import { proseChars } from "../lib/text";
 import { insertion } from "./support/vault";
@@ -54,10 +54,9 @@ test("a link's evidence lives apart from what it names: the graph's record reads
       expect(texts[0]).toContain("for the supplier");
     } finally { db.close(); }
     expect(vaultRecord(root).documentLinks.get(`source:${page.id}`)!.links[0]).not.toHaveProperty("text");
-    expect(documentLinkTexts(root).get(`source:${page.id}`)![0]).toContain("for the supplier");
-    // the evidence build still hands each connection its paragraph
-    invalidateGraphCaches(root);
-    const { connections } = assertionGraphEvidenceCached(root);
+    // the graph view keeps where each connection was written; a briefing reads its paragraph
+    graphNow(root);
+    const connections = graphEvidence(root, [`source:${page.id}`]);
     expect(connections.find((c) => c.from === `source:${page.id}` && c.to === `source:${supplier.id}`)?.evidence.text).toContain("for the supplier");
-  } finally { rmSync(root, { recursive: true, force: true }); }
+  } finally { forgetGraphView(root); rmSync(root, { recursive: true, force: true }); }
 });

@@ -2,33 +2,34 @@ import { expect, test, afterEach } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { assertionGraphEvidenceAsync, invalidateGraphCaches, readLayoutCache } from "../lib/graphCache";
-import { currentGraph, forgetGraphView, maintainGraphView, saveGraphView, savedGraph, type BuildGraphView } from "../lib/maintainedGraph";
+import { readLayoutCache } from "../lib/graphCache";
+import { currentGraph, forgetGraphView, freshGraph, graphNow, maintainGraphView, saveGraphView, savedGraph, type BuildGraphView } from "../lib/maintainedGraph";
 import { buildAssertionGraph } from "../lib/assertionGraph";
 import { appendSourceInsertionEvent, insertionEventRel } from "../lib/insertionLog";
-import { projectJournal, projectionRevision, projectSourceInsertion } from "../lib/assertionProjection";
+import { projectJournal, projectNotes, projectionRevision, projectSourceInsertion, saveGraphEvidence } from "../lib/assertionProjection";
 import { sourceInsertionCached } from "../lib/assertionEntityView";
 import { insertion } from "./support/vault";
-import { withVaultSnapshot } from "../lib/vaultReadModel";
+import { graphEvidence, withVaultSnapshot } from "../lib/vaultReadModel";
 import { createLive } from "../lib/liveEvents";
 
 const roots: string[] = [];
 function fresh() { const root = mkdtempSync(join(tmpdir(), "bb-graph-background-")); roots.push(root); return root; }
-afterEach(() => { for (const root of roots.splice(0)) { invalidateGraphCaches(root); forgetGraphView(root); rmSync(root, { recursive: true, force: true }); } });
+afterEach(() => { for (const root of roots.splice(0)) { forgetGraphView(root); rmSync(root, { recursive: true, force: true }); } });
 const source = (digit: string) => insertion({ id: `ins_${digit.repeat(24)}`, title: `Source ${digit}` });
 
-test("concurrent async readers share graph/evidence and prepare feed pages for that revision", async () => {
+test("concurrent readers share one view build, which keeps its connections as evidence and prepares feed pages", async () => {
   const root = fresh(), item = source("1");
   appendSourceInsertionEvent(root, item);
   mkdirSync(join(root, "memory"));
-  writeFileSync(join(root, "memory", "index.md"), `# Memory\n\n[[${insertionEventRel(item)}]]`);
-  const connections: unknown[] = [];
-  const expected = buildAssertionGraph(root, (from, to, evidence) => connections.push({ from, to, evidence }));
-  invalidateGraphCaches(root);
-  const [a, b] = await Promise.all([assertionGraphEvidenceAsync(root), assertionGraphEvidenceAsync(root)]);
-  expect(a).toBe(b);
-  expect(a.graph).toEqual(expected);
-  expect(a.connections).toEqual(connections);
+  writeFileSync(join(root, "memory", "index.md"), `# Memory\n\nFiled under [[${insertionEventRel(item)}]].`);
+  const expected = buildAssertionGraph(root);
+  const [a, b] = await Promise.all([freshGraph(root), freshGraph(root)]);
+  expect(a.graph).toBe(b.graph);
+  expect(a.graph.nodes.map((n) => n.id)).toEqual(expected.nodes.map((n) => n.id));
+  expect(a.graph.edges).toEqual(expected.edges);
+  // the link's evidence, read for one node: the paragraph it sits in
+  expect(graphEvidence(root, [`source:${item.id}`])).toEqual([{ from: "memory/index.md", to: `source:${item.id}`,
+    evidence: { path: "memory/index.md", text: `Filed under [[${insertionEventRel(item)}]].` } }]);
   expect(sourceInsertionCached(root, insertionEventRel(item))).toEqual(item);
   withVaultSnapshot(root, db => {
     expect(db.query("SELECT v FROM meta WHERE k = 'feed_revision'").get()).toEqual({ v: a.revision });
@@ -147,4 +148,22 @@ test("a newer watcher change suppresses the older in-flight ping", async () => {
     releases[1]!(); await Promise.resolve();
     expect(writes).toEqual(['event: views\ndata: {"generation":"g","revision":"2","views":{"graph":"","joined":"","feed":"","files":""}}\n\n']);
   } finally { live.stop(); for (const release of releases) release(); }
+});
+
+test("the briefing's evidence follows the view: a link written appears, a link removed goes, a build behind keeps nothing", () => {
+  const root = fresh(), item = source("1");
+  appendSourceInsertionEvent(root, item);
+  mkdirSync(join(root, "memory"));
+  const note = (text: string) => { writeFileSync(join(root, "memory", "index.md"), `# Memory\n\n${text}`); projectNotes(root, ["memory/index.md"]); };
+  note(`Filed under [[${insertionEventRel(item)}]].`);
+  graphNow(root);
+  const linked = graphEvidence(root, [`source:${item.id}`]);
+  expect(linked.map((c) => c.evidence.text)).toEqual([`Filed under [[${insertionEventRel(item)}]].`]);
+  const before = withVaultSnapshot(root, (_db, revision) => revision);
+  note("Nothing filed here.");
+  graphNow(root);
+  expect(graphEvidence(root, [`source:${item.id}`])).toEqual([]);
+  // a build that finished behind the one that kept the evidence writes nothing
+  saveGraphEvidence(root, before, [{ grp: "markdown:memory/index.md", pos: 0, a: "memory/index.md", b: `source:${item.id}`, assertion: "", path: "memory/index.md", link: 0 }]);
+  expect(graphEvidence(root, [`source:${item.id}`])).toEqual([]);
 });

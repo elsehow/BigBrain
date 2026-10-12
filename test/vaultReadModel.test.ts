@@ -8,8 +8,9 @@ import { appendAssertionEvent, createAssertionEvent, assertionEntityId } from ".
 import { assertionEntityView, assertionEntityPath } from "../lib/assertionEntityView";
 import { appendSourceInsertionEvent, insertionEventRel } from "../lib/insertionLog";
 import { assertionDbPath, projectSourceInsertion, rebuildAssertionProjection, openAssertionProjectionReadonly, projectionRevision, projectNotes, recoverAssertionProjection } from "../lib/assertionProjection";
-import { documentLinkTexts, sourceCatalog, sourceReadTargets, threadReadModel, publishReadModel, vaultRecord, withVaultSnapshot, projectedSource, projectedMarkdown, sourceRecord } from "../lib/vaultReadModel";
+import { graphEvidence, sourceCatalog, sourceReadTargets, threadReadModel, publishReadModel, vaultRecord, withVaultSnapshot, projectedSource, projectedMarkdown, sourceRecord } from "../lib/vaultReadModel";
 import { buildAssertionGraph } from "../lib/assertionGraph";
+import { graphNow } from "../lib/maintainedGraph";
 import { recentSourcePage } from "../lib/sourceFeed";
 
 const roots: string[] = [];
@@ -70,7 +71,8 @@ test("graph/feed records retain compact evidence while selected note reads retai
     expect(record.documents).toEqual([{ id: path, path, title: "Topic" }]);
     // the record names the link; its paragraph is evidence, read apart
     expect(record.documentLinks.get(`source:${source.id}`)!.links).toEqual([{ target: path, markdown: true }]);
-    expect(documentLinkTexts(root).get(`source:${source.id}`)).toEqual([evidence]);
+    graphNow(root);
+    expect(graphEvidence(root, [`source:${source.id}`]).map((c) => c.evidence.text)).toEqual([evidence]);
     expect(projectedSource(root, source.id)!.body).toBe(body);
     expect(projectedMarkdown(root, path)).toBe(markdown);
     expect(recentSourcePage(root, 0, 1).recent[0]!.excerpt).toBe(summary.excerpt);

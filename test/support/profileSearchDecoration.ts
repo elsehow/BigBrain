@@ -11,7 +11,9 @@ if (process.env.BIGBRAIN_ASSERTION_DB || process.env.BIGBRAIN_SEARCH_DB) throw E
 process.env.BIGBRAIN_VAULT = root;
 const { ROUTES } = await import(join(engine, 'web/server.ts'));
 const { dispatch } = await import(join(engine, 'lib/httpx.ts'));
-const { invalidateGraphCaches } = await import(join(engine, 'lib/graphCache.ts'));
+// Engines since #228 hold the graph as a view rather than a memo.
+const invalidateGraphCaches: (root: string) => void = (await import(join(engine, 'lib/graphCache.ts'))).invalidateGraphCaches
+  ?? (await import(join(engine, 'lib/maintainedGraph.ts'))).forgetGraphView;
 // Engines before the notes door (#225) needed a hint to drop decoded records; later ones key them by revision.
 const invalidateAssertionRecord: (root: string) => void = (await import(join(engine, 'lib/assertionEntityView.ts'))).invalidateAssertionRecord ?? (() => {});
 const { createLive } = await import(join(engine, 'lib/liveEvents.ts'));
