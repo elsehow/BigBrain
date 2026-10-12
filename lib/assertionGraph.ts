@@ -145,10 +145,6 @@ export function buildAssertionGraph(root: string, observe?: ObserveConnection, r
     aliases.push([entity.id, id], [assertionEntityPath(entity.id), id]);
   }
   const imported = new Map(aliases);
-  for (const doc of documents) if (doc.path.startsWith("entities/")) {
-    const matches = [...nodes.values()].filter(n => n.entity && n.title.toLowerCase() === doc.title.toLowerCase());
-    if (matches.length === 1) { imported.set(doc.path, matches[0]!.id); aliases.push([doc.path, matches[0]!.id]); }
-  }
   for (const doc of documents) {
     doc.id = imported.get(doc.path) ?? doc.id;
     const existing = nodes.get(doc.id);
@@ -163,7 +159,7 @@ export function buildAssertionGraph(root: string, observe?: ObserveConnection, r
   const memoryTargets = new Map<string, Set<string>>();
   const linked = (key: string) => ({ key, parsed: record.documentLinks.get(key)! });
   const linkDocuments = [...documents.filter(d => !sourceIds.has(d.id)).map(d => ({ ...d, ...linked(`markdown:${d.path}`) })), ...events.filter(s => !superseded.has(s.id)).map(s => ({
-    id: sourceKey(s.id), path: s.imported_path ?? insertionEventRel(s), title: s.title, ...linked(`source:${s.id}`),
+    id: sourceKey(s.id), path: insertionEventRel(s), title: s.title, ...linked(`source:${s.id}`),
   }))];
   for (const doc of linkDocuments) {
     const targets = doc.path.startsWith("memory/") ? new Set<string>() : undefined;

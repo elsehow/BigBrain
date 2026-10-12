@@ -29,7 +29,7 @@ afterAll(() => {
 
 const insertion = insertionSeq();
 
-/** A native-flagged scratch vault with a memory tree and a curated note. */
+/** A native-flagged scratch vault with a memory tree and a journal note. */
 const vault = (...insertions: SourceInsertion[]): string => {
   const root = nativeVault({
     prefix: "bb-mcp-",
@@ -38,8 +38,7 @@ const vault = (...insertions: SourceInsertion[]): string => {
       "vault.yaml": NATIVE_YAML,
       "memory/MEMORY.md": "# Memory index\n- [[memory/ridgeways]]\n",
       "memory/ridgeways.md": "# Ridgeways\nThe topic body.\n",
-      "entities/ada-lovelace.md": "# Ada Lovelace\nDossier.\n",
-      "references/curated.md": "---\ntitle: Curated note\n---\nSee [[ada-lovelace]] for the dossier.\n",
+      "journal/curated.md": "---\ntitle: Curated note\n---\nSee [[2026-07-01-standup]] for the standup.\n",
     },
   });
   scratch.push(root);
@@ -169,12 +168,12 @@ describe("read_note", () => {
   test("q windows a non-entity note to its matching blocks, with slack for context", () => {
     const root = vault();
     writeFileSync(
-      join(root, "references", "session.md"),
+      join(root, "journal", "session.md"),
       "---\ntitle: Session\n---\n" +
         Array.from({ length: 60 }, (_, i) => (i === 30 ? "the needle turn" : `filler ${i}`)).join("\n\n")
     );
     type Windowed = { markdown: string; blocks_total: number; blocks_matched: number; blocks_shown: number };
-    const w = handleMcpTool(ctx(root), "read_note", { path: "references/session.md", q: "needle" }) as Windowed;
+    const w = handleMcpTool(ctx(root), "read_note", { path: "journal/session.md", q: "needle" }) as Windowed;
     expect(w.blocks_total).toBe(60);
     expect(w.blocks_matched).toBe(1);
     expect(w.blocks_shown).toBe(5);
@@ -182,34 +181,35 @@ describe("read_note", () => {
     expect(w.markdown).toContain("elided");
     expect(w.markdown).not.toContain("filler 0");
     const tight = handleMcpTool(ctx(root), "read_note", {
-      path: "references/session.md", q: "needle", slack: 0,
+      path: "journal/session.md", q: "needle", slack: 0,
     }) as Windowed;
     expect(tight.blocks_shown).toBe(1);
     // An unwindowed read is untouched — the counters only appear on a window.
-    const whole = handleMcpTool(ctx(root), "read_note", { path: "references/session.md" }) as Windowed;
+    const whole = handleMcpTool(ctx(root), "read_note", { path: "journal/session.md" }) as Windowed;
     expect(whole.blocks_total).toBeUndefined();
     expect(whole.markdown).toContain("filler 0");
   });
 
-  test("serves the /v1/note payload: frontmatter parsed, wikilinks resolved", () => {
-    const root = vault();
-    const note = handleMcpTool(ctx(root), "read_note", { path: "references/curated.md" }) as {
+  test("serves the /v1/note payload: frontmatter parsed, a link to an imported file resolves to its source", () => {
+    const standup = insertion({ title: "Standup", imported_path: "references/2026-07-01-standup.md" });
+    const root = vault(standup);
+    const note = handleMcpTool(ctx(root), "read_note", { path: "journal/curated.md" }) as {
       title: string;
       markdown: string;
       links: { name: string; path: string | null }[];
     };
     expect(note.title).toBe("Curated note");
-    expect(note.markdown).toContain("dossier");
-    expect(note.links).toEqual([{ name: "ada-lovelace", path: "entities/ada-lovelace.md" }]);
+    expect(note.markdown).toContain("standup");
+    expect(note.links).toEqual([{ name: "2026-07-01-standup", path: insertionEventRel(standup) }]);
   });
 
   test("a huge note is sliced with start/chars, never silently clipped (#514)", () => {
     const root = vault();
     writeFileSync(
-      join(root, "references", "big.md"),
+      join(root, "journal", "big.md"),
       `---\ntitle: Big note\n---\n${"a".repeat(60_000)}TAIL`
     );
-    const first = handleMcpTool(ctx(root), "read_note", { path: "references/big.md" }) as {
+    const first = handleMcpTool(ctx(root), "read_note", { path: "journal/big.md" }) as {
       markdown: string; markdown_length: number; truncated: boolean; end: number;
     };
     expect(first.truncated).toBe(true);
@@ -217,12 +217,12 @@ describe("read_note", () => {
     expect(first.end).toBe(40_000);
     expect(first.markdown.startsWith('<untrusted-data kind="note" title="Big note"')).toBe(true);
     expect(first.markdown_length).toBeGreaterThan(60_000);
-    const rest = handleMcpTool(ctx(root), "read_note", { path: "references/big.md", start: first.end, chars: 80_000 }) as {
+    const rest = handleMcpTool(ctx(root), "read_note", { path: "journal/big.md", start: first.end, chars: 80_000 }) as {
       markdown: string; truncated: boolean;
     };
     expect(rest.truncated).toBe(false);
     expect(rest.markdown.endsWith("TAIL\n</untrusted-data>")).toBe(true);
-    const whole = handleMcpTool(ctx(root), "read_note", { path: "references/curated.md" }) as Record<string, unknown>;
+    const whole = handleMcpTool(ctx(root), "read_note", { path: "journal/curated.md" }) as Record<string, unknown>;
     expect(whole["truncated"]).toBeUndefined();
   });
 

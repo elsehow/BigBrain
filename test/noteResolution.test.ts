@@ -17,7 +17,7 @@ function fixture() {
     envelope: { source: "email", kind: "email", inbox: "me@example.com" } }));
   const root = nativeVault({ insertions: sources, files: {
     "memory/topic.md": '---\ntitle: "Named topic"\n---\n# Heading\n\nEvidence.',
-    "requests/private.md": "# Request\nPrivate to the viewer's allowed trees.",
+    "queue/private.md": "# Request\nPrivate to the viewer's allowed trees.",
   } });
   roots.push(root); return { root, sources };
 }
@@ -44,8 +44,8 @@ test("Markdown interpretation is shared, while each caller authorizes its own se
   const note = resolveNote(root, "memory/topic.md", policy);
   expect(note).toMatchObject({ kind: "markdown", title: "Named topic", markdown: { body: "# Heading\n\nEvidence." } });
   expect(notePayload(root, "memory/topic.md")).toMatchObject({ status: 200, note: { title: note?.title } });
-  expect(resolveNote(root, "requests/private.md", policy)).toBeUndefined();
-  expect(notePayload(root, "requests/private.md").status).toBe(403);
+  expect(resolveNote(root, "queue/private.md", policy)).toBeUndefined();
+  expect(notePayload(root, "queue/private.md").status).toBe(403);
 });
 
 test("exact source readers and snapshot evidence keep their explicit failure policies", () => {

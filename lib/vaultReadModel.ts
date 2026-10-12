@@ -103,6 +103,18 @@ export function withVaultSnapshot<T>(root: string, read: (db: Database, revision
   } finally { if (db.inTransaction) db.run("ROLLBACK"); db.close(); }
 }
 
+/** Where each source imported from the trees before the insertion log
+ * (#496, `bigbrain migrate`) is read: imported path → insertion event path,
+ * in path order. An old `[[references/…]]` link lands there. */
+export function importedSourcePaths(root: string): Map<string, string> {
+  return withVaultSnapshot(root, (db) => {
+    const rows = db.query(`SELECT json_extract(header_json, '$.imported_path') AS path, insertion_id AS id, occurred_at, received_at
+      FROM sources WHERE present = 1 AND path IS NOT NULL ORDER BY path`).all() as
+      { path: string; id: string; occurred_at: string | undefined; received_at: string | undefined }[];
+    return new Map(rows.map((row) => [row.path, insertionEventRel(row)]));
+  });
+}
+
 /** A feed miss needs neither assertion prose nor Markdown/link evidence.
  * The graph reuses these same objects when it needs the rest of the corpus. */
 export function sourceRecord(root: string): SourceRecord {

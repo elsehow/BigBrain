@@ -7,7 +7,6 @@
  *
  *   bigbrain entity alias "<label>" --into <ent_id|"Label">   declare: the label names that entity
  *   bigbrain entity alias "<label>" --retract                  the label is its own entity again
- *   bigbrain entity seed-aliases [--dry-run]                   declare every entities/*.md alias list
  *   bigbrain entity resolve "<label or ent_id>"                what the record resolves it to
  *   bigbrain entity aliases [<label or ent_id>]                the alias table, or one entity's
  *   bigbrain entity supersede <stub> --into <canonical> [--assertion ast_… …] [--dry-run]
@@ -39,7 +38,6 @@ import {
   syncAssertionProjection,
 } from "../lib/assertionProjection";
 import { requireVaultRoot } from "../lib/engine";
-import { seedEntityAliases } from "../lib/entityAliasSeed";
 import { seedEntitySources } from "../lib/entitySourceSeed";
 import { supersedeEntity } from "../lib/entitySupersede";
 import { describeFolds, liveFolds, proposeEntityFolds, readEntityFolds } from "../lib/entityFolds";
@@ -48,7 +46,6 @@ import { loadManifest } from "../lib/manifest";
 const USAGE = `usage:
   bigbrain entity alias "<label>" --into <ent_id|"Label">
   bigbrain entity alias "<label>" --retract
-  bigbrain entity seed-aliases [--dry-run]
   bigbrain entity bind-sources [--dry-run]
   bigbrain entity bind-source <ent_id|"Label"> <ins_…> [--unbind]
   bigbrain entity resolve "<label or ent_id>"
@@ -120,14 +117,6 @@ switch (cmd) {
     }));
     commitAssertionEvents(root, [result.path], `entity alias: "${label}" → ${entity.label}`);
     console.log(`declared: "${label}" (${aliasId}) → ${show(entity.id)}`);
-    break;
-  }
-  case "seed-aliases": {
-    const result = seedEntityAliases(root, { author, dryRun: hasFlag(rest, "dry-run") });
-    for (const d of result.declare)
-      console.log(`${hasFlag(rest, "dry-run") ? "would declare" : "declared"}: "${d.alias}" (${d.alias_assertions}) → ${d.entity.id} "${d.entity.label}"  (${d.dossier})`);
-    for (const s of result.skipped) console.log(`skipped: "${s.alias}" (${s.dossier}) — ${s.reason}`);
-    console.log(`${result.appended} declared, ${result.declare.length - result.appended} planned, ${result.skipped.length} skipped`);
     break;
   }
   case "bind-sources": {

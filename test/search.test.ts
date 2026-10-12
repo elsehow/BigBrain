@@ -36,7 +36,7 @@ describe("machine-pass whys never spool", () => {
 
   const hostVault = (): string => {
     const root = vault({
-      "entities/big-brain.md": "---\ntitle: Big Brain\n---\n\nthe product\n",
+      "memory/MEMORY.md": "---\ntitle: Memory\n---\n\nthe product\n",
       // #495: the CLI door searches only the assertion projection now; the
       // flag is what makes a fresh vault searchable (the tests here are
       // about --why spooling, not hits)

@@ -33,7 +33,7 @@ import {
 } from "./assertionEntityView";
 import { isSourceThreadPath } from "./sourceThreads";
 import { insertionEventRel, sourceMoment } from "./insertionLog";
-import { otherCopies } from "./vaultReadModel";
+import { importedSourcePaths, otherCopies } from "./vaultReadModel";
 import { parseWikilinks } from "./linkSyntax";
 import { DEFAULT_SLACK, matchBody } from "./noteMatch";
 import { withinRoot } from "./browsePaths";
@@ -43,30 +43,18 @@ import {
   isSourceInsertionPath,
   sourceInsertionMarkdown,
 } from "./sourceFeed";
-import { walkMarkdown } from "./vaultRead";
 import { parseBlobRef, readBlob } from "./blobs";
 import type { PdfText } from "./pdfText";
 import type { ScanReader } from "./scanReader";
 
-/** The ONLY vault trees a reader may list or fetch: the committed
- * canonical record and the raw sources it cites (§5 read jail). */
-export const READ_TREES = ["references", "entities", "journal", "inbox/unsorted"] as const;
-
-/** Wikilinks resolve against the curated trees, entities first (the
- * first basename match wins). */
-const RESOLVE_TREES = ["entities", "references"] as const;
+/** The ONLY markdown tree a reader may list or fetch besides memory/: the
+ * run journals (§5 read jail). Sources and entities are served from the
+ * record (log/insertions, projection/entities). */
+export const READ_TREES = ["journal"] as const;
 
 /** Served by this door alone (see the module header), never by /v1/ls or
  * /v1/file. */
 const MEMORY_TREE = "memory";
-
-/** Defensive ceiling on tree walks — an alpha vault is far smaller. */
-const WALK_CAP = 5_000;
-
-/** The shared walk (lib/vaultRead.ts) under the shared ceiling. */
-export function walkTrees(root: string, trees: readonly string[]): string[] {
-  return walkMarkdown(root, trees, { cap: WALK_CAP });
-}
 
 /** The lexical half of both jails: lib/browsePaths.ts's withinRoot over the
  * given allowlist, after this door's own hygiene checks (absolute inputs and
@@ -128,21 +116,20 @@ export function wikilinks(body: string, cap = 12): string[] {
   return names;
 }
 
-/** lowercased link target → vault-relative path. TWO keys per note:
+/** lowercased link target → the insertion an imported source is read at.
+ * Old notes and captures link the files those sources were imported from
+ * (`bigbrain migrate`), so each imported path is a key TWICE:
  *
- * - its **root-relative path sans `.md`** — `entities/ada-lovelace` — which is
- *   the form the vault mandates and the only unambiguous one, since a target
- *   that names its tree lets two notes share a basename;
- * - its **bare basename**, first (most-curated tree) wins — still resolvable
- *   because writers used it for years.
+ * - **sans `.md`** — `references/2026-07-08-standup` — the qualified form;
+ * - its **bare basename**, first path wins — writers used it for years.
  *
  * The two key spaces cannot collide: every qualified key contains a `/` and no
- * basename does. Alias resolution stays out — it would read every note body. */
+ * basename does. */
 export function linkIndex(root: string): Map<string, string> {
   const idx = new Map<string, string>();
-  for (const rel of walkTrees(root, RESOLVE_TREES)) {
-    idx.set(rel.replace(/\.md$/, "").toLowerCase(), rel);
-    const base = (rel.split("/").at(-1) ?? "").replace(/\.md$/, "").toLowerCase();
+  for (const [path, rel] of importedSourcePaths(root)) {
+    idx.set(path.replace(/\.md$/, "").toLowerCase(), rel);
+    const base = (path.split("/").at(-1) ?? "").replace(/\.md$/, "").toLowerCase();
     if (base && !idx.has(base)) idx.set(base, rel);
   }
   return idx;
@@ -151,15 +138,12 @@ export function linkIndex(root: string): Map<string, string> {
 /**
  * One wikilink target → the path a reader can fetch it at, or null.
  *
- * `linkIndex` answers for the two CURATED trees it walks, and it is blind to
- * every other note this door serves: a projected dossier's citations are
- * `[[log/insertions/…|title]]`, its cross-references are
+ * `linkIndex` answers for the paths sources were imported from. Everything
+ * else this door serves is named by its own path: a projected dossier's
+ * citations are `[[log/insertions/…|title]]`, its cross-references are
  * `[[projection/entities/ent_…|label]]`, and the memory index writes
- * `[[memory/slug|title]]` — none of which are files under entities/ or
- * references/, so all three resolved to null and a body dense with links
- * reported `links: []`. A target that already NAMES a servable path resolves
- * to itself; the index still answers first for everything it knows, so bare
- * basenames and `entities/ada-lovelace` keep the meaning they have always had.
+ * `[[memory/slug|title]]`. A target that already NAMES a servable path
+ * resolves to itself.
  */
 export function resolveLink(root: string, target: string, idx: Map<string, string>): string | null {
   if (isSourceThreadPath(target)) return sourceThreadView(root, target) ? target : null;

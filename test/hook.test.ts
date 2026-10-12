@@ -123,15 +123,15 @@ describe("write-guard covers the record planes", () => {
     expect(out).toBe("");
   });
 
-  test("entities/, references/, and log/ are denied", () => {
-    for (const tree of ["entities", "references", "log"]) {
+  test("log/ and the retired trees are denied: a note there would get the vault refused", () => {
+    for (const tree of ["log", "entities", "references", "inbox", "requests"]) {
       const out = decide({ tool_input: { file_path: `${ROOT}/${tree}/x.md` }, cwd: ROOT });
       expect(out).toContain('"permissionDecision":"deny"');
     }
   });
 
-  test("inbox/ writes stay legitimate (not denied)", () => {
-    const out = decide({ tool_input: { file_path: `${ROOT}/inbox/x.md` }, cwd: ROOT });
+  test("a file outside the guarded trees stays writable", () => {
+    const out = decide({ tool_input: { file_path: `${ROOT}/notes/x.md` }, cwd: ROOT });
     expect(out).toBe("");
   });
 });

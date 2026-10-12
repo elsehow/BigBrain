@@ -3,15 +3,8 @@
 
 import { join, relative, resolve, sep } from "node:path";
 
-// Legacy content trees remain readable alongside native log projections.
-export const BROWSE_ROOTS = new Set([
-  "entities",
-  "references",
-  "inbox",
-  "requests",
-  "lake",
-  "memory",
-]);
+// The one markdown tree a vault keeps beside its logs: the memory working set.
+export const BROWSE_ROOTS = new Set(["memory"]);
 
 /** Resolve a tree-relative path, or null if it escapes / isn't allowed.
  * `trees` defaults to BROWSE_ROOTS (the viewer's jail); lib/api.ts passes its

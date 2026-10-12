@@ -13,12 +13,12 @@ const roots: string[] = [];
 afterEach(() => roots.splice(0).forEach(root => rmSync(root, { recursive: true, force: true })));
 
 test("HTTP and MCP apply the same note-window limits, errors and boundary values", async () => {
-  const root = mdVault({ files: { "references/topic.md": "# Topic\n\nBefore.\n\nA needle.\n\nAfter." } }); roots.push(root);
+  const root = mdVault({ files: { "journal/topic.md": "# Topic\n\nBefore.\n\nA needle.\n\nAfter." } }); roots.push(root);
   const storePath = join(root, ".state/tokens.json");
   const { token } = mintToken(storePath, root, "reader", ["vault:read"]);
   const handler = makeApiHandler({ root, storePath, log: () => {} });
   const context = { root, via: "cli" as const };
-  const path = "references/topic.md";
+  const path = "journal/topic.md";
   const http = (args: Record<string, unknown>) => handler(new Request(`http://api.test/v1/note?${new URLSearchParams({ path, ...Object.fromEntries(Object.entries(args).map(([k,v]) => [k, String(v)])) })}`,
     { headers: { Authorization: `Bearer ${token}` } }));
   for (const args of [{ n: 0 }, { n: 1001 }, { n: "Infinity" }, { n: "bad" }, { slack: -1 }, { slack: 21 }, { order: "sideways" }, { after: "yesterday" }]) {

@@ -210,18 +210,6 @@ describe("setupRoutes", () => {
     });
   });
 
-  test("the name screen carries a hosted-era dossier's labels along (#683)", async () => {
-    const root = nativeVault();
-    mkdirSync(join(root, "entities"), { recursive: true });
-    writeFileSync(
-      join(root, "entities", "ada-lovelace.md"),
-      "---\ntitle: Ada Lovelace\nhuman_user: true\naliases:\n  - Ada\n  - ada@example.org\n---\nbody\n"
-    );
-    const r = await postJson(mount(root), "/api/setup/identity", { name: "Ada Lovelace", email: "ada@example.com" });
-    expect(r.code).toBe(200);
-    expect(latestUserIdentity(root)?.aliases).toEqual(["ada@example.com", "Ada", "ada@example.org"]);
-  });
-
   test("the name screen's route refuses without a vault, and without a name", async () => {
     // Both refusals are the door's, not the writer's: there is nowhere to
     // append to, and an empty name would become an entity id of its own.

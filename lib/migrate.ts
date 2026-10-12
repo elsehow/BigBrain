@@ -39,9 +39,7 @@ import {
   appendAssertionEvent, assertionEventRel, createDeclineAssertion, createIdentityAssertion, createRetraction,
   type AssertionSourceReference, type RecordedAssertion,
 } from "./assertionLog";
-import {
-  assertionDbPath, openAssertionProjectionReadonly, rebuildAssertionProjection, recoverAssertionProjection,
-} from "./assertionProjection";
+import { assertionDbPath, openAssertionProjectionReadonly, rebuildAssertionProjection } from "./assertionProjection";
 import { readDeclineLog, type DeclineEvent } from "./declineLog";
 import { entityAliasResolution, isRetraction, readEntityAliasLog, type EntityAliasEvent } from "./entityAliasLog";
 import { parseEnvelope, type AttachmentRef } from "./envelope";
@@ -280,7 +278,9 @@ export function importTrees(base: string, insertions: readonly SourceInsertion[]
 }
 
 export interface MigrationPlan extends Conversion {
-  before: RecordReading;
+  /** What the retired logs read as, when the vault holds any: the reading
+   * the new record must give. Importing sources changes no reading. */
+  before?: RecordReading;
   /** Logs nothing reads, by how many files each holds. */
   unread: Record<string, number>;
   trees: TreeImport;
@@ -291,15 +291,16 @@ const REMOVED = [...RETIRED_LOGS, ...UNREAD_LOGS, ...RETIRED_TREES];
 
 const holdsRetiredLogs = (root: string): boolean => RETIRED_LOGS.some((dir) => fileCount(root, dir) > 0);
 
-/** What `bigbrain migrate` would do. Writes nothing but the disposable
- * projection, which a vault without retired logs reads its record from. */
+/** What `bigbrain migrate` would do. Reads only. */
 export function planMigration(root: string): MigrationPlan {
   const retired = readRetired(root);
   const named = new Set([...retired.bindings.map((b) => b.insertion_id), ...retired.copies.flatMap((c) => c.pair)]);
   const conversion = convertRetired(retired, insertionsById(root, named));
   const unread = Object.fromEntries(UNREAD_LOGS.map((dir) => [dir, fileCount(root, dir)]).filter(([, n]) => n));
-  const before = holdsRetiredLogs(root) ? readingOfRetired(retired) : (recoverAssertionProjection(root), readingOfProjection(root));
-  return { ...conversion, before, unread, trees: importTrees(root, readSourceInsertionLog(root, { strict: true })) };
+  return {
+    ...conversion, unread, trees: importTrees(root, readSourceInsertionLog(root, { strict: true })),
+    ...(holdsRetiredLogs(root) ? { before: readingOfRetired(retired) } : {}),
+  };
 }
 
 /** Whether the vault holds anything `bigbrain migrate` converts or deletes. */
@@ -337,7 +338,7 @@ export function migrateVault(root: string, plan: MigrationPlan = planMigration(r
       renameSync(join(root, dir), join(held, dir));
     }
     rebuildAssertionProjection(root);
-    const diff = readingDiff(plan.before, readingOfProjection(root));
+    const diff = plan.before ? readingDiff(plan.before, readingOfProjection(root)) : [];
     if (diff.length) throw new Error(`migrate: the new record reads differently from the old logs:\n${diff.slice(0, 40).join("\n")}`);
     const lost = importTrees(held, readSourceInsertionLog(root, { strict: true })).imports.map((s) => s.imported_path);
     if (lost.length) throw new Error(`migrate: no source holds ${lost.length} files of the retired trees:\n${lost.slice(0, 40).join("\n")}`);

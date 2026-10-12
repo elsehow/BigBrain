@@ -19,7 +19,6 @@
 
 import { identityReadModel } from "./vaultReadModel";
 import { createHash } from "node:crypto";
-import { legacyUserDossiers } from "./entityDossiers";
 import { norm } from "./ids";
 import {
   assertionEntityId,
@@ -179,96 +178,4 @@ export function latestUserIdentity(
     (!account || norm(row.account_id) === account) &&
     (!alias || row.aliases.some((value) => norm(value) === alias))
   ).at(-1);
-}
-
-// ── the hosted-era dossier, adopted (#683) ──────────────────────────────────
-// The retired editor said who the vault was about with `human_user: true` on
-// an entities/ dossier, and that file accumulated aliases as the record
-// turned them up. No prompt reads it any more; the declaration is the one
-// answer. These fold what the dossier holds into the record — an explicit
-// act that appends a declaration, never a migration that edits the file.
-
-/** The labels the flagged dossier(s) hold — title and aliases, unique by
- * normalization, path order. Empty on every vault made after the editor
- * retired. Every door carries these along on the declaration it writes, so
- * nothing a dossier said is lost when the prompts stop reading it. */
-export function legacyUserLabels(root: string): string[] {
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const d of legacyUserDossiers(root))
-    for (const label of [d.title, ...d.aliases]) {
-      const key = norm(label);
-      if (!seen.has(key)) {
-        seen.add(key);
-        out.push(label);
-      }
-    }
-  return out;
-}
-
-export interface LegacyUserAdoption {
-  /** The flagged dossier(s), vault-relative. */
-  dossiers: string[];
-  /** Every label they hold, unique. */
-  labels: string[];
-  /** The newest declaration — what an adoption restates. Absent when nobody
-   * has declared: then `--declare` is the door, and it carries the dossier's
-   * labels along by itself. */
-  prior?: UserIdentityDeclaration;
-  /** Labels the newest declaration lacks — what adopting would add. Empty
-   * when the record already says everything the dossier does. */
-  missing: string[];
-  /** The email an adoption is attributed to, when the record names one: the
-   * prior declaration's account when that is an email (a hosted-era
-   * declaration's is a tenant id), else its first email alias, else the
-   * dossier's. */
-  email?: string;
-}
-
-/** What `bigbrain whoami --adopt-dossier` would do; undefined when no dossier
- * carries the flag, which is every vault but the hosted era's. */
-export function planLegacyUserAdoption(root: string): LegacyUserAdoption | undefined {
-  const dossiers = legacyUserDossiers(root);
-  if (!dossiers.length) return undefined;
-  const labels = legacyUserLabels(root);
-  const prior = latestUserIdentity(root);
-  const said = new Set((prior ? [prior.name, ...prior.aliases] : []).map(norm));
-  const missing = labels.filter((label) => !said.has(norm(label)));
-  const isEmail = (value: string): boolean => value.includes("@");
-  const email = prior && isEmail(prior.account_id)
-    ? prior.account_id
-    : (prior?.aliases.find(isEmail) ?? labels.find(isEmail));
-  return {
-    dossiers: dossiers.map((d) => d.path),
-    labels,
-    ...(prior ? { prior } : {}),
-    missing,
-    ...(email ? { email } : {}),
-  };
-}
-
-/** Restate the newest declaration with the dossier's labels folded in: the
- * same name — so the same entity; a dossier title that differs becomes an
- * alias, never a rename — its aliases, then everything the dossier holds.
- * One more immutable declaration, and the newest wins; a second run finds
- * nothing missing and is refused, as is a vault with no dossier or with no
- * declaration to restate. */
-export function adoptLegacyUserDossier(
-  root: string,
-  input: { email: string; now?: Date }
-): UserIdentityDeclaration {
-  const plan = planLegacyUserAdoption(root);
-  if (!plan) throw new Error("user-identity: no entities/ dossier carries human_user: true — nothing to adopt");
-  if (!plan.prior)
-    throw new Error(
-      'user-identity: nobody has declared who this vault is about — `bigbrain whoami --declare "<name>"` carries the dossier\'s labels along'
-    );
-  if (!plan.missing.length)
-    throw new Error(`user-identity: the declaration already says everything ${plan.dossiers.join(", ")} does — nothing to adopt`);
-  return declareUserIdentity(root, {
-    name: plan.prior.name,
-    email: input.email,
-    aliases: [...plan.prior.aliases, ...plan.labels],
-    ...(input.now ? { now: input.now } : {}),
-  });
 }

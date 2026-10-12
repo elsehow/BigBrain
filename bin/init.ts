@@ -33,7 +33,7 @@ import { MODEL_DEFAULTS } from "../lib/modelDefaults";
  * Emits one InitResult JSON line on stdout; the human log goes to stderr.
  */
 
-import { existsSync, readdirSync, readFileSync, unlinkSync } from "node:fs";
+import { existsSync, readFileSync, unlinkSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { parseDocument, Scalar } from "yaml";
@@ -42,7 +42,7 @@ import { VAULT_ROOT } from "../lib/vaultRoot";
 import { ENGINE_ROOT, pointerPlan, readPointer, vaultPointer } from "../lib/engine";
 import { engineProcessEnv, gitProcessEnv, NO_ENV_FILE } from "../lib/env";
 import {
-  ensureStoragePlanes,
+  ensureBlobStore,
   scaffoldVault,
 } from "../lib/scaffold";
 import { ensureDir, writeAtomic } from "../lib/fsx";
@@ -231,27 +231,9 @@ try {
     log("vault.yaml written");
   }
 
-  // ── scaffold: the tracked-but-empty dirs need .gitkeep to survive git ─────
   const manifest = !dryRun || existsSync(yamlPath) ? loadManifest(root) : undefined;
-  // inbox/unsorted is the one tracked-but-empty dir a NEW vault still needs
-  // (it is a live read tree — lib/noteRead.ts's READ_TREES, the viewer's
-  // unsorted bucket). requests/done, journal/triage and journal/deep were
-  // scaffolded here until 2026-08-30: reference-era trees no code writes any
-  // more, created empty in every fresh vault so that a `.gitkeep` was the
-  // only thing in them, forever.
-  const keepDirs = ["inbox/unsorted"];
-  for (const rel of keepDirs) {
-    const dir = join(root, rel);
-    if (dryRun) continue;
-    if (!existsSync(dir) || !readdirSync(dir).length) {
-      writeAtomic(join(dir, ".gitkeep"), ""); // writeAtomic creates the dir
-      result.wrote.push(`${rel}/.gitkeep`);
-    }
-  }
   if (!dryRun) ensureDir(join(root, ".state", "logs"), 0o700);
-
-  // ── references + .blobs: the storage planes, needed from first install ─────────
-  if (!dryRun) result.wrote.push(...ensureStoragePlanes(root));
+  if (!dryRun) ensureBlobStore(root);
 
   // ── the generated files (CLAUDE.md, .claude/, .gitignore) ────────────────
   // Engine-owned, refreshed by every `bigbrain install`. Prompts are NOT

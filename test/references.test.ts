@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { readBlob } from "../lib/blobs";
 import { ensureItemId, receive, stampIntake } from "../lib/intake";
-import { landReference, listReferenceItems, listReferencePaths } from "../lib/references";
+import { landReference } from "../lib/references";
 import { appendSourceInsertion, readSourceInsertionLog, type SourceInsertion } from "../lib/insertionLog";
 import { gitVault } from "./support/vault";
 
@@ -272,49 +272,6 @@ describe("landing immutability", () => {
     expect(first).not.toMatch(/"(filed|triage_run)"/); // the stamps die on this plane
     receive({ root, content });
     expect(readFileSync(abs, "utf8")).toBe(first);
-  });
-});
-
-describe("listReferencePaths / listReferenceItems — the frozen record's direct reads", () => {
-  // #496: intake no longer grows this tree; these readers serve the frozen
-  // markdown history a pre-native vault carries. Fixtures write the files
-  // directly, the way history left them.
-  const frozen = (root: string): void => {
-    mkdirSync(join(root, "references"), { recursive: true });
-    writeFileSync(
-      join(root, "references", "2026-07-01-a-1.md"),
-      "---\nid: a-1\nreceived: 2026-07-01T10:00:00.000Z\n---\nx\n"
-    );
-    writeFileSync(
-      join(root, "references", "2026-08-02-hi.md"),
-      "---\nid: it-1\ntitle: hi\nreceived: 2026-08-02T10:00:00.000Z\n---\nbody\n"
-    );
-  };
-
-  test("listReferencePaths returns every frozen reference as a sorted vault-relative path", () => {
-    const root = vault();
-    frozen(root);
-    expect(listReferencePaths(root)).toEqual([
-      "references/2026-07-01-a-1.md",
-      "references/2026-08-02-hi.md",
-    ]);
-  });
-
-  test("listReferenceItems parses each item's envelope and stats its mtime", () => {
-    const root = vault();
-    frozen(root);
-    const items = listReferenceItems(root);
-    expect(items).toHaveLength(2);
-    const hi = items.find((i) => i.path === "references/2026-08-02-hi.md")!;
-    expect(hi.envelope.id).toBe("it-1");
-    expect(hi.envelope.title).toBe("hi");
-    expect(hi.mtimeMs).toBeGreaterThan(0);
-  });
-
-  test("no references/ yet → both return empty, not throw", () => {
-    const root = vault();
-    expect(listReferencePaths(root)).toEqual([]);
-    expect(listReferenceItems(root)).toEqual([]);
   });
 });
 

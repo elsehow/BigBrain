@@ -65,7 +65,7 @@ function readBriefingItem(root: string, path: string, graph: Graph, others?: Oth
   const text = note.kind === "entity" ? briefingEvidence(withOthers(note.entity)).map(a => `${a.created_at} (${a.confidence}${a.vault ? `, from the shared vault ${a.vault.name}` : ""}) ${a.text}`).join("\n")
     : note.kind === "thread" ? note.thread.members.map(s => `${s.title}\n${s.body}`).join("\n\n")
     : note.kind === "source" ? note.source.body : note.markdown.raw;
-  return { id, path: resolvedPath, title: note.title, kind: note.kind === "entity" || resolvedPath.startsWith("entities/") ? "entity"
+  return { id, path: resolvedPath, title: note.title, kind: note.kind === "entity" ? "entity"
     : note.kind === "thread" || note.kind === "source" ? "source" : "markdown", text: text.slice(0, 16_000), revision: sha256hex(text) };
 }
 
@@ -96,7 +96,7 @@ export function briefingInput({ graph, connections, item }: BriefingRecord, requ
   const selected = new Set(items.map(item => item.id));
   const links: BriefingConnection[] = contextConnections(graph, [...selected], state.excluded, Object.fromEntries(items.map(item => [item.id, item.text]))).flatMap(({ node, selected }) =>
     node.path && !isUserNode(node, graph.userNote) ? [{ id: node.id, path: node.path, title: node.title,
-      kind: node.path.startsWith("entities/") ? "entity" : node.group, selected, evidence: [] }] : []);
+      kind: node.group, selected, evidence: [] }] : []);
   const candidates = new Map(links.map(link => [link.id, link]));
   const relationships = new Map<string, NoteBriefingInput["relationships"][number]>();
   const sameEvidence = (a: ConnectionEvidence, b: ConnectionEvidence) => a.text === b.text && a.path === b.path && a.assertion === b.assertion;

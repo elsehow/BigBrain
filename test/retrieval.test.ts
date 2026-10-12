@@ -445,17 +445,20 @@ describe("#359: the read hook and the outcome column", () => {
 describe("contentUseRel: the read hook's filter", () => {
   const root = "/vaults/demo";
   test("content notes map to their vault-relative form, absolute or relative", () => {
-    expect(contentUseRel(root, "/vaults/demo/references/2026-08-14-a-note.md")).toBe(
-      "references/2026-08-14-a-note.md"
+    expect(contentUseRel(root, "/vaults/demo/projection/entities/ent_0123456789abcdef0123.md")).toBe(
+      "projection/entities/ent_0123456789abcdef0123.md"
     );
-    expect(contentUseRel(root, "entities/karolis.md")).toBe("entities/karolis.md");
+    expect(contentUseRel(root, "log/insertions/2026-08/ins_0123456789abcdef01234567.md")).toBe(
+      "log/insertions/2026-08/ins_0123456789abcdef01234567.md"
+    );
   });
 
   test("everything else answers null: memory, the journal, code, the outside", () => {
     expect(contentUseRel(root, "/vaults/demo/memory/MEMORY.md")).toBeNull();
     expect(contentUseRel(root, "journal/retrieval/2026-08.jsonl")).toBeNull();
-    expect(contentUseRel(root, "/vaults/demo/references/raw.pdf")).toBeNull();
-    expect(contentUseRel(root, "/somewhere/else/references/a.md")).toBeNull();
+    expect(contentUseRel(root, "/vaults/demo/references/2026-08-14-a-note.md")).toBeNull();
+    expect(contentUseRel(root, "/vaults/demo/projection/raw.pdf")).toBeNull();
+    expect(contentUseRel(root, "/somewhere/else/projection/a.md")).toBeNull();
     expect(contentUseRel(root, "")).toBeNull();
   });
 

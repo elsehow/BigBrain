@@ -84,7 +84,7 @@ const pinged = (writes: string[]) => writes.some((w) => w.startsWith("event: vie
 describe("createLive — the debounced change fan-out", () => {
   test("a change under a watched tree becomes one ping, after the debounce", async () => {
     const h = harness();
-    h.live.handleChange("entities/ada-lovelace.md");
+    h.live.handleChange("memory/ada-lovelace.md");
     expect(h.client.writes).toEqual([]); // not synchronous — the debounce holds it
     await sleep(20);
     expect(h.client.writes).toEqual([PING]);
@@ -93,7 +93,7 @@ describe("createLive — the debounced change fan-out", () => {
 
   test("a burst of changes coalesces into one ping (a pull touches many files)", async () => {
     const h = harness();
-    for (const rel of ["inbox/a.md", "references/b.md", "vault.yaml", "queue/inbox/c.json"])
+    for (const rel of ["memory/a.md", "memory/b.md", "vault.yaml", "queue/inbox/c.json"])
       h.live.handleChange(rel);
     await sleep(20);
     expect(h.client.writes).toEqual([PING]);
@@ -102,8 +102,8 @@ describe("createLive — the debounced change fan-out", () => {
 
   test("the ping rides the index rebuild: refresh fires with it, not per event", async () => {
     const h = harness();
-    h.live.handleChange("inbox/a.md");
-    h.live.handleChange("inbox/b.md");
+    h.live.handleChange("memory/a.md");
+    h.live.handleChange("memory/b.md");
     expect(h.refreshes()).toBe(0);
     await sleep(20);
     expect(h.refreshes()).toBe(1);
@@ -114,8 +114,8 @@ describe("createLive — the debounced change fan-out", () => {
     // Settling here puts the simulation in the gap after a change instead of
     // inside the request the ping is about to provoke.
     const h = harness();
-    h.live.handleChange("inbox/a.md");
-    h.live.handleChange("inbox/b.md");
+    h.live.handleChange("memory/a.md");
+    h.live.handleChange("memory/b.md");
     expect(h.warms()).toBe(0);
     await sleep(20);
     expect(h.warms()).toBe(1);
@@ -125,7 +125,7 @@ describe("createLive — the debounced change fan-out", () => {
   test("a layout that cannot settle still pings — the tab must not go dark", async () => {
     const h = harness();
     h.breakWarm();
-    h.live.handleChange("inbox/a.md");
+    h.live.handleChange("memory/a.md");
     await sleep(20);
     expect(pinged(h.client.writes)).toBe(true);
     h.live.stop();
@@ -166,7 +166,7 @@ describe("createLive — the debounced change fan-out", () => {
     expect(second.writes).toEqual([PING]); // a connection opens with the stamps
     second.writes.length = 0;
     h.live.removeClient(h.client);
-    h.live.handleChange("entities/x.md");
+    h.live.handleChange("memory/x.md");
     await sleep(20);
     expect(h.client.writes).toEqual([]);
     expect(second.writes).toEqual([PING]);
@@ -191,7 +191,7 @@ describe("createLive — lifecycle", () => {
 
   test("stop drops a pending debounced ping", async () => {
     const h = harness();
-    h.live.handleChange("entities/x.md");
+    h.live.handleChange("memory/x.md");
     h.live.stop();
     await sleep(20);
     expect(h.client.writes).toEqual([]);
@@ -219,7 +219,7 @@ describe("createLive — lifecycle", () => {
     expect(h.logged.length).toBe(1);
     expect(h.logged[0]).toContain("vault watcher error");
     // the stream survives the error: a change still pings
-    h.live.handleChange("entities/x.md");
+    h.live.handleChange("memory/x.md");
     await sleep(20);
     expect(pinged(h.client.writes)).toBe(true);
     h.live.stop();

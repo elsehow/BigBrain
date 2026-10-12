@@ -277,11 +277,11 @@ describe("runMemory: the mechanical contract", () => {
   function memVault(): string {
     return gitVault({
       prefix: "bb-memory-",
-      dirs: ["memory", "prompts", "entities", "journal/memory", ".state"],
+      dirs: ["memory", "prompts", "journal/memory", ".state"],
       files: {
         "prompts/memory.md": "MEMORY PASS TEMPLATE\n",
-        "entities/evan-keller.md": "---\ntitle: Evan\n---\n\nx\n",
-        "memory/MEMORY.md": "---\ntitle: Memory\n---\n\nunder [[entities/evan-keller|Evan]]\n",
+        "notes.md": "x\n",
+        "memory/MEMORY.md": "---\ntitle: Memory\n---\n\nunder [[projection/entities/ent_0123456789abcdef0123|Evan]]\n",
       },
       identity: { name: "t", email: "t@t" },
       commit: "seed",
@@ -314,12 +314,12 @@ describe("runMemory: the mechanical contract", () => {
     const res = await run(root, () => {
       writeFileSync(
         join(root, "memory", "MEMORY.md"),
-        "# Memory\n\n- run by [[evan-keller]]\n"
+        "# Memory\n\n- see [[MEMORY]]\n"
       );
     });
     expect(res.error).toBeUndefined();
     const body = read(root, "memory/MEMORY.md");
-    expect(body).toContain("[[entities/evan-keller|evan-keller]]"); // bare → path
+    expect(body).toContain("[[memory/MEMORY|MEMORY]]"); // bare → path
     expect(res.canonicalized).toBe(1);
   });
 
@@ -329,7 +329,7 @@ describe("runMemory: the mechanical contract", () => {
       for (let i = 0; i < MEMORY_MAX_FILES + 2; i++)
         writeFileSync(
           join(root, "memory", `t${i}.md`),
-          `---\ntitle: t${i}\n---\n\n[[evan-keller]]\n`
+          `---\ntitle: t${i}\n---\n\n[[MEMORY]]\n`
         );
     });
     expect(res.error).toContain("over budget");
@@ -342,7 +342,7 @@ describe("runMemory: the mechanical contract", () => {
     const res = await run(root, () => {
       writeFileSync(
         join(root, "memory", "MEMORY.md"),
-        "---\ntitle: Memory\n---\n\nunder [[evan-keller]]\n"
+        "---\ntitle: Memory\n---\n\nunder [[MEMORY]]\n"
       );
     });
     const journal = JSON.parse(read(root, `journal/memory/${res.run}.json`));
@@ -353,14 +353,14 @@ describe("runMemory: the mechanical contract", () => {
   test("concurrent tracked edits and new arrivals stay exactly where they landed", async () => {
     const root = memVault();
     const res = await run(root, () => {
-      writeFileSync(join(root, "entities", "evan-keller.md"), "Concurrent edit\n");
+      writeFileSync(join(root, "notes.md"), "Concurrent edit\n");
       mkdirSync(join(root, "queue", "pending"), { recursive: true });
       for (let i = 0; i < 10; i++) writeFileSync(join(root, "queue", "pending", `q-${i}.yaml`), `id: q-${i}\n`);
-      recordSearch(root, "fixture query", ["entities/evan-keller.md"], "web");
-      recordUse(root, "entities/evan-keller.md", "web");
+      recordSearch(root, "fixture query", ["projection/entities/ent_0123456789abcdef0123.md"], "web");
+      recordUse(root, "projection/entities/ent_0123456789abcdef0123.md", "web");
     });
     expect(res.error).toBeUndefined();
-    expect(read(root, "entities/evan-keller.md")).toBe("Concurrent edit\n");
+    expect(read(root, "notes.md")).toBe("Concurrent edit\n");
     for (let i = 0; i < 10; i++) expect(read(root, `queue/pending/q-${i}.yaml`)).toBe(`id: q-${i}\n`);
     expect(existsSync(join(root, "journal", "violations"))).toBe(false);
     expect(readModelRuns(root, "2000")[0]!.phase).toBe("completed");
@@ -511,7 +511,7 @@ describe("runMemory: the mechanical contract", () => {
         `over budget: 1 file(s) (max ${MEMORY_MAX_FILES}), 3324 word(s) (max ${MEMORY_MAX_WORDS}) after ${MEMORY_TRIM_ATTEMPTS} trim turn(s) — run reverted`
       );
       expect(res.trims).toBe(MEMORY_TRIM_ATTEMPTS);
-      expect(read(root, "memory/MEMORY.md")).toContain("under [[entities/evan-keller|Evan]]");
+      expect(read(root, "memory/MEMORY.md")).toContain("under [[projection/entities/ent_0123456789abcdef0123|Evan]]");
       expect(prompts[2]).toContain(`trim turn 2 of ${MEMORY_TRIM_ATTEMPTS}`);
       expect(prompts[2]).toContain("now: 3354 words");
       // the journal keeps what each turn was asked and what it did
@@ -543,13 +543,13 @@ describe("runMemory: the mechanical contract", () => {
         () => bloat(root, 3400),
         () => {
           bloat(root, 2900);
-          writeFileSync(join(root, "entities", "stray.md"), "the model wandered\n");
+          writeFileSync(join(root, "stray.md"), "the model wandered\n");
         },
       ]);
       const res = await go(root, loadPi);
       expect(res.error).toBeUndefined();
       expect(res.committed).toBe(true);
-      expect(read(root, "entities/stray.md")).toBe("the model wandered\n");
+      expect(read(root, "stray.md")).toBe("the model wandered\n");
     });
 
     test("a trim turn that fails leaves nobody to fix a known-over tree — reverted", async () => {
@@ -564,7 +564,7 @@ describe("runMemory: the mechanical contract", () => {
       expect(prompts).toHaveLength(2);
       expect(res.error).toMatch(/^trim 1 failed: claude fell over — run reverted$/);
       expect(res.trims).toBe(0);
-      expect(read(root, "memory/MEMORY.md")).toContain("under [[entities/evan-keller|Evan]]");
+      expect(read(root, "memory/MEMORY.md")).toContain("under [[projection/entities/ent_0123456789abcdef0123|Evan]]");
       expect(gitOut(root, ["status", "--porcelain", "--", "memory"])).toBe("");
     });
 

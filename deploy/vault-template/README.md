@@ -27,10 +27,6 @@ them are `log/assertions/`: attributed, each citing the insertion it came
 from, written when your own agent tends the vault (the gardener —
 `bigbrain tend`, or `/bigbrain:tend` from any connected Claude Code).
 
-`references/` and `entities/` are the reference era's on-disk projections,
-frozen: readable forever, never added to, and empty in a vault created
-today.
-
 **Memory — the working set. Derived.**
 `memory/` is a small, budgeted distillation of the record — what an
 agent should know before it knows what to ask. Written ONLY by the
@@ -43,11 +39,10 @@ record never cites into memory.
 | Tree | Writer | Everyone else |
 |---|---|---|
 | `log/` | intake + the gardener's settles (append-only) | read; `bigbrain drop` to add |
-| `references/`, `entities/` | nobody — frozen (the reference era) | read |
 | `.blobs/` | intake (add-only) | read via the host |
 | `memory/` | the memory pass | read; feed via `bigbrain observe` |
 | `journal/` | the machinery (its run ledger) | read |
-| `queue/`, `requests/`, `observations/` | nobody — frozen (pre-#498 work trees) | read |
+| `queue/`, `observations/` | nobody — frozen (pre-#498 work trees) | read |
 | `vault.yaml` | you (human-edited configuration) | — |
 
 The full contracts — roles, doors, door fidelity, link rules — live in

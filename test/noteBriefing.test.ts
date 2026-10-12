@@ -55,17 +55,6 @@ test("entities, sources and Markdown share the graph's complete direct connectio
   expect(graph.nodes.filter(n => n.title === "Project meeting")).toHaveLength(1);
 });
 
-test("an existing Markdown dossier resolves to its canonical entity rather than a duplicate or empty briefing", () => {
-  const { root, ada } = linkedVault();
-  mkdirSync(join(root, "entities"));
-  writeFileSync(join(root, "entities", "ada.md"), "# Ada\n\n[[memory/project]] describes the project.");
-  const input = noteBriefingInput(root, "entities/ada.md");
-  expect(input.items[0]!.id).toBe(ada.id);
-  expect(input.items[0]!.kind).toBe("entity");
-  expect(input.links.length).toBeGreaterThan(0);
-  expect(buildAssertionGraph(root).nodes.filter(n => n.title === "Ada")).toHaveLength(1);
-});
-
 test("dropped Markdown has explicit links before it has assertions, with reciprocal memory backlinks", () => {
   const root = vault({ "memory/topic.md": "# Topic\nA useful topic." });
   const source = insertion({ id: "ins_" + "2".repeat(24), title: "Dropped note", body: "See [[memory/topic|Topic]] for context." });
@@ -128,8 +117,8 @@ test("only outbound memory links confer support; repeated mentions, aliases and 
 
 test("inbound memory context survives the ten-link cutoff, respects exclusions, and invalidates cached briefings", async () => {
   const { root, ada } = linkedVault();
-  mkdirSync(join(root, "entities"));
-  for (let i = 0; i < 12; i++) writeFileSync(join(root, "entities", `extra-${i}.md`), `# Extra ${i}\n[[${ada.id}|Ada]] [[entities/extra-${(i + 1) % 12}]] [[entities/extra-${(i + 2) % 12}]]`);
+  for (let i = 0; i < 12; i++) appendSourceInsertionEvent(root, insertion({ id: `ins_extra${String(i).padStart(19, "0")}`,
+    source_id: `extra-${i}`, title: `Extra ${i}`, body: `# Extra ${i}\n[[${ada.id}|Ada]]`, received_at: `2026-08-0${1 + (i % 9)}T00:00:00Z` }));
   const full = noteBriefingInput(root, ada.id);
   expect(full.memories?.map(m => m.path)).toContain("memory/project.md");
   // Force the memory outside the description budget to exercise independent grounding.
@@ -256,8 +245,8 @@ test("a large neighborhood sends only the top ten to Quick, then appends every r
 
 test("local relevance chooses the ten supplied links before the model call", async () => {
   const graph = connectionRankingFixture(8);
-  const root = vault(Object.fromEntries(graph.nodes.map(node => [node.path, `# ${node.title}\n\n` +
-    graph.edges.filter(edge => edge.source === node.id).map(edge => `See [[entities/${edge.target}|${edge.target}]].`).join("\n")])));
+  const root = vault(Object.fromEntries(graph.nodes.map(node => [`memory/${node.id}.md`, `# ${node.title}\n\n` +
+    graph.edges.filter(edge => edge.source === node.id).map(edge => `See [[memory/${edge.target}|${edge.target}]].`).join("\n")])));
   const generate = createNoteBriefingService(async (_root, prompt) => {
     const supplied = JSON.parse(prompt);
     expect(supplied.links).toHaveLength(10);
@@ -266,7 +255,7 @@ test("local relevance chooses the ten supplied links before the model call", asy
     return { model: "test", text: JSON.stringify({ summary: "A local neighborhood with a distant hub connection.",
       links: supplied.links.map(link => ({ id: link.id, description: "provides local context", evidence: [1] })) }) };
   });
-  const result = await generate(root, "entities/focus.md");
+  const result = await generate(root, "memory/focus.md");
   expect(result.links.at(-1)?.title).toBe("hub");
   expect(result.links.at(-1)?.description).toBeUndefined();
 });

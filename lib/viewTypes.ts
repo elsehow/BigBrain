@@ -25,7 +25,7 @@ export type { FilingStatus } from "./noteMeta";
  * called it; the fields stay wire-contract for old payloads). */
 export interface NoteMeta {
   name: string;
-  path: string; // vault-root-relative, e.g. "references/2026-07-08-….md"
+  path: string; // vault-root-relative, e.g. "memory/MEMORY.md"
   modified: number;
   size: number;
   /** frontmatter `title:`, else the body's leading H1 (withTitle) —

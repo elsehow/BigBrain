@@ -159,6 +159,14 @@ test("what arrived in the old trees and no source holds becomes a source; the tr
   expect(needsMigration(root)).toBe(false);
 });
 
+test("a vault with a note in a retired tree is refused; a tree holding only a .gitkeep says nothing", () => {
+  const root = treesVault();
+  expect(() => recoverAssertionProjection(root)).toThrow("references, inbox, requests, entities");
+  const kept = gitVault({ files: { "inbox/unsorted/.gitkeep": "", "references/.gitkeep": "" } });
+  roots.push(kept);
+  expect(() => recoverAssertionProjection(kept)).not.toThrow();
+});
+
 test("a tree file no source would hold puts the vault back as it was", () => {
   const root = treesVault();
   const plan = planMigration(root);

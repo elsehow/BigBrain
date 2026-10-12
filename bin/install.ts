@@ -28,7 +28,7 @@ import { ENGINE_ROOT, vaultPointer } from "../lib/engine";
 import { bigbrainCommandPath, engineBehindCommand, isAppShim } from "../lib/bigbrainCommand";
 import { ensureDir, writeAtomic } from "../lib/fsx";
 import { runPreflight } from "../lib/preflight";
-import { ensureStoragePlanes, scaffoldVault, shedVaultPrompts } from "../lib/scaffold";
+import { ensureBlobStore, scaffoldVault, shedVaultPrompts } from "../lib/scaffold";
 import { refreshHook } from "../lib/hook";
 import { commitAs } from "../lib/git";
 
@@ -38,7 +38,7 @@ const root = VAULT_ROOT;
 ensureDir(join(root, ".state", "logs"), 0o700);
 
 // references tree + .blobs/ — the storage planes.
-const planesChanged = ensureStoragePlanes(root);
+ensureBlobStore(root);
 
 const manifest = loadManifest(root); // validates vault.yaml before anything else
 
@@ -109,7 +109,7 @@ if (shed.length)
     `install: shed ${shed.length} vault prompt copy(ies) — ${shed.join(", ")} — ` +
       "the engine's prompts are the prompts now (recover one with `git show HEAD~1:<path>`)"
   );
-const changed = [...planesChanged, ...shed, ...scaffoldVault(root)];
+const changed = [...shed, ...scaffoldVault(root)];
 if (changed.length) {
   const committed = commitAs(
     root,

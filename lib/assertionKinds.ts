@@ -16,7 +16,7 @@ import type { DeclineEvent } from "./declineLog";
 import { entityAliasResolution, type EntityAliasEvent } from "./entityAliasLog";
 import type { EntityFoldRejectEvent } from "./entityFoldLog";
 import type { EntitySourceEvent } from "./entitySourceLog";
-import { refuseRetiredLogs } from "./retiredLogs";
+import { refuseRetired } from "./retiredLogs";
 import type { RevocationEvent } from "./revocationLog";
 import type { SourceCopyEvent } from "./sourceCopyLog";
 
@@ -62,7 +62,7 @@ export function legacyShape(assertion: IdentityAssertion | DeclineAssertion | Re
  * shapes, and what its retractions withdraw. */
 function recordedKinds(root: string, opts: { strict?: boolean }): { shapes: LegacyShape[]; withdrawn: Set<string> } {
   // as the projection does: a retired log is refused, not read as empty
-  refuseRetiredLogs(root);
+  refuseRetired(root);
   const shapes: LegacyShape[] = [], withdrawn = new Set<string>();
   for (const event of readRecordedAssertions(root, opts)) {
     if (isProse(event)) continue;
