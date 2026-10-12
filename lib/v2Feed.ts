@@ -3,22 +3,21 @@
  *
  * The v2 view (web/ui V2View) draws /api/graph's entities as a field;
  * this is its one extra read: the latest assertions as a feed, each with its
- * author. A pure function of the live assertion rows and the alias table, so
- * the route (web/server.ts) and a read-only dev preview feed it the same way.
+ * author, and the sorted feed the feed stage places sources in. The rows and
+ * their order are queried from the projection (lib/v2Read.ts); this is what a
+ * row says, and how the sorted feed pages.
  *
  * An author is named only from what the record says: a model or agent author
  * by its id, and the vault's own assertion passes (procedures named
  * *-assertion-agent) as the gardener, whatever model ran them. The gardener
  * that writes through its agent as a client is named the same way, its model
- * read from the journal of the run it wrote in (lib/v2Read.ts). Nothing here
- * guesses at tasks or presents an author as a running agent.
+ * read from the journal of the run it wrote in (the projection's run_model).
+ * Nothing here guesses at tasks or presents an author as a running agent.
  *
- * Pure, and safe for the browser bundle (the view imports plainText): the
- * projection read lives in lib/v2Read.ts.
+ * Pure, and safe for the browser bundle (the view imports plainText).
  */
 
 import type { AssertionEvent } from "./assertionLog";
-import type { EntityAliasResolution } from "./entityAliasLog";
 
 export interface V2Author {
   id: string;
@@ -55,41 +54,17 @@ export interface V2Feed {
   feed: V2FeedRow[];
 }
 
-/** What the v2 view reads, from one projection snapshot: the live rows, the
- * alias table, and each live row's first-recorded date. */
-export interface V2Source {
-  rows: AssertionEvent[];
-  aliases: EntityAliasResolution;
-  firstAt: ReadonlyMap<string, string>;
-  /** The model behind each row the gardener wrote through its agent, by
-   * assertion id: the record names only the agent, and the run's journal
-   * names the model (lib/v2Read.ts gardenerModels). */
-  models?: ReadonlyMap<string, string>;
-}
-
-export interface ChainLink { id: string; created_at: string; supersedes: string | null }
-/** Follow each live row's `supersedes` back to the claim it stands in for,
- * and keep the earliest date on the way. */
-export function firstRecordedAt(rows: readonly AssertionEvent[], chain: ReadonlyMap<string, ChainLink>): Map<string, string> {
-  const out = new Map<string, string>();
-  for (const row of rows) {
-    let at = row.created_at, next = row.supersedes ?? null;
-    const seen = new Set([row.id]);
-    while (next && !seen.has(next)) {
-      seen.add(next);
-      const prior = chain.get(next);
-      if (!prior) break;
-      if (prior.created_at < at) at = prior.created_at;
-      next = prior.supersedes;
-    }
-    out.set(row.id, at);
-  }
-  return out;
+/** One live assertion as the projection keeps it: the event, when its claim
+ * was first recorded, and the model of the gardener run that wrote it, when
+ * one did (lib/assertionProjection.ts, schema 24). */
+export interface V2Assertion {
+  event: AssertionEvent;
+  firstAt: string;
+  runModel: string | null;
 }
 
 const GARDENER = "gardener";
 const NAMES: Record<string, string> = { "claude-code": "Claude Code", codex: "Codex", pi: "Pi", claude: "Claude", [GARDENER]: "Gardener" };
-const FEED = 60;
 
 /** `gardener`: the row is known, from a run journal, to be the gardener's. */
 export function authorOf(row: Pick<AssertionEvent, "author" | "produced_by">, gardener = false): string | null {
@@ -113,38 +88,13 @@ export function plainText(text: string): string {
   return text.replace(/\[\[[^|\]]*\|([^\]]*)\]\]/g, "$1").replace(/\[\[([^\]]*)\]\]/g, "$1").replace(/\s+/g, " ").trim();
 }
 
-const canonical = (src: V2Source, id: string) => src.aliases.canonical.get(id)?.id ?? id;
-const feedRow = (src: V2Source, row: AssertionEvent): V2FeedRow => {
-  const at = src.firstAt.get(row.id) ?? row.created_at;
-  const ran = src.models?.get(row.id);
+/** A row as the feed shows it; `canonical` folds an entity id through the alias table. */
+export function feedRow({ event: row, firstAt: at, runModel: ran }: V2Assertion, canonical: (id: string) => string): V2FeedRow {
   return {
     id: row.id, at, ...(at !== row.created_at ? { writtenAt: row.created_at } : {}),
     author: authorOf(row, !!ran), by: ran ?? row.author.id, model: !!ran || namesModel(row.author), text: plainText(row.text),
-    entities: [...new Set(row.entities.map((e) => canonical(src, e.id)))],
+    entities: [...new Set(row.entities.map((e) => canonical(e.id)))],
   };
-};
-/** The entities named by claims that cite any of these notes (personal
- * source ids): a lens, as the field filters to it. */
-export function entitiesCiting(src: V2Source, sourceIds: ReadonlySet<string>): string[] {
-  return [...new Set(src.rows.filter((r) => r.sources?.some((s) => sourceIds.has(s.source_id))).flatMap((r) => r.entities.map((e) => canonical(src, e.id))))];
-}
-const byRecorded = (a: V2FeedRow, b: V2FeedRow) => a.at.localeCompare(b.at) || a.id.localeCompare(b.id);
-
-export function buildV2Feed(src: V2Source): V2Feed {
-  const live = [...src.rows].sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id));
-  const authors = new Map<string, V2Author>();
-  for (const row of live) {
-    const id = authorOf(row, src.models?.has(row.id));
-    if (!id) continue;
-    const a = authors.get(id) ?? { id, name: authorName(id), count: 0, lastAt: row.created_at };
-    a.count++;
-    a.lastAt = row.created_at;
-    authors.set(id, a);
-  }
-  // the latest by when each claim was first recorded, so a cleanup pass's
-  // rewrites sit at their originals' dates instead of crowding the top
-  const feed = live.map((row) => feedRow(src, row)).sort(byRecorded).slice(-FEED);
-  return { authors: [...authors.values()].sort((a, b) => b.lastAt.localeCompare(a.lastAt) || a.id.localeCompare(b.id)), feed };
 }
 
 /** One source on the sorted feed (lib/feedStage.ts), joined to the live record. */
@@ -159,7 +109,7 @@ export interface V2SortedRow {
   /** When it entered the feed. */
   added: string;
   entities: string[];
-  /** The source itself, as the projection names it (the route adds these):
+  /** The source itself, as the projection names it (lib/v2Read.ts adds these):
    * its title, its note path, and the integration it came through. */
   title?: string;
   path?: string;
@@ -168,9 +118,6 @@ export interface V2SortedRow {
    * opens its lens; what a pass shared selects `entities`, what those notes' claims name. */
   lens?: string;
 }
-
-/** What the sorted feed is built from: the stage's items (lib/feedJournal.ts feedItems). */
-export interface SortedEntry { source: string; section: string; headline: string; due: string | null; assertions: string[]; added: string }
 
 const SECTIONS: readonly V2SortedRow["section"][] = ["needs-you", "agent", "know"];
 
@@ -185,23 +132,9 @@ type SortedKey = Pick<V2SortedRow, "added" | "section" | "source">;
 export const newestFirst = (a: SortedKey, b: SortedKey): number =>
   b.added.localeCompare(a.added) || SECTIONS.indexOf(a.section) - SECTIONS.indexOf(b.section) || a.source.localeCompare(b.source);
 
-/** The stage's items, newest first, as a feed reads: what just arrived is
- * what shows (the most pressing within one arrival first). An item whose
- * claims have all been revoked or superseded since it was sorted drops out:
- * the record no longer says it. */
-export function buildSortedFeed(src: V2Source, entries: readonly SortedEntry[]): V2SortedRow[] {
-  const live = new Map(src.rows.map((row) => [row.id, row]));
-  const out: V2SortedRow[] = [];
-  for (const e of entries) {
-    const section = SECTIONS.find((s) => s === e.section);
-    const rows = e.assertions.map((id) => live.get(id)).filter((r): r is AssertionEvent => !!r).map((r) => feedRow(src, r));
-    if (!section || !rows.length) continue;
-    out.push({ source: e.source, section, headline: e.headline, due: e.due, added: e.added, entities: [...new Set(rows.flatMap((r) => r.entities))] });
-  }
-  return out.sort(newestFirst);
-}
-
 export interface SortedPage { rows: V2SortedRow[]; next: string | null }
+/** A row's place in the sorted feed, as `before` and `next` name it. */
+export const pageKey = (r: SortedKey): string => `${r.added}|${r.section}|${r.source}`;
 
 /** One page of the sorted feed: at most `limit` rows, newest first, after
  * the row `before` names (the `next` of the page before). `next` names the
@@ -217,7 +150,17 @@ export function pageSortedFeed(rows: readonly V2SortedRow[], limit: number, befo
   }
   const page = rows.slice(from, from + limit);
   const last = page.at(-1);
-  return { rows: page, next: last && from + page.length < rows.length ? `${last.added}|${last.section}|${last.source}` : null };
+  return { rows: page, next: last && from + page.length < rows.length ? pageKey(last) : null };
+}
+
+/** A page read elsewhere (lib/v2Read.ts readSortedPage) with `extra` rows
+ * merged in where they fall: rows from outside the record, few enough to
+ * hold, paged by the same keys. */
+export function withRows(page: SortedPage, extra: readonly V2SortedRow[], limit: number, before?: string): SortedPage {
+  if (!extra.length) return page;
+  const after = pageSortedFeed([...extra].sort(newestFirst), extra.length, before).rows;
+  const all = [...page.rows, ...after].sort(newestFirst), rows = all.slice(0, limit), last = rows.at(-1);
+  return { rows, next: last && (page.next !== null || all.length > limit) ? pageKey(last) : null };
 }
 
 /** The loaded pages, read again from the top (`fresh`: as many rows as were
@@ -228,10 +171,4 @@ export function refreshSortedPages(loaded: SortedPage, fresh: SortedPage): Sorte
   const last = fresh.rows.at(-1);
   const beyond = last ? loaded.rows.filter((r) => newestFirst(last, r) < 0) : [];
   return { rows: [...fresh.rows, ...beyond], next: beyond.length ? loaded.next : fresh.next };
-}
-
-/** One entity's latest assertions (aliases folded), dated the same way. */
-export function buildEntityFeed(src: V2Source, entityId: string, limit = 6): V2FeedRow[] {
-  const id = src.aliases.canonical.get(entityId)?.id ?? entityId;
-  return src.rows.map((row) => feedRow(src, row)).filter((r) => r.entities.includes(id)).sort(byRecorded).slice(-limit);
 }

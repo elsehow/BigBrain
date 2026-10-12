@@ -18,7 +18,6 @@ import {randomBytes,randomUUID} from 'node:crypto';
 import {writeAtomic} from './fsx';
 import {sha256hex} from './hash';
 import {sourceDigest,type InclusionLabel} from './inclusionPolicy';
-import {assertionSourceReferences,type AssertionEvent} from './assertionLog';
 
 /** A change nobody made to the lens that would add notes to it (decision D3). */
 export interface LensReview {
@@ -120,13 +119,6 @@ export function membership(lens:Pick<Lens,'labels'|'pins'|'exclusions'|'members'
   if(inside)out.add(n.source_id);
  }
  return out;
-}
-
-/** The claims a lens's notes alone support, every note they cite a member:
- * all a briefing on the lens reads (lib/noteBriefing.ts claimsOnly). */
-export function lensClaims(lens:Pick<Lens,'members'>,rows:readonly AssertionEvent[]):Set<string>{
- const members=new Set(lens.members);
- return new Set(rows.filter(r=>{const cited=assertionSourceReferences(r);return cited.length>0&&cited.every(s=>members.has(s.source_id));}).map(r=>r.id));
 }
 
 /** Sharing mode (decision D3): what a change nobody made does when it would add notes to a shared lens. */

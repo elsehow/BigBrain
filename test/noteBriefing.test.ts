@@ -10,8 +10,8 @@ import { assertionEntityId, createAssertionEvent, appendAssertionEvent } from ".
 import { assertionEntityPath } from "../lib/assertionEntityView";
 import { appendSourceInsertionEvent, insertionEventRel } from "../lib/insertionLog";
 import { claimsOnly, createNoteBriefingService, noteBriefingInput, parseNoteBriefing, type NoteBriefingInput } from "../lib/noteBriefing";
-import { readAssertionLog } from "../lib/assertionLog";
-import { lensClaims } from "../lib/lenses";
+import { readLensClaims } from "../lib/v2Read";
+import { withVaultSnapshot } from "../lib/vaultReadModel";
 import { explicitNoteLinks, noteLinkResolver, readMarkdownNote } from "../lib/markdownGraph";
 import { declareOwner } from "./support/identity";
 import { insertion, mdVault, gitVault } from "./support/vault";
@@ -464,7 +464,7 @@ test("with a lens on, a briefing reads only the claims its notes alone support",
   expect(whole.items[0]!.text).toContain("waters");
   expect(whole.links.map(l => l.id)).toEqual(expect.arrayContaining([garden.id, "memory/project.md"]));
   // a lens holding only the meeting: its claim, its entities, its note; no memory, no other note
-  const lens = noteBriefingInput(root, path, undefined, claimsOnly(lensClaims({ members: [meeting.source_id] }, readAssertionLog(root))));
+  const lens = noteBriefingInput(root, path, undefined, claimsOnly(withVaultSnapshot(root, (db) => readLensClaims(db, [meeting.source_id]))));
   expect(lens.items[0]!.text).toContain("manages");
   expect(lens.items[0]!.text).not.toContain("waters");
   expect(lens.links.map(l => l.id).sort()).toEqual([atlas.id, `source:${meeting.id}`].sort());

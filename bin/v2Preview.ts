@@ -13,8 +13,7 @@
  */
 import { Database } from "bun:sqlite";
 import { join } from "node:path";
-import { buildEntityFeed, buildV2Feed } from "../lib/v2Feed";
-import { readV2Source } from "../lib/v2Read";
+import { readEntityFeed, readV2Feed } from "../lib/v2Read";
 
 const [vault, entity] = process.argv.slice(2);
 if (!vault) {
@@ -23,8 +22,7 @@ if (!vault) {
 }
 const db = new Database(join(vault, ".state", "assertions.db"), { readonly: true });
 try {
-  const src = readV2Source(db, vault);
-  process.stdout.write(JSON.stringify(entity ? { rows: buildEntityFeed(src, entity) } : buildV2Feed(src)));
+  process.stdout.write(JSON.stringify(entity ? { rows: readEntityFeed(db, entity) } : readV2Feed(db)));
 } finally {
   db.close();
 }

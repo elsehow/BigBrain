@@ -9,11 +9,11 @@
  * and never changes or removes one already there. Delete `.state/` and
  * nothing is lost. */
 
-import { readdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { RunUsage } from "./run/model";
-
-export const FEED_JOURNAL_DIR = "journal/feed";
+import { FEED_JOURNAL_DIR, runJournalFiles } from "./runJournal";
+export { FEED_JOURNAL_DIR };
 
 export const FEED_SECTIONS = ["needs-you", "agent", "know", "skip"] as const;
 export type FeedSection = (typeof FEED_SECTIONS)[number];
@@ -51,31 +51,24 @@ export interface FeedRecord {
 
 /** Every record read so far, by path. A record is written once and never
  * rewritten, so a later read lists the journal and parses only what is new:
- * the viewer reads the feed on every vault change, and the journal grows a
- * file per call. Shared between reads: never mutate a record. */
+ * the stage reads it every tick, and the journal grows a file per call. The
+ * viewer reads the projection's copy instead (projectJournal). Shared between
+ * reads: never mutate a record. */
 const parsed = new Map<string, FeedRecord>();
 
 export function feedRecords(root: string): FeedRecord[] {
-  const base = join(root, FEED_JOURNAL_DIR);
-  let months: string[];
-  try {
-    months = readdirSync(base).filter((m) => /^\d{4}-\d{2}$/.test(m)).sort();
-  } catch {
-    return [];
-  }
   const out: FeedRecord[] = [];
-  for (const month of months)
-    for (const f of readdirSync(join(base, month)).filter((n) => n.endsWith(".json")).sort()) {
-      const path = join(base, month, f);
-      let record = parsed.get(path);
-      if (!record) {
-        try {
-          record = JSON.parse(readFileSync(path, "utf8")) as FeedRecord;
-        } catch { continue; /* a damaged record is skipped, never fatal */ }
-        parsed.set(path, record);
-      }
-      out.push(record);
+  for (const rel of runJournalFiles(root, FEED_JOURNAL_DIR)) {
+    const path = join(root, rel);
+    let record = parsed.get(path);
+    if (!record) {
+      try {
+        record = JSON.parse(readFileSync(path, "utf8")) as FeedRecord;
+      } catch { continue; /* a damaged record is skipped, never fatal */ }
+      parsed.set(path, record);
     }
+    out.push(record);
+  }
   return out.sort((a, b) => a.completed_at.localeCompare(b.completed_at) || a.invocation_id.localeCompare(b.invocation_id));
 }
 

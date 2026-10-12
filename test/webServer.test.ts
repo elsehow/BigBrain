@@ -12,7 +12,7 @@ const server = await import("../web/server");
 const { dispatch } = await import("../lib/httpx");
 const { appendSourceInsertionEvent, insertionEventRel } = await import("../lib/insertionLog");
 const { assertionEntityId, createAssertionEvent } = await import("../lib/assertionLog");
-const { appendAndProjectAssertion, assertionDbPath, projectNotes, projectSourceInsertion, recoverAssertionProjection } = await import("../lib/assertionProjection");
+const { appendAndProjectAssertion, assertionDbPath, projectJournal, projectNotes, projectSourceInsertion, recoverAssertionProjection } = await import("../lib/assertionProjection");
 const { insertion } = await import("./support/vault");
 
 /** Drive one route against the preloaded scratch vault and parse what it
@@ -110,11 +110,14 @@ describe("the route table", () => {
     const sources = [cited.id, ...[1, 2, 3, 4].map((n) => `ins_5a1e0000000000000000003${n}`)];
     const journal = join(root, "journal", "feed", "2026-08");
     mkdirSync(journal, { recursive: true });
-    sources.forEach((source, i) => writeFileSync(join(journal, `run-${i}.json`), JSON.stringify({
-      format: "bigbrain-feed-run/v1", invocation_id: `run-${i}`, prompt_version: "feed/v3", assertions: [claim.id],
-      started_at: `2026-08-22T12:0${i}:00.000Z`, completed_at: `2026-08-22T12:0${i}:01.000Z`,
-      entries: [{ source, section: "know", headline: `Item ${i}`, due: null, assertions: [claim.id] }],
-    })));
+    sources.forEach((source, i) => {
+      writeFileSync(join(journal, `run-${i}.json`), JSON.stringify({
+        format: "bigbrain-feed-run/v1", invocation_id: `run-${i}`, prompt_version: "feed/v3", assertions: [claim.id],
+        started_at: `2026-08-22T12:0${i}:00.000Z`, completed_at: `2026-08-22T12:0${i}:01.000Z`,
+        entries: [{ source, section: "know", headline: `Item ${i}`, due: null, assertions: [claim.id] }],
+      }));
+      projectJournal(root, `journal/feed/2026-08/run-${i}.json`); // as the feed stage does
+    });
     try {
       type Page = { rows: Array<{ source: string; title?: string }>; next: string | null };
       const first = call("GET", "/api/v2/sorted?limit=2") as Page;

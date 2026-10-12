@@ -4,7 +4,7 @@ import {readLogRoutes} from '../lib/readLogRoutes';
 import {logIntegrationCalls} from '../lib/readLog';
 import {inclusionReviewApi} from '../lib/inclusionReviewApi';
 import {lensApi} from '../lib/lensApi';
-import {lensClaims,readLens} from '../lib/lenses';
+import {readLens} from '../lib/lenses';
 import {tickIntegrationAdmission} from '../lib/integrationAdmission';
 import { unionGraph, unionRecent, unionSearch, unionNote, vaultFilter, includesPersonal, personalOnly, serverBriefingRecord, serverGraph, sharedEntityClaims } from '../lib/sharedReadUnion';
 import { jevSettingsApi } from '../lib/jevSettingsApi';
@@ -61,10 +61,10 @@ import { parseBlobRef, readBlob } from "../lib/blobs";
 import { recentSourcePageAsync } from "../lib/sourceFeed";
 import { currentGraph, currentGraphView, maintainGraphView } from "../lib/maintainedGraph";
 import { feedStamp, STAMP_HEADER } from "../lib/viewStamps";
+import type { Database } from "bun:sqlite";
 import type { ProjectionView } from "../lib/assertionProjection";
-import { buildEntityFeed, buildSortedFeed, buildV2Feed, entitiesCiting, newestFirst, pageSortedFeed, SORTED_PAGE, type V2SortedRow, type V2Source } from "../lib/v2Feed";
-import { dueOf, feedItems, feedRecords } from "../lib/feedJournal";
-import { readV2Source } from "../lib/v2Read";
+import { SORTED_PAGE, withRows, type V2Feed, type V2SortedRow } from "../lib/v2Feed";
+import { readEntitiesCiting, readEntityFeed, readLensClaims, readSortedPage, readV2Feed } from "../lib/v2Read";
 import { otherCopies, withVaultSnapshot } from "../lib/vaultReadModel";
 import { frozenMessagesForRefs, sortFrozenDesc } from "../lib/frozenQueue";
 import { queueHead } from "../lib/queueHead";
@@ -72,7 +72,7 @@ import { noteLog } from "../lib/noteLog";
 import type { NoteMeta } from "../lib/viewTypes";
 import { errText } from "../lib/errText";
 import { hasAssertionEvents } from "../lib/assertionLog";
-import { projectedSourceHeads, syncAssertionProjection } from "../lib/assertionProjection";
+import { syncAssertionProjection } from "../lib/assertionProjection";
 import { agentWritten, insertionFiler, sourceInsertionMarkdown } from "../lib/sourceFeed";
 import { assertionsFromSource, projectedEntityMarkdown, truncatedEntityView, sourceThreadForInsertion, sourceInsertionCached } from "../lib/assertionEntityView";
 import { insertionEventRel, sourceMoment } from "../lib/insertionLog";
@@ -543,38 +543,37 @@ function search({ req, res, url }: Ctx): void {
   });
 }
 
-// The v2 view's read (lib/v2Feed.ts): the agents writing this vault,
-// what each centres on lately, and the latest assertions as a feed. The
-// graph itself comes from /api/graph; this adds only who and what.
-// A gardener run's journal, which names the model its rows don't, lands
-// after them and logs a change row (lib/tend.ts): the revision covers it.
-let v2Held: { revision: string; src: V2Source; stamp: string } | undefined;
-const v2Source = (): { src: V2Source; stamp: string } => withVaultSnapshot(ROOT, (db, revision) => {
-  if (v2Held?.revision !== revision) v2Held = { revision, src: readV2Source(db, ROOT), stamp: feedStamp(ROOT, db) };
-  return v2Held;
-});
-/** JSON read from the feed's snapshot, reporting the stamp it was read at. */
-function feedJson(res: ServerResponse, stamp: string, value: unknown): void {
-  res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store", [STAMP_HEADER]: stamp });
-  res.end(JSON.stringify(value));
-}
-function v2({ res }: Ctx): void {
+// The v2 view's reads (lib/v2Read.ts): the agents writing this vault, the
+// latest assertions as a feed, one entity's, and the sorted feed. The graph
+// itself comes from /api/graph; these add only who and what, each a query
+// the projection answers from its indexes, stamped with the last commit the
+// feed reads (lib/viewStamps.ts feedStamp).
+/** JSON read from one snapshot, reporting the feed stamp it was read at. */
+function feedJson<T>(res: ServerResponse, read: (db: Database, stamp: string) => T): void {
   try {
-    const { src, stamp } = v2Source();
-    feedJson(res, stamp, buildV2Feed(src));
+    const [stamp, value] = withVaultSnapshot(ROOT, (db) => {
+      const stamp = feedStamp(ROOT, db);
+      return [stamp, read(db, stamp)] as const;
+    });
+    res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store", [STAMP_HEADER]: stamp });
+    res.end(JSON.stringify(value));
   } catch (error) {
     json(res, 500, { error: errText(error) });
   }
+}
+// The author tally counts every live row: once per feed stamp, not per tab.
+let v2Held: { stamp: string; feed: V2Feed } | undefined;
+function v2({ res }: Ctx): void {
+  feedJson(res, (db, stamp) => {
+    if (!stamp || v2Held?.stamp !== stamp) v2Held = { stamp, feed: readV2Feed(db) };
+    return v2Held.feed;
+  });
 }
 // One entity's latest assertions, dated as the feed is (first recorded).
 function v2Entity({ res, url }: Ctx): void {
   const id = url.searchParams.get("id") ?? "";
   if (!id) return json(res, 400, { error: "Which entity? Pass ?id=." });
-  try {
-    json(res, 200, { rows: buildEntityFeed(v2Source().src, id) });
-  } catch (error) {
-    json(res, 500, { error: errText(error) });
-  }
+  feedJson(res, (db) => ({ rows: readEntityFeed(db, id) }));
 }
 
 // The sorted feed (lib/feedStage.ts): what needs the owner, what an agent
@@ -583,25 +582,17 @@ function v2Entity({ res, url }: Ctx): void {
 // first, and `before`, the `next` of the page before): the feed only grows.
 const SORTED_MAX = 5_000;
 function v2Sorted({ res, url }: Ctx): void {
-  try {
-    const feedOn = !!loadManifest(ROOT).feed, records = feedOn ? feedRecords(ROOT) : [];
-    const limit = Math.min(SORTED_MAX, Math.max(1, Math.trunc(Number(url.searchParams.get("limit"))) || SORTED_PAGE));
-    const { src, stamp } = v2Source();
+  const limit = Math.min(SORTED_MAX, Math.max(1, Math.trunc(Number(url.searchParams.get("limit"))) || SORTED_PAGE));
+  const before = url.searchParams.get("before") ?? undefined;
+  feedJson(res, (db) => {
+    if (!loadManifest(ROOT).feed) return { rows: [], next: null };
     // What lenses shared, and changes that grew a shared lens (D2, D3), among what arrived.
-    const sharing = feedOn ? feedLensEvents(ROOT, connectionStorePath()).map(({ event: e, count, sources }, i): V2SortedRow => ({
+    const sharing = feedLensEvents(ROOT, connectionStorePath()).map(({ event: e, count, sources }, i): V2SortedRow => ({
       source: `lens:${e.at}:${i}`, section: e.kind === "shared" ? "know" : "needs-you", headline: lensEventHeadline(e, count), due: null, added: e.at,
-      entities: entitiesCiting(src, new Set(sources)), lens: e.lens,
-    })) : [];
-    const sorted = [...buildSortedFeed(src, feedItems(records).map((e) => ({ ...e, due: dueOf(e) }))), ...sharing].sort(newestFirst);
-    const { rows, next } = pageSortedFeed(sorted, limit, url.searchParams.get("before") ?? undefined);
-    const heads = projectedSourceHeads(ROOT, rows.map((r) => r.source));
-    feedJson(res, stamp, { next, rows: rows.map((r) => {
-      const h = heads.get(r.source);
-      return h ? { ...r, title: h.title, path: insertionEventRel(h), ...(h.source ? { via: h.source } : {}) } : r;
-    }) });
-  } catch (error) {
-    json(res, 500, { error: errText(error) });
-  }
+      entities: readEntitiesCiting(db, sources), lens: e.lens,
+    }));
+    return withRows(readSortedPage(ROOT, db, limit, before), sharing, limit, before);
+  });
 }
 
 // Serve the graph as a FINISHED PICTURE: structure plus settled positions,
@@ -646,7 +637,7 @@ async function briefingFor(root: string, request: NoteBriefingRequest): Promise<
   if (scope) {
     const lens = readLens(root, connectionStorePath(), scope.lens);
     if (!lens) throw new Error("That lens is gone.");
-    return readNoteBriefingInput(root, request, undefined, claimsOnly(lensClaims(lens, v2Source().src.rows)));
+    return readNoteBriefingInput(root, request, undefined, claimsOnly(withVaultSnapshot(root, (db) => readLensClaims(db, lens.members))));
   }
   return readNoteBriefingInput(root, request, (ids) => sharedEntityClaims(root, ids));
 }
@@ -975,7 +966,7 @@ export function start(): void {
     if (!allowLoopbackRequest(req, res)) return;
     if (!allowSession(req, res)) return;
     if (await inclusionReviewApi(req,res,ROOT)) return;
-    if (await lensApi(req,res,ROOT,(ids) => entitiesCiting(v2Source().src, ids))) return;
+    if (await lensApi(req,res,ROOT,(ids) => withVaultSnapshot(ROOT, (db) => readEntitiesCiting(db, ids)))) return;
     if (await jevSettingsApi(req,res,ROOT)) return;
     // Joining a shared vault changes the Field's graph: a write here pushes its stamp.
     const joined = () => { if (req.method !== "GET") live.refreshViews(); };
