@@ -65,7 +65,7 @@ import type { Database } from "bun:sqlite";
 import type { ProjectionView } from "../lib/assertionProjection";
 import { SORTED_PAGE, withRows, type V2Feed, type V2SortedRow } from "../lib/v2Feed";
 import { readEntitiesCiting, readEntityFeed, readLensClaims, readSortedPage, readV2Feed } from "../lib/v2Read";
-import { otherCopies, withVaultSnapshot } from "../lib/vaultReadModel";
+import { noteCount, otherCopies, withVaultSnapshot } from "../lib/vaultReadModel";
 import { frozenMessagesForRefs, sortFrozenDesc } from "../lib/frozenQueue";
 import { queueHead } from "../lib/queueHead";
 import { noteLog } from "../lib/noteLog";
@@ -188,10 +188,6 @@ function listNotes(dirRel: string, depth = 3): NoteMeta[] {
     .sort((a, b) => b.modified - a.modified);
 }
 
-function countMd(abs: string, depth = 3): number {
-  return walkMarkdown(abs, [""], { maxDepth: depth, skipDotted: true }).length;
-}
-
 // ── live: one watcher over the vault, fanned out to SSE clients ───────────────
 // The watcher/debounce/heartbeat fan-out lives in lib/liveEvents.ts (#291);
 // createLive only declares — live.start() (called by start() below) is what
@@ -289,23 +285,25 @@ function serveAsset({ res, url }: Ctx): void {
  * the numbers arrive with the counts beside them and the second round trip
  * is gone. */
 function vaultIndex({ res }: Ctx): void {
-  json(res, 200, {
-    queue: queueHead(ROOT),
+  const queue = queueHead(ROOT);
+  // The counts are the projected notes (the notes door keeps them), in one snapshot.
+  json(res, 200, withVaultSnapshot(ROOT, () => ({
+    queue,
     // the two trees that exist: the raw record + the maintained dossiers
     view: {
-      references: countMd(join(ROOT, "references")),
-      entities: countMd(join(ROOT, "entities")),
+      references: noteCount(ROOT, "references"),
+      entities: noteCount(ROOT, "entities"),
     },
     // depth 0 where a subdir is its own bucket: inbox/unsorted, requests/done
     inbox: {
-      pending: countMd(join(ROOT, "inbox"), 0),
-      unsorted: countMd(join(ROOT, "inbox", "unsorted")),
+      pending: noteCount(ROOT, "inbox", 0),
+      unsorted: noteCount(ROOT, "inbox/unsorted"),
     },
     requests: {
-      open: countMd(join(ROOT, "requests"), 0),
-      done: countMd(join(ROOT, "requests", "done")),
+      open: noteCount(ROOT, "requests", 0),
+      done: noteCount(ROOT, "requests/done"),
     },
-  });
+  })));
 }
 
 /** Note listing, path-safe and scoped to the browse roots. */

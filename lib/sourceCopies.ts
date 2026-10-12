@@ -149,7 +149,7 @@ const LOWEST_CUTOFF = 0.5;
 /** Below this, a judged pair is two documents and is not asked. */
 export const PROPOSE_FLOOR = 0.3;
 /** A title shared by more works than this is generic ("Sign in to your account"), not a work's. */
-const CROWD = 8;
+export const CROWD = 8;
 
 export interface CopyRecord {
   /** A person's latest word per pair. */
@@ -183,25 +183,37 @@ export function copyCutoff({ declared, judged }: CopyRecord): number {
   return lines.reduce((best, t) => (errors(t) < errors(best) || (errors(t) === errors(best) && t > best) ? t : best), DEFAULT_CUTOFF);
 }
 
-type Shapes = { whole: string[][]; heads: string[][] };
+export type TitleForms = { whole: string[][]; heads: string[][] };
 /** Whole titles that name each other, or one's head (its "| Site" tail off)
  * that names the other whole. Never two heads: that is a series. */
-const sameTitle = (a: Shapes, b: Shapes): boolean =>
+export const sameTitle = (a: TitleForms, b: TitleForms): boolean =>
   [[a.whole, b.whole], [a.heads, b.whole], [b.heads, a.whole]].some(([xs, ys]) => xs!.some((x) => ys!.some((y) => namesTitle(x, y))));
 /** Three words that are words: a date or a number alone names nothing. */
 const named = (words: readonly string[]): boolean => words.filter((word) => /\p{L}/u.test(word)).length >= 3;
 
+/** The forms a work's title can name another's in, or nothing when it is
+ * not a work or its title names nothing. */
+export function titleForms(source: Pick<SourceMetadata, "title" | "envelope">): TitleForms | undefined {
+  if (!isWork(source)) return undefined;
+  const shapes = titleShapes(source.title), held = { whole: shapes.whole.filter(named), heads: shapes.heads.filter(named) };
+  return held.whole.length ? held : undefined;
+}
+
+/** Where a title's candidates are found: the first three words of each form.
+ * The projection keeps them per source (assertionProjection.ts). */
+export const titleBuckets = (forms: TitleForms): string[] =>
+  [...new Set([...forms.whole, ...forms.heads].map((words) => words.slice(0, 3).join(" ")))];
+
 /** Pairs of works whose titles name each other, ascending, once each. */
 export function copyCandidates(sources: readonly SourceMetadata[]): [string, string][] {
-  const forms = new Map<string, Shapes>();
+  const forms = new Map<string, TitleForms>();
   const buckets = new Map<string, Set<string>>();
   for (const source of sources) {
-    if (!isWork(source)) continue;
-    const shapes = titleShapes(source.title), held = { whole: shapes.whole.filter(named), heads: shapes.heads.filter(named) };
-    if (!held.whole.length) continue;
+    const held = titleForms(source);
+    if (!held) continue;
     forms.set(source.id, held);
-    for (const words of [...held.whole, ...held.heads]) {
-      const key = words.slice(0, 3).join(" "), ids = buckets.get(key);
+    for (const key of titleBuckets(held)) {
+      const ids = buckets.get(key);
       if (ids) ids.add(source.id); else buckets.set(key, new Set([source.id]));
     }
   }

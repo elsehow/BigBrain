@@ -3,11 +3,13 @@ import { rmSync } from "node:fs";
 import { assertionEntityPath } from "../lib/assertionEntityView";
 import { buildAssertionGraph } from "../lib/assertionGraph";
 import { assertionEntityId, createAssertionEvent, type AssertionEntity } from "../lib/assertionLog";
-import { appendAndProjectAssertion, appendAndProjectEntitySource, syncAssertionProjection } from "../lib/assertionProjection";
+import { appendAndProjectAssertion, appendAndProjectEntitySource, appendAndProjectSourceCopy, syncAssertionProjection } from "../lib/assertionProjection";
 import { createEntitySourceEvent } from "../lib/entitySourceLog";
 import { insertionEventRel, type SourceInsertion } from "../lib/insertionLog";
 import { notePayload } from "../lib/noteRead";
 import { copyKeys, sourceCopies } from "../lib/sourceCopies";
+import { createSourceCopyEvent } from "../lib/sourceCopyLog";
+import { copyGroups, copyProposals, sourceCopiesRecord, unjudgedCopies } from "../lib/vaultReadModel";
 import { insertion, nativeVault } from "./support/vault";
 
 const at = (url?: string, extra: Record<string, unknown> = {}) => ({ envelope: { kind: "web-clip", ...(url ? { url } : {}), ...extra } });
@@ -116,5 +118,72 @@ describe("copies in the vault", () => {
       `_The document itself, in the vault: [[${insertionEventRel(text)}|${PAPER}]] · [[${insertionEventRel(stub)}|${PAPER}.pdf]].`);
     expect(read(root, insertionEventRel(stub))).toContain(`_Also in the vault as: [[${insertionEventRel(text)}|${PAPER}]], the fullest first._`);
     expect(read(root, insertionEventRel(text))).toContain(`_Also in the vault as: [[${insertionEventRel(stub)}|${PAPER}.pdf]], the fullest first._`);
+  });
+});
+
+describe("a note's copies, found from the note", () => {
+  const roots: string[] = [];
+  afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
+  const PERSON = { kind: "user" as const, id: "owner@example.com" }, MODEL = { kind: "model" as const, id: "judge", invocation_id: "r" };
+  const PRODUCED = { procedure: "test", version: "1" };
+  const id = (c: string) => `ins_${c.repeat(24)}`;
+  const when = (n: number) => `2026-10-${String(n).padStart(2, "0")}T00:00:00.000Z`;
+  const src = (c: string, n: number, title: string, envelope: Record<string, unknown>, over: Partial<SourceInsertion> = {}) =>
+    insertion({ id: id(c), title, received_at: when(n), body: "Notes on the harbour survey. ".repeat(20), envelope, ...over });
+  const mail = { kind: "email", source: "email", inbox: "owner@example.com" };
+  const ATLAS = "Harbour Tides Atlas of the Northern Coast";
+  const atlas: AssertionEntity = { id: assertionEntityId(ATLAS), label: ATLAS };
+  const sources = [
+    // a chain: an address, then a file
+    src("a", 1, "Lantern counts", { kind: "web-clip", url: "https://harbours.example/lanterns" }),
+    src("b", 2, "Lantern counts.pdf", { kind: "pdf-import", url: "https://harbours.example/lanterns?utm_source=x", ...file(SHA) }),
+    src("c", 3, "scan", { kind: "pdf-import", ...file(SHA) }, { body: "Captured." }),
+    // a landing superseded by a later one of its source; an entity bound to the old one follows it
+    src("d", 4, ATLAS, { kind: "web-clip", url: "https://atlas.example/v1" }, { source_id: "atlas" }),
+    src("e", 5, ATLAS, { kind: "web-clip", url: "https://atlas.example/v2", supersedes: id("d") }, { source_id: "atlas" }),
+    src("f", 6, `${ATLAS} | Harbour Review`, { kind: "web-clip" }),
+    src("1", 7, "Atlas plates", { kind: "pdf-import" }),
+    // one address, said to be two documents
+    src("2", 8, "Tide table", { kind: "web-clip", url: "https://tides.example/table" }),
+    src("3", 9, "Tide table again", { kind: "web-clip", url: "https://tides.example/table" }),
+    // a judged pair over the cut-off
+    src("4", 10, "Buoy register", { kind: "web-clip" }),
+    src("5", 11, "Register of buoys", { kind: "pdf-import" }),
+    // mail: two in one thread, one alone; an entity bound to each and to a work
+    src("6", 12, "Harbour survey schedule", mail),
+    src("7", 13, "Re: Harbour survey schedule", mail),
+    src("8", 14, "Pilotage fees for spring", mail),
+  ];
+  const vault = (): string => {
+    const root = nativeVault({ prefix: "bb-copies-near-", insertions: sources });
+    roots.push(root);
+    syncAssertionProjection(root);
+    const bind = (entity: AssertionEntity, c: string, n: number) => appendAndProjectEntitySource(root, createEntitySourceEvent({
+      entity, insertion_id: id(c), bound: true, author: PERSON, created_at: when(n), produced_by: PRODUCED }));
+    bind(atlas, "d", 20); bind(atlas, "1", 21);
+    const survey: AssertionEntity = { id: assertionEntityId("Harbour survey"), label: "Harbour survey" };
+    bind(survey, "6", 22); bind(survey, "8", 23); bind(survey, "a", 24);
+    const word = (a: string, b: string, n: number, said: { same: boolean } | { score: number }) => appendAndProjectSourceCopy(root,
+      createSourceCopyEvent({ a: id(a), b: id(b), author: "score" in said ? MODEL : PERSON, created_at: when(n), produced_by: PRODUCED, ...said }));
+    word("2", "3", 25, { same: false });
+    word("4", "5", 26, { score: 0.9 });
+    return root;
+  };
+  const shape = (group: { members: { id: string }[]; why: (a: string, b: string) => unknown } | undefined) =>
+    group && { members: group.members.map((m) => m.id), why: group.members.flatMap((x) => group.members.map((y) => group.why(x.id, y.id) ?? null)) };
+
+  test("each source's group is the whole record's, and its proposals the candidates it is part of", () => {
+    const root = vault();
+    const whole = sourceCopiesRecord(root);
+    for (const s of sources) expect(shape(copyGroups(root, [s.id]).get(s.id))).toEqual(shape(whole.get(s.id)));
+    expect(shape(whole.get(id("a")))?.members.sort()).toEqual([id("8"), id("a"), id("b"), id("c")]);
+    expect(shape(whole.get(id("e")))?.members.sort()).toEqual([id("1"), id("e")]);
+    expect(whole.get(id("d")) ?? whole.get(id("2")) ?? whole.get(id("6"))).toBeUndefined();
+    expect(shape(whole.get(id("4")))?.why).toContain("judged");
+    // the atlas's title candidate, asked of every copy of either side, and of no one else
+    const asked = [id("e"), id("f")].sort() as [string, string];
+    expect(unjudgedCopies(root)).toEqual([asked]);
+    for (const s of sources)
+      expect(copyProposals(root, s.id)).toEqual(["1", "e", "f"].map(id).includes(s.id) ? [{ a: asked[0], b: asked[1] }] : []);
   });
 });
