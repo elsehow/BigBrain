@@ -16,6 +16,8 @@ export interface FieldNode {
   aliases: string[];
   /** /api/graph's note path, for the entity's own assertions. */
   path: string | null;
+  /** The servers it comes from (connection ids); empty for your vault alone. */
+  servers: string[];
   degree: number;
   memory: boolean;
   p: [number, number, number];
@@ -88,6 +90,7 @@ export function buildField(graph: GraphData): Field {
     const r = radius[i]! || 1, s = spaced[i]! / r;
     return {
       i, id: n.id, label: n.title, aliases: n.aliases ?? [], path: n.path === undefined ? n.id : n.path, degree: n.degree, memory, named: memory,
+      servers: (n.vaults ?? []).filter((v) => v !== "personal"),
       p: [(n.x! - cx) * s, 3 + (unit(n.id) - 0.5) * 2.6 + Math.min(1.2, Math.log1p(n.degree) * 0.12) + (memory ? 1.8 : 0), (n.y! - cy) * s * 0.8 - 4],
     };
   });
