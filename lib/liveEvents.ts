@@ -3,8 +3,9 @@
  * (#291, the SSE half of #260's seam list): one watcher over the vault,
  * fanned out to SSE clients. Open tabs hold /api/events; any change under
  * the watched trees (a pull landing, triage filing, deep work curating, a
- * vault.yaml edit) becomes one debounced ping, and each tab re-fetches
- * what it's showing.
+ * vault.yaml edit) becomes one debounced `event: views` carrying each view's
+ * stamp (lib/viewStamps.ts), and each tab fetches only the views whose stamp
+ * moved. A connection opens with the current stamps.
  *
  * The old server started all of this as live side effects inside
  * startLive(); here it is a value with a lifecycle — createLive() only
@@ -22,7 +23,8 @@ import { isAbsolute, relative, sep } from "node:path";
 import { BROWSE_ROOTS } from "./browsePaths";
 import { isLedgerPath } from "./retrieval";
 import { invalidateGraphCaches } from "./graphCache";
-import { maintainGraphView } from "./maintainedGraph";
+import { maintainGraphView, onGraphView } from "./maintainedGraph";
+import { viewStamps, type ViewStamps } from "./viewStamps";
 import { claimProjectionRecovery, projectionHolds, syncAssertionProjection } from "./assertionProjection";
 import { background } from "./readModelBackground";
 import { readModelRevision } from "./vaultReadModel";
@@ -105,6 +107,9 @@ export interface LiveOptions {
   /** Whether the projection holds the log files a change named;
    * projectionHolds by default. Recovery runs only when it does not. */
   holds?: (root: string, rels: Iterable<string>) => boolean;
+  /** Each view's stamp, given the stamp of the watched files outside the
+   * projection; viewStamps by default. */
+  stamps?: (root: string, files: string) => ViewStamps;
   /** A pull touches many files at once — one ping covers them. */
   debounceMs?: number;
   /** Comment-only heartbeat so idle connections aren't reaped by timeouts. */
@@ -121,6 +126,9 @@ export interface Live {
   removeClient(c: LiveClient): void;
   /** The watcher callback — public so tests feed change events directly. */
   handleChange(rel: string): void;
+  /** Push the stamps to any client they moved for, after a change the
+   * watcher cannot see (joining a shared vault). */
+  refreshViews(): void;
 }
 
 export function createLive(opts: LiveOptions): Live {
@@ -132,6 +140,7 @@ export function createLive(opts: LiveOptions): Live {
     warmLayout = maintainGraphView,
     recover = recoverInBackground,
     holds = projectionHolds,
+    stamps = viewStamps,
     debounceMs = 300,
     heartbeatMs = 30_000,
     log = (msg) => console.error(msg),
@@ -139,6 +148,7 @@ export function createLive(opts: LiveOptions): Live {
 
   const clients = new Set<LiveClient>();
   let unsubscribe: (() => void) | undefined;
+  let unlanded: (() => void) | undefined;
   let pingTimer: ReturnType<typeof setTimeout> | null = null;
   let heartbeat: ReturnType<typeof setInterval> | null = null;
   let watcher: { close: () => void } | null = null;
@@ -153,6 +163,23 @@ export function createLive(opts: LiveOptions): Live {
   let usageTimer: ReturnType<typeof setTimeout> | null = null;
   let progressTimer: ReturnType<typeof setTimeout> | null = null;
   let lastProgress = "null";
+  // Watched files outside the projection; the epoch names this process, so a
+  // restart reads as a move.
+  const epoch = crypto.randomUUID().slice(0, 8);
+  let files = 0;
+  /** The stamps each client was last sent: it hears only a move from those. */
+  const sent = new WeakMap<LiveClient, string>();
+  function sendViews(c: LiveClient, data: string): void {
+    if (sent.get(c) === data) return;
+    sent.set(c, data);
+    c.write(`event: views\ndata: ${data}\n\n`);
+  }
+  const viewsNow = () => JSON.stringify(stamps(root, `${epoch}:${files}`));
+  function publishViews(): void {
+    if (stopped || !clients.size) return;
+    const data = viewsNow();
+    for (const c of clients) sendViews(c, data);
+  }
   function publishProgress(): void {
     const data = JSON.stringify(readGardenerProgress(root));
     if (stopped || data === lastProgress) return;
@@ -190,10 +217,11 @@ export function createLive(opts: LiveOptions): Live {
     // (#247/#248).
     if (isLedgerPath(rel) || stopped) return;
     if (first === "log") changedLogs.add(rel);
+    else if (!BROWSE_ROOTS.has(first)) files++;
     announce();
   }
 
-  /** A vault change: drop the graph now, ping once it has settled again. */
+  /** A vault change: drop the graph now, push the stamps once it has settled again. */
   function announce(): void {
     revision++;
     invalidateGraphCaches(root);
@@ -230,7 +258,7 @@ export function createLive(opts: LiveOptions): Live {
         /* layout is best-effort; graphWithLayout computes on demand */
       }
       if (stopped || current !== revision) return;
-      for (const c of clients) c.write(`data: {"changed":true}\n\n`);
+      publishViews();
     }, debounceMs);
   }
 
@@ -288,6 +316,10 @@ export function createLive(opts: LiveOptions): Live {
       unsubscribe = opts.applicationChanges?.subscribe(event => {
         for (const c of clients) c.write(`event: application\ndata: ${JSON.stringify(event)}\n\n`);
       });
+      // A graph view that lands outside a change (the first start's build, a
+      // request's) is pushed too.
+      unlanded?.();
+      unlanded = onGraphView(landed => { if (landed === root) publishViews(); });
       watchRetryMs = 100;
       openWatcher();
       heartbeat = setInterval(() => {
@@ -302,6 +334,7 @@ export function createLive(opts: LiveOptions): Live {
     stop(): void {
       stopped = true;
       unsubscribe?.(); unsubscribe = undefined;
+      unlanded?.(); unlanded = undefined;
       revision++;
       if (usageTimer) clearTimeout(usageTimer);
       usageTimer = null;
@@ -322,11 +355,13 @@ export function createLive(opts: LiveOptions): Live {
       if (opts.applicationChanges) c.write(`event: application\ndata: ${JSON.stringify(opts.applicationChanges.snapshot())}\n\n`);
       const progress = readGardenerProgress(root);
       if (progress) c.write(`event: gardener\ndata: ${JSON.stringify(progress)}\n\n`);
+      sendViews(c, viewsNow());
     },
     removeClient(c: LiveClient): void {
       clients.delete(c);
     },
     handleChange,
+    refreshViews: publishViews,
   };
 }
 

@@ -68,7 +68,7 @@ test("progress events update SSE without warming or invalidating graph content",
   live.handleChange(GARDENER_PROGRESS_PATH);
   await Bun.sleep(130);
   expect(writes.at(-1)).toContain('"phase":"checking"');
-  expect(writes.some(text => text.includes('"changed":true'))).toBe(false);
+  expect(writes.filter(text => text.startsWith("event: views"))).toHaveLength(1); // the connection's, no push
   expect([refresh, warm]).toEqual([0, 0]);
   progress.finish(); live.handleChange(GARDENER_PROGRESS_PATH);
   await Bun.sleep(130);
@@ -94,7 +94,7 @@ test("a vanished progress temp file reconciles the status without treating it as
     await Bun.sleep(130);
     expect(writes.at(-1)).toBe("event: gardener\ndata: null\n\n");
     expect([recoveries, refreshes, warms]).toEqual([1, 0, 0]);
-    expect(writes.some(text => text.includes('"changed":true'))).toBe(false);
+    expect(writes.filter(text => text.startsWith("event: views"))).toHaveLength(1); // the connection's, no push
   } finally { live.stop(); }
 });
 
@@ -130,7 +130,7 @@ test("the real filesystem watcher forwards atomic progress changes independently
     })}`)), 2000); })]);
     expect(paths.length).toBeGreaterThan(0); // Recovery hints alone cannot pass.
     expect([recoveries, refreshes, warms]).toEqual([1, 0, 0]);
-    expect(writes.some(text => text.includes('"changed":true'))).toBe(false);
+    expect(writes.filter(text => text.startsWith("event: views"))).toHaveLength(1); // the connection's, no push
     if (errors.length) console.info("Native progress watcher recovered:", JSON.stringify({
       subscriptions, errors, publications, nativeEvents: paths.length, deliveryMs: performance.now() - started,
     }));

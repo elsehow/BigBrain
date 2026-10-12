@@ -2,21 +2,8 @@ import { ApplicationActions, userActionId } from "./applicationActions";
 import { createSourceReadStateService } from "./sourceReadState";
 import { createEmailReadStateAdapter } from "./emailReadState";
 import { json, readBody, type Route } from "./httpx";
-import type { Graph } from "./graph";
 
 export const sourceReadStates = createSourceReadStateService([createEmailReadStateAdapter(undefined, { userSeen: true })]);
-
-/** Overlay only: changing read flags must not rebuild graph topology/layout.
- * Refresh off the request path so an offline provider cannot stall the graph.
- * /api/source/read-state awaits the same refresh when a caller needs freshness. */
-export function graphWithReadState(root: string, graph: Graph): Graph {
-  const byPath = new Map(sourceReadStates.peek(root).map(r => [r.path, r.readState]));
-  void sourceReadStates.refresh(root).catch(() => {});
-  return { ...graph, nodes: graph.nodes.map(n => {
-    const readState = byPath.get(n.path ?? n.id);
-    return readState ? { ...n, readState } : n;
-  }) };
-}
 
 export function sourceReadStateRoutes(root: string, service = sourceReadStates, actions = new ApplicationActions(root)): Route[] {
   return [

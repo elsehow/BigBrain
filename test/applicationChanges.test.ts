@@ -8,15 +8,16 @@ import { workDetail, type WorkSession } from "../lib/workHistory";
 
 test("coalesced application traffic does not invalidate vault topology, while external edits do", async () => {
   const changes = new ApplicationChanges(), chunks: string[] = [];
-  let refreshes = 0, recoveries = 0, layouts = 0;
+  let refreshes = 0, recoveries = 0, layouts = 0, stamped = 0;
   const live = createLive({ root: "/tmp/fabricated-application-vault", applicationChanges: changes,
+    stamps: () => ({ generation: "g", revision: String(++stamped), views: { graph: "", joined: "", feed: "", files: "" } }),
     watch: () => ({ close() {} }), refresh: () => { refreshes++; },
     recover: async () => { recoveries++; return false; }, warmLayout: () => { layouts++; }, debounceMs: 0 });
   live.start(); live.addClient({ write: c => chunks.push(c) });
   try {
     for (let revision = 1; revision <= 100; revision++) changes.changed("work", "work-fixture", revision);
     changes.flush();
-    expect(chunks.length).toBe(2); expect(chunks[1]).toContain('"revision":100');
+    expect(chunks.length).toBe(3); expect(chunks[2]).toContain('"revision":100');
     expect([recoveries, refreshes, layouts]).toEqual([1, 0, 0]);
     live.handleChange("journal/model-runs/2026-09/fixture.json");
     await new Promise(resolve => setTimeout(resolve, 10));
@@ -24,7 +25,7 @@ test("coalesced application traffic does not invalidate vault topology, while ex
     expect([recoveries, refreshes, layouts]).toEqual([1, 0, 0]);
     live.handleChange("memory/fixture.md");
     await new Promise(resolve => setTimeout(resolve, 10));
-    expect(layouts).toBe(1); expect(chunks.at(-1)).toContain('"changed":true');
+    expect(layouts).toBe(1); expect(chunks.at(-1)).toContain("event: views");
   } finally { live.stop(); }
 });
 

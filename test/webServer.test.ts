@@ -373,8 +373,15 @@ test("search keeps grouped thread rows fresh across the live invalidation path",
     expect(first.nextOffset).toBeNull();
     expect(first.hits[0]).toMatchObject({ title: "Threadsearchprobe archive acquisition discussion", threadCount: 2, source: "email" });
     live.start();
-    const changed = new Promise<void>(resolve => live.addClient({ write: text => { if (text.includes('"changed":true')) resolve(); } }));
-    appendSourceInsertionEvent(root, rows[2]!);
+    // the connection's stamps, then the push once the landing has settled
+    let opened = false;
+    const changed = new Promise<void>(resolve => live.addClient({ write: text => {
+      if (!text.startsWith("event: views")) return;
+      if (opened) resolve(); else opened = true;
+    } }));
+    // projected before any push, as every engine write is: a push that comes
+    // first (a graph view landing, the boot recovery) must not race it
+    appendSourceInsertionEvent(root, rows[2]!); projectSourceInsertion(root, rows[2]!);
     live.handleChange(insertionEventRel(rows[2]!));
     await changed;
     const next = await search();

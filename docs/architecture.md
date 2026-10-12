@@ -127,7 +127,17 @@ Every commit that moves the revision also writes what moved it to `changes`
 are one ordered stream: `projectionChangesSince` reads it past a
 `generation:revision`, and answers nothing when the reader must start again
 from a snapshot. It is what views maintained on commit and pushes to clients
-read (`docs/plans/2026-10-10-change-log.md`).
+read (`docs/plans/2026-10-10-change-log.md`). Run journals the viewer reads
+(tend's runs, the feed stage's items) log a `journal` row as they are written.
+
+The graph is a view kept by its maintainer
+([`maintainedGraph.ts`](../lib/maintainedGraph.ts)): rebuilt in a worker when
+a kind it reads is committed, saved with its revision, and served as bytes
+whose hash is the response's ETag. The viewer's live stream pushes each view's
+stamp ([`viewStamps.ts`](../lib/viewStamps.ts), `event: views`) when a change
+settles and when a view lands; a tab fetches only a view whose stamp moved, and
+never polls. `/api/graph?current` waits for the view to reflect the
+projection as the request found it, for a client reading its own write.
 
 [`vaultReadModel.ts`](../lib/vaultReadModel.ts) is the shared snapshot boundary.
 A synchronous `withVaultSnapshot` callback borrows one SQLite read transaction;

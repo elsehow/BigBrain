@@ -38,7 +38,7 @@ export function desktopRouteManifest(root: string, options: { includeSupport?: b
   process.once("exit", () => chats.close());
   // Dev only: a scripted agent instead of the vault's model (lib/env.ts, agentScript).
   const script = agentScript();
-  const desktops = new CodingDesktops(root, { nameTask, agents: hostAgents(root, workspace(agentWorkspace())), themeUrl: `http://127.0.0.1:${webPort()}${THEME_SHEET}`,
+  const desktops = new CodingDesktops(root, { nameTask, changes: options.changes, agents: hostAgents(root, workspace(agentWorkspace())), themeUrl: `http://127.0.0.1:${webPort()}${THEME_SHEET}`,
     ...(script ? { host: async () => (await import(resolve(script))).default() } : {}) });
   process.once("exit", () => desktops.close());
   // the lists serve each context source with the entities it concerns

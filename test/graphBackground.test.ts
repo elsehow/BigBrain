@@ -6,7 +6,7 @@ import { assertionGraphEvidenceAsync, invalidateGraphCaches, readLayoutCache } f
 import { currentGraph, forgetGraphView, maintainGraphView, saveGraphView, savedGraph, type BuildGraphView } from "../lib/maintainedGraph";
 import { buildAssertionGraph } from "../lib/assertionGraph";
 import { appendSourceInsertionEvent, insertionEventRel } from "../lib/insertionLog";
-import { projectSourceInsertion } from "../lib/assertionProjection";
+import { projectJournal, projectionRevision, projectSourceInsertion } from "../lib/assertionProjection";
 import { sourceInsertionCached } from "../lib/assertionEntityView";
 import { insertion } from "./support/vault";
 import { withVaultSnapshot } from "../lib/vaultReadModel";
@@ -59,7 +59,7 @@ test("a start serves the view saved last session, with no build when nothing mov
   expect(builds).toBe(0);
 });
 
-test("a journal write never rebuilds the view; a commit does", async () => {
+test("a journal write moves the revision but never rebuilds the view; a commit does", async () => {
   const root = fresh();
   appendSourceInsertionEvent(root, source("1"));
   await maintainGraphView(root);
@@ -67,7 +67,11 @@ test("a journal write never rebuilds the view; a commit does", async () => {
   const counting: BuildGraphView = async (r) => { builds++; const { buildGraphView } = await import("../lib/maintainedGraph"); return buildGraphView(r); };
   mkdirSync(join(root, "journal", "tend", "2026-10"), { recursive: true });
   writeFileSync(join(root, "journal", "tend", "2026-10", "run-1.json"), "{}");
+  const before = projectionRevision(root);
+  projectJournal(root, "journal/tend/2026-10/run-1.json"); // as tend logs it
+  expect(projectionRevision(root)).not.toBe(before);
   await maintainGraphView(root, counting);
+  await currentGraph(root, counting); // the view now stands at the new revision
   expect(builds).toBe(0);
   appendSourceInsertionEvent(root, source("2")); projectSourceInsertion(root, source("2"));
   await maintainGraphView(root, counting);
@@ -102,6 +106,7 @@ test("stopping the watcher suppresses a ping from an outstanding async warm", as
   const warming = new Promise<void>(resolve => { release = resolve; });
   const live = createLive({ root, debounceMs: 1, refresh: () => {}, warmLayout: () => { entered(); return warming; } });
   live.addClient({ write: text => writes.push(text) });
+  writes.length = 0; // the connection's stamps
   live.handleChange("memory/index.md");
   await started;
   live.stop(); release();
@@ -125,9 +130,12 @@ test("a request serves the last view at once and starts the build; no watcher ne
 
 test("a newer watcher change suppresses the older in-flight ping", async () => {
   const root = fresh(), writes: string[] = [], releases: Array<() => void> = [];
+  let stamped = 0;
   const live = createLive({ root, debounceMs: 1, refresh: () => {},
+    stamps: () => ({ generation: "g", revision: String(++stamped), views: { graph: "", joined: "", feed: "", files: "" } }),
     warmLayout: () => new Promise<void>(resolve => releases.push(resolve)) });
   live.addClient({ write: text => writes.push(text) });
+  writes.length = 0; // the connection's stamps
   try {
     live.handleChange("memory/first.md");
     await Bun.sleep(5);
@@ -137,6 +145,6 @@ test("a newer watcher change suppresses the older in-flight ping", async () => {
     releases[0]!(); await Promise.resolve();
     expect(writes).toEqual([]);
     releases[1]!(); await Promise.resolve();
-    expect(writes).toEqual(['data: {"changed":true}\n\n']);
+    expect(writes).toEqual(['event: views\ndata: {"generation":"g","revision":"2","views":{"graph":"","joined":"","feed":"","files":""}}\n\n']);
   } finally { live.stop(); for (const release of releases) release(); }
 });

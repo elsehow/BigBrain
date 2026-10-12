@@ -26,6 +26,9 @@ const remotePath=(c:SharedConnection,id:string)=>`shared/${c.id}/${id}.md`;
 export async function pages<T>(c:SharedConnection,kind:string):Promise<T[]>{const rows:T[]=[];let cursor:string|null=null;do{const p:{items:T[];next_cursor:string|null}=await sharedRequest(c,`/v1/${kind}?limit=200${cursor?'&cursor='+encodeURIComponent(cursor):''}`);rows.push(...p.items);cursor=p.next_cursor;}while(cursor);return rows;}
 export function vaultFilter(header: string | string[] | undefined): string[] { return typeof header === "string" ? [...new Set(header.split(",").filter(Boolean))] : []; }
 export const includesPersonal = (filter: string[]) => !filter.length || filter.includes("personal");
+/** Whether a read under `filter` is your vault's alone: nothing joined to merge. */
+export const personalOnly = (filter: string[]) =>
+  (filter.length === 1 && filter[0] === "personal") || (includesPersonal(filter) && !readConnections(connectionStorePath()).length);
 type View=ReturnType<typeof sharedProjection>;
 const cached=new Map<string,{head:number;view:View}>(),loading=new Map<string,Promise<View>>();
 /** A server's projection, paged in again only when its change feed has moved:
@@ -73,7 +76,7 @@ export async function unionGraph(root:string,graph:Graph,filter:string[] = []):P
  if(filter.length===1&&filter[0]==="personal")return graph;
  if(!readConnections(connectionStorePath()).length)return graph;
  const local=localSources(root),cites=sharedCitations(root),citing=new Set<string>(),drawn=new Set<string>(),paths=new Map(graph.nodes.flatMap(n=>[n.path,...(n.memberPaths??[])].filter((p):p is string=>!!p).map(p=>[p,n])));
- const nodes=graph.nodes.map(n=>({...n,vaults:['personal']})),byId=new Map(nodes.map(n=>[n.id,n])),edges=[...graph.edges];
+ const nodes=graph.nodes.map(n=>({...n,vaults:['personal']})),byId=new Map(nodes.map(n=>[n.id,n])),edges=graph.edges.map(e=>({...e}));
  // One entity across vaults: keyed by the id it resolves to here, it is your
  // node when you have one, else the first joined vault's, and every other
  // vault's mentions land on it. A node's degree counts each tie once, however
