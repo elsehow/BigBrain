@@ -187,18 +187,12 @@ describe("the route table", () => {
     expect(new Set(keys).size).toBe(keys.length);
   });
 
-  // #639: GET /api/queue is gone. Its only reader was the home feed's
-  // column-head tooltip, and answering it built the whole due-set payload
-  // — two journal walks, the memory stamp, the memory work scan, a third
-  // journal walk and the observation mapping — for four numbers.
-  test("the queue head rides on the vault index, and has no door of its own", () => {
-    expect(server.ROUTES.some((r) => r.path === "/api/queue")).toBe(false);
-    const body = call("GET", "/api/vault") as {
-      queue: { waiting: number; running: number; nextEtaMs: number | null; tickMs: number | null };
-    };
-    // The scratch vault the suite preloads holds no insertions: nothing
-    // due, so no chip — and `nextEtaMs` null is what says so.
-    expect(body.queue).toEqual({ waiting: 0, running: 0, nextEtaMs: null, tickMs: expect.anything() });
+  // The vault's door says which vault this is (the identity header every
+  // response carries) and nothing more: its counts and queue head had no
+  // reader left, and the listing beside it had no caller.
+  test("/api/vault answers with nothing but the vault's identity; /api/notes and /api/queue are gone", () => {
+    expect(server.ROUTES.some((r) => r.path === "/api/queue" || r.path === "/api/notes")).toBe(false);
+    expect(call("GET", "/api/vault")).toEqual({});
   });
 
   // #639: the note's own date comes from the route that already has the

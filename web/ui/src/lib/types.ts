@@ -216,35 +216,6 @@ export interface GraphData {
   userNote?: { ids: string[]; names: string[] };
 }
 
-export interface VaultInfo {
-  /** the two trees, counted flat: the raw record + the maintained dossiers */
-  view?: { references: number; entities: number };
-  inbox: { pending: number; unsorted: number };
-  requests: { open: number; done: number };
-  /** How deep the intake queue is and when it next runs — the home feed's
-   * column head. It rides here rather than on a door of its own (#639):
-   * four numbers, and this payload is already re-fetched on every live
-   * ping, where GET /api/queue built the whole due-set feed to answer them.
-   * Optional so a viewer bundle can outlive the engine that serves it. */
-  queue?: QueueHead;
-}
-
-export interface QueueHead {
-  /** Due and not yet picked up. */
-  waiting: number;
-  /** Held by the round in flight — what the spinner reads. */
-  running: number;
-  /** ms until the gardener's next run. Under the desktop app this is the
-   * supervisor's own published clock — a schedule, not an estimate — and 0
-   * means the next beat fires it. Elsewhere it degrades to 0 whenever work
-   * is due, with `tickMs` naming the bound. null = nothing due (no chip). */
-  nextEtaMs: number | null;
-  /** The tick interval, non-null ONLY when `nextEtaMs` is inexact: it is
-   * the bound to name in place of a time ("within ~5m"). Null means the eta
-   * above is exact and needs no hedge. */
-  tickMs: number | null;
-}
-
 // The editable configuration surface (GET/POST /api/config): the
 // integrations map and the two pass models in vault.yaml. Saves are
 // validated and committed (author `config`).

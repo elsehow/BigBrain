@@ -462,15 +462,6 @@ export function projectedSource(root: string, id: string): SourceInsertion | und
   return withVaultSnapshot(root, db => decoded<SourceInsertion>(db, "SELECT event_json FROM sources JOIN source_documents USING (insertion_id) WHERE present = 1 AND insertion_id = ?", id)[0]);
 }
 
-/** How many notes the projection holds under `dir` (vault-relative), at
- * most `depth` folders below it: walkMarkdown's count of the same tree, as
- * the notes door last projected it. */
-export function noteCount(root: string, dir: string, depth = 3): number {
-  return withVaultSnapshot(root, (db) => (db.query(`SELECT count(*) AS n FROM markdown_documents
-    WHERE path > ?1 AND path < ?2 AND length(path) - length(replace(path, '/', '')) <= ?3`)
-    .get(`${dir}/`, `${dir}0`, dir.split("/").length + depth) as { n: number }).n);
-}
-
 export function projectedMarkdown(root: string, path: string): string | undefined {
   return withVaultSnapshot(root, db => {
     const row = db.query("SELECT document_json FROM markdown_bodies WHERE path = ?").get(path) as { document_json: string } | null;

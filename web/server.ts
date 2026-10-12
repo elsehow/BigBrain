@@ -53,10 +53,9 @@ import { recordUse } from "../lib/retrieval";
 import { clampLimit, scanSurface, SEARCH_CAP } from "../lib/searchCore";
 import { rankNavigationSearch } from "../lib/navigationSearch";
 import { envelopeOrSniff, type Envelope } from "../lib/envelope";
-import { entityMeta, envelopeWhen, parseNoteDate } from "../lib/noteMeta";
+import { envelopeWhen, parseNoteDate } from "../lib/noteMeta";
 import { withinRoot } from "../lib/browsePaths";
 import { serveStatic } from "../lib/staticServe";
-import { walkMarkdown } from "../lib/vaultRead";
 import { parseBlobRef, readBlob } from "../lib/blobs";
 import { recentSourcePageAsync } from "../lib/sourceFeed";
 import { currentGraph, currentGraphView, maintainGraphView } from "../lib/maintainedGraph";
@@ -65,11 +64,9 @@ import type { Database } from "bun:sqlite";
 import type { ProjectionView } from "../lib/assertionProjection";
 import { SORTED_PAGE, withRows, type V2Feed, type V2SortedRow } from "../lib/v2Feed";
 import { readEntitiesCiting, readEntityFeed, readLensClaims, readSortedPage, readV2Feed } from "../lib/v2Read";
-import { noteCount, otherCopies, withVaultSnapshot } from "../lib/vaultReadModel";
+import { otherCopies, withVaultSnapshot } from "../lib/vaultReadModel";
 import { frozenMessagesForRefs, sortFrozenDesc } from "../lib/frozenQueue";
-import { queueHead } from "../lib/queueHead";
 import { noteLog } from "../lib/noteLog";
-import type { NoteMeta } from "../lib/viewTypes";
 import { errText } from "../lib/errText";
 import { hasAssertionEvents } from "../lib/assertionLog";
 import { syncAssertionProjection } from "../lib/assertionProjection";
@@ -114,14 +111,10 @@ export function within(rel: string): string | null {
   return withinRoot(ROOT, rel);
 }
 
-// The frontmatter keys the listing reads: the date ladder below, then the
-// entity facets. ONE list because it is ONE read — noteWhen and noteEntity
-// each opened the file and parsed its head separately, so a 932-note
-// directory paid 1,864 reads to answer one listing (#639). The keys only
+// The frontmatter keys a note's date reads: the ladder below. They only
 // steer the line-wise FALLBACK (envelopeOrSniff sniffs them when the block
-// parse yields nothing), so asking for both sets costs a well-formed note
-// nothing and gives a malformed one both answers.
-const HEAD_KEYS = ["date", "created", "filed", "updated", "kind", "entity_type"];
+// parse yields nothing), so a well-formed note pays nothing for them.
+const HEAD_KEYS = ["date", "created", "filed", "updated"];
 
 /** A note's frontmatter head, parsed once. `undefined` when the file could
  * not be read — the caller falls back to what the filename and the stat
@@ -144,48 +137,13 @@ function noteHead(abs: string): Envelope | undefined {
 // YYYY-MM-DD prefix (the vault's own naming contract) arbitrates: a key
 // timestamp on the same day keeps its time-of-day; a different day means
 // the prefix wins at date precision.
-function whenOf(envelope: Envelope | undefined, base: string, mtimeMs: number): number {
+function noteWhen(abs: string, base: string, mtimeMs: number): number {
+  const envelope = noteHead(abs);
   const fn = /^(\d{4}-\d{2}-\d{2})\b/.exec(base);
   const fnMs = fn ? parseNoteDate(fn[1]!) : NaN;
   const t = envelope === undefined ? undefined : envelopeWhen(envelope, fnMs);
   if (t !== undefined) return t;
   return Number.isNaN(fnMs) ? mtimeMs : fnMs;
-}
-
-/** `whenOf` for a caller that holds only the path — the note routes, which
- * read one file and not a directory. */
-function noteWhen(abs: string, base: string, mtimeMs: number): number {
-  return whenOf(noteHead(abs), base, mtimeMs);
-}
-
-// Recursive: the editor nests notes (e.g. entities/orgs/acme.md), and those notes
-// must show. `name` keeps the dir-relative path so nesting is visible in lists.
-// The walk itself is lib/vaultRead.ts's (#259) — this door's options: three
-// directory levels deep, dot-entries skipped.
-function listNotes(dirRel: string, depth = 3): NoteMeta[] {
-  const real = within(dirRel);
-  if (!real || !existsSync(real) || !statSync(real).isDirectory()) return [];
-  return walkMarkdown(ROOT, [dirRel], { maxDepth: depth, skipDotted: true })
-    .flatMap((path) => {
-      const abs = join(ROOT, path);
-      let st: ReturnType<typeof statSync>;
-      try {
-        st = statSync(abs);
-      } catch {
-        return []; // vanished between walk and stat
-      }
-      const head = noteHead(abs);
-      return [
-        {
-          name: path.slice(dirRel.length + 1),
-          path,
-          modified: whenOf(head, path.split("/").at(-1)!, st.mtimeMs),
-          size: st.size,
-          ...(head ? entityMeta(head) : {}),
-        },
-      ];
-    })
-    .sort((a, b) => b.modified - a.modified);
 }
 
 // ── live: one watcher over the vault, fanned out to SSE clients ───────────────
@@ -274,43 +232,13 @@ function serveAsset({ res, url }: Ctx): void {
   send(res, 404, "not found", "text/plain");
 }
 
-/** The vault index: the record's counts and the queue head.
- *
- * The queue rides HERE, not on a door of its own (#639). Its only reader
- * is the home feed's column-head tooltip — four numbers — and it used to
- * ask for them with GET /api/queue, which built the whole due-set payload:
- * the due scan, then two journal walks, the memory stamp, the memory work
- * scan, a third journal walk and the observation mapping, every one of
- * them discarded. This route is already re-fetched on every live ping, so
- * the numbers arrive with the counts beside them and the second round trip
- * is gone. */
+/** Which vault this is: the identity header every response carries
+ * (lib/vaultBoundary.ts), asked first by a client that has not yet seen it
+ * (web/ui/src/lib/vaultScope.ts) and by whatever waits for the viewer to be
+ * up. Nothing else: the counts and the queue head it once carried had no
+ * reader left. */
 function vaultIndex({ res }: Ctx): void {
-  const queue = queueHead(ROOT);
-  // The counts are the projected notes (the notes door keeps them), in one snapshot.
-  json(res, 200, withVaultSnapshot(ROOT, () => ({
-    queue,
-    // the two trees that exist: the raw record + the maintained dossiers
-    view: {
-      references: noteCount(ROOT, "references"),
-      entities: noteCount(ROOT, "entities"),
-    },
-    // depth 0 where a subdir is its own bucket: inbox/unsorted, requests/done
-    inbox: {
-      pending: noteCount(ROOT, "inbox", 0),
-      unsorted: noteCount(ROOT, "inbox/unsorted"),
-    },
-    requests: {
-      open: noteCount(ROOT, "requests", 0),
-      done: noteCount(ROOT, "requests/done"),
-    },
-  })));
-}
-
-/** Note listing, path-safe and scoped to the browse roots. */
-function noteList({ res, url }: Ctx): void {
-  const dir = url.searchParams.get("dir") ?? "";
-  if (!within(dir)) return send(res, 404, "no such collection", "text/plain");
-  json(res, 200, { dir, notes: listNotes(dir) });
+  json(res, 200, {});
 }
 
 async function noteRead({ req, res, url }: Ctx): Promise<void> {
@@ -828,7 +756,6 @@ export const ROUTES: readonly Route[] = [
   { method: "GET", path: "/", handler: serveIndex },
   { method: "GET", path: "/assets/*", handler: serveAsset },
   { method: "GET", path: "/api/vault", handler: vaultIndex },
-  { method: "GET", path: "/api/notes", handler: noteList },
   { method: "GET", path: "/api/note", handler: noteRead },
   // an entity's briefing reads the joined vaults' claims about it too
   ...noteBriefingRoutes(ROOT, createNoteBriefingService(undefined, briefingFor)),

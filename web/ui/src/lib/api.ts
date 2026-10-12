@@ -12,7 +12,6 @@ import type {
   NoteResult,
   RecentEntry,
   UsageInfo,
-  VaultInfo,
   PilotSecret,
   PilotState,
 } from "./types";
@@ -23,7 +22,6 @@ const U = {
   vault: () => "/api/vault",
   folds: () => "/api/entity/folds",
   recent: (limit = 40, offset = 0) => `/api/recent?limit=${limit}&offset=${offset}`,
-  notes: (dir: string) => `/api/notes?dir=${encodeURIComponent(dir)}`,
   graph: () => "/api/graph",
   /** `assertions` (projection paths only): ask for just the latest N —
    * web/server.ts answers the truncated view plus its true total. */
@@ -127,9 +125,7 @@ const swrGet = <T>(url: string): Swr<T> => ({ cached: cachedOf<T>(url), fresh: g
 
 /** Cache-first variants of the hot read endpoints. */
 export const swr = {
-  vault: () => swrGet<VaultInfo>(U.vault()),
   recent: (limit = 40, offset = 0) => swrGet<RecentPage>(U.recent(limit, offset)),
-  notes: (dir: string) => swrGet<{ dir: string; notes: NoteMeta[] }>(U.notes(dir)),
   note: (path: string, assertions?: number) => swrGet<NoteResult>(U.note(path, assertions)),
   /** the memory pass's fold proposals (#728) — home's triage block */
   folds: () => swrGet<FoldsView>(U.folds()),
@@ -199,10 +195,10 @@ export async function dropBody(
 }
 
 export const api = {
-  vault: () => get<VaultInfo>(U.vault()),
+  /** Which vault this is, on the identity header; the body is empty. */
+  vault: () => get<Record<string, never>>(U.vault()),
   cachedRecent: (limit = 40, offset = 0) => cachedOf<RecentPage>(U.recent(limit, offset)),
   recent: (limit = 40, offset = 0, signal?: AbortSignal) => get<RecentPage>(U.recent(limit, offset), signal),
-  notes: (dir: string) => get<{ dir: string; notes: NoteMeta[] }>(U.notes(dir)),
   note: (path: string, assertions?: number) => get<NoteResult>(U.note(path, assertions)),
   search: (q: string, limit = 100, signal?: AbortSignal, source = "") =>
     get<{ query: string; hits: { dir: string; note: NoteMeta; title: string; snippet: string }[] }>(

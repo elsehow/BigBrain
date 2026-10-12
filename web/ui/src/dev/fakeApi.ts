@@ -33,10 +33,8 @@ import type {
   GraphData,
   IntegrationInfo,
   NoteResult,
-  QueueHead,
   RecentEntry,
   UsageInfo,
-  VaultInfo,
 } from "../lib/types";
 type Phase = "off" | "idle" | "connecting" | "ready" | "listening" | "thinking" | "speaking" | "error";
 interface Line { at?: string; speaker: "user" | "pilot"; text: string; tools?: string[] }
@@ -50,13 +48,8 @@ export interface VaultState {
   label: string;
   /** What this state is, and what to look for in it. Shown above the frame. */
   note: string;
-  vault: VaultInfo;
   recent: RecentEntry[];
   graph: GraphData;
-  /** Merged into the /api/vault payload, where the queue head lives since
-   * #639 — kept a separate scene field so a scene can say "four waiting"
-   * without restating the whole vault index. */
-  queue: QueueHead;
   /** `/api/tokens`. `null` ⇒ the route is absent. Otherwise every
    * credential minted for this vault: the machine's Claude Code, a paired
    * extension. From the app's side a client exists exactly when its token
@@ -126,14 +119,6 @@ const usageWeek = (used = .2, stale = false): UsageInfo => {
 };
 const USAGE_WEEK = usageWeek();
 const serveUsage = (u: UsageInfo | undefined): Response => json(u ?? { providers: {} });
-
-const EMPTY_QUEUE: QueueHead = { waiting: 0, running: 0, nextEtaMs: null, tickMs: null };
-
-const EMPTY_VAULT: VaultInfo = {
-  view: { references: 0, entities: 0 },
-  inbox: { pending: 0, unsorted: 0 },
-  requests: { open: 0, done: 0 },
-};
 
 const NOW = Date.parse("2026-08-11T17:00:00Z");
 const minsAgo = (m: number) => NOW - m * 60_000;
@@ -352,7 +337,7 @@ const DONE_SETUP: SetupState = { ...VAULT_SETUP, agent: AGENT_SETUP };
 /** The App's half of a step-1/2 scene: nothing, because the App is not
  * mounted. The fields still have to exist for the type; every one of them
  * is a zero. */
-const NOTHING = { vault: EMPTY_VAULT, recent: [], graph: EMPTY_GRAPH, queue: EMPTY_QUEUE, connections: [] as Connection[] };
+const NOTHING = { recent: [], graph: EMPTY_GRAPH, connections: [] as Connection[] };
 
 export const FIRST_RUN: Record<string, VaultState> = {
   noVault: {
@@ -408,10 +393,8 @@ export const FIRST_RUN: Record<string, VaultState> = {
   connectedEmpty: {
     label: "3 · connected, nothing landed",
     note: "The first screen that is the app. Vault and agent both exist, so the first-run screens are gone and do not come back (setup is two facts, not a dismissed banner). Nothing has landed, so home is one invitation (EmptyVault): drop anything anywhere on the window, or follow the link to Integrations. It leaves the moment a source, entity or arrival exists; the gardener's own memory notes do not count.",
-    vault: EMPTY_VAULT,
     recent: [],
     graph: EMPTY_GRAPH,
-    queue: EMPTY_QUEUE,
     connections: [AGENT],
     setup: DONE_SETUP,
   },
@@ -419,10 +402,8 @@ export const FIRST_RUN: Record<string, VaultState> = {
   firstItems: {
     label: "4 · first items landed",
     note: "Four captures in and the gardener has drawn two dossiers out of them — the feed is six rows and the graph is real but tiny. Compare with 3: the doors are gone the moment there is a row, and the screen is just home. The extension is now one of the filers (it holds a token for this vault, minted when it was paired — that record, not a page marker, is how the app knows it exists).",
-    vault: { ...EMPTY_VAULT, view: { references: 4, entities: 2 } },
     recent: LANDED,
     graph: SMALL_GRAPH,
-    queue: EMPTY_QUEUE,
     connections: [EXTENSION, AGENT],
     setup: { ...DONE_SETUP, agent: { ...AGENT_SETUP, lastUsed: new Date(minsAgo(1)).toISOString() } },
   },
@@ -430,10 +411,8 @@ export const FIRST_RUN: Record<string, VaultState> = {
   steady: {
     label: "5 · steady state",
     note: "What every other screen should be compared against. Nothing about first run is visible or recoverable from here — revoking the agent months from now summons no wizard at someone who is plainly set up; the agents card shows the state and a connect button, and that is all.",
-    vault: { ...EMPTY_VAULT, view: { references: 4, entities: 2 } },
     recent: LANDED,
     graph: SMALL_GRAPH,
-    queue: EMPTY_QUEUE,
     connections: [EXTENSION, AGENT],
     setup: { ...DONE_SETUP, agent: { ...AGENT_SETUP, lastUsed: new Date(minsAgo(1)).toISOString() } },
   },
@@ -442,8 +421,7 @@ export const FIRST_RUN: Record<string, VaultState> = {
 /** The established vault the scenes below stand on — both credentials live,
  * so the setup band is retired and nothing has a claim to the space above
  * the feed. */
-const SETTLED: Pick<VaultState, "vault" | "graph" | "connections"> = {
-  vault: { ...EMPTY_VAULT, view: { references: 4, entities: 2 } },
+const SETTLED: Pick<VaultState, "graph" | "connections"> = {
   graph: SMALL_GRAPH,
   connections: [EXTENSION, AGENT],
 };
@@ -601,7 +579,6 @@ export const FILED_BY: Record<string, VaultState> = {
     label: "0 · fold proposals at the top",
     note: "Home with the memory pass's proposals above the feed (#728): the labels it thinks name one thing, one pill row per group, for triage before anything else. The filled pill stays; × on a pill is 'not the same thing'; ACCEPT aliases the rest into it. Here the fake engine moves the groups as the real one would — an accepted or emptied group leaves — and the feed below is the mixed scene's.",
     recent: FILER_ROWS,
-    queue: EMPTY_QUEUE,
     ...SETTLED,
     graph: FILER_GRAPH,
     folds: SAMPLE_GROUPS,
@@ -610,7 +587,6 @@ export const FILED_BY: Record<string, VaultState> = {
     label: "1 · every filer at once — agents OFF by default",
     note: "Five filers: two agent connections (one absurdly long — the chip must ellipsize), the legacy bare 'claude code', granola, the extension, and the web drop. FRESH LOAD default: both agent chips sit dimmed, their rows are out of the feed and their source nodes out of the graph (Rivka keeps her granola grounding). Toggle a chip: its rows AND nodes return together. NOTE: choices persist in localStorage (bb-filed-by) — clear it to see the default again.",
     recent: FILER_ROWS,
-    queue: EMPTY_QUEUE,
     ...SETTLED,
     graph: FILER_GRAPH,
   },
@@ -702,14 +678,12 @@ export const DROP: Record<string, VaultState> = {
     label: "0 · before the drop",
     note: "The small vault at rest: six items, two entities, nothing waiting. PLAY (in the sidebar) runs the whole story from here under this one mounted app — a file lands, its point appears turning with the camera on it and the tab open on it, and three seconds later the round files it and the camera flies out to its threads. Esc at any point closes the note and brings the camera home.",
     recent: LANDED,
-    queue: EMPTY_QUEUE,
     ...SETTLED,
   },
   landed: {
     label: "1 · landed — a point, turning",
-    note: "The moment after a drop lands (DropZone's gotoNote): the arrival is a degree-0 node off on its own, drawn as a spinner; the camera has centred on it and its name shows; the text tab is open on it and says the record has made nothing of it yet; the feed's top row wears the same spinner and the column head says when the round comes.",
+    note: "The moment after a drop lands (DropZone's gotoNote): the arrival is a degree-0 node off on its own, drawn as a spinner; the camera has centred on it and its name shows; the text tab is open on it and says the record has made nothing of it yet; the feed's top row wears the same spinner.",
     recent: [DROP_ROW, ...LANDED],
-    queue: { waiting: 1, running: 0, nextEtaMs: 0, tickMs: 300_000 },
     ...SETTLED,
     graph: DROP_LANDED_GRAPH,
     notes: { [DROP_PATH]: DROP_NOTE },
@@ -719,7 +693,6 @@ export const DROP: Record<string, VaultState> = {
     label: "2 · filed — the threads",
     note: "The round has filed it: two assertions cite it, so the point has two threads and the layout pulled it in between its entities. The rebuild keeps the camera where it was and flies it to the node's new region — its neighbours framed — instead of cutting to the whole picture; the spinner is a disc now, the row a check, the tab two rows whose links j/k walk.",
     recent: [{ ...DROP_ROW, status: "filed" }, ...LANDED],
-    queue: EMPTY_QUEUE,
     ...SETTLED,
     graph: DROP_FILED_GRAPH,
     notes: { [DROP_PATH]: DROP_FILED_NOTE },
@@ -731,7 +704,7 @@ const BRIEFING_PATH = "projection/entities/ent_00000000000000000001.md";
 const BRIEFING_SOURCE = "log/insertions/2026-09/ins_000000000000000000000001.json";
 const BRIEFING_STATE: VaultState = {
   ...SETTLED, label: "Summary and relationships", note: "One Quick response, ordered relationship links, and j/k navigation across every note kind.",
-  recent: [], queue: EMPTY_QUEUE, hash: `/vault/${BRIEFING_PATH}`,
+  recent: [], hash: `/vault/${BRIEFING_PATH}`,
   graph: { hash: "briefing-demo", nodes: [
     { id: BRIEFING_PATH, path: BRIEFING_PATH, title: "Atlas", group: "entity", degree: 1, x: 0, y: 0 },
     { id: BRIEFING_SOURCE, path: BRIEFING_SOURCE, title: "Atlas — September update", group: "source", degree: 1, x: 120, y: 60, band: "person", from: "web" },
@@ -851,13 +824,13 @@ export const DIAGNOSTICS_STUCK: DiagnosticsReport = {
 export const SETTINGS: Record<string, VaultState> = {
   codexVault: {
     label: "Vault — shared Codex model", note: "One selection for gardener and memory, with models from both agent sessions.",
-    ...SETTLED, recent: LANDED, queue: EMPTY_QUEUE,
+    ...SETTLED, recent: LANDED,
     setup: { ...SETUP_LIVE, codex: { installed: "0.153.4", supported: true, account: "", connected: true, plugin: "0.1.18" } },
     config: { gardener: "gpt-example", memory: "gpt-example", curation: { agent: "codex", model: "gpt-example" } }, view: "vaultSettings",
   },
   codexAgents: {
     label: "Agents — Claude and Codex", note: "Independent connections; hook approval stays in Codex.",
-    ...SETTLED, recent: LANDED, queue: EMPTY_QUEUE,
+    ...SETTLED, recent: LANDED,
     setup: { ...SETUP_LIVE, codex: { installed: "0.153.4", supported: true, account: "", connected: true, plugin: "0.1.18" } }, view: "agents",
   },
   vault: {
@@ -865,7 +838,6 @@ export const SETTINGS: Record<string, VaultState> = {
     note: "Settings → vault, first on the rail since everything hangs off it. The card is the eyebrow line (VAULT, the path in use), a Switch vault heading with first run's picker — Create new / Open — and, since 2026-08-27, the Filter: the FILED BY chips that sat under the home graph and under a note's neighbourhood. Off chips are dimmed; the count says what's showing. `web` reads as `dropped`; the grouped legacy family `other` is no chip at all — its items always show. The choices are the ones the feed and every graph obey.",
     ...SETTLED,
     recent: LANDED,
-    queue: EMPTY_QUEUE,
     setup: SETUP_LIVE,
     view: "vaultSettings",
   },
@@ -875,7 +847,6 @@ export const SETTINGS: Record<string, VaultState> = {
     note: "Settings → themes: two pairs that follow the system lead — Ink, the default, then Kind of Blue — each card split between its halves; then the single palettes, each swatch PAINTED IN THE THEME IT OFFERS (data-theme on the box, the same mechanism the app uses); and after them this machine's own SKINS: YAML files in ~/.config/bigbrain/themes/, served by the engine as CSS (lib/themes.ts) and injected before the first paint (lib/theme.ts). Here the folder holds Solarized Light (the shipped example) and a minimal Gruvbox, plus half-done.yaml, which the card below the grid names with its reason. The three dots are the background, foreground, and activity colors. Click one and the whole workbench repaints, because the choice lands on the real document root (localStorage) — set it back to Ink when you are done looking. WRITE EXAMPLE SKIN and OPEN FOLDER answer here without a folder to write or open.",
     ...SETTLED,
     recent: LANDED,
-    queue: EMPTY_QUEUE,
     setup: SETUP_LIVE,
     skins: SKINS_DEMO,
     view: "themes",
@@ -886,7 +857,6 @@ export const SETTINGS: Record<string, VaultState> = {
     note: "Toggle keyboard hints without changing control positions.",
     ...SETTLED,
     recent: LANDED,
-    queue: EMPTY_QUEUE,
     setup: SETUP_LIVE,
     view: "vaultSettings",
   },
@@ -896,7 +866,6 @@ export const SETTINGS: Record<string, VaultState> = {
     note: "Settings → diagnostics (#710): the facts up top — engine, vault, supervisor, whether `claude` is on the jobs PATH and signed in, each job's next fire, the intake lock — then the tail of every log the app writes, tend first, the shell's own last. Here `claude` is NOT on the jobs PATH (an nvm install) and tend.log says so on every tick: the screen exists for this state. COPY DEBUG BUNDLE puts the same thing on the clipboard as text; RUN CHECK makes the `claude -p` call the scheduled tick makes (the workbench answers it at once); REVEAL LOGS opens the folder (no OS here — the path is shown instead).",
     ...SETTLED,
     recent: LANDED,
-    queue: EMPTY_QUEUE,
     setup: SETUP_LIVE,
     diagnostics: DIAGNOSTICS_STUCK,
     view: "diagnostics",
@@ -907,7 +876,6 @@ export const SETTINGS: Record<string, VaultState> = {
     note: "The steady state of the agents card: 'connected' in green at the top right, then reported BigBrain tokens and a separate account quota reading — the capture switch, and the LIVE credentials with REVOKE — revoked ones are not listed. The top bar's dot is green here: under the app it means a Claude Code is connected, not that the stream is up.",
     ...SETTLED,
     recent: LANDED,
-    queue: EMPTY_QUEUE,
     setup: SETUP_LIVE,
     usage: USAGE_WEEK,
     view: "agents",
@@ -918,7 +886,6 @@ export const SETTINGS: Record<string, VaultState> = {
     note: "The note under the memory model reads the vault's own memory.interval off /api/config (ms; 0.1.29) — 'Runs every 6 hours.' here, 'Runs once per day.' on the default and on an older engine that does not send the number. Nothing in the UI sets the interval yet; vault.yaml does.",
     ...SETTLED,
     recent: LANDED,
-    queue: EMPTY_QUEUE,
     setup: SETUP_LIVE,
     usage: USAGE_WEEK,
     config: { gardener: "claude-opus-5", memory: "claude-fable-5", interval: 6 * 3_600_000 },
@@ -929,7 +896,6 @@ export const SETTINGS: Record<string, VaultState> = {
     note: "A tester's 2026-09-02: the credential is live, so this card said 'connected' in green while every intake round failed on a signed-out Claude Code. Now the headline is the blocker — NOT SIGNED IN in the warn colour, the plan meter withheld — and the check row below says what to run. Claude Code's own `claude auth status` is the source (lib/firstRun.ts claudeStatus), not the account name its config keeps after a logout. The top bar's dot goes grey for the same reason, with the word in its tooltip.",
     ...SETTLED,
     recent: LANDED,
-    queue: EMPTY_QUEUE,
     setup: { ...SETUP_LIVE, claude: { ...CLAUDE_OK, account: null } },
     usage: USAGE_WEEK,
     view: "agents",
@@ -940,7 +906,6 @@ export const SETTINGS: Record<string, VaultState> = {
     note: "Connected, but Claude Code's installed bigbrain plugin is 0.1.5 and this engine ships 0.1.6 — the check row says both, and UPDATE closes the gap without quitting the app (the next launch would do it too). Click it: the row comes forward to 0.1.6 and the button goes, because the drift is gone. Claude Code caches a plugin by version, so this is the one drift the person could otherwise never see (lib/pluginState.ts).",
     ...SETTLED,
     recent: LANDED,
-    queue: EMPTY_QUEUE,
     setup: { ...SETUP_LIVE, claude: { ...CLAUDE_OK, plugin: { ...PLUGIN_OK, installed: "0.1.5", current: false } } },
     usage: USAGE_WEEK,
     view: "agents",
@@ -951,7 +916,6 @@ export const SETTINGS: Record<string, VaultState> = {
     note: "The account has used 62% of its weekly quota. BigBrain token counts remain separate; no quota attribution is inferred.",
     ...SETTLED,
     recent: LANDED,
-    queue: EMPTY_QUEUE,
     setup: SETUP_LIVE,
     usage: usageWeek(.62),
     view: "agents",
@@ -962,7 +926,6 @@ export const SETTINGS: Record<string, VaultState> = {
     note: "The last run was before Wednesday's reset, so the meter it read is last week's. The bar keeps the true last number but dims it, the sub-line says 'reset Wed' instead of 'resets', and the caption says the next run refreshes it — never a fabricated 0%.",
     ...SETTLED,
     recent: LANDED,
-    queue: EMPTY_QUEUE,
     setup: SETUP_LIVE,
     usage: usageWeek(.2, true),
     view: "agents",
@@ -973,7 +936,6 @@ export const SETTINGS: Record<string, VaultState> = {
     note: "Connected a minute ago; nothing has run. The bar's row says 'this week', an empty track, and the caption says the first gardener run fills it in. On api auth the whole block is absent instead — an API key has rate limits, not a usage window.",
     ...SETTLED,
     recent: LANDED,
-    queue: EMPTY_QUEUE,
     setup: SETUP_LIVE,
     view: "agents",
   },
@@ -983,7 +945,6 @@ export const SETTINGS: Record<string, VaultState> = {
     note: "The two model rows under the capture switch: the gardener on `opus` (an alias Claude Code resolves to the latest each run) and the memory pass pinned to `claude-opus-4-8` — which the menu shows as custom… with the id in the field, because the menu is the aliases only (a pinned list went stale within a week; lib/models.ts). Change one and the toast says which pass runs what from its next run; the save is vault.yaml's gardener.model / memory.model, posted to /api/config.",
     ...SETTLED,
     recent: LANDED,
-    queue: EMPTY_QUEUE,
     setup: SETUP_LIVE,
     config: { gardener: "opus", memory: "claude-opus-4-8" },
     view: "agents",
@@ -994,7 +955,6 @@ export const SETTINGS: Record<string, VaultState> = {
     note: "vault.yaml names `claude-opus-6`, which shipped after this menu did. The select says custom… and the field carries the id as typed — never coerced to the nearest thing the menu knows. Enter or blur saves; the same field is how anyone types an id ahead of the menu. The memory pass is on `sonnet`.",
     ...SETTLED,
     recent: LANDED,
-    queue: EMPTY_QUEUE,
     setup: SETUP_LIVE,
     config: { gardener: "claude-opus-6", memory: "sonnet" },
     view: "agents",
@@ -1006,7 +966,6 @@ export const SETTINGS: Record<string, VaultState> = {
     ...SETTLED,
     connections: [EXTENSION, AGENT_REVOKED],
     recent: LANDED,
-    queue: EMPTY_QUEUE,
     setup: { ...SETUP_LIVE, agent: REVOKED },
     view: "agents",
   },
@@ -1017,7 +976,6 @@ export const SETTINGS: Record<string, VaultState> = {
     ...SETTLED,
     connections: [EXTENSION, AGENT_REVOKED],
     recent: LANDED,
-    queue: EMPTY_QUEUE,
     setup: { ...SETUP_LIVE, claude: { installed: false, account: null }, agent: REVOKED },
     view: "agents",
   },
@@ -1028,7 +986,6 @@ export const SETTINGS: Record<string, VaultState> = {
     ...SETTLED,
     connections: null,
     recent: LANDED,
-    queue: EMPTY_QUEUE,
     view: "agents",
   },
 };
@@ -1067,7 +1024,6 @@ export const INTEGRATIONS: Record<string, VaultState> = {
     ...SETTLED,
     connections: [AGENT],
     recent: LANDED,
-    queue: EMPTY_QUEUE,
     setup: SETUP_LIVE,
     pair: PAIR_IDLE,
     view: "integrations",
@@ -1079,7 +1035,6 @@ export const INTEGRATIONS: Record<string, VaultState> = {
     ...SETTLED,
     connections: [AGENT],
     recent: LANDED,
-    queue: EMPTY_QUEUE,
     setup: SETUP_LIVE,
     pair: PAIR_CODE,
     view: "integrations",
@@ -1091,7 +1046,6 @@ export const INTEGRATIONS: Record<string, VaultState> = {
     ...SETTLED,
     connections: [EXTENSION, FIREFOX, AGENT],
     recent: LANDED,
-    queue: EMPTY_QUEUE,
     setup: SETUP_LIVE,
     pair: PAIR_IDLE,
     view: "integrations",
@@ -1100,7 +1054,7 @@ export const INTEGRATIONS: Record<string, VaultState> = {
   tracking: {
     label: "integrations — That Tracks importing, Granola connected",
     note: "Import status and quiet successful polls remain visible beside the integration switch.",
-    ...SETTLED, connections: [AGENT], recent: LANDED, queue: EMPTY_QUEUE,
+    ...SETTLED, connections: [AGENT], recent: LANDED,
     setup: SETUP_LIVE, pair: PAIR_IDLE, view: "integrations",
     integrations: [GRANOLA_ON, {
       name: "that-tracks", enabled: true, hasCode: true, hasTrigger: true,
@@ -1111,7 +1065,7 @@ export const INTEGRATIONS: Record<string, VaultState> = {
   trackingFailed: {
     label: "integrations — revoked That Tracks key",
     note: "A failed poll remains enabled so replacing its key can recover automatically.",
-    ...SETTLED, connections: [AGENT], recent: LANDED, queue: EMPTY_QUEUE,
+    ...SETTLED, connections: [AGENT], recent: LANDED,
     setup: SETUP_LIVE, pair: PAIR_IDLE, view: "integrations",
     integrations: [GRANOLA_ON, {
       name: "that-tracks", enabled: true, hasCode: true, hasTrigger: true,
@@ -1125,7 +1079,6 @@ export const INTEGRATIONS: Record<string, VaultState> = {
     ...SETTLED,
     connections: [AGENT],
     recent: LANDED,
-    queue: EMPTY_QUEUE,
     setup: SETUP_LIVE,
     pair: PAIR_IDLE,
     integrations: [GRANOLA_ON, EMAIL_ON],
@@ -1138,7 +1091,6 @@ export const INTEGRATIONS: Record<string, VaultState> = {
     ...SETTLED,
     connections: [AGENT],
     recent: LANDED,
-    queue: EMPTY_QUEUE,
     setup: SETUP_LIVE,
     pair: PAIR_IDLE,
     integrations: [GRANOLA_ON, { ...EMAIL_ON, sources: [EMAIL_ON.sources![0]!, { ...EMAIL_ON.sources![1]!, status: "failed", detail: "password rejected · 2h ago" }] }],
@@ -1151,7 +1103,6 @@ export const INTEGRATIONS: Record<string, VaultState> = {
     ...SETTLED,
     connections: [EXTENSION, AGENT],
     recent: LANDED,
-    queue: EMPTY_QUEUE,
     setup: SETUP_LIVE,
     pair: null,
     view: "integrations",
@@ -1476,7 +1427,7 @@ function route(path: string, method: string, body?: string, search?: URLSearchPa
   if (path === "/api/themes/example" && method === "POST") return json({ ok: true, path: `${current.skins?.dir ?? ""}/solarized-light.yaml`, existed: true });
   if (method !== "GET" && method !== "HEAD") return json({ ok: true });
   if (path === "/api/pair") return servePair(current.pair);
-  if (path === "/api/vault") return json({ ...current.vault, queue: current.queue });
+  if (path === "/api/vault") return json({});
   if (path === "/api/recent") return json({ recent: current.recent, nextOffset: null, total: current.recent.length });
   if (path === "/api/graph") return json(current.graph);
   if (path === "/api/agents/models" || path === "/api/pilot/chat/models") return json({ agents: [
@@ -1512,7 +1463,6 @@ function route(path: string, method: string, body?: string, search?: URLSearchPa
       quick: cfg.roles?.quick ?? { adapter: "claude", model: "haiku" },
     });
   }
-  if (path.startsWith("/api/notes")) return json({ dir: "", notes: [] });
   if (path.startsWith("/api/search")) return json({ query: "", hits: [] });
   if (path.startsWith("/api/note")) {
     const notePath = search?.get("path") ?? "";
@@ -1583,7 +1533,7 @@ const PILOT_ANSWERED: Line = {
   text: "Two things landed this morning: a Semafor piece on the ridgeways, and Ada's note about the Tuesday review. Want me to open either?",
   tools: ["recent", "status"],
 };
-const PILOT_HOME: Omit<VaultState, "label" | "note"> = { ...SETTLED, recent: LANDED, queue: EMPTY_QUEUE, setup: SETUP_LIVE, view: "home" };
+const PILOT_HOME: Omit<VaultState, "label" | "note"> = { ...SETTLED, recent: LANDED, setup: SETUP_LIVE, view: "home" };
 
 /** The pilot's screens: settings › pilot with and without a key, then the
  * HUD in every phase. The phases are written into the store by the

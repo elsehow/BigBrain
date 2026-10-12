@@ -141,9 +141,11 @@ export async function sharedWorkspace(req: IncomingMessage, res: ServerResponse,
     const empty: Record<string, unknown> = {
       '/api/setup': null, '/api/telemetry': null, '/api/source/read-state': { sources: [] }, '/api/pilot/chat': { sessions: [] }, '/api/pilot/work': { sessions: [] },
       '/api/note-log': { entries: [] }, '/api/entity/folds': { groups: [], proposedAt: null },
+      // which vault this is rides on the header; the body says nothing more
+      '/api/vault': {},
     };
     if (path in empty) { json(res, 200, empty[path]); return true; }
-    if (!['/api/vault','/api/recent','/api/graph','/api/note','/api/search','/api/notes'].includes(path)) throw new SharedConnectionError(403, 'This feature is unavailable on servers.');
+    if (!['/api/recent','/api/graph','/api/note','/api/search'].includes(path)) throw new SharedConnectionError(403, 'This feature is unavailable on servers.');
     const [sources, assertions] = await Promise.all([pages<SharedSource>(connection, 'evidence'), pages<AssertionView>(connection, 'assertions')]);
     if (path === '/api/note') {
       const id = url.searchParams.get('path')?.match(/(ins_[a-f0-9]{24})\.json$/)?.[1];
@@ -152,11 +154,9 @@ export async function sharedWorkspace(req: IncomingMessage, res: ServerResponse,
     }
     const view = sharedProjection(sources, assertions);
     const offset = Math.max(0, Number(url.searchParams.get('offset')) || 0), limit = Math.min(200, Math.max(1, Number(url.searchParams.get('limit')) || 50));
-    if (path === '/api/vault') json(res, 200, { view: { references: sources.length, entities: view.graph.nodes.filter(n => n.group === 'entity').length }, inbox: { pending: 0, unsorted: 0 }, requests: { open: 0, done: 0 } });
-    else if (path === '/api/graph') json(res, 200, serverField(view, await you?.()));
+    if (path === '/api/graph') json(res, 200, serverField(view, await you?.()));
     else if (path === '/api/recent') json(res, 200, { recent: view.recent.slice(offset, offset+limit), total: sources.length, nextOffset: offset+limit < sources.length ? offset+limit : null });
     else if (path === '/api/note') { const note = view.note(url.searchParams.get('path') ?? ''); json(res, note ? 200 : 404, note ?? { error: 'Not found.' }); }
-    else if (path === '/api/notes') json(res, 200, { dir: url.searchParams.get('dir'), notes: [] });
     else {
       const result = await sharedRequest<{ hits: Array<{ kind: string; id: string; snippet: string }> }>(connection, `/v1/search?q=${encodeURIComponent(url.searchParams.get('q') ?? '')}&limit=50`);
       const matched = new Map<string, string>();

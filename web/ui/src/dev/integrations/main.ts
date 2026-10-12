@@ -29,7 +29,6 @@ async function boot() {
   fixture.recent = [];
   fixture.connections = [];
   fixture.graph = { ...fixture.graph, nodes: [], edges: [] };
-  fixture.vault.view = { references: 0, entities: 0 };
   fixture.integrations = [];
   fixture.skins = undefined;
   fixture.setup!.vault = { path: "/demo/sample-vault", created: "2026-09-18T12:00:00Z" };

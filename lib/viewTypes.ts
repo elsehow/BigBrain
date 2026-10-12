@@ -19,11 +19,10 @@ import type { FilingStatus } from "./noteMeta";
 
 export type { FilingStatus } from "./noteMeta";
 
-/** A note's on-disk listing row (GET /api/notes). `title` and
- * `entity`/`entityType` are each present only when their source applies —
- * a bare /api/notes row carries `entity`/`entityType` when the file is a
- * `kind: entity` note, and never `title` (the desk routes that stamped it
- * died with #260; the field stays wire-contract for old payloads). */
+/** A note's row, as a search hit names it (GET /api/search). `title` and
+ * `entity`/`entityType` are each present only when their source applies
+ * (the folder listing that stamped the entity facets went once nothing
+ * called it; the fields stay wire-contract for old payloads). */
 export interface NoteMeta {
   name: string;
   path: string; // vault-root-relative, e.g. "references/2026-07-08-….md"
