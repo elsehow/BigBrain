@@ -15,9 +15,9 @@
   let recommendations = $state<Partial<Record<Role, ModelChoice>>>({});
   const roles: { id: Role; label: string; note: string }[] = [
     { id: "gardener", label: "Gardener", note: "Files new material into the vault." },
-    { id: "memory", label: "Memory", note: "Creates memory notes that give Pilot context." },
+    { id: "memory", label: "Memory", note: "Creates memory notes that give Desktops context." },
     { id: "quick", label: "Quick", note: "Writes orientation notes on nodes and their relationships." },
-    { id: "pilot", label: "Pilot", note: "Answers questions and carries out tasks in the app." },
+    { id: "pilot", label: "Desktop", note: "Answers questions and carries out tasks in the app." },
   ];
   let agents = $state<ModelAgent[]>([]), choices = $state<Partial<Record<Role, ModelChoice>>>({});
   let problem = $state(""), loading = $state(true);
@@ -32,8 +32,8 @@
       agents = catalog.agents; preferences = catalog.preferences ?? {}; recommendations = catalog.recommendations ?? {};
       const pilot: PilotBackendConfig | undefined = backend.ok ? await backend.json() : undefined;
       preferenceErrors.pilot = backend.ok ? "" : backend.status === 404
-        ? "Pilot model settings are available in the desktop app."
-        : "Could not load Pilot model settings.";
+        ? "Desktop model settings are available in the BigBrain app."
+        : "Could not load Desktop model settings.";
       choices = { gardener: config.gardener, memory: config.memory, quick: config.quick,
         pilot };
     } catch (e) { problem = "Could not load models."; }
@@ -54,7 +54,7 @@
     if (role === "pilot") {
       const r = await fetch("/api/pilot/chat/backend", { method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({ backend: choice }) });
-      if (!r.ok) throw new Error((await r.json()).error ?? "Could not save Pilot model.");
+      if (!r.ok) throw new Error((await r.json()).error ?? "Could not save Desktop model.");
     } else {
       await api.saveConfig({ [role]: { ...choice, reasoning: choice.reasoning ?? null } });
     }

@@ -67,7 +67,7 @@ const assert = require('node:assert/strict');
     await fixture();
     const model = role => page.getByLabel(`${role} model`, { exact: true });
     const ready = role => page.waitForFunction(role => !document.querySelector(`[aria-label="${role} model"]`).disabled, role);
-    for (const role of ['Gardener', 'Memory', 'Pilot']) {
+    for (const role of ['Gardener', 'Memory', 'Desktop']) {
       assert.equal(await model(role).locator('option[value="pi/openai:shared-fixture"]').count(), 1);
       await model(role).selectOption('pi/openai:shared-fixture'); await ready(role);
       await page.getByLabel(`${role} reasoning`, { exact: true }).selectOption('high'); await ready(role);
@@ -89,15 +89,15 @@ const assert = require('node:assert/strict');
     assert.equal(await model('Gardener').inputValue(), 'pi/openai:shared-fixture');
     assert.equal(await page.getByLabel('Gardener reasoning', { exact: true }).inputValue(), 'high');
     assert.equal(await model('Memory').inputValue(), 'pi/openai:other-fixture');
-    assert.equal(await model('Pilot').inputValue(), 'pi/openai:shared-fixture');
+    assert.equal(await model('Desktop').inputValue(), 'pi/openai:shared-fixture');
     const policy = role => page.getByLabel(`${role} selection policy`, { exact: true });
-    for (const role of ['Gardener', 'Memory', 'Quick', 'Pilot']) {
+    for (const role of ['Gardener', 'Memory', 'Quick', 'Desktop']) {
       assert.equal(await policy(role).inputValue(), 'pinned');
       await policy(role).selectOption('recommended');
       await page.waitForFunction(role => document.querySelector(`[aria-label="${role} selection policy"]`)?.value === 'recommended', role);
     }
     assert.equal(await model('Gardener').inputValue(), 'pi/anthropic:opus');
-    assert.equal(await model('Pilot').inputValue(), 'pi/anthropic:opus');
+    assert.equal(await model('Desktop').inputValue(), 'pi/anthropic:opus');
     await page.goto(`${base}/sidebar-workbench.html`); await fixture();
     assert.equal(await policy('Gardener').inputValue(), 'recommended');
     await model('Gardener').selectOption('pi/anthropic:fable'); await ready('Gardener');

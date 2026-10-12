@@ -30,7 +30,7 @@ test("Claude recommendations resolve family aliases to the latest available nati
   const defaults = availableDefaults("anthropic", models.map(id => ({ id })));
   expect(defaults.memory.model).toBe("claude-opus-4-10");
   expect(defaults.quick.model).toBe("claude-haiku-4-5");
-  expect(availableDefaults("anthropic", [{ id: "opus" }, { id: "claude-opus-4-10" }]).pilot.model).toBe("opus");
+  expect(availableDefaults("anthropic", [{ id: "opus" }, { id: "claude-opus-4-10" }]).memory.model).toBe("opus");
 });
 
 test("the Claude Quick recommendation is the newest Haiku that can answer without thinking", () => {
@@ -47,9 +47,9 @@ test("the Claude Quick recommendation is the newest Haiku that can answer withou
     .toEqual({ model: "claude-haiku-5-5" });
 });
 
-test("the Claude gardener recommendation is the newest Sonnet; the other roles keep their families", () => {
+test("the Claude gardener and Desktop recommendations are the newest Sonnet; the other roles keep their families", () => {
   const models = ["claude-opus-5", "claude-opus-5-5", "claude-sonnet-5", "claude-sonnet-5-5", "claude-haiku-4-5"];
   const defaults = availableDefaults("anthropic", models.map(id => ({ id })));
-  expect(defaults.gardener.model).toBe("claude-sonnet-5-5");
-  expect([defaults.memory.model, defaults.pilot.model, defaults.quick.model]).toEqual(["claude-opus-5-5", "claude-opus-5-5", "claude-haiku-4-5"]);
+  expect([defaults.gardener.model, defaults.pilot.model]).toEqual(["claude-sonnet-5-5", "claude-sonnet-5-5"]);
+  expect([defaults.memory.model, defaults.quick.model]).toEqual(["claude-opus-5-5", "claude-haiku-4-5"]);
 });

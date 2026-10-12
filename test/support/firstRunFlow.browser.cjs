@@ -23,7 +23,7 @@ const assert=require('node:assert/strict');
     if(body?.action==='install')library.find(i=>i.id===body.name).added=true;
     if(body?.action==='connect')account.connected=true;
     if(body?.action==='save'){posted.push(body.grants);for(const g of body.grants??[])account.grants=[...account.grants.filter(x=>x.caller!==g.caller),...(g.access==='off'?[]:[g])];}
-    return json({library,accounts:[account],callers:[{id:'pilot',label:'Pilot'},{id:'token:fixture',label:'Fixture client'}]});
+    return json({library,accounts:[account],callers:[{id:'pilot',label:'Desktop'},{id:'token:fixture',label:'Fixture client'}]});
   }
   if(path==='/api/connected-clients'){if(body?.action==='local')local.find(c=>c.kind===body.kind).connected=body.enabled;return json({clients:[],local});}
   if(path==='/api/telemetry'){if(typeof body?.enabled==='boolean'){choices.push(body.enabled);metrics={...metrics,enabled:body.enabled,decided:true};}return json(metrics);}
@@ -59,7 +59,7 @@ const assert=require('node:assert/strict');
  // an account's settings open from its row
  await page.getByRole('region',{name:'granola accounts'}).locator('summary').first().click();
  await page.getByRole('region',{name:'granola accounts'}).getByRole('button',{name:'Connect',exact:true}).click();
- const pilot=page.getByRole('combobox',{name:'Live access for Pilot',exact:true}),client=page.getByRole('combobox',{name:'Live access for Fixture client',exact:true});
+ const pilot=page.getByRole('combobox',{name:'Live access for Desktop',exact:true}),client=page.getByRole('combobox',{name:'Live access for Fixture client',exact:true});
  assert.equal(await pilot.inputValue(),'read');assert.equal(await client.inputValue(),'off');assert.equal(await client.locator('option').count(),2,'no write level where the account offers none');
  await pilot.selectOption('off');await page.getByRole('button',{name:'Save',exact:true}).click();await page.getByText('Saved.',{exact:true}).waitFor();
  assert.deepEqual(posted,[[{caller:'pilot',access:'off'}]],'Save sends only the caller that changed');assert.deepEqual(account.grants,[]);assert.equal(await pilot.inputValue(),'off');

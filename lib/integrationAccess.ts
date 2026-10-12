@@ -51,7 +51,7 @@ export function integrationActive(root: string, name: string, account?: string):
 }
 /** Who a grant can name. A lapsed client is still offered, marked expired: renewing keeps its id, so its grants come back with it. */
 export function integrationCallerChoices(root: string): { id: string; label: string; expired?: true }[] {
-  return [{ id: "pilot", label: "Pilot" },
+  return [{ id: "pilot", label: "Desktop" },
     ...listTokens(tokenStorePath(root)).filter(t => !t.revoked && hasScope(t, "vault:read"))
       .map(t => ({ id: "token:" + t.id, label: t.name, ...(tokenExpired(t) ? { expired: true as const } : {}) }))];
 }

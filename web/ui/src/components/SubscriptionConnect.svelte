@@ -85,7 +85,7 @@
       </details>
     {/if}
   {:else if !status.connected}
-    {#if !compact}<p>Use your {name} subscription for your pilot and gardener.</p>{/if}
+    {#if !compact}<p>Use your {name} subscription for your Desktops and gardener.</p>{/if}
     <button class="primary" disabled={busy} onclick={() => act("login")}>{status.phase === "error" ? status.retrySetup ? "Retry setup" : "Try again" : `Connect ${name}`}</button>
   {/if}
   {#if problem || status.problem}<p class="problem" role="alert">{problem || status.problem}</p>{/if}

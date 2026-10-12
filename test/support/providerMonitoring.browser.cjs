@@ -30,7 +30,7 @@ const assert = require('node:assert/strict');
       assert.equal(await page.locator('.providers > details').count(), 0);
       const panel = page.getByRole('region', { name: `${name} usage`, exact: true });
       await panel.getByText('Gardener', { exact: true }).waitFor();
-      for (const role of ['Memory', 'Pilot', 'Quick']) assert.equal(await panel.getByText(role, { exact: true }).count(), 1);
+      for (const role of ['Memory', 'Desktop', 'Quick']) assert.equal(await panel.getByText(role, { exact: true }).count(), 1);
       assert.equal(await panel.getByText('400 tokens · 2 runs · partial', { exact: true }).count(), 1);
     }
     await page.getByRole('img', { name: '30% account usage, seven day', exact: true }).waitFor();

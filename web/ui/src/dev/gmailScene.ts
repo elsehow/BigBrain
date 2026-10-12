@@ -4,7 +4,7 @@ export function installGmailScene() {
   // `?expired-clients`: a client whose connection lapsed is still offered, marked expired, and keeps its grant
   const lapsed=new URLSearchParams(location.search).has('expired-clients');
   const accounts:any[]=[{name:'granola',account:'granola',label:'Granola',removable:false,connected:false,grants:[{caller:'pilot',access:'read'},...(lapsed?[{caller:'token:77777777',access:'read'}]:[])],capabilities:{read:'Read current meeting notes, transcripts and folders via Granola MCP. Does not change meetings or remember evidence.',write:null}}];
-  const state=()=>({library,accounts,destination:'Sample vault (preview only)',callers:[{id:'pilot',label:'Pilot'},{id:'token:12345678',label:'Claude Code on sample laptop'},...(lapsed?[{id:'token:77777777',label:'Claude Code at the studio',expired:true}]:[])]});
+  const state=()=>({library,accounts,destination:'Sample vault (preview only)',callers:[{id:'pilot',label:'Desktop'},{id:'token:12345678',label:'Claude Code on sample laptop'},...(lapsed?[{id:'token:77777777',label:'Claude Code at the studio',expired:true}]:[])]});
   const prior=window.fetch.bind(window);
   window.fetch=(async(input:RequestInfo|URL,options?:RequestInit)=>{
     const path=new URL(input instanceof Request?input.url:String(input),location.href).pathname;

@@ -58,7 +58,7 @@ const lines = (): ReadRecord[] => readFileSync(join(log, month()), "utf8").trim(
 test("a read is one line: who, what, how it ended, how much came back", async () => {
   await integrationToolCall(root, pilot, "inbox_read", { ref }, provider());
   const [r] = lines();
-  expect(r).toMatchObject({ caller: "pilot", label: "Pilot", integration: "email", account: "me@example.com", tool: "inbox_read", args: { ref }, outcome: "ok", first: true });
+  expect(r).toMatchObject({ caller: "pilot", label: "Desktop", integration: "email", account: "me@example.com", tool: "inbox_read", args: { ref }, outcome: "ok", first: true });
   expect(Object.keys(r!).sort()).toEqual(["account", "args", "caller", "first", "held", "integration", "items", "label", "ms", "outcome", "resultBytes", "screened", "tool", "ts"]);
   expect(Date.parse(r!.ts)).toBeGreaterThan(Date.now() - 60_000);
   expect(r!.resultBytes).toBeGreaterThan(100);
@@ -132,6 +132,11 @@ test("a caller's first read of an integration is marked, and remembered after it
   await integrationToolCall(root, pilot, "inbox_list", { account: "me@example.com" }, provider());
   expect(lines()[0]).not.toHaveProperty("first");
   expect(recentReads(root, "email", "me@example.com").some(r => r.first)).toBe(false);
+});
+
+test("a Desktop read logged as Pilot before the rename lists as Desktop", () => {
+  appendRead(log, { ts: "2026-10-01T00:00:00.000Z", caller: "pilot", label: "Pilot", integration: "email", account: "me@example.com", tool: "inbox_list", args: {}, outcome: "ok", ms: 1 });
+  expect(recentReads(root, "email", "me@example.com").map(r => r.label)).toEqual(["Desktop"]);
 });
 
 test("owner-only: the folder 0700, the files 0600", async () => {

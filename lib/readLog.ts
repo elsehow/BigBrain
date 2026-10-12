@@ -38,7 +38,7 @@ export interface ReadRecord {
   ts: string;
   /** As grants name them (`pilot`, `token:<id>`), or the caller's kind when it could not be identified. */
   caller: string;
-  /** What the caller was called when it asked: Pilot, or the client connection's name. */
+  /** What the caller was called when it asked: Desktop, or the client connection's name. */
   label: string;
   integration: string;
   /** Empty when the call was refused before an account was resolved. */
@@ -182,7 +182,7 @@ export function appendRead(dir: string, record: ReadRecord, now = Date.now()): v
 
 /** What the caller was called when it asked. */
 function callerLabel(root: string, caller: string): string {
-  if (caller === "pilot") return "Pilot";
+  if (caller === "pilot") return "Desktop";
   if (caller === "worker") return "Project worker";
   if (caller === "gardener") return "Gardener";
   if (!caller.startsWith("token:")) return "Unidentified client";
@@ -249,7 +249,9 @@ export function recentReads(root: string, integration: string, account: string, 
   const named = (r: ReadRecord) => typeof r.args?.account === "string" && r.args.account.toLowerCase() === account.toLowerCase();
   for (const r of newestFirst(dir)) {
     if (r.integration !== integration || (r.account ? r.account !== account : !named(r))) continue;
-    const { first: _claimed, ...rest } = r;
+    const { first: _claimed, ...stored } = r;
+    // Desktops logged as "Pilot" before the rename read as they're called now.
+    const rest = stored.caller === "pilot" ? { ...stored, label: callerLabel(root, "pilot") } : stored;
     out.push(r.outcome === "ok" && first.get(pair(r.caller, r.integration)) === r.ts ? { ...rest, first: true } : rest);
     if (out.length >= limit) break;
   }

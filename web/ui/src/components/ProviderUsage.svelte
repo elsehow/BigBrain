@@ -6,7 +6,7 @@
   const pct = (value: number) => `${Math.round(value * 100)}%`;
   const number = (value: number) => new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 }).format(value);
   const date = (value: string) => new Date(value).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
-  const label = (role: string) => role === "quick" ? "Quick" : role.charAt(0).toUpperCase() + role.slice(1);
+  const label = (role: string) => role === "pilot" ? "Desktop" : role.charAt(0).toUpperCase() + role.slice(1);
   const color = (index: number) => `color-mix(in srgb, var(--activity) ${35 + index % 4 * 20}%, var(--bg))`;
 </script>
 

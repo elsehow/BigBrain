@@ -44,7 +44,7 @@ export function installIntegrationAccessScene(fail=false) {
       ...(account==='hardcover'?{identity:{username:'sample_reader'}}:{}),grants:[{caller:'pilot',access:'read'}],capabilities:{read:'Look up your Hardcover shelves, books and reviews.',write:null}}));
   const library=[...(lapsed.length?[{id:'hardcover',name:'Hardcover',description:'Look up your shelves, books and reviews on Hardcover.',added:true}]:[]),
     ...(health!==null?[{id:'granola',name:'Granola',description:'Bring your meeting transcripts into your vault.',added:true,status:{label:failing[0]!.status!.label,checkedAt:failing[0]!.status!.checkedAt}}]:[])];
-  const state=()=>({...(library.length?{library}:{}),accounts:[...accounts,...lapsed],callers:[{id:'pilot',label:'Pilot'},...clients.filter(c=>!c.revoked).map(c=>({id:'token:'+c.id,label:c.name,...(c.expired?{expired:true}:{})}))]});
+  const state=()=>({...(library.length?{library}:{}),accounts:[...accounts,...lapsed],callers:[{id:'pilot',label:'Desktop'},...clients.filter(c=>!c.revoked).map(c=>({id:'token:'+c.id,label:c.name,...(c.expired?{expired:true}:{})}))]});
   const prior=window.fetch.bind(window);
   window.fetch=(async(input: RequestInfo | URL,options?: RequestInit)=>{
     const path=new URL(input instanceof Request?input.url:String(input),location.href).pathname;
@@ -57,8 +57,8 @@ export function installIntegrationAccessScene(fail=false) {
         {ts:at(14),caller:'token:12345678',label:'Codex on sample laptop',tool:'email_read',args:{ref:'eyJhY2NvdW50IjoibWVAZXhhbXBsZS5jb20iLCJ1aWQiOjQyfQ'},outcome:'ok'},
         {ts:at(12),caller:'token:12345678',label:'Codex on sample laptop',tool:'email_search',args:{account:'me@example.com',query:'from:orders@example.com receipt',limit:10},outcome:'ok',first:true},
         {ts:at(9),caller:'token:12345678',label:'Codex on sample laptop',tool:'inbox_list',args:{account:'me@example.com',folder:'Spam'},outcome:'refused',error:'Invalid arguments for inbox_list: folder is not an argument it takes.'},
-        {ts:at(3),caller:'pilot',label:'Pilot',tool:'inbox_list',args:{account:'me@example.com',limit:25},outcome:'ok'},
-        {ts:at(1),caller:'pilot',label:'Pilot',tool:'inbox_read',args:{ref:'eyJhY2NvdW50IjoibWVAZXhhbXBsZS5jb20iLCJ1aWQiOjd9'},outcome:'error',error:'The mail provider did not answer in time.'},
+        {ts:at(3),caller:'pilot',label:'Desktop',tool:'inbox_list',args:{account:'me@example.com',limit:25},outcome:'ok'},
+        {ts:at(1),caller:'pilot',label:'Desktop',tool:'inbox_read',args:{ref:'eyJhY2NvdW50IjoibWVAZXhhbXBsZS5jb20iLCJ1aWQiOjd9'},outcome:'error',error:'The mail provider did not answer in time.'},
       ]});
     }
     if(!['/api/integration-accounts','/api/connected-clients'].includes(path))return prior(input,options);
@@ -86,7 +86,7 @@ export function installIntegrationAccessScene(fail=false) {
     const account=accounts.find(a=>a.account===body.account)!;
     if(body.action==='connect'){
       if(fail){fail=false;return json({error:'Account access failed. Check the inbox connection.'},400);}account.connected=true;
-      // a first connection starts at the default: Pilot reads, clients off
+      // a first connection starts at the default: Desktop reads, clients off
       if(!account.checkedAt){account.checkedAt=new Date().toISOString();account.grants=[{caller:'pilot',access:'read'}];}
     }else if(body.action==='disconnect')account.connected=false;
     else if(body.action==='save'||body.action==='grant'){

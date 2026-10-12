@@ -9,7 +9,8 @@ anthropic:
   # clamps off to low): ~9s and 1.2k output tokens a call, against 2s and 80
   # on Haiku 4.5, and briefings exhaust their 1,400-token cap before answering.
   quick: { model: haiku, reasoning: "off" }
-  pilot: { model: opus }
+  # Desktops (Pilot in code) take the newest Sonnet: Sonnet 5.5 today.
+  pilot: { model: sonnet }
 openai:
   gardener: { model: gpt-6-astra, reasoning: medium }
   memory: { model: gpt-6-astra, reasoning: high }
