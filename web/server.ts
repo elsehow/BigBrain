@@ -3,13 +3,14 @@ import {IntegrationAccounts} from '../lib/integrationAccounts';
 import {readLogRoutes} from '../lib/readLogRoutes';
 import {logIntegrationCalls} from '../lib/readLog';
 import {inclusionReviewApi} from '../lib/inclusionReviewApi';
-import {inclusionBackfillApi} from '../lib/inclusionBackfillApi';
+import {lensApi} from '../lib/lensApi';
+import {readLens} from '../lib/lenses';
 import {tickIntegrationAdmission} from '../lib/integrationAdmission';
-import { unionGraph, unionRecent, unionSearch, unionNote, vaultFilter, includesPersonal, personalOnly, sharedEntityClaims } from '../lib/sharedReadUnion';
+import { unionGraph, unionRecent, unionSearch, unionNote, vaultFilter, includesPersonal, personalOnly, serverBriefingRecord, serverGraph, sharedEntityClaims } from '../lib/sharedReadUnion';
 import { jevSettingsApi } from '../lib/jevSettingsApi';
 import { optionalJevKey } from '../lib/jevSettings';
 import { sharedSettingsApi } from '../lib/sharedSettingsApi';
-import { tickRules } from '../lib/sharedRules';
+import { feedLensEvents, lensEventHeadline, tickLenses } from '../lib/lensSync';
 import { tickPublishing } from '../lib/sharedAssertionPublish';
 import { connectionStorePath } from '../lib/sharedConnections';
 import { sharedWorkspace } from "../lib/sharedWorkspace";
@@ -61,9 +62,9 @@ import { currentGraph, currentGraphView, maintainGraphView } from "../lib/mainta
 import { feedStamp, serveStamped } from "../lib/viewStamps";
 import type { Database } from "bun:sqlite";
 import type { ProjectionView } from "../lib/assertionProjection";
-import { SORTED_PAGE, type V2Feed } from "../lib/v2Feed";
-import { readEntityFeed, readSortedPage, readV2Feed } from "../lib/v2Read";
-import { otherCopies } from "../lib/vaultReadModel";
+import { SORTED_PAGE, withRows, type V2Feed, type V2SortedRow } from "../lib/v2Feed";
+import { readEntitiesCiting, readEntityFeed, readLensClaims, readSortedPage, readV2Feed } from "../lib/v2Read";
+import { otherCopies, withVaultSnapshot } from "../lib/vaultReadModel";
 import { frozenMessagesForRefs, sortFrozenDesc } from "../lib/frozenQueue";
 import { noteLog } from "../lib/noteLog";
 import { errText } from "../lib/errText";
@@ -74,7 +75,7 @@ import { assertionsFromSource, projectedEntityMarkdown, truncatedEntityView, sou
 import { insertionEventRel, sourceMoment } from "../lib/insertionLog";
 import { foldsRoutes } from "../lib/entityFolds";
 import { copyReview, sourceCopyRoutes } from "../lib/sourceCopyReview";
-import { createNoteBriefingService, noteBriefingRoutes, readNoteBriefingInput } from "../lib/noteBriefing";
+import { briefingInput, claimsOnly, createNoteBriefingService, noteBriefingRoutes, readNoteBriefingInput, type NoteBriefingInput, type NoteBriefingRequest } from "../lib/noteBriefing";
 import { noteRelationRoutes } from "../lib/noteRelation";
 import { sourceReadStateRoutes } from "../lib/sourceReadStateApi";
 import { sourceOrigin, sourceOrigins, type SourceOrigin } from "../lib/sourceOrigin";
@@ -498,7 +499,15 @@ const SORTED_MAX = 5_000;
 function v2Sorted({ res, url }: Ctx): void {
   const limit = Math.min(SORTED_MAX, Math.max(1, Math.trunc(Number(url.searchParams.get("limit"))) || SORTED_PAGE));
   const before = url.searchParams.get("before") ?? undefined;
-  feedJson(res, (db) => loadManifest(ROOT).feed ? readSortedPage(ROOT, db, limit, before) : { rows: [], next: null });
+  feedJson(res, (db) => {
+    if (!loadManifest(ROOT).feed) return { rows: [], next: null };
+    // What lenses shared, and changes that grew a shared lens (D2, D3), among what arrived.
+    const sharing = feedLensEvents(ROOT, connectionStorePath()).map(({ event: e, count, sources }, i): V2SortedRow => ({
+      source: `lens:${e.at}:${i}`, section: e.kind === "shared" ? "know" : "needs-you", headline: lensEventHeadline(e, count), due: null, added: e.at,
+      entities: readEntitiesCiting(db, sources), lens: e.lens,
+    }));
+    return withRows(readSortedPage(ROOT, db, limit, before), sharing, limit, before);
+  });
 }
 
 // Serve the graph as a FINISHED PICTURE: structure plus settled positions,
@@ -532,6 +541,30 @@ function sendView(req: IncomingMessage, res: ServerResponse, view: ProjectionVie
   if (req.headers?.["if-none-match"] === etag) { res.writeHead(304, headers); res.end(); return; }
   res.writeHead(200, headers);
   res.end(view.body);
+}
+
+/** What a briefing reads: with a lens on, only the claims its notes alone
+ * support; with a server on, only that server's record; else the whole vault
+ * and what your servers say about the entities it names. */
+async function briefingFor(root: string, request: NoteBriefingRequest): Promise<NoteBriefingInput> {
+  const scope = typeof request === "string" ? undefined : request.scope;
+  if (scope && "server" in scope) return briefingInput(await serverBriefingRecord(scope.server, request, await you()), request);
+  if (scope) {
+    const lens = readLens(root, connectionStorePath(), scope.lens);
+    if (!lens) throw new Error("That lens is gone.");
+    return readNoteBriefingInput(root, request, undefined, claimsOnly(withVaultSnapshot(root, (db) => readLensClaims(db, lens.members))));
+  }
+  return readNoteBriefingInput(root, request, (ids) => sharedEntityClaims(root, ids));
+}
+/** You, as your own field leaves you out of it (lib/assertionGraph.ts): left out of your view of a server's too. */
+const you = async () => (await currentGraph(ROOT)).userNote;
+// One server's own field, as everyone who reads it sees it, without you (lib/sharedReadUnion.ts serverGraph).
+async function serverGraphRoute({ res, url }: Ctx): Promise<void> {
+  try {
+    json(res, 200, await serverGraph(url.searchParams.get("id") ?? "", await you()));
+  } catch (error) {
+    json(res, 500, { error: errText(error) });
+  }
 }
 
 // A note's "touched by" record (phase 4 item 3): frontmatter provenance +
@@ -725,7 +758,7 @@ export const ROUTES: readonly Route[] = [
   { method: "GET", path: "/api/vault", handler: vaultIndex },
   { method: "GET", path: "/api/note", handler: noteRead },
   // an entity's briefing reads the joined vaults' claims about it too
-  ...noteBriefingRoutes(ROOT, createNoteBriefingService(undefined, (root, request) => readNoteBriefingInput(root, request, (ids) => sharedEntityClaims(root, ids)))),
+  ...noteBriefingRoutes(ROOT, createNoteBriefingService(undefined, briefingFor)),
   ...noteRelationRoutes(ROOT),
   ...sourceReadStateRoutes(ROOT, undefined, applicationActions),
   { method: "GET", path: "/api/file", handler: fileRead },
@@ -733,6 +766,7 @@ export const ROUTES: readonly Route[] = [
   { method: "GET", path: "/api/recent", handler: recentFeed },
   { method: "GET", path: "/api/search", handler: search },
   { method: "GET", path: "/api/graph", handler: graph },
+  { method: "GET", path: "/api/graph/server", handler: serverGraphRoute },
   { method: "GET", path: "/api/v2", handler: v2 },
   { method: "GET", path: "/api/v2/entity", handler: v2Entity },
   { method: "GET", path: "/api/v2/sorted", handler: v2Sorted },
@@ -840,18 +874,18 @@ export function start(): void {
   // server's death.
   const metrics = isDesktop() ? telemetry(ROOT) : undefined;
   metrics?.start();
-  const sharedRuleTimer=setInterval(()=>{void tickRules(ROOT,connectionStorePath()).then(()=>tickPublishing(ROOT,connectionStorePath()));void tickIntegrationAdmission(ROOT).catch(()=>{});},30000);sharedRuleTimer.unref();
+  const sharedRuleTimer=setInterval(()=>{void tickLenses(ROOT,connectionStorePath()).then(()=>tickPublishing(ROOT,connectionStorePath()));void tickIntegrationAdmission(ROOT).catch(()=>{});},30000);sharedRuleTimer.unref();
   const server = createServer(async (req, res) => {
     armor(res);
     if (!allowLoopbackRequest(req, res)) return;
     if (!allowSession(req, res)) return;
     if (await inclusionReviewApi(req,res,ROOT)) return;
-    if (await inclusionBackfillApi(req,res,ROOT)) return;
+    if (await lensApi(req,res,ROOT,(ids) => withVaultSnapshot(ROOT, (db) => readEntitiesCiting(db, ids)))) return;
     if (await jevSettingsApi(req,res,ROOT)) return;
     // Joining a shared vault changes the Field's graph: a write here pushes its stamp.
     const joined = () => { if (req.method !== "GET") live.refreshViews(); };
     if (await sharedSettingsApi(req,res,ROOT)) return joined();
-    if (await sharedWorkspace(req, res)) return joined();
+    if (await sharedWorkspace(req, res, undefined, you)) return joined();
     if (!allowVaultRequest(req, res, vaultIdentity(ROOT))) return;
     const path = (req.url ?? "").split("?")[0] ?? "";
     const reads: Partial<Record<string, Operation>> = { "/api/search": "search", "/api/graph": "graph", "/api/note": "note" };

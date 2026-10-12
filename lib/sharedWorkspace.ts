@@ -8,9 +8,11 @@ import { insertionEventRel, sourceMoment, type SourceInsertion, type SourceMetad
 import { sourceInsertionMarkdown, insertionFiler } from './sourceFeed';
 import { assertionSourceReferences, type AssertionEvent } from './assertionLog';
 import type { AssertionView } from './sharedVault';
-import { sharedGraphLayout } from './sharedGraphLayout';
-import type { GraphNode, GraphEdge } from './graph';
+import { arrivalLayout, edgeKey } from './graphLayout';
+import type { Graph, GraphNode, GraphEdge } from './graph';
+import type { ConnectionEvidence } from './markdownGraph';
 import { sha256hex } from './hash';
+import { isUserNode, isUserNote } from './userNote';
 
 async function pages<T>(c: SharedConnection, kind: string): Promise<T[]> {
   const items: T[] = []; let cursor: string | null = null;
@@ -28,13 +30,30 @@ export function sharedProjection(sources: SharedSource[], views: AssertionView[]
   const entities = new Map(assertions.flatMap(a => a.entities.map(e => [e.id, e] as const)));
   const nodes: GraphNode[] = sources.map(s => ({ id: `source:${s.id}`, title: s.title, path: insertionEventRel(s), group: 'source', degree: 0, ...insertionFiler(s) }));
   nodes.push(...[...entities.values()].map(e => ({ id: e.id, title: e.label, path: entityPath(e.id), group: 'entity', entity: true as const, degree: 0 })));
-  const edges: GraphEdge[] = [];
-  for (const a of assertions) for (const e of a.entities) for (const ref of assertionSourceReferences(a)) {
-    if (byId.has(ref.insertion_id) && !edges.some(edge => edge.source === e.id && edge.target === `source:${ref.insertion_id}`))
-      edges.push({ source: e.id, target: `source:${ref.insertion_id}` });
-  }
-  for (const node of nodes) node.degree = edges.filter(e => e.source === node.id || e.target === node.id).length;
   const received = (s: SharedSource) => s.submitted_at ?? sourceMoment(s);
+  // Edges as a vault's own graph draws them (lib/assertionGraph.ts): each
+  // entity to each source its claim cites, entities named together to each
+  // other, a repeat a heavier thread. `arrivals`: when each node and edge
+  // first appeared on the server, by its clock (lib/graphLayout.ts arrivalLayout).
+  // `connections`: the claim behind each tie, as a vault's graph observes them (lib/noteBriefing.ts reads them).
+  const edges: GraphEdge[] = [], edgeAt = new Map<string, GraphEdge>(), degree = new Map<string, number>(), arrivals = new Map<string, string>();
+  const connections: Array<{ from: string; to: string; evidence: ConnectionEvidence }> = [];
+  const arrive = (key: string, at: string) => { const was = arrivals.get(key); if (was === undefined || at < was) arrivals.set(key, at); };
+  const link = (a: string, b: string, claim: AssertionEvent) => {
+    const at = claim.created_at, key = edgeKey(a, b), seen = edgeAt.get(key); arrive(key, at);
+    connections.push({ from: a, to: b, evidence: { assertion: claim.id, text: claim.text } });
+    if (seen) { seen.weight = (seen.weight ?? 1) + 1; return; }
+    const edge: GraphEdge = { source: a, target: b }; edgeAt.set(key, edge); edges.push(edge);
+    for (const end of [a, b]) degree.set(end, (degree.get(end) ?? 0) + 1);
+  };
+  for (const s of sources) arrive(`source:${s.id}`, received(s));
+  for (const a of assertions) {
+    const named = [...new Set(a.entities.map(e => e.id))];
+    const cited = assertionSourceReferences(a).filter(ref => byId.has(ref.insertion_id)).map(ref => `source:${ref.insertion_id}`);
+    for (const id of named) { arrive(id, a.created_at); for (const source of cited) link(id, source, a); }
+    for (let i = 0; i < named.length; i++) for (let j = i + 1; j < named.length; j++) link(named[i]!, named[j]!, a);
+  }
+  for (const node of nodes) node.degree = degree.get(node.id) ?? 0;
   const recent = [...sources].sort((a,b) => received(b).localeCompare(received(a))).map(s => ({ path: insertionEventRel(s), title: s.title, modified: Date.parse(received(s)) || 0, author: s.author.id, action: 'created', ...insertionFiler(s), id: s.source_id, insertionId: s.id, type: 'source' }));
   const assertionView = (a: AssertionEvent) => ({ id: a.id, text: a.text, confidence: a.confidence, created_at: a.created_at, author: a.author,
     entities: a.entities.map(e => ({ ...e, path: entityPath(e.id) })),
@@ -46,10 +65,29 @@ export function sharedProjection(sources: SharedSource[], views: AssertionView[]
     if (entity) { const list = assertions.filter(a => a.entities.some(e => e.id === entity.id)).map(assertionView); return { path, content: `# ${entity.label}\n\n${list.map(a => a.text).join('\n\n')}`, projectedEntity: { ...entity, assertions: list } }; }
     return null;
   };
-  return { sources, assertions, recent, note, graph: { nodes, edges, projection: 'assertions' as const, hash: sha256hex(JSON.stringify([sources, assertions])) } };
+  return { sources, assertions, recent, note, arrivals, connections, graph: { nodes, edges, projection: 'assertions' as const, hash: sha256hex(JSON.stringify([sources, assertions])) } };
 }
 
-export async function sharedWorkspace(req: IncomingMessage, res: ServerResponse, store = connectionStorePath()): Promise<boolean> {
+const fields = new Map<string, Graph>();
+/** A server's own field, as everyone who reads it sees it: its record alone,
+ * nothing of a reader's vault, laid out by when each part arrived. `you`
+ * (your graph's `userNote`) leave your own view of it, as you leave your own
+ * field (lib/assertionGraph.ts); every other place, line and size stays as
+ * everyone sees it. */
+export function serverField(view: ReturnType<typeof sharedProjection>, you?: Graph['userNote']): Graph {
+  let field = fields.get(view.graph.hash);
+  if (!field) {
+    const at = arrivalLayout(view.graph, view.arrivals);
+    field = { ...view.graph, nodes: view.graph.nodes.map(n => ({ ...n, x: at[n.id]![0], y: at[n.id]![1] })) };
+    if (fields.size >= 8) fields.delete(fields.keys().next().value!);
+    fields.set(view.graph.hash, field);
+  }
+  const self = new Set(field.nodes.filter(n => n.entity && (isUserNode(n, you) || isUserNote(n.title, you))).map(n => n.id));
+  return self.size ? { ...field, nodes: field.nodes.filter(n => !self.has(n.id)), edges: field.edges.filter(e => !self.has(e.source) && !self.has(e.target)) } : field;
+}
+
+/** `you`: who leaves your view of the server's field (serverField). */
+export async function sharedWorkspace(req: IncomingMessage, res: ServerResponse, store = connectionStorePath(), you?: () => Promise<Graph['userNote']>): Promise<boolean> {
   let url: URL;
   try { url = new URL(req.url ?? '/', 'http://localhost'); } catch { json(res, 400, { error: 'Invalid URL.' }); return true; }
   if (!url.pathname.startsWith('/api/')) return false;
@@ -91,12 +129,12 @@ export async function sharedWorkspace(req: IncomingMessage, res: ServerResponse,
       if (!who.permissions.includes('write')) throw new SharedConnectionError(403, 'This connection is read-only.');
       if (path === '/api/drop') {
         const body = JSON.parse(await readBody(req));
-        if (body.attachments?.length) throw new SharedConnectionError(400, 'Shared vaults currently accept text and Markdown files. Attachments are not supported yet.');
+        if (body.attachments?.length) throw new SharedConnectionError(400, 'Servers currently accept text and Markdown files. Attachments are not supported yet.');
         const receipt = await sharedRequest<{ id: string; source_id: string }>(connection, '/v1/evidence', { title: body.name, body: body.content });
         const source = await sharedRequest<SourceInsertion>(connection, `/v1/evidence/${receipt.id}`);
         json(res, 200, { id: receipt.source_id, path: insertionEventRel(source), ref_path: insertionEventRel(source), via: 'shared' }); return true;
       }
-      throw new SharedConnectionError(403, 'This action is not available in shared vaults yet.');
+      throw new SharedConnectionError(403, 'This action is not available on servers yet.');
     }
     if (req.method !== 'GET') throw new SharedConnectionError(405, 'Method not allowed.');
     // Only explicit, inert compatibility responses. All other routes fail closed.
@@ -107,7 +145,7 @@ export async function sharedWorkspace(req: IncomingMessage, res: ServerResponse,
       '/api/vault': {},
     };
     if (path in empty) { json(res, 200, empty[path]); return true; }
-    if (!['/api/recent','/api/graph','/api/note','/api/search'].includes(path)) throw new SharedConnectionError(403, 'This feature is unavailable in shared vaults.');
+    if (!['/api/recent','/api/graph','/api/note','/api/search'].includes(path)) throw new SharedConnectionError(403, 'This feature is unavailable on servers.');
     const [sources, assertions] = await Promise.all([pages<SharedSource>(connection, 'evidence'), pages<AssertionView>(connection, 'assertions')]);
     if (path === '/api/note') {
       const id = url.searchParams.get('path')?.match(/(ins_[a-f0-9]{24})\.json$/)?.[1];
@@ -116,7 +154,7 @@ export async function sharedWorkspace(req: IncomingMessage, res: ServerResponse,
     }
     const view = sharedProjection(sources, assertions);
     const offset = Math.max(0, Number(url.searchParams.get('offset')) || 0), limit = Math.min(200, Math.max(1, Number(url.searchParams.get('limit')) || 50));
-    if (path === '/api/graph') json(res, 200, sharedGraphLayout(view.graph));
+    if (path === '/api/graph') json(res, 200, serverField(view, await you?.()));
     else if (path === '/api/recent') json(res, 200, { recent: view.recent.slice(offset, offset+limit), total: sources.length, nextOffset: offset+limit < sources.length ? offset+limit : null });
     else if (path === '/api/note') { const note = view.note(url.searchParams.get('path') ?? ''); json(res, note ? 200 : 404, note ?? { error: 'Not found.' }); }
     else {

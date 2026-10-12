@@ -44,14 +44,14 @@
       <h2 id="invite-title">Invite {created.name}</h2>
       <p class="muted">{created.access} · One use · Expires in 24 hours</p>
       <label>Invite link<input readonly value={created.link} onclick={e=>e.currentTarget.select()}/></label>
-      <p>Send this link to {created.name}. They can paste it into “Connect a shared vault” in BigBrain.</p>
+      <p>Send this link to {created.name}. They can paste it into “Connect a server” in BigBrain.</p>
       <div class="footer"><button onclick={()=>inviting=false}>Done</button><button class="primary" onclick={()=>copy(created!.link)}>{copied?'Copied':'Copy link'}</button></div>
     {:else}
       <form onsubmit={create}>
         <h2 id="invite-title">Invite someone to BigBrain</h2>
         <label>Name<input required bind:value={name} placeholder="Their name" autocomplete="off"/></label>
         <label>Access<select bind:value={access}><option>Can contribute</option><option>Read only</option></select></label>
-        <p class="muted">{access==='Can contribute'?'Can read and contribute sources and assertions.':'Can read everything in this vault.'}</p>
+        <p class="muted">{access==='Can contribute'?'Can read and contribute sources and assertions.':'Can read everything on this server.'}</p>
         <div class="footer"><button type="button" onclick={()=>inviting=false}>Cancel</button><button class="primary" disabled={!name.trim()}>Create invite link</button></div>
       </form>
     {/if}
@@ -60,7 +60,7 @@
 {#if removing}
   <dialog use:open onclose={()=>removing=null} aria-labelledby="remove-title">
     <h2 id="remove-title">Remove {removing.name}?</h2>
-    <p>They’ll lose access to this vault on all their devices. Their past contributions and attribution will stay.</p>
+    <p>They’ll lose access to this server on all their devices. Their past contributions and attribution will stay.</p>
     <div class="footer"><button onclick={()=>removing=null}>Cancel</button><button class="primary" onclick={()=>{members=members.filter(m=>m.id!==removing?.id);removing=null;}}>Remove member</button></div>
   </dialog>
 {/if}

@@ -2,6 +2,6 @@
   import SettingsPage from "./SettingsPage.svelte";
   import ConnectedClientList from "./ConnectedClientList.svelte";
 </script>
-<SettingsPage active="connectedClients" title="CONNECTED CLIENTS">
+<SettingsPage active="connectedClients" title="CONNECTED AGENTS">
   <ConnectedClientList />
 </SettingsPage>

@@ -1114,7 +1114,7 @@ export const INTEGRATIONS: Record<string, VaultState> = {
 let current: VaultState = FIRST_RUN.noVault!;
 let pilotBackend = { ...DEFAULT_PILOT_BACKEND };
 let agentPermissions: import("../../../../lib/workPermissions").WorkPermissions = { version: 2, folders: [{ path: "~/Projects", access: "write" }] };
-let desktopHosts: string[] = ["registry.example.test"];
+let desktopHosts: string[] = [];
 const DESKTOP_DEFAULT_HOSTS = ["registry.npmjs.org", "pypi.org", "github.com"];
 
 /** Swap the vault out from under a running app. The SWR cache has to go with
@@ -1142,8 +1142,69 @@ const servePair = (p: PairState | null | undefined): Response => {
   return json({ ...s, pending: { ...s.pending, created: new Date(t - 60_000).toISOString(), expires: new Date(t + 9 * 60_000).toISOString() } });
 };
 
+/** `?servers`: one joined server, Garden club, with a full roster and more
+ * notes than one page shows, for the server page (SharedVaultSettings). */
+const GARDEN = (() => {
+  const people = ["Ines Park", "Theo Grant", "Mila Ortiz", "Ravi Shah", "June Abbott", "Kofi Mensah", "Lena Fischer", "Omar Haddad", "Priya Rao", "Sam Wilde", "Tess Moreau", "Yuki Sato", "Ada Brooks", "Noor Aziz"]
+    .map((display, i) => ({ id: `mem_${String(i).padStart(8, "0")}`, handle: display.split(" ")[0]!.toLowerCase(), display, role: i === 1 ? "owner" : "member", permissions: ["read", "write"] }));
+  const topics = ["Seed swap sign-up", "Tomato bed rotation", "Compost bin repair", "Spring planting plan", "Water barrel order", "Tool shed inventory", "Plot assignments", "Pollinator strip notes", "Frost dates", "Volunteer rota", "Soil test results", "Greenhouse heater quote"];
+  const notes = Array.from({ length: 38 }, (_, i) => ({
+    id: `ins_${i.toString(16).padStart(24, "0")}`, title: `${topics[i % topics.length]}${i >= topics.length ? ` ${Math.floor(i / topics.length) + 1}` : ""}`,
+    by: people[(i * 5) % people.length]!.handle, at: new Date(Date.UTC(2026, 9, 9) - i * 86_400_000 * 1.7).toISOString(), path: `shared/garden/ins_${i}.md`,
+  }));
+  return { people, notes, me: people[0]!.handle };
+})();
+/** `?servers` also serves lenses: three, one shared with Garden club and paused by a model upgrade. */
+const LENSES = (() => {
+  const row = (n: (typeof GARDEN.notes)[number]) => ({ id: n.id, title: n.title, date: n.at.slice(0, 10), path: n.path });
+  const garden = GARDEN.notes.slice(0, 9).map(row), more = GARDEN.notes.slice(9, 12).map(row);
+  return [
+    { id: "lens_00000000000a", name: "Garden logistics", text: "Plans, rotas and repairs for the community garden.", members: garden.length, servers: [{ id: "garden", name: "Garden club" }],
+      pins: [garden[2]!.id], exclusions: [GARDEN.notes[20]!.id], summarized: [garden[4]!.id], notes: garden,
+      review: { reason: "model", hold: true, joins: more, leaves: [garden[8]!], at: "2026-10-09T18:00:00.000Z" } },
+    { id: "lens_00000000000b", name: "Seed library", text: "Seed swaps, saved seed and what grew from it.", members: 4, servers: [], pins: [] as string[], exclusions: [] as string[], summarized: [] as string[], notes: garden.slice(0, 4) },
+    { id: "lens_00000000000c", name: "Reading", text: "Books and articles about soil and growing.", members: 12, servers: [], pins: [] as string[], exclusions: [] as string[], summarized: [] as string[], notes: garden.slice(0, 6) },
+  ];
+})();
+function serveLenses(path: string, search?: URLSearchParams): Response | null {
+  if (!new URLSearchParams(location.search).has("servers") || !path.startsWith("/api/lenses")) return null;
+  const summary = ({ pins: _p, exclusions: _e, summarized: _s, notes: _n, review, ...l }: (typeof LENSES)[number]) =>
+    ({ ...l, ...(review ? { review: { ...review, joins: review.joins.length, leaves: review.leaves.length } } : {}) });
+  const find = (id: string | null) => LENSES.find((l) => l.id === id) ?? LENSES[0]!;
+  if (path === "/api/lenses") return json({ lenses: LENSES.map(summary), servers: [{ id: "garden", name: "Garden club" }], mode: "conservative" });
+  if (path === "/api/lenses/lens") return json(find(search?.get("id") ?? null));
+  if (path === "/api/lenses/new") return json({ id: "lens_0000000000ff" });
+  if (path === "/api/lenses/notes") { const q = (search?.get("q") ?? "").toLowerCase(); return json({ items: GARDEN.notes.filter((n) => n.title.toLowerCase().includes(q)).slice(0, 8).map((n) => ({ id: n.id, title: n.title, date: n.at.slice(0, 10), path: n.path })) }); }
+  if (path === "/api/lenses/preview") {
+    const lens = LENSES[0]!, was = new Set(lens.notes.map((n) => n.id)), joining = new Set(lens.review!.joins.map((n) => n.id)), leaving = lens.review!.leaves[0]!.id;
+    const rows = GARDEN.notes.slice(0, 12).map((n) => ({ id: n.id, title: n.title, date: n.at.slice(0, 10), path: n.path, rule: (was.has(n.id) || joining.has(n.id)) && n.id !== leaving && n.id !== lens.pins[0], was: was.has(n.id), summarized: lens.summarized.includes(n.id), failed: false }));
+    return json({ id: "preview", busy: false, done: GARDEN.notes.length, total: GARDEN.notes.length, failed: 0, rows });
+  }
+  if (path === "/api/lenses/mode") return json({ mode: "yeehaw" });
+  return json(find(null));
+}
+function serveServers(path: string, search?: URLSearchParams): Response | null {
+  if (!new URLSearchParams(location.search).has("servers") || !path.startsWith("/api/shared-settings")) return null;
+  if (path === "/api/shared-settings") return json({ connections: [{ id: "garden", name: "Garden club" }] });
+  const mine = GARDEN.notes.filter((n) => n.by === GARDEN.me);
+  if (path.endsWith("/vault")) return json({
+    name: "Garden club", endpoint: "https://garden.example.org", evaluator: "jev", rule: null,
+    identity: { handle: GARDEN.me, display: GARDEN.people[0]!.display, role: "member", permissions: ["read", "write"], vault: {} },
+    items: mine.map((n, i) => ({ id: `sc_${i.toString(16).padStart(24, "0")}`, source_id: n.id, member_id: GARDEN.people[0]!.id, title: n.title, insertion_id: n.id, added_at: n.at, status: "active", version: 0, other_contributors: [], path: n.path })),
+  });
+  if (path.endsWith("/notes")) return json({ notes: GARDEN.notes });
+  if (path.endsWith("/members")) return json({ members: GARDEN.people, can_manage: false, invites: [] });
+  if (path.endsWith("/search")) {
+    const q = (search?.get("q") ?? "").toLowerCase();
+    return json({ ids: GARDEN.notes.filter((n) => n.title.toLowerCase().includes(q)).map((n) => n.id) });
+  }
+  return json({ error: "Not found" }, 404);
+}
+
 let creditsCleared = false;
 function route(path: string, method: string, body?: string, search?: URLSearchParams): Response {
+  const server = serveServers(path, search) ?? serveLenses(path, search);
+  if (server) return server;
   // Sample-vault previews never transmit feedback. The workbench can simulate
   // success/failure explicitly; otherwise match an unconfigured build.
   if (path === "/api/feedback" && method === "POST") {

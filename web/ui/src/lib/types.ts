@@ -142,6 +142,8 @@ export interface QueueMessageRow {
 // open). `group` is the substrate type; `degree` is the undirected link
 // count (node size).
 export interface GraphNode {
+  /** Where it comes from when servers are joined: "personal" and/or connection ids (lib/sharedReadUnion.ts). */
+  vaults?: string[];
   /** Experimental selection-relative importance, normalized for display. */
   relevance?: number;
   selectionPath?: string[];
