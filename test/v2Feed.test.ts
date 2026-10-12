@@ -8,10 +8,10 @@ import {
 } from "../lib/assertionProjection";
 import { createEntityAliasEvent } from "../lib/entityAliasLog";
 import type { FeedRecord } from "../lib/feedJournal";
-import { appendSourceInsertionEvent, insertionEventRel } from "../lib/insertionLog";
+import { appendSourceInsertionEvent, insertionEventRel, type SourceInsertion } from "../lib/insertionLog";
 import { createRevocationEvent } from "../lib/revocationLog";
 import { authorName, authorOf, newestFirst, pageSortedFeed, plainText, refreshSortedPages, type V2SortedRow } from "../lib/v2Feed";
-import { readEntityFeed, readSortedPage, readV2Feed } from "../lib/v2Read";
+import { readEntitiesCiting, readEntityFeed, readLensClaims, readSortedPage, readV2Feed } from "../lib/v2Read";
 import { withVaultSnapshot } from "../lib/vaultReadModel";
 import { insertion, mdVault } from "./support/vault";
 
@@ -24,20 +24,21 @@ const codex = { kind: "model", id: "codex", invocation_id: "mcp" } as const;
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 const src = insertion({ id: `ins_${"a".repeat(24)}`, source_id: "minutes" });
-function vault(): string {
+const agenda = insertion({ id: `ins_${"b".repeat(24)}`, source_id: "agenda" });
+function vault(...more: SourceInsertion[]): string {
   const root = mdVault(); roots.push(root);
-  appendSourceInsertionEvent(root, src);
+  for (const s of [src, ...more]) appendSourceInsertionEvent(root, s);
   syncAssertionProjection(root);
   return root;
 }
 let n = 0;
-type Over = { text?: string; supersedes?: string; project?: boolean };
+type Over = { text?: string; supersedes?: string; project?: boolean; cites?: SourceInsertion[] };
 function claim(root: string, author: AssertionEvent["author"], procedure: string, entities: Array<{ id: string; label: string }>, at: string,
   over: Over = {}): AssertionEvent {
   const event = createAssertionEvent({
-    text: over.text ?? `${entities.map((e) => `[[${e.id}|${e.label}]]`).join(" and ")} came up, ${++n}.`, entities, sources: [src.id],
+    text: over.text ?? `${entities.map((e) => `[[${e.id}|${e.label}]]`).join(" and ")} came up, ${++n}.`, entities, sources: (over.cites ?? [src]).map((s) => s.id),
     author, confidence: "direct", created_at: at, produced_by: { procedure, version: "v1" }, ...(over.supersedes ? { supersedes: over.supersedes } : {}),
-  }, new Map([[src.id, src]]));
+  }, new Map([src, agenda].map((s) => [s.id, s])));
   if (over.project !== false) appendAndProjectAssertion(root, event);
   return event;
 }
@@ -82,6 +83,30 @@ describe("v2 feed", () => {
       { id: "pi", name: "Pi", count: 1, lastAt: day(3) },
       { id: "gardener", name: "Gardener", count: 1, lastAt: day(1) },
     ]);
+  });
+
+  test("a lens's entities are those named by live claims citing its notes, folded through aliases", () => {
+    const root = vault(agenda);
+    const short = ent("Ada");
+    alias(root, "Ada", ada);
+    claim(root, pi, "bigbrain-mcp", [short, atlas], day(1));
+    claim(root, pi, "bigbrain-mcp", [ada], day(2));
+    claim(root, pi, "bigbrain-mcp", [orrery], day(3), { cites: [agenda] });
+    const citing = (ids: string[]) => withVaultSnapshot(root, (db) => readEntitiesCiting(db, ids)).toSorted();
+    expect(citing(["minutes"])).toEqual([ada.id, atlas.id].toSorted());
+    expect(citing([])).toEqual([]);
+  });
+
+  test("a lens's claims are the live ones whose every cited note it holds", () => {
+    const root = vault(agenda);
+    const minutes = claim(root, pi, "bigbrain-mcp", [ada], day(1));
+    const both = claim(root, pi, "bigbrain-mcp", [atlas], day(2), { cites: [src, agenda] });
+    const gone = claim(root, pi, "bigbrain-mcp", [orrery], day(3));
+    appendAndProjectRevocation(root, createRevocationEvent({ assertion_id: gone.id, reason: "wrong", author: pi, created_at: day(4), produced_by: { procedure: "fix", version: "v1" } }));
+    const claims = (members: string[]) => withVaultSnapshot(root, (db) => readLensClaims(db, members));
+    expect(claims(["minutes"])).toEqual(new Set([minutes.id]));
+    expect(claims(["minutes", "agenda"])).toEqual(new Set([minutes.id, both.id]));
+    expect(claims([])).toEqual(new Set());
   });
 
   test("the feed is the latest live rows, oldest first, plain prose, entities folded through aliases", () => {
