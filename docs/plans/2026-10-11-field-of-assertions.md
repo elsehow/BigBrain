@@ -68,6 +68,52 @@ field(scope) = layout(graph(live assertions in scope, the sources they cite))
   beside it.
 - **You leave your own view**, as today.
 
+## Stages and views
+
+Every step between the record and the screen transforms a list of items,
+and is one of two kinds.
+
+- A **stage** calls a model. It works through the items its own output
+  does not yet settle (§2: work is a view) and appends what the model said,
+  because a model call cannot be run again for the same answer. A chain
+  (`lib/chain.ts`) is a sequence of stages.
+- A **view** is a pure function of what was written. It writes nothing but
+  caches, so any view can be recomputed and a bug in one never becomes
+  data.
+
+**Only stages call models, and only stages and doors write.** A step that
+needs a model's judgment splits in two: a stage that judges and records,
+and a view that applies what was recorded.
+
+Everything the UI shows is a view:
+
+| The UI shows | The view | Over |
+|---|---|---|
+| a field | `layout(graph(assertions in scope))` | sources, assertions |
+| a lens | the same, over the lens's members | sources, assertions, inclusion verdicts |
+| the feed | feed items by section | `journal/feed/` |
+| memory topics | the working set's topics | `memory/` |
+
+The stages:
+
+| Stage | Works through | Writes |
+|---|---|---|
+| intake (the gardener) | sources no live assertion cites | assertions |
+| memory | assertions and voice arrivals past its cursors | `memory/` |
+| feed | conversations with assertions it has not sorted | `journal/feed/` |
+| inclusion | sources a lens's rule has no verdict on | inclusion verdicts |
+
+What breaks the rule today:
+
+- **Lens membership.** A model scores each source against the lens's rule,
+  and its verdicts, with the person's thumbs up and down, are kept in a
+  file on one machine, outside the vault (`lib/inclusionPolicy.ts`).
+  Moving the vault or opening it elsewhere loses them. They become the
+  inclusion stage's output in the vault, and a lens's members a view over
+  it (step 4).
+- **Layout** starts from the previous layout, and the saved layout is
+  state (step 5).
+
 ## Scopes
 
 Every scope is a set of assertions, drawn by the same function.
@@ -147,6 +193,7 @@ checked.
 - The separate identity, decline and revocation logs and their readers.
 - The markdown projection for everything but `memory/`.
 - #240's lens rule (any cited note counts) and fading in place.
+- Lens verdicts kept outside the vault (`inclusion-rules/`).
 - #249's separate server-field code, and the per-window polling in
   `lib/sharedWorkspace.ts`.
 - Today's layout, which starts from the previous one (#244 placement).
@@ -164,7 +211,8 @@ checked.
 3. Migrations 1–4, with consent, each proven on the scratch copy; then the
    old readers go.
 4. Scopes: the graph from a set of assertion ids; lenses by "all"; a
-   server as its own scope.
+   server as its own scope. The inclusion stage: a lens's verdicts in the
+   vault, its members a view over them.
 5. Layout: seats in `added` order with the local settle, for every scope.
 6. Servers held locally through their feeds; pushes from the change log.
 7. The shared server accepts identity assertions; publishing sends them.
