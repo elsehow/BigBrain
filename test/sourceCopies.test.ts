@@ -3,13 +3,12 @@ import { rmSync } from "node:fs";
 import { assertionEntityPath } from "../lib/assertionEntityView";
 import { buildAssertionGraph } from "../lib/assertionGraph";
 import { assertionEntityId, createAssertionEvent, type AssertionEntity } from "../lib/assertionLog";
-import { appendAndProjectAssertion, appendAndProjectEntitySource, appendAndProjectSourceCopy, syncAssertionProjection } from "../lib/assertionProjection";
-import { createEntitySourceEvent } from "../lib/entitySourceLog";
+import { appendAndProjectAssertion, syncAssertionProjection } from "../lib/assertionProjection";
 import { insertionEventRel, type SourceInsertion } from "../lib/insertionLog";
 import { notePayload } from "../lib/noteRead";
 import { copyKeys, sourceCopies } from "../lib/sourceCopies";
-import { createSourceCopyEvent } from "../lib/sourceCopyLog";
 import { copyGroups, copyProposals, sourceCopiesRecord, unjudgedCopies } from "../lib/vaultReadModel";
+import { bind as bindSource, copies as sayCopies } from "./support/said";
 import { insertion, nativeVault } from "./support/vault";
 
 const at = (url?: string, extra: Record<string, unknown> = {}) => ({ envelope: { kind: "web-clip", ...(url ? { url } : {}), ...extra } });
@@ -94,9 +93,7 @@ describe("copies in the vault", () => {
     claim(stub, "2026-10-02T00:01:00.000Z");
     claim(text, "2026-10-02T00:02:00.000Z");
     // bound to the stub alone: the copy it shares a file with joins it all the same
-    appendAndProjectEntitySource(root, createEntitySourceEvent({
-      entity: ent, insertion_id: stub.id, bound: true, author: AUTHOR, created_at: "2026-10-02T00:03:00.000Z", produced_by: PRODUCED,
-    }));
+    bindSource(root, ent, stub.id, { author: AUTHOR, created_at: "2026-10-02T00:03:00.000Z", produced_by: PRODUCED });
     return root;
   };
   const read = (root: string, path: string) => {
@@ -158,13 +155,13 @@ describe("a note's copies, found from the note", () => {
     const root = nativeVault({ prefix: "bb-copies-near-", insertions: sources });
     roots.push(root);
     syncAssertionProjection(root);
-    const bind = (entity: AssertionEntity, c: string, n: number) => appendAndProjectEntitySource(root, createEntitySourceEvent({
-      entity, insertion_id: id(c), bound: true, author: PERSON, created_at: when(n), produced_by: PRODUCED }));
+    const bind = (entity: AssertionEntity, c: string, n: number) =>
+      bindSource(root, entity, id(c), { author: PERSON, created_at: when(n), produced_by: PRODUCED });
     bind(atlas, "d", 20); bind(atlas, "1", 21);
     const survey: AssertionEntity = { id: assertionEntityId("Harbour survey"), label: "Harbour survey" };
     bind(survey, "6", 22); bind(survey, "8", 23); bind(survey, "a", 24);
-    const word = (a: string, b: string, n: number, said: { same: boolean } | { score: number }) => appendAndProjectSourceCopy(root,
-      createSourceCopyEvent({ a: id(a), b: id(b), author: "score" in said ? MODEL : PERSON, created_at: when(n), produced_by: PRODUCED, ...said }));
+    const word = (a: string, b: string, n: number, said: { same: boolean } | { score: number }) =>
+      sayCopies(root, id(a), id(b), said, { author: "score" in said ? MODEL : PERSON, created_at: when(n), produced_by: PRODUCED });
     word("2", "3", 25, { same: false });
     word("4", "5", 26, { score: 0.9 });
     return root;

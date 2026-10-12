@@ -16,9 +16,9 @@
  * directly (the assertionLog.ts discipline). The append/read/commit
  * machinery is lib/eventLog.ts.
  *
- * Read, no longer written: a decline is an assertion of kind `decline`
- * (lib/assertionLog.ts). This log goes when it is migrated
- * (docs/plans/2026-10-11-field-of-assertions.md).
+ * Read only by `bigbrain migrate` (lib/migrate.ts), which converts it: a
+ * decline is now an assertion of kind `decline` (lib/assertionLog.ts), and a
+ * vault holding this log is refused until it is migrated.
  */
 
 import type { AssertionProduction, AssertionSourceReference } from "./assertionLog";

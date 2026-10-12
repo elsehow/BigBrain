@@ -6,12 +6,9 @@ import {
 } from "../lib/assertionLog";
 import { aliasEvents, entityAliasResolver } from "../lib/assertionKinds";
 import {
-  appendAndProjectAssertion, appendAndProjectEntityAlias, appendAndProjectEntitySource, liveAliasDeclarations,
-  liveBindingDeclarations, openAssertionProjectionReadonly, projectedAliasTarget, projectionRevision,
-  projectSourceInsertion, rebuildAssertionProjection, recoverAssertionProjection,
+  appendAndProjectAssertion, liveAliasDeclarations, liveBindingDeclarations, openAssertionProjectionReadonly,
+  projectedAliasTarget, projectionRevision, projectSourceInsertion, rebuildAssertionProjection, recoverAssertionProjection,
 } from "../lib/assertionProjection";
-import { createEntityAliasEvent } from "../lib/entityAliasLog";
-import { createEntitySourceEvent } from "../lib/entitySourceLog";
 import { appendSourceInsertionEvent } from "../lib/insertionLog";
 import { declaredEntitySources, otherCopies, sourceRecord } from "../lib/vaultReadModel";
 import { insertion, mdVault } from "./support/vault";
@@ -53,7 +50,7 @@ test("each kind is held to its own rules", () => {
   const decline = createDeclineAssertion({ reason: "a calendar stub", sources: [a.id], ...said("1") }, sources);
   expect(bad({ ...decline, sources: [] })).toThrow("cites at least one source");
   const retraction = createRetraction({ retracts: decline.id, reason: "filed after all", ...said("2") });
-  expect(bad({ ...retraction, retracts: `rev_${"0".repeat(24)}` })).toThrow("invalid retracted id");
+  expect(bad({ ...retraction, retracts: `dec_${"0".repeat(24)}` })).toThrow("invalid retracted id");
   expect(bad({ ...retraction, sources: [] })).toThrow("cites nothing");
   expect(() => createIdentityAssertion({ identity: { says: "same", alias: entity("Ada"), entity: entity("Ada") }, ...said("1") }, sources))
     .toThrow("names another entity");
@@ -77,7 +74,7 @@ test("a decline settles what it cites; retracting it sends it back", () => {
   expect(sourceRecord(root).declined.has(a.id)).toBe(false);
 });
 
-test("an identity assertion aliases, and a retraction withdraws it or an alias from the old log", () => {
+test("an identity assertion aliases, and a retraction withdraws it", () => {
   const { root, sources } = vault();
   const ada = entity("Ada Lovelace"), short = entity("Ada");
   const same = createIdentityAssertion({ identity: { says: "same", alias: short, entity: ada }, ...said("1") }, sources);
@@ -87,25 +84,26 @@ test("an identity assertion aliases, and a retraction withdraws it or an alias f
   appendAndProjectAssertion(root, createRetraction({ retracts: same.id, reason: "two people", ...said("2") }));
   expect(projectedAliasTarget(root, short.id)).toBeUndefined();
   expect(entityAliasResolver(root)(short)).toEqual(short);
-
-  const old = createEntityAliasEvent({ alias: "Lovelace", entity: ada, ...said("3") });
-  appendAndProjectEntityAlias(root, old);
-  expect(projectedAliasTarget(root, entity("Lovelace").id)).toEqual(ada);
-  appendAndProjectAssertion(root, createRetraction({ retracts: old.id, reason: "ambiguous", ...said("4") }));
-  expect(projectedAliasTarget(root, entity("Lovelace").id)).toBeUndefined();
   expect(aliasEvents(root).map((e) => e.id)).toEqual([]);
 });
 
 test("a retraction a rebuild reads before what it names still withdraws it", () => {
   const { root, a, sources } = vault();
   const ada = entity("Ada Lovelace");
-  // the assertion log is projected before the alias log, so the retraction lands first
-  const old = createEntityAliasEvent({ alias: "Lovelace", entity: ada, ...said("1") });
-  appendAndProjectEntityAlias(root, old);
+  const same = createIdentityAssertion({ identity: { says: "same", alias: entity("Lovelace"), entity: ada }, ...said("1") }, sources);
   const bound = createIdentityAssertion({ identity: { says: "is-source", entity: ada }, sources: [a.id], ...said("2") }, sources);
-  appendAndProjectAssertion(root, bound);
-  for (const retracts of [old.id, bound.id])
-    appendAndProjectAssertion(root, createRetraction({ retracts, reason: "not so", ...said("3") }));
+  // a rebuild reads a month's assertions in id order: retractions whose ids
+  // sort before what they name land first
+  const first = (retracts: string) => {
+    for (let n = 0; ; n++) {
+      const retraction = createRetraction({ retracts, reason: `not so (${n})`, ...said("3") });
+      if (retraction.id < retracts) return retraction;
+    }
+  };
+  for (const target of [same, bound]) {
+    appendAndProjectAssertion(root, target);
+    appendAndProjectAssertion(root, first(target.id));
+  }
   const before = { aliases: live(root, "entity_alias_events"), bindings: live(root, "entity_source_events") };
   expect(before).toEqual({ aliases: [], bindings: [] });
   rebuildAssertionProjection(root);
@@ -141,11 +139,11 @@ test("retracting prose withdraws it as a revocation does, and the log reader kee
   finally { db.close(); }
 });
 
-test("what an alias or a binding retraction withdraws: every standing declaration, from either log", () => {
+test("what an alias or a binding retraction withdraws: every standing declaration", () => {
   const { root, a, sources } = vault();
   const ada = entity("Ada Lovelace"), short = entity("Ada");
-  const old = createEntityAliasEvent({ alias: short.label, entity: entity("Ada King"), ...said("1") });
-  appendAndProjectEntityAlias(root, old);
+  const old = createIdentityAssertion({ identity: { says: "same", alias: short, entity: entity("Ada King") }, ...said("1") }, sources);
+  appendAndProjectAssertion(root, old);
   const same = createIdentityAssertion({ identity: { says: "same", alias: short, entity: ada }, ...said("2") }, sources);
   appendAndProjectAssertion(root, same);
   expect(liveAliasDeclarations(root, short.id)).toEqual([same.id, old.id].sort());
@@ -155,8 +153,8 @@ test("what an alias or a binding retraction withdraws: every standing declaratio
 
   // a binding made under an alias is the canonical's to unbind
   appendAndProjectAssertion(root, createIdentityAssertion({ identity: { says: "same", alias: entity("Lovelace"), entity: ada }, ...said("4") }, sources));
-  const oldBinding = createEntitySourceEvent({ entity: entity("Lovelace"), insertion_id: a.id, bound: true, ...said("5") });
-  appendAndProjectEntitySource(root, oldBinding);
+  const oldBinding = createIdentityAssertion({ identity: { says: "is-source", entity: entity("Lovelace") }, sources: [a.id], ...said("5") }, sources);
+  appendAndProjectAssertion(root, oldBinding);
   const binding = createIdentityAssertion({ identity: { says: "is-source", entity: ada }, sources: [a.id], ...said("6") }, sources);
   appendAndProjectAssertion(root, binding);
   expect(liveBindingDeclarations(root, ada.id, a.id)).toEqual([binding.id, oldBinding.id].sort());

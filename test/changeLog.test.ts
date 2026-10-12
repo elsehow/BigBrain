@@ -2,13 +2,12 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  appendAndProjectAssertion, appendAndProjectDecline, appendAndProjectRevocation, projectionChangesSince,
+  appendAndProjectAssertion, projectionChangesSince,
   projectionRevision, projectNotes, projectSourceInsertion, rebuildAssertionProjection, recoverAssertionProjection, syncAssertionProjection,
 } from "../lib/assertionProjection";
 import { createAssertionEvent } from "../lib/assertionLog";
-import { createDeclineEvent } from "../lib/declineLog";
 import { appendSourceInsertionEvent, insertionEventRel } from "../lib/insertionLog";
-import { createRevocationEvent } from "../lib/revocationLog";
+import { decline, retract } from "./support/said";
 import { insertion, mdVault } from "./support/vault";
 
 const roots: string[] = [];
@@ -36,16 +35,14 @@ test("every commit logs what moved the revision, in commit order", () => {
   const claim = createAssertionEvent({ text: "A fabricated claim about the orrery.", entities: [], sources: [a.id], author,
     confidence: "direct", created_at: "2026-09-01T00:00:00.000Z", produced_by }, new Map([[a.id, a]]));
   appendAndProjectAssertion(root, claim);
-  const decline = createDeclineEvent({ insertion_ids: [b.id], reason: "Boilerplate", author, created_at: "2026-09-01T00:00:00.000Z", produced_by }, new Map([[b.id, b]]));
-  appendAndProjectDecline(root, decline);
-  const revoked = createRevocationEvent({ assertion_id: claim.id, reason: "wrong", author, created_at: "2026-09-02T00:00:00.000Z", produced_by });
-  appendAndProjectRevocation(root, revoked);
+  const declined = decline(root, [b.id], "Boilerplate", { author, created_at: "2026-09-01T00:00:00.000Z", produced_by });
+  const revoked = retract(root, claim.id, { reason: "wrong", author, created_at: "2026-09-02T00:00:00.000Z", produced_by });
   // a replay of an event already projected commits nothing
   projectSourceInsertion(root, b);
   const n = Number(first);
   expect(since(root, start)).toEqual([
     `${n + 1} source:${b.id} add`, `${n + 2} assertion:${claim.id} add`,
-    `${n + 3} decline:${decline.id} add`, `${n + 4} revocation:${revoked.id} add`,
+    `${n + 3} decline:${declined.id} add`, `${n + 4} revocation:${revoked.id} add`,
   ]);
   expect(at(root)).toBe(`${generation}:${n + 4}`);
   expect(since(root, at(root))).toEqual([]);

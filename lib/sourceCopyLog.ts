@@ -12,9 +12,9 @@
  * constructs and validates events; the append/read/commit machinery is
  * lib/eventLog.ts.
  *
- * Read, no longer written: a copy judged or declared is an identity
- * assertion saying `copy` or `not-copy` (lib/assertionLog.ts). This log goes
- * when it is migrated (docs/plans/2026-10-11-field-of-assertions.md).
+ * Read only by `bigbrain migrate` (lib/migrate.ts), which converts it: a
+ * copy judged or declared is now an identity assertion saying `copy` or
+ * `not-copy` (lib/assertionLog.ts).
  */
 
 import type { AssertionProduction } from "./assertionLog";

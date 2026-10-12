@@ -30,8 +30,6 @@ import {
 import { appendSourceInsertionEvent, type SourceInsertion } from "../lib/insertionLog";
 import {
   appendAndProjectAssertion,
-  appendAndProjectEntityAlias,
-  appendAndProjectRevocation,
   projectSourceInsertion,
 } from "../lib/assertionProjection";
 import { runMemory, type MemoryRunResult } from "../lib/memoryRun";
@@ -39,8 +37,6 @@ import { MEMORY_MAX_ASSERTIONS_INLINE, readMemorySnapshot } from "../lib/memoryC
 import { memoryStanding, memoryLine } from "../lib/diagnostics";
 import { readMemoryInputs } from "../lib/memoryInputs";
 import { supersedeEntity } from "../lib/entitySupersede";
-import { createRevocationEvent } from "../lib/revocationLog";
-import { createEntityAliasEvent } from "../lib/entityAliasLog";
 import {
   assertionAt,
   describeMemoryWork,
@@ -54,6 +50,7 @@ import {
   writeMemoryStamp,
   type MemoryStamp,
 } from "../lib/memory";
+import { alias, retract } from "./support/said";
 import { gitVault, insertion, testManifest } from "./support/vault";
 
 // ── fixtures ────────────────────────────────────────────────────────────
@@ -259,16 +256,11 @@ describe("runMemory on a native vault", () => {
     expect(snapshot.astDelta[0]!.created_at).toBe(asts[0]!.created_at);
 
     writeMemoryStamp(root, { ...stamp, checkpoint: snapshot.checkpoint });
-    appendAndProjectRevocation(root, createRevocationEvent({
-      assertion_id: asts[1]!.id, reason: "withdrawn", author: { kind: "user", id: "test" },
-      created_at: at(5), produced_by: { procedure: "test", version: "1" },
-    }));
+    retract(root, asts[1]!.id, { created_at: at(5) });
     expect(memoryWork(root)).toMatchObject({ record: 0, recordChanged: true });
     writeMemoryStamp(root, { ...stamp, checkpoint: readMemoryInputs(root).checkpoint });
-    appendAndProjectEntityAlias(root, createEntityAliasEvent({
-      alias: "Countess Lovelace", entity: { id: assertionEntityId("Augusta Ada King"), label: "Augusta Ada King" },
-      author: { kind: "user", id: "test" }, created_at: at(6), produced_by: { procedure: "test", version: "1" },
-    }));
+    alias(root, "Countess Lovelace", { id: assertionEntityId("Augusta Ada King"), label: "Augusta Ada King" },
+      { created_at: at(6) });
     expect(memoryWork(root)).toMatchObject({ record: 0, recordChanged: true });
   });
 

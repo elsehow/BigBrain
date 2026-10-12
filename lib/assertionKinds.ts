@@ -1,25 +1,23 @@
-/** How the assertion kinds (lib/assertionLog.ts) reach readers while the logs
- * they replace are still read: docs/plans/2026-10-11-field-of-assertions.md,
- * step 1.
+/** How the assertion kinds (lib/assertionLog.ts) reach the folds readers
+ * apply: docs/plans/2026-10-11-field-of-assertions.md.
  *
- * A decline, a retraction or an identity assertion is written to the
- * assertion log. Each one also lands, in the shape its old log's events
- * have, in the projection table that log fills (lib/assertionProjection.ts).
- * So every fold over that table reads the old events and the new
- * assertions side by side: latest alias wins, latest binding per pair,
- * latest copy judgment per pair. The readers below fold the logs directly,
- * where no projection is at hand. All of this goes when the old logs are
- * migrated (step 3).
+ * A decline, a retraction or an identity assertion lands, in the shape the
+ * retired log for its kind gave its events, in the projection table that
+ * log filled (lib/assertionProjection.ts), and every fold over that table —
+ * latest alias wins, latest binding per pair, latest copy judgment per
+ * pair — reads it there. The readers below fold the assertion log directly,
+ * where no projection is at hand.
  */
 
 import {
   isProse, readRecordedAssertions, type AssertionEntity, type DeclineAssertion, type IdentityAssertion, type RetractionAssertion,
 } from "./assertionLog";
 import type { DeclineEvent } from "./declineLog";
-import { entityAliasResolution, readEntityAliasLog, type EntityAliasEvent } from "./entityAliasLog";
+import { entityAliasResolution, type EntityAliasEvent } from "./entityAliasLog";
 import type { EntityFoldRejectEvent } from "./entityFoldLog";
 import type { EntitySourceEvent } from "./entitySourceLog";
-import { readRevocationLog, type RevocationEvent } from "./revocationLog";
+import { refuseRetiredLogs } from "./retiredLogs";
+import type { RevocationEvent } from "./revocationLog";
 import type { SourceCopyEvent } from "./sourceCopyLog";
 
 /** An assertion as its old log would have recorded it, by the projection's
@@ -63,6 +61,8 @@ export function legacyShape(assertion: IdentityAssertion | DeclineAssertion | Re
 /** The assertion log's identity, decline and retraction events in their old
  * shapes, and what its retractions withdraw. */
 function recordedKinds(root: string, opts: { strict?: boolean }): { shapes: LegacyShape[]; withdrawn: Set<string> } {
+  // as the projection does: a retired log is refused, not read as empty
+  refuseRetiredLogs(root);
   const shapes: LegacyShape[] = [], withdrawn = new Set<string>();
   for (const event of readRecordedAssertions(root, opts)) {
     if (isProse(event)) continue;
@@ -72,18 +72,16 @@ function recordedKinds(root: string, opts: { strict?: boolean }): { shapes: Lega
   return { shapes, withdrawn };
 }
 
-/** Every alias declaration still standing: the alias log's and the identity
- * assertions saying `same`, less what a retraction withdrew. */
+/** Every alias declaration still standing: the identity assertions saying
+ * `same`, less what a retraction withdrew. */
 export function aliasEvents(root: string, opts: { strict?: boolean } = {}): EntityAliasEvent[] {
   const { shapes, withdrawn } = recordedKinds(root, opts);
-  const said = shapes.flatMap((s) => (s.kind === "alias" ? [s.event] : []));
-  return [...readEntityAliasLog(root, opts), ...said].filter((event) => !withdrawn.has(event.id));
+  return shapes.flatMap((s) => (s.kind === "alias" && !withdrawn.has(s.event.id) ? [s.event] : []));
 }
 
-/** Every revocation: the revocation log's and the retractions. */
+/** Every retraction, as the revocation it replaced. */
 export function revocationEvents(root: string, opts: { strict?: boolean } = {}): RevocationEvent[] {
-  const said = recordedKinds(root, opts).shapes.flatMap((s) => (s.kind === "revocation" ? [s.event] : []));
-  return [...readRevocationLog(root, opts), ...said];
+  return recordedKinds(root, opts).shapes.flatMap((s) => (s.kind === "revocation" ? [s.event] : []));
 }
 
 /** The read-side resolver over a vault's logs: an entity as an assertion

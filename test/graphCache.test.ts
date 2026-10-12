@@ -6,9 +6,8 @@ import type { Graph } from "../lib/graph";
 import { graphWithLayout, readLayoutCache } from "../lib/graphCache";
 import { forgetGraphView, graphNow as assertionGraphCached } from "../lib/maintainedGraph";
 import { appendSourceInsertionEvent } from "../lib/insertionLog";
-import { appendAndProjectAssertion, appendAndProjectDecline, openAssertionProjectionReadonly, projectSourceInsertion } from "../lib/assertionProjection";
-import { assertionEntityId, createAssertionEvent } from "../lib/assertionLog";
-import { createDeclineEvent } from "../lib/declineLog";
+import { appendAndProjectAssertion, openAssertionProjectionReadonly, projectSourceInsertion } from "../lib/assertionProjection";
+import { assertionEntityId, createAssertionEvent, createDeclineAssertion } from "../lib/assertionLog";
 import { recentFromSourceLog } from "../lib/sourceFeed";
 import { insertion } from "./support/vault";
 
@@ -130,8 +129,8 @@ describe("the graph view, now", () => {
           const produced_by = { procedure: "intake", version: "v1" };
           const created_at = "2026-09-07T21:00:00.000Z";
           if (verdict === "declined") {
-            appendAndProjectDecline(root, createDeclineEvent({
-              insertion_ids: [drop.id], reason: "Nothing to keep", author, produced_by, created_at,
+            appendAndProjectAssertion(root, createDeclineAssertion({
+              sources: [drop.id], reason: "Nothing to keep", author, produced_by, created_at,
             }, sources));
           } else {
             const ada = { id: assertionEntityId("Ada"), label: "Ada" };

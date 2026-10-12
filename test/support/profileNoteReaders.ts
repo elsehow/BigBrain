@@ -7,8 +7,7 @@ const engine = resolve(process.argv[2]!), operation = process.argv[3]!;
 const mod = (file: string) => import(join(engine, "lib", `${file}.ts`));
 const { insertion } = await import(join(engine, "test/support/vault.ts"));
 const { appendSourceInsertionEvent } = await mod("insertionLog");
-const { createAssertionEvent, appendAssertionEvent, assertionEntityId } = await mod("assertionLog");
-const { appendDeclineEvent, createDeclineEvent } = await mod("declineLog");
+const { createAssertionEvent, appendAssertionEvent, assertionEntityId, createDeclineAssertion } = await mod("assertionLog");
 const { syncAssertionProjection } = await mod("assertionProjection");
 const { sourceThreads } = await mod("sourceThreads");
 const { sourceThreadView } = await mod("assertionEntityView");
@@ -49,9 +48,14 @@ try {
     envelope: { kind, about: n === 0 ? " source-0 " : [n === 1 ? "source-0" : "source-1"], from_kind: "person" },
   }));
   for (const voice of voices) { appendSourceInsertionEvent(root, voice); byId.set(voice.id, voice); }
-  appendDeclineEvent(root, createDeclineEvent({ insertion_ids: [voices[1].id], reason: "Already recorded",
-    author: { kind: "agent", id: "fixture" }, created_at: "2026-01-03T00:00:00.000Z",
-    produced_by: { procedure: "fixture", version: "1" } }, byId));
+  const decline = { reason: "Already recorded", author: { kind: "agent", id: "fixture" }, created_at: "2026-01-03T00:00:00.000Z",
+    produced_by: { procedure: "fixture", version: "1" } };
+  // A baseline checkout from before assertion kinds keeps its declines in log/declines.
+  if (createDeclineAssertion) appendAssertionEvent(root, createDeclineAssertion({ ...decline, sources: [voices[1].id] }, byId));
+  else {
+    const { appendDeclineEvent, createDeclineEvent } = await mod("declineLog");
+    appendDeclineEvent(root, createDeclineEvent({ ...decline, insertion_ids: [voices[1].id] }, byId));
+  }
   const syncStart = performance.now(); syncAssertionProjection(root); const projectionMs = performance.now() - syncStart;
   const thread = sourceThreads(sources.slice(0, 4))[0]!;
   const service = createSourceReadStateService([]);

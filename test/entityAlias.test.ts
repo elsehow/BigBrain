@@ -1,4 +1,3 @@
-import { createRevocationEvent } from "../lib/revocationLog";
 /** entityAlias.test.ts — one label names another entity (lib/entityAliasLog.ts).
  *
  * The invariants: an alias event folds by latest-wins / retract / flatten /
@@ -17,12 +16,12 @@ import { join } from "node:path";
 import { canonicalizeAssertionLinks } from "../lib/assertionAgent";
 import { assertionEntityPath, assertionEntityView, assertionEntityMarkdown } from "../lib/assertionEntityView";
 import { buildAssertionGraph } from "../lib/assertionGraph";
-import { assertionEntityId, createAssertionEvent, type AssertionEntity } from "../lib/assertionLog";
+import {
+  appendAssertionEvent, assertionEntityId, createAssertionEvent, createIdentityAssertion, sameAs, type AssertionEntity,
+} from "../lib/assertionLog";
 import {
   appendAndProjectAssertion,
-  appendAndProjectRevocation,
   openAssertionProjectionReadonly,
-  appendAndProjectEntityAlias,
   assertionProjectionDigest,
   assertionProjectionStats,
   assertionsWithRefsForEntity,
@@ -43,6 +42,7 @@ import {
 } from "../lib/entityAliasLog";
 import { planEntityAliasSeed, seedEntityAliases } from "../lib/entityAliasSeed";
 import { appendSourceInsertionEvent, type SourceInsertion } from "../lib/insertionLog";
+import { alias, retract } from "./support/said";
 import { insertion } from "./support/vault";
 
 const AUTHOR = { kind: "user", id: "nick" } as const;
@@ -78,36 +78,36 @@ function vault(...texts: string[]): { root: string; ins: SourceInsertion } {
   return { root, ins };
 }
 
-const alias = (label: string, entity: AssertionEntity, created_at = stamp()): EntityAliasEvent =>
+const aliasEvent = (label: string, entity: AssertionEntity, created_at = stamp()): EntityAliasEvent =>
   createEntityAliasEvent({ alias: label, entity, author: AUTHOR, created_at, produced_by: PRODUCED });
 
 describe("the alias log", () => {
   test("an event round-trips, validates its own hash, and a self-alias is a retraction", () => {
     const root = mkdtempSync(join(tmpdir(), "bb-alias-log-"));
-    const event = alias("Evan", EK);
+    const event = aliasEvent("Evan", EK);
     expect(event.alias_id).toBe(EVAN.id);
     expect(appendEntityAliasEvent(root, event).deduped).toBe(false);
     expect(appendEntityAliasEvent(root, event).deduped).toBe(true);
     expect(readEntityAliasLog(root, { strict: true })).toEqual([event]);
     expect(() => validateEntityAliasEvent({ ...event, alias_id: JULES.id })).toThrow("does not hash");
     expect(() => validateEntityAliasEvent({ ...event, alias: " Evan" })).toThrow("whitespace");
-    const { canonical } = entityAliasResolution([event, alias("Evan", EVAN)]);
+    const { canonical } = entityAliasResolution([event, aliasEvent("Evan", EVAN)]);
     expect(canonical.size).toBe(0);
   });
 
   test("the fold: latest wins, chains flatten, a cycle drops its oldest declaration", () => {
     const A = ent("A"), B = ent("B"), C = ent("C");
     // latest wins
-    let r = entityAliasResolution([alias("A", B, "2026-01-01T00:00:00Z"), alias("A", C, "2026-01-02T00:00:00Z")]);
+    let r = entityAliasResolution([aliasEvent("A", B, "2026-01-01T00:00:00Z"), aliasEvent("A", C, "2026-01-02T00:00:00Z")]);
     expect(r.canonical.get(A.id)).toEqual(C);
     // chain A→B, B→C flattens to A→C, and C carries both labels
-    r = entityAliasResolution([alias("A", B), alias("B", C)]);
+    r = entityAliasResolution([aliasEvent("A", B), aliasEvent("B", C)]);
     expect(r.canonical.get(A.id)).toEqual(C);
     expect(r.canonical.get(B.id)).toEqual(C);
     expect(r.labels.get(C.id)).toEqual(["A", "B"]);
     // cycle B→C (t1), C→A (t2), A→B (t3): the oldest (B→C) yields; C→A→B
     r = entityAliasResolution([
-      alias("B", C, "2026-01-01T00:00:00Z"), alias("C", A, "2026-01-02T00:00:00Z"), alias("A", B, "2026-01-03T00:00:00Z"),
+      aliasEvent("B", C, "2026-01-01T00:00:00Z"), aliasEvent("C", A, "2026-01-02T00:00:00Z"), aliasEvent("A", B, "2026-01-03T00:00:00Z"),
     ]);
     expect(r.canonical.get(A.id)).toEqual(B);
     expect(r.canonical.get(C.id)).toEqual(B);
@@ -121,7 +121,7 @@ describe("the projection resolves through the table", () => {
     expect(searchAssertionEntities(root, "Evan").map((h) => h.label).sort()).toEqual(["Evan", "Evan Keller"]);
     expect(assertionProjectionStats(root).entities).toBe(3);
 
-    appendAndProjectEntityAlias(root, alias("Evan", EK));
+    alias(root, "Evan", EK);
 
     expect(projectedAssertionEntity(root, EVAN.id)).toEqual({ id: EK.id, label: "Evan Keller", assertions: 2, aliases: ["Evan"] });
     expect(projectedAssertionEntity(root, EK.id)?.assertions).toBe(2);
@@ -141,21 +141,20 @@ describe("the projection resolves through the table", () => {
 
   test("a retraction restores the stub; a re-declaration moves it again", () => {
     const { root } = vault("[[Evan Keller]] runs FRI.", "[[Evan]] said hello.");
-    appendAndProjectEntityAlias(root, alias("Evan", EK));
-    appendAndProjectEntityAlias(root, alias("Evan", EVAN));
+    retract(root, alias(root, "Evan", EK).id);
     expect(projectedAssertionEntity(root, EVAN.id)).toEqual({ id: EVAN.id, label: "Evan", assertions: 1 });
     expect(searchAssertionEntities(root, "Evan")).toHaveLength(2);
-    appendAndProjectEntityAlias(root, alias("Evan", JULES));
+    alias(root, "Evan", JULES);
     expect(projectedAssertionEntity(root, EVAN.id)?.id).toBe(JULES.id);
     expect(projectedAssertionEntity(root, JULES.id)?.label).toBe("Jules Lane");
   });
 
   test("an older event arriving late does not override a newer one (sync replays by filename)", () => {
     const { root } = vault("[[Evan Keller]] runs FRI.", "[[Evan]] said hello.");
-    const newer = alias("Evan", JULES, "2026-08-25T00:00:00.000Z");
-    const older = alias("Evan", EK, "2026-08-21T00:00:00.000Z");
-    appendAndProjectEntityAlias(root, newer);
-    appendEntityAliasEvent(root, older); // to disk only; sync picks it up
+    alias(root, "Evan", JULES, { created_at: "2026-08-25T00:00:00.000Z" });
+    const older = createIdentityAssertion({ identity: sameAs("Evan", EK), author: AUTHOR,
+      created_at: "2026-08-21T00:00:00.000Z", produced_by: PRODUCED });
+    appendAssertionEvent(root, older); // to disk only; sync picks it up
     syncAssertionProjection(root);
     expect(projectedAssertionEntity(root, EVAN.id)?.id).toBe(JULES.id);
   });
@@ -164,7 +163,7 @@ describe("the projection resolves through the table", () => {
 describe("intake never follows the table (#628) and refuses a would-be stub", () => {
   test("[[Evan]] and [[ent_<stub>|…]] are refused once aliased, naming the canonical; the canonical id links", () => {
     const { root } = vault("[[Evan Keller]] runs FRI.", "[[Evan]] said hello.");
-    appendAndProjectEntityAlias(root, alias("Evan", EK));
+    alias(root, "Evan", EK);
     expect(() => canonicalizeAssertionLinks(root, "[[Evan]] agreed.")).toThrow(`is an alias of ${EK.id}`);
     expect(() => canonicalizeAssertionLinks(root, `[[${EVAN.id}|Evan Keller]] agreed.`)).toThrow(`is an alias of ${EK.id}`);
     expect(canonicalizeAssertionLinks(root, `[[${EK.id}|Evan Keller]] agreed.`)).toEqual({
@@ -174,7 +173,7 @@ describe("intake never follows the table (#628) and refuses a would-be stub", ()
 
   test("an alias to a label nothing has linked yet resolves READ-side only: dossier and search, never intake", () => {
     const { root } = vault("[[Evan]] said hello.");
-    appendAndProjectEntityAlias(root, alias("Evan", EK));
+    alias(root, "Evan", EK);
     expect(projectedAssertionEntity(root, EVAN.id)).toEqual({ id: EK.id, label: "Evan Keller", assertions: 1, aliases: ["Evan"] });
     expect(searchAssertionEntities(root, "Evan")[0]).toMatchObject({ id: EK.id, label: "Evan Keller", assertions: 1 });
     expect(() => canonicalizeAssertionLinks(root, "[[Evan]] agreed.")).toThrow("is an alias of");
@@ -193,7 +192,7 @@ describe("intake never follows the table (#628) and refuses a would-be stub", ()
     // two words mint; one word nobody carries mints; a word only an ALIAS carries is refused too
     expect(canonicalizeAssertionLinks(root, "[[Evan Zhang]] wrote.").entities).toEqual([ent("Evan Zhang")]);
     expect(canonicalizeAssertionLinks(root, "[[Zed]] wrote.").entities).toEqual([ent("Zed")]);
-    appendAndProjectEntityAlias(root, alias("Ezzy K", EK));
+    alias(root, "Ezzy K", EK);
     expect(() => canonicalizeAssertionLinks(root, "[[Ezzy]] wrote.")).toThrow("would mint");
   });
 });
@@ -201,7 +200,7 @@ describe("intake never follows the table (#628) and refuses a would-be stub", ()
 describe("the readers draw one entity", () => {
   test("the entity view: a stub's path lands on the canonical dossier, links rewritten, aliases in front matter", () => {
     const { root } = vault("[[Evan Keller]] runs FRI.", "[[Evan]] said hello to [[Jules Lane]].");
-    appendAndProjectEntityAlias(root, alias("Evan", EK));
+    alias(root, "Evan", EK);
     const view = assertionEntityView(root, assertionEntityPath(EVAN.id));
     expect(view).toMatchObject({ id: EK.id, label: "Evan Keller", aliases: ["Evan"] });
     expect(view?.assertions.map((row) => row.text)).toEqual([
@@ -218,7 +217,7 @@ describe("the readers draw one entity", () => {
     const { root } = vault("[[Evan Keller]] runs FRI.", "[[Evan]] said hello to [[Jules Lane]].");
     expect(buildAssertionGraph(root).nodes.filter((n) => n.entity).map((n) => n.title).sort())
       .toEqual(["Evan", "Evan Keller", "Jules Lane"]);
-    appendAndProjectEntityAlias(root, alias("Evan", EK));
+    alias(root, "Evan", EK);
     const graph = buildAssertionGraph(root);
     expect(graph.nodes.filter((n) => n.entity).map((n) => n.title).sort()).toEqual(["Evan Keller", "Jules Lane"]);
     expect(graph.edges.some((e) => [e.source, e.target].sort().join() === [EK.id, JULES.id].sort().join())).toBe(true);
@@ -285,7 +284,7 @@ describe("intake refuses a lookalike of an existing entity, with a way to insist
   test("projectedLabelRows: own labels then aliases, canonical ids, merged counts, live only", () => {
     // the third claim links the stub AND the canonical: one claim, not two
     const { root } = vault("[[Evan Keller]] runs FRI.", "[[Evan]] said hello.", "[[Evan]] is [[Evan Keller]].", "[[Jules Lane]] listened.");
-    appendAndProjectEntityAlias(root, alias("Evan", EK));
+    alias(root, "Evan", EK);
     const rows = projectedLabelRows(root);
     expect(rows).toEqual(expect.arrayContaining([
       { id: EK.id, label: "Evan Keller", assertions: 3 },
@@ -307,7 +306,7 @@ describe("intake refuses a lookalike of an existing entity, with a way to insist
     expect(stub).toContain(`"Briar" (1, stub)`);
     expect(stub).toContain("or write [[new:Briar Williams]] if it is a different entity from every candidate");
     // a match through an alias says so
-    appendAndProjectEntityAlias(root, alias("Evan", EK));
+    alias(root, "Evan", EK);
     expect(refusal("[[Evan Keller's lab]] opened.")).toContain(`"Evan Keller" (1, stub via "Evan")`);
     // the record is untouched by a refusal
     expect(projectedLabelRows(root).map((r) => r.label).sort()).toEqual(["Briar", "Evan", "Evan Keller", "Field Research Institute", "Peter Sutton"]);
@@ -333,7 +332,7 @@ describe("intake refuses a lookalike of an existing entity, with a way to insist
       text: `[[${EK.id}|Evan Keller]] wrote.`, entities: [EK], minted: [],
     });
     // insisting never bypasses the alias table or the one-word stub guard
-    appendAndProjectEntityAlias(root, alias("Evan", EK));
+    alias(root, "Evan", EK);
     expect(() => canonicalizeAssertionLinks(root, "[[new:Evan]] agreed.")).toThrow(`is an alias of ${EK.id}`);
     expect(() => canonicalizeAssertionLinks(root, "[[new:Keller]] agreed.")).toThrow("would mint a new entity beside");
     // and new: on an id is a misread of the refusal, not a link
@@ -353,12 +352,11 @@ describe("intake refuses a lookalike of an existing entity, with a way to insist
 
 test("label counts exclude revoked links and retain canonicals known only through aliases", () => {
   const { root } = vault("[[Evan]] spoke.", "[[Jules Lane]] listened.");
-  appendAndProjectEntityAlias(root, alias("Evan", EK));
+  alias(root, "Evan", EK);
   const db = openAssertionProjectionReadonly(root);
   const { id } = db.query("SELECT a.id FROM assertions a JOIN assertion_entities ae ON ae.assertion_id = a.id WHERE ae.entity_id = ?").get(JULES.id) as { id: string };
   db.close();
-  appendAndProjectRevocation(root, createRevocationEvent({ assertion_id: id, reason: "Withdrawn",
-    author: AUTHOR, produced_by: PRODUCED, created_at: "2026-09-20T00:00:00Z" }));
+  retract(root, id);
   expect(projectedLabelRows(root)).toEqual([
     { id: EK.id, label: "Evan Keller", assertions: 1 },
     { id: EK.id, label: "Evan", assertions: 1 },

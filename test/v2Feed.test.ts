@@ -3,16 +3,15 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { assertionEntityId, createAssertionEvent, type AssertionEvent } from "../lib/assertionLog";
 import {
-  appendAndProjectAssertion, appendAndProjectEntityAlias, appendAndProjectRevocation, projectJournal,
+  appendAndProjectAssertion, projectJournal,
   rebuildAssertionProjection, recoverAssertionProjection, syncAssertionProjection,
 } from "../lib/assertionProjection";
-import { createEntityAliasEvent } from "../lib/entityAliasLog";
 import type { FeedRecord } from "../lib/feedJournal";
 import { appendSourceInsertionEvent, insertionEventRel, type SourceInsertion } from "../lib/insertionLog";
-import { createRevocationEvent } from "../lib/revocationLog";
 import { authorName, authorOf, newestFirst, pageSortedFeed, plainText, refreshSortedPages, type V2SortedRow } from "../lib/v2Feed";
 import { readEntitiesCiting, readEntityFeed, readLensClaims, readSortedPage, readV2Feed } from "../lib/v2Read";
 import { withVaultSnapshot } from "../lib/vaultReadModel";
+import { alias as declareAlias, retract } from "./support/said";
 import { insertion, mdVault } from "./support/vault";
 
 const ent = (label: string) => ({ id: assertionEntityId(label), label });
@@ -52,9 +51,9 @@ function journal(root: string, dir: "tend" | "feed", id: string, record: object,
 }
 const tendRun = (root: string, id: string, model: string, started_at: string, completed_at: string, project = true) =>
   journal(root, "tend", id, { format: "bigbrain-tend-run/v1", insertion_ids: [], model, started_at, completed_at }, project);
-const alias = (root: string, label: string, entity: { id: string; label: string }) => appendAndProjectEntityAlias(root, createEntityAliasEvent({
-  alias: label, entity, author: { kind: "user", id: "robin" }, created_at: day(1), produced_by: { procedure: "fold", version: "v1" },
-}));
+const alias = (root: string, label: string, entity: { id: string; label: string }) => declareAlias(root, label, entity, {
+  author: { kind: "user", id: "robin" }, created_at: day(1), produced_by: { procedure: "fold", version: "v1" },
+});
 
 describe("v2 feed", () => {
   test("authors are model and agent authors; the vault's own passes are one gardener", () => {
@@ -77,7 +76,7 @@ describe("v2 feed", () => {
     claim(root, codex, "bigbrain-mcp", [orrery], day(4));
     claim(root, { kind: "user", id: "robin" }, "note", [ada], day(6));
     claim(root, { kind: "model", id: "model-a", invocation_id: "run-1" }, "intake-assertion-agent", [ada], day(1));
-    appendAndProjectRevocation(root, createRevocationEvent({ assertion_id: gone.id, reason: "wrong", author: pi, created_at: day(7), produced_by: { procedure: "fix", version: "v1" } }));
+    retract(root, gone.id, { reason: "wrong", author: pi, created_at: day(7), produced_by: { procedure: "fix", version: "v1" } });
     expect(feed(root).authors).toEqual([
       { id: "codex", name: "Codex", count: 2, lastAt: day(4) },
       { id: "pi", name: "Pi", count: 1, lastAt: day(3) },
@@ -102,7 +101,7 @@ describe("v2 feed", () => {
     const minutes = claim(root, pi, "bigbrain-mcp", [ada], day(1));
     const both = claim(root, pi, "bigbrain-mcp", [atlas], day(2), { cites: [src, agenda] });
     const gone = claim(root, pi, "bigbrain-mcp", [orrery], day(3));
-    appendAndProjectRevocation(root, createRevocationEvent({ assertion_id: gone.id, reason: "wrong", author: pi, created_at: day(4), produced_by: { procedure: "fix", version: "v1" } }));
+    retract(root, gone.id, { reason: "wrong", author: pi, created_at: day(4), produced_by: { procedure: "fix", version: "v1" } });
     const claims = (members: string[]) => withVaultSnapshot(root, (db) => readLensClaims(db, members));
     expect(claims(["minutes"])).toEqual(new Set([minutes.id]));
     expect(claims(["minutes", "agenda"])).toEqual(new Set([minutes.id, both.id]));
@@ -162,8 +161,8 @@ describe("v2 feed", () => {
     appendAndProjectAssertion(root, fixed);
     appendAndProjectAssertion(root, original);
     const by = { author: pi, reason: "rewritten", produced_by: { procedure: "cleanup", version: "v1" } };
-    appendAndProjectRevocation(root, createRevocationEvent({ ...by, assertion_id: original.id, superseded_by: fixed.id, created_at: day(21) }));
-    appendAndProjectRevocation(root, createRevocationEvent({ ...by, assertion_id: fixed.id, superseded_by: again.id, created_at: day(25) }));
+    retract(root, original.id, { ...by, superseded_by: fixed.id, created_at: day(21) });
+    retract(root, fixed.id, { ...by, superseded_by: again.id, created_at: day(25) });
     const later = claim(root, pi, "bigbrain-mcp", [atlas], day(10));
     // the rewrite sorts at its original's date, and says when it was rewritten
     const dated = () => feed(root).feed.map((r) => [r.id, r.at, r.writtenAt]);
@@ -230,7 +229,7 @@ describe("sorted feed", () => {
   test("an item whose claims were all revoked since is not shown", () => {
     const { root, a, b } = fixture();
     call(root, "call-1", day(9), [entry("ins_gone", "needs-you", [a.id]), entry("ins_kept", "know", [b.id])]);
-    appendAndProjectRevocation(root, createRevocationEvent({ assertion_id: a.id, reason: "wrong", author: pi, created_at: day(12), produced_by: { procedure: "fix", version: "v1" } }));
+    retract(root, a.id, { reason: "wrong", author: pi, created_at: day(12), produced_by: { procedure: "fix", version: "v1" } });
     expect(page(root).rows.map((r) => r.source)).toEqual(["ins_kept"]);
   });
 

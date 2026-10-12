@@ -10,8 +10,8 @@
  *  - retraction: an assertion of any kind no longer stands.
  * Each is made by a person or a model, cites the sources it rests on, and
  * has its `created_at`. A source is settled once a live assertion of any
- * kind cites it. Until the logs these kinds replace are migrated, readers
- * read those too (lib/assertionKinds.ts).
+ * kind cites it. The logs these kinds replaced are converted by `bigbrain
+ * migrate` (lib/migrate.ts) and read by nothing else.
  *
  * Authorship records who asserted the proposition. Host code constructs and
  * validates events; models never write this log directly. The
@@ -21,7 +21,7 @@
 
 import { eventLog, type AppendResult } from "./eventLog";
 import { sha256hex } from "./hash";
-import { AST_ID, ENT_ID, ENTITY_LINK, RETIRED_EVENT_ID, RETRACTABLE_ID, norm } from "./ids";
+import { AST_ID, ENT_ID, ENTITY_LINK, RETIRED_EVENT_ID, norm } from "./ids";
 import { validEventAuthor, type EventAuthor, type SourceInsertion } from "./insertionLog";
 import { revokedAssertions } from "./revocationLog";
 
@@ -85,8 +85,8 @@ export interface AssertionEvent extends Asserted {
   citations?: AssertionCitation[];
   confidence: "direct" | "candidate";
   /** The assertion this one corrects and stands in place of (#629): same
-   * claim, better resolved. The original is revoked in log/revocations/
-   * with `superseded_by` pointing here; both point at each other. */
+   * claim, better resolved. The original is retracted with `superseded_by`
+   * pointing here; both point at each other. */
   supersedes?: string;
 }
 
@@ -124,7 +124,7 @@ export interface DeclineAssertion extends Asserted {
  * names the assertion that stands in its place. */
 export interface RetractionAssertion extends Asserted {
   kind: "retraction";
-  /** An assertion's id, or an event's in a log not yet migrated (RETRACTABLE_ID). */
+  /** The assertion withdrawn: of any kind but a retraction. */
   retracts: string;
   superseded_by?: string;
   /** One line, durable. Free text is data, never instructions. */
@@ -308,7 +308,7 @@ export function validateRecordedAssertion(event: RecordedAssertion): void {
     case "retraction": {
       const retraction = event as RetractionAssertion;
       validateAsserted(retraction);
-      if (!RETRACTABLE_ID.test(retraction.retracts ?? "")) throw new Error("assertion-log: invalid retracted id");
+      if (!AST_ID.test(retraction.retracts ?? "")) throw new Error("assertion-log: invalid retracted id");
       if (retraction.superseded_by !== undefined &&
           (!AST_ID.test(retraction.superseded_by) || retraction.superseded_by === retraction.retracts))
         throw new Error("assertion-log: invalid superseding assertion id");
@@ -501,17 +501,17 @@ export function hasAssertionEvents(root: string): boolean {
 export const readRecordedAssertions = log.read;
 
 /** The LIVE prose record: every prose assertion minus the retracted ones
- * (a retraction here, or a revocation in log/revocations/, #629) — what the
- * entity view, the graph, the memory pass and identity read.
- * `includeRevoked` is for the projection's own bookkeeping and audits,
- * never for a reader answering "what does the record say". */
+ * (#629) — what the entity view, the graph, the memory pass and identity
+ * read. A shared server's vault records its revocations in log/revocations/
+ * until it accepts retractions, so those count too; a personal vault holds
+ * none (lib/retiredLogs.ts). `includeRevoked` is for the projection's own
+ * bookkeeping and audits, never for a reader answering "what does the
+ * record say". */
 export function readAssertionLog(
   root: string,
   opts: { strict?: boolean; includeRevoked?: boolean } = {}
 ): AssertionEvent[] {
   const recorded = log.read(root, opts), rows = recorded.filter(isProse);
-  // Reading the revocation log costs a second directory walk, so skip it
-  // when there is nothing to filter.
   if (opts.includeRevoked || !rows.length) return rows;
   const withdrawn = new Set(revokedAssertions(root, { strict: opts.strict }).keys());
   for (const event of recorded) if (event.kind === "retraction") withdrawn.add(event.retracts);

@@ -2,13 +2,13 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
-import { appendAndProjectEntityFoldReject, projectFolds, projectJournal, projectNotes, projectSourceInsertion, syncAssertionProjection } from "../lib/assertionProjection";
-import { createEntityFoldRejectEvent } from "../lib/entityFoldLog";
+import { projectFolds, projectJournal, projectNotes, projectSourceInsertion, syncAssertionProjection } from "../lib/assertionProjection";
 import { appendSourceInsertionEvent, insertionEventRel } from "../lib/insertionLog";
 import { buildGraphView, forgetGraphView, maintainGraphView, type BuildGraphView } from "../lib/maintainedGraph";
 import { createLive } from "../lib/liveEvents";
 import { viewStamps, type ViewStamps } from "../lib/viewStamps";
 import { recordMoved, viewsBehind } from "../web/ui/src/lib/viewStamps";
+import { distinct } from "./support/said";
 import { insertion, nativeVault } from "./support/vault";
 
 const roots: string[] = [];
@@ -52,10 +52,8 @@ test("each view's stamp moves only with what it reads", async () => {
   writeFileSync(join(root, ".state", "entity-folds.json"), `${JSON.stringify({ proposedAt: "2026-10-01T00:00:00.000Z", groups: [] })}\n`);
   projectFolds(root);
   const proposed = await settled(root);
-  appendAndProjectEntityFoldReject(root, createEntityFoldRejectEvent({
-    a: { id: `ent_${"a".repeat(20)}`, label: "Harbor" }, b: { id: `ent_${"b".repeat(20)}`, label: "Harbour" },
-    author: { kind: "user", id: "owner" }, created_at: "2026-10-02T00:00:00.000Z", produced_by: { procedure: "test", version: "1" },
-  }));
+  distinct(root, { id: `ent_${"a".repeat(20)}`, label: "Harbor" }, { id: `ent_${"b".repeat(20)}`, label: "Harbour" },
+    { created_at: "2026-10-02T00:00:00.000Z" });
   const apart = await settled(root);
   for (const [was, now] of [[journaled, proposed], [proposed, apart]] as const) {
     expect(now.revision).not.toBe(was.revision);

@@ -6,8 +6,6 @@ import { mkdirSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { appendAssertionEvent, assertionEntityId, createAssertionEvent } from "../lib/assertionLog";
-import { appendAndProjectRevocation } from "../lib/assertionProjection";
-import { createRevocationEvent } from "../lib/revocationLog";
 import { appendSourceInsertionEvent, sourceInsertion, type SourceInsertion } from "../lib/insertionLog";
 import { addMember, initMemberStore, mintCredential, verifyCredential } from "../lib/sharedMembers";
 import { SharedVault } from "../lib/sharedVault";
@@ -15,6 +13,7 @@ import { makeSharedApiHandler } from "../lib/sharedVaultApi";
 import { readConnections, saveConnection, SharedProtocolError } from "../lib/sharedConnections";
 import { contributions, sendSources } from "../lib/sharedRules";
 import { publishAssertions, publishableText, publishedPath } from "../lib/sharedAssertionPublish";
+import { retract } from "./support/said";
 
 const briar = { id: assertionEntityId("Briar Calder"), label: "Briar Calder" };
 const parent = { id: assertionEntityId("Jane Example"), label: "Jane Example" };
@@ -92,8 +91,8 @@ describe("publishAssertions", () => {
       expect(await publishAssertions(f.personal, f.store, minted, await contributions(minted))).toEqual({ published: 0, retracted: 1 });
       expect((await f.live()).map(a => a.text)).toEqual([`[[${briar.id}|Briar Calder]] owns the kickoff plan.`]);
 
-      appendAndProjectRevocation(f.personal, createRevocationEvent({ assertion_id: f.owns.id, reason: "wrong", author: { kind: "model", id: "test", invocation_id: "run-revoke" },
-        created_at: "2026-09-29T13:00:00.000Z", produced_by: { procedure: "test", version: "v1" } }));
+      retract(f.personal, f.owns.id, { reason: "wrong", author: { kind: "model", id: "test", invocation_id: "run-revoke" },
+        created_at: "2026-09-29T13:00:00.000Z", produced_by: { procedure: "test", version: "v1" } });
       expect(await publishAssertions(f.personal, f.store, minted, await contributions(minted))).toEqual({ published: 0, retracted: 1 });
       expect(await f.live()).toEqual([]);
       const receipts = JSON.parse(readFileSync(publishedPath(f.store), "utf8"));

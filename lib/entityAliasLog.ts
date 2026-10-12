@@ -28,9 +28,9 @@
  * events; models never write this log directly. The append/read/commit
  * machinery is lib/eventLog.ts.
  *
- * Read, no longer written: an alias is an identity assertion saying `same`
- * (lib/assertionLog.ts). This log goes when it is migrated
- * (docs/plans/2026-10-11-field-of-assertions.md).
+ * Read only by `bigbrain migrate` (lib/migrate.ts), which converts it: an
+ * alias is now an identity assertion saying `same` (lib/assertionLog.ts).
+ * The fold below is what readers apply to those assertions.
  */
 
 import { assertionEntityId, type AssertionEntity, type AssertionProduction } from "./assertionLog";

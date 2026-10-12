@@ -4,8 +4,8 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { nativeVault, insertion } from "./support/vault";
 import { declareOwner } from "./support/identity";
 import { appendSourceInsertionEvent, insertionEventRel } from "../lib/insertionLog";
-import { createDeclineEvent } from "../lib/declineLog";
-import { appendAndProjectDecline, claimProjectionRecovery, projectSourceInsertion, syncAssertionProjection } from "../lib/assertionProjection";
+import { createDeclineAssertion } from "../lib/assertionLog";
+import { appendAndProjectAssertion, claimProjectionRecovery, projectSourceInsertion, syncAssertionProjection } from "../lib/assertionProjection";
 import { withVaultSnapshot } from "../lib/vaultReadModel";
 import { userIdentityDeclarations } from "../lib/userIdentity";
 import { readMemoryInputs, memoryInputDelta } from "../lib/memoryInputs";
@@ -25,7 +25,7 @@ test("voice and settlement retain one revision during a concurrent publication",
   const { root, source, voice } = fixture();
   withVaultSnapshot(root, () => {
     expect(voiceMessagesFor(root, [source.source_id])[0]!.state).toBe("pending");
-    appendAndProjectDecline(root, createDeclineEvent({ insertion_ids: [voice.id], reason: "Already recorded",
+    appendAndProjectAssertion(root, createDeclineAssertion({ sources: [voice.id], reason: "Already recorded",
       author: { kind: "agent", id: "test" }, created_at: "2026-09-20T00:00:00Z",
       produced_by: { procedure: "test", version: "1" } }, new Map([[voice.id, voice]])));
     syncAssertionProjection(root);

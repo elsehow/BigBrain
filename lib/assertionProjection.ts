@@ -8,7 +8,7 @@ import { searchMatch as matchQuery, searchAlternatives, searchTerms as matchTerm
 import { searchNames } from "./searchNames";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve, sep } from "node:path";
-import { parseEventFile, type EventFile } from "./eventLog";
+import { parseEventFile, type AppendResult, type EventFile } from "./eventLog";
 import { sha256hex } from "./hash";
 import { proseChars } from "./text";
 import { norm } from "./ids";
@@ -32,48 +32,17 @@ import {
   type SourceInsertion,
 } from "./insertionLog";
 import { liveAssertionSql, liveSourceSql, supersedesOf } from "./sourceSupersede";
-import {
-  appendDeclineEvent,
-  listDeclineEventFiles,
-  validateDeclineEvent,
-  type DeclineEvent,
-} from "./declineLog";
-import {
-  appendEntityAliasEvent,
-  entityAliasResolution,
-  listEntityAliasEventFiles,
-  validateEntityAliasEvent,
-  type EntityAliasEvent,
-} from "./entityAliasLog";
-import {
-  appendEntitySourceEvent,
-  listEntitySourceEventFiles,
-  validateEntitySourceEvent,
-  type EntitySourceEvent,
-} from "./entitySourceLog";
-import {
-  appendSourceCopyEvent,
-  listSourceCopyEventFiles,
-  validateSourceCopyEvent,
-  type SourceCopyEvent,
-} from "./sourceCopyLog";
-import {
-  ENTITY_FOLDS_FILE,
-  appendEntityFoldRejectEvent,
-  listEntityFoldRejectEventFiles,
-  validateEntityFoldRejectEvent,
-  type EntityFoldRejectEvent,
-} from "./entityFoldLog";
+import type { DeclineEvent } from "./declineLog";
+import { entityAliasResolution, type EntityAliasEvent } from "./entityAliasLog";
+import type { EntitySourceEvent } from "./entitySourceLog";
+import type { SourceCopyEvent } from "./sourceCopyLog";
+import { ENTITY_FOLDS_FILE, type EntityFoldRejectEvent } from "./entityFoldLog";
 import type { LabelRow } from "./entityLookalikes";
 import { assertionDb } from "./env";
 import { dueOf, FEED_SECTIONS, type FeedRecord } from "./feedJournal";
 import { FEED_JOURNAL_DIR, runJournalFiles, TEND_JOURNAL_DIR } from "./runJournal";
-import {
-  appendRevocationEvent,
-  listRevocationEventFiles,
-  validateRevocationEvent,
-  type RevocationEvent,
-} from "./revocationLog";
+import type { RevocationEvent } from "./revocationLog";
+import { refuseRetiredLogs } from "./retiredLogs";
 import { sourceThreads } from "./sourceThreads";
 import { copyKeys, titleBuckets, titleForms } from "./sourceCopies";
 import type { SourceMetadata } from "./insertionLog";
@@ -646,10 +615,6 @@ function writeDeclineRows(db: Database, event: DeclineEvent): void {
   applyRetraction(db, event.id);
 }
 
-function insertDeclineRow(db: Database, event: DeclineEvent): boolean {
-  validateDeclineEvent(event);
-  return insertOnce(db, "decline", "declines", "decline_id", event.id, event, () => writeDeclineRows(db, event));
-}
 
 // ── revocations ─────────────────────────────────────────────────────────────
 
@@ -705,15 +670,6 @@ function writeRevocationRow(db: Database, event: RevocationEvent): void {
   applyRetraction(db, event.assertion_id);
 }
 
-function insertRevocationRow(db: Database, event: RevocationEvent): boolean {
-  validateRevocationEvent(event);
-  // The revocation log comes last in a rebuild, so what it names is here.
-  if (!db.query("SELECT 1 FROM assertions WHERE id = ?").get(event.assertion_id))
-    throw new Error(`assertion-projection: revoked assertion is not projected: ${event.assertion_id}`);
-  if (event.superseded_by && !db.query("SELECT 1 FROM assertions WHERE id = ?").get(event.superseded_by))
-    throw new Error(`assertion-projection: superseding assertion is not projected: ${event.superseded_by}`);
-  return insertOnce(db, "revocation", "revocations", "id", event.id, event, () => writeRevocationRow(db, event));
-}
 
 /** The assertion that stands for an id today: itself, or — following
  * `superseded_by` — the correction that replaced it (#629). The redirect
@@ -788,25 +744,9 @@ function writeEntityFoldRejectRow(db: Database, event: EntityFoldRejectEvent): v
   applyRetraction(db, event.id);
 }
 
-function insertEntityAliasRow(db: Database, event: EntityAliasEvent): boolean {
-  validateEntityAliasEvent(event);
-  return insertOnce(db, "alias", "entity_alias_events", "id", event.id, event, () => writeEntityAliasRow(db, event));
-}
 
-function insertEntitySourceRow(db: Database, event: EntitySourceEvent): boolean {
-  validateEntitySourceEvent(event);
-  return insertOnce(db, "entity_source", "entity_source_events", "id", event.id, event, () => writeEntitySourceRow(db, event));
-}
 
-function insertSourceCopyRow(db: Database, event: SourceCopyEvent): boolean {
-  validateSourceCopyEvent(event);
-  return insertOnce(db, "copy", "source_copy_events", "id", event.id, event, () => writeSourceCopyRow(db, event));
-}
 
-function insertEntityFoldRejectRow(db: Database, event: EntityFoldRejectEvent): boolean {
-  validateEntityFoldRejectEvent(event);
-  return insertOnce(db, "fold_reject", "entity_fold_rejects", "id", event.id, event, () => writeEntityFoldRejectRow(db, event));
-}
 
 /** Any event in the assertion log. Prose is an assertion row; every other
  * kind is held in `assertion_kinds` and lands, in its old log's shape, in
@@ -828,34 +768,18 @@ function insertRecordedRow(db: Database, event: RecordedAssertion): boolean {
   });
 }
 
-/** Durable append first, disposable projection second. A projection failure
- * leaves the event safe in its log, where sync and rebuild deterministically
- * heal it — the discipline every kind follows, so it is written once. The
- * only thing that varies is which log appends and which table inserts. */
-function appendAndProject<T, R>(
-  append: (root: string, event: T) => R,
-  insert: (db: Database, event: T) => boolean
-): (root: string, event: T) => R {
-  return (root, event) => {
-    return withProjectionWrite(root, () => {
-      const result = append(root, event);
-      const db = open(root);
-      try { insert(db, event); }
-      finally { db.close(); }
-      return result;
-    });
-  };
+/** Durable append first, disposable projection second: a projection failure
+ * leaves the assertion safe in its log, where sync and rebuild
+ * deterministically heal it. */
+export function appendAndProjectAssertion(root: string, event: RecordedAssertion): AppendResult<RecordedAssertion> {
+  return withProjectionWrite(root, () => {
+    const result = appendAssertionEvent(root, event);
+    const db = open(root);
+    try { insertRecordedRow(db, event); }
+    finally { db.close(); }
+    return result;
+  });
 }
-
-export const appendAndProjectAssertion = appendAndProject(appendAssertionEvent, insertRecordedRow);
-export const appendAndProjectDecline = appendAndProject(appendDeclineEvent, insertDeclineRow);
-export const appendAndProjectEntityAlias = appendAndProject(appendEntityAliasEvent, insertEntityAliasRow);
-export const appendAndProjectEntitySource = appendAndProject(appendEntitySourceEvent, insertEntitySourceRow);
-export const appendAndProjectSourceCopy = appendAndProject(appendSourceCopyEvent, insertSourceCopyRow);
-export const appendAndProjectEntityFoldReject = appendAndProject(appendEntityFoldRejectEvent, insertEntityFoldRejectRow);
-// Last of its kind on purpose: a revocation needs its assertion — and, when
-// it supersedes, that successor — already projected.
-export const appendAndProjectRevocation = appendAndProject(appendRevocationEvent, insertRevocationRow);
 
 /** The canonical entity a raw id resolves to through the alias table, or
  * undefined when the id is its own canonical. */
@@ -984,43 +908,6 @@ const KINDS: readonly ProjectionKind[] = [
     validate: validateRecordedAssertion,
     insert: insertRecordedRow,
   }),
-  projectionKind<DeclineEvent>({
-    // A decline holds one row per insertion it settles, so its id repeats.
-    held: "SELECT DISTINCT decline_id AS id FROM declines",
-    listFiles: listDeclineEventFiles,
-    validate: validateDeclineEvent,
-    insert: insertDeclineRow,
-  }),
-  projectionKind<EntityAliasEvent>({
-    held: "SELECT id FROM entity_alias_events",
-    listFiles: listEntityAliasEventFiles,
-    validate: validateEntityAliasEvent,
-    insert: insertEntityAliasRow,
-  }),
-  projectionKind<EntitySourceEvent>({
-    held: "SELECT id FROM entity_source_events",
-    listFiles: listEntitySourceEventFiles,
-    validate: validateEntitySourceEvent,
-    insert: insertEntitySourceRow,
-  }),
-  projectionKind<SourceCopyEvent>({
-    held: "SELECT id FROM source_copy_events",
-    listFiles: listSourceCopyEventFiles,
-    validate: validateSourceCopyEvent,
-    insert: insertSourceCopyRow,
-  }),
-  projectionKind<EntityFoldRejectEvent>({
-    held: "SELECT id FROM entity_fold_rejects",
-    listFiles: listEntityFoldRejectEventFiles,
-    validate: validateEntityFoldRejectEvent,
-    insert: insertEntityFoldRejectRow,
-  }),
-  projectionKind<RevocationEvent>({
-    held: "SELECT id FROM revocations",
-    listFiles: listRevocationEventFiles,
-    validate: validateRevocationEvent,
-    insert: insertRevocationRow,
-  }),
 ];
 
 const heldIds = (db: Database, sql: string): Set<string> =>
@@ -1120,6 +1007,7 @@ function reconcileThreads(db: Database): void {
 /** All event kinds and the completion marker share one transaction. A bad
  * event leaves the previously published revision untouched. */
 function reconcile(db: Database, root: string): AssertionProjectionStats {
+  refuseRetiredLogs(root);
   // Runs before the rows they name: a rebuild's gardener rows find theirs.
   reconcileJournals(db, root);
   for (const kind of KINDS) {
@@ -1222,6 +1110,8 @@ export function projectNotes(root: string, paths?: Iterable<string>): void {
  * file is never reread: the projection holds the copy it validated at insert
  * time, and the append path owns immutability collisions. */
 export function recoverAssertionProjection(root: string): AssertionProjectionStats {
+  // Every process passes here first: a retired log is refused, not ignored.
+  refuseRetiredLogs(root);
   const stats = withProjectionWrite(root, () => {
     const ahead = probe(root, true);
     if (ahead && !ahead.pending) return assertionProjectionStats(root);

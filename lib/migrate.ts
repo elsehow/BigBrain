@@ -22,13 +22,13 @@
  * until the check passes, and the change is one commit.
  */
 
-import { existsSync, mkdirSync, readdirSync, renameSync, rmSync, unlinkSync } from "node:fs";
+import { existsSync, mkdirSync, renameSync, rmSync, unlinkSync } from "node:fs";
 import { dirname, join } from "node:path";
 import {
   appendAssertionEvent, assertionEventRel, createDeclineAssertion, createIdentityAssertion, createRetraction,
   type AssertionSourceReference, type RecordedAssertion,
 } from "./assertionLog";
-import { openAssertionProjectionReadonly, rebuildAssertionProjection } from "./assertionProjection";
+import { assertionDbPath, openAssertionProjectionReadonly, rebuildAssertionProjection } from "./assertionProjection";
 import { readDeclineLog, type DeclineEvent } from "./declineLog";
 import { entityAliasResolution, isRetraction, readEntityAliasLog, type EntityAliasEvent } from "./entityAliasLog";
 import { readEntityFoldRejectLog, type EntityFoldRejectEvent } from "./entityFoldLog";
@@ -36,16 +36,11 @@ import { bindingKey, latestEntitySourceDeclarations, readEntitySourceLog, type E
 import { parseEventFile } from "./eventLog";
 import { commitPathsOnly } from "./git";
 import { listSourceInsertionEventFiles, validateSourceInsertion, type SourceInsertion } from "./insertionLog";
+import { RETIRED_LOGS, UNREAD_LOGS, fileCount } from "./retiredLogs";
 import { readRevocationLog, type RevocationEvent } from "./revocationLog";
 import { foldCopyEvents } from "./sourceCopies";
 import { copyPairKey, readSourceCopyLog, type SourceCopyEvent } from "./sourceCopyLog";
 
-/** The logs the assertion kinds replaced. */
-export const RETIRED_LOGS = [
-  "log/declines", "log/revocations", "log/entity-aliases", "log/entity-sources", "log/source-copies", "log/entity-fold-rejects",
-] as const;
-/** Logs nothing reads, deleted outright. */
-export const UNREAD_LOGS = ["log/attestations", "log/goal-assertions"] as const;
 
 /** What the retired logs hold, read strictly: one unreadable event stops
  * the migration rather than being lost by it. */
@@ -217,11 +212,6 @@ export function readingDiff(before: RecordReading, after: RecordReading): string
   return out;
 }
 
-const fileCount = (root: string, dir: string): number => {
-  const walk = (at: string): number => readdirSync(at, { withFileTypes: true })
-    .reduce((n, entry) => n + (entry.isDirectory() ? walk(join(at, entry.name)) : 1), 0);
-  return existsSync(join(root, dir)) ? walk(join(root, dir)) : 0;
-};
 
 export interface MigrationPlan extends Conversion {
   before: RecordReading;
@@ -261,7 +251,9 @@ export function migrateVault(root: string, plan: MigrationPlan = planMigration(r
     for (const rel of written) try { unlinkSync(join(root, rel)); } catch { /* already gone */ }
     for (const dir of moved) if (existsSync(join(held, dir))) renameSync(join(held, dir), join(root, dir));
     rmSync(held, { recursive: true, force: true });
-    try { rebuildAssertionProjection(root); } catch { /* the next read rebuilds it */ }
+    // The projection read the record the vault did not keep. It is
+    // disposable; the next migration builds it again.
+    for (const suffix of ["", "-wal", "-shm"]) rmSync(assertionDbPath(root) + suffix, { force: true });
     throw error;
   }
   const committed = existsSync(join(root, ".git")) && commitPathsOnly(root, "migrate",
