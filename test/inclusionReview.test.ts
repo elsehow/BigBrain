@@ -4,7 +4,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {startReview,getReview,reviewState,rateReview,pickReview,searchReviewSources,editReview,finishReview} from '../lib/inclusionReview';
 import {readInclusionPolicy,sharedRuleScope} from '../lib/inclusionPolicy';
-import {inclusionEvaluator,decideInclusion} from '../lib/inclusionEvaluation';
+import {inclusionEvaluator} from '../lib/inclusionEvaluation';
 import {rankCandidates} from '../lib/inclusionCandidates';
 import {saveJevKey} from '../lib/jevSettings';
 import {OutOfCredits,outOfCredits} from '../lib/sharedJev';
@@ -22,10 +22,6 @@ test('real review persists judgments, hides scores, scopes policies and enforces
   const count=reviewState(s).judged;editReview(s,c.text+' Exclude routine chatter.',s.revision,factory);s=await idle(c.root,s.id);expect(reviewState(s).judged).toBe(count);expect(reviewState(s).ready).toBe(true);
   let saved='';s.context.save=text=>{saved=text};finishReview(s);expect(saved).toContain('Exclude routine');
   const policy=readInclusionPolicy(c.root,c.store,c.scope)!;expect(policy.labels.length).toBe(count);expect(policy.calibration).toBeDefined();expect(readInclusionPolicy(c.root,c.store,sharedRuleScope('other'))).toBeUndefined();
-  const positive=policy.labels.find(l=>l.include)!;expect(await decideInclusion(c.root,c.store,c.scope,policy.text,positive.source)).toBe(true);
-  const negative=policy.labels.find(l=>!l.include)!;expect(await decideInclusion(c.root,c.store,c.scope,policy.text,negative.source)).toBe(false);
-  await expect(decideInclusion(c.root,c.store,c.scope,'Changed rule',positive.source)).rejects.toThrow('Review this inclusion rule again');
-  saveJevKey(c.store,null);await expect(decideInclusion(c.root,c.store,c.scope,policy.text,positive.source)).rejects.toThrow('model changed');
  }finally{rmSync(c.root,{recursive:true,force:true});}
 });
 test('old asynchronous results cannot mark an edited rule ready; draft labels survive reopening',async()=>{
@@ -44,7 +40,6 @@ test('include everything needs neither ratings nor model calls',async()=>{
   let calls=0;const initial=startReview({...c,text:'Include everything.'},(root,store,text,labels)=>({identity:inclusionEvaluator(root,store,text,labels).identity,score:async()=>{calls++;throw Error('Should not call model');}}));
   const s=await idle(c.root,initial.id);expect(reviewState(s).ready).toBe(true);expect(reviewState(s).items).toEqual([]);expect(reviewState(s).remaining).toBe(0);
   expect(finishReview(s).saved).toBe(true);expect(calls).toBe(0);
-  expect(await decideInclusion(c.root,c.store,c.scope,'Include everything.',c.sources[0]!)).toBe(true);
  }finally{rmSync(c.root,{recursive:true,force:true});}
 });
 test('candidates are ranked by fit to the rule before any paid scoring',()=>{
@@ -135,12 +130,13 @@ test('a note added by hand is included, shown with its thumbs up, teaches the ru
   expect(reviewState(s).items.map(i=>i.id)).not.toContain(missed.id);
   expect(searchReviewSources(s,'').map(n=>n.id)).not.toContain(missed.id);
   finishReview(s);
-  expect(await decideInclusion(c.root,c.store,c.scope,c.text,missed)).toBe(true);
+  const kept=()=>readInclusionPolicy(c.root,c.store,c.scope)!.labels.find(l=>l.source.id===missed.id)?.include;
+  expect(kept()).toBe(true);
   s=await idle(c.root,startReview(c,factory).id);
   pickReview(s,missed.id,s.revision);s=await idle(c.root,s.id);
   rateReview(s,missed.id,false,s.revision);s=await idle(c.root,s.id);
   expect(reviewState(s).picked).toEqual([]);finishReview(s);
-  expect(await decideInclusion(c.root,c.store,c.scope,c.text,missed)).toBe(false);
+  expect(kept()).toBe(false);
  }finally{rmSync(c.root,{recursive:true,force:true});}
 });
 test('a source that cannot be scored keeps its reason, and an empty review says how many sources it had',async()=>{

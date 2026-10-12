@@ -244,7 +244,9 @@ sudo systemctl restart bigbrain-shared
 ```
 
 To roll back, put the `.prev` files back and restart. **Check:** step 5's
-checks pass again.
+checks pass again. A release that raises the API version
+(`lib/sharedProtocol.ts`) pauses apps that don't speak it until they
+update; their server page says so.
 
 ## Backup
 
