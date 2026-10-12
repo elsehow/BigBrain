@@ -1,12 +1,12 @@
-/** A person's word on whether two sources are one document (#206): the
- * declaration lib/sourceCopyLog.ts records and lib/sourceCopies.ts obeys
- * over every key and judgment, and the viewer's door to it. */
+/** A person's word on whether two sources are one document (#206): an
+ * identity assertion saying `copy` or `not-copy`, which lib/sourceCopies.ts
+ * obeys over every key and judgment, and the viewer's door to it. */
 
-import { appendAndProjectSourceCopy } from "./assertionProjection";
+import { commitAssertionEvents, createIdentityAssertion, type IdentityAssertion } from "./assertionLog";
+import { appendAndProjectAssertion, projectedSourcesById } from "./assertionProjection";
 import { operatorAuthor } from "./entityFolds";
 import { json, readBody, type Route } from "./httpx";
 import { insertionEventRel, type EventAuthor } from "./insertionLog";
-import { commitSourceCopyEvents, createSourceCopyEvent, type SourceCopyEvent } from "./sourceCopyLog";
 import { readSourceInsertionPath } from "./sourceFeed";
 import { copyGroups, copyProposals, projectedSource, sourceSummaries, withVaultSnapshot } from "./vaultReadModel";
 import type { CopyWhy } from "./sourceCopies";
@@ -16,7 +16,7 @@ import type { CopyWhy } from "./sourceCopies";
  * a copy is cut from each other copy of its document, and two documents are
  * set apart pair by pair. */
 export function declareCopies(root: string, input: { a: string; b: string; same: boolean },
-  author: EventAuthor = operatorAuthor(), now: () => Date = () => new Date()): SourceCopyEvent[] {
+  author: EventAuthor = operatorAuthor(), now: () => Date = () => new Date()): IdentityAssertion[] {
   const id = (ref: string): string => {
     const found = readSourceInsertionPath(root, ref)?.id ?? projectedSource(root, ref)?.id;
     if (!found) throw new Error(`source copies: no source ${JSON.stringify(ref)}`);
@@ -31,8 +31,11 @@ export function declareCopies(root: string, input: { a: string; b: string; same:
     : together ? members(a).filter((m) => m !== b).map((m) => [m, b])
     : members(a).flatMap((m) => members(b).map((n): [string, string] => [m, n]));
   const created_at = now().toISOString(), produced_by = { procedure: "source-copy-review", version: "1" };
-  const events = pairs.map(([x, y]) => createSourceCopyEvent({ a: x, b: y, same: input.same, author, created_at, produced_by }));
-  commitSourceCopyEvents(root, events.map((event) => appendAndProjectSourceCopy(root, event).path),
+  const sources = projectedSourcesById(root, pairs.flat());
+  const events = pairs.map(([x, y]) => createIdentityAssertion({
+    identity: { says: input.same ? "copy" : "not-copy" }, sources: [x, y], author, created_at, produced_by,
+  }, sources));
+  commitAssertionEvents(root, events.map((event) => appendAndProjectAssertion(root, event).path),
     `source copies: ${a} and ${b} ${input.same ? "are" : "are not"} one document`);
   return events;
 }

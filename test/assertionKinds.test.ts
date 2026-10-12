@@ -6,12 +6,14 @@ import {
 } from "../lib/assertionLog";
 import { aliasEvents, entityAliasResolver } from "../lib/assertionKinds";
 import {
-  appendAndProjectAssertion, appendAndProjectEntityAlias, openAssertionProjectionReadonly, projectedAliasTarget,
-  projectionRevision, projectSourceInsertion, rebuildAssertionProjection, recoverAssertionProjection,
+  appendAndProjectAssertion, appendAndProjectEntityAlias, appendAndProjectEntitySource, liveAliasDeclarations,
+  liveBindingDeclarations, openAssertionProjectionReadonly, projectedAliasTarget, projectionRevision,
+  projectSourceInsertion, rebuildAssertionProjection, recoverAssertionProjection,
 } from "../lib/assertionProjection";
 import { createEntityAliasEvent } from "../lib/entityAliasLog";
+import { createEntitySourceEvent } from "../lib/entitySourceLog";
 import { appendSourceInsertionEvent } from "../lib/insertionLog";
-import { otherCopies, sourceRecord } from "../lib/vaultReadModel";
+import { declaredEntitySources, otherCopies, sourceRecord } from "../lib/vaultReadModel";
 import { insertion, mdVault } from "./support/vault";
 
 const roots: string[] = [];
@@ -137,4 +139,30 @@ test("retracting prose withdraws it as a revocation does, and the log reader kee
   const db = openAssertionProjectionReadonly(root);
   try { expect(db.query("SELECT revoked_by IS NOT NULL AS gone FROM assertions WHERE id = ?").get(prose.id)).toEqual({ gone: 1 }); }
   finally { db.close(); }
+});
+
+test("what an alias or a binding retraction withdraws: every standing declaration, from either log", () => {
+  const { root, a, sources } = vault();
+  const ada = entity("Ada Lovelace"), short = entity("Ada");
+  const old = createEntityAliasEvent({ alias: short.label, entity: entity("Ada King"), ...said("1") });
+  appendAndProjectEntityAlias(root, old);
+  const same = createIdentityAssertion({ identity: { says: "same", alias: short, entity: ada }, ...said("2") }, sources);
+  appendAndProjectAssertion(root, same);
+  expect(liveAliasDeclarations(root, short.id)).toEqual([same.id, old.id].sort());
+  for (const retracts of liveAliasDeclarations(root, short.id))
+    appendAndProjectAssertion(root, createRetraction({ retracts, reason: "its own entity", ...said("3") }));
+  expect(projectedAliasTarget(root, short.id)).toBeUndefined();
+
+  // a binding made under an alias is the canonical's to unbind
+  appendAndProjectAssertion(root, createIdentityAssertion({ identity: { says: "same", alias: entity("Lovelace"), entity: ada }, ...said("4") }, sources));
+  const oldBinding = createEntitySourceEvent({ entity: entity("Lovelace"), insertion_id: a.id, bound: true, ...said("5") });
+  appendAndProjectEntitySource(root, oldBinding);
+  const binding = createIdentityAssertion({ identity: { says: "is-source", entity: ada }, sources: [a.id], ...said("6") }, sources);
+  appendAndProjectAssertion(root, binding);
+  expect(liveBindingDeclarations(root, ada.id, a.id)).toEqual([binding.id, oldBinding.id].sort());
+  for (const retracts of liveBindingDeclarations(root, ada.id, a.id))
+    appendAndProjectAssertion(root, createRetraction({ retracts, reason: "not this source", ...said("7") }));
+  expect(live(root, "entity_source_events")).toEqual([]);
+  // still decided: the bulk pass never binds the pair again
+  expect(declaredEntitySources(root).map((e) => e.id).sort()).toEqual([binding.id, oldBinding.id].sort());
 });

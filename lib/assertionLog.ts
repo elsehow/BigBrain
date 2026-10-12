@@ -417,11 +417,15 @@ function cleanIdentity(identity: Identity): Identity {
   }
 }
 
+/** `same`: the label names the entity. */
+export const sameAs = (label: string, entity: AssertionEntity): Identity =>
+  ({ says: "same", alias: { id: assertionEntityId(label), label }, entity });
+
 /** The identity hash includes `created_at`, as an alias event's did: the
  * same thing declared again after a retraction is a new fact in time. */
 export function createIdentityAssertion(
   input: KindInput & { identity: Identity; sources?: string[] },
-  sources: ReadonlyMap<string, SourceInsertion>
+  sources: ReadonlyMap<string, SourceInsertion> = new Map()
 ): IdentityAssertion {
   const identity = cleanIdentity(input.identity), refs = resolveSources(input.sources ?? [], sources);
   const { author, created_at, produced_by } = input;

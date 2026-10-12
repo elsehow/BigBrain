@@ -16,6 +16,11 @@
  * (`bigbrain entity bind-sources`, lib/entitySourceSeed.ts); models never
  * write this log. Its own log directory, for declineLog.ts's reason. The
  * append/read/commit machinery is lib/eventLog.ts.
+ *
+ * Read, no longer written: a binding is an identity assertion saying
+ * `is-source`, and an unbinding a retraction of it (lib/assertionLog.ts).
+ * This log goes when it is migrated
+ * (docs/plans/2026-10-11-field-of-assertions.md).
  */
 
 import type { AssertionEntity, AssertionProduction } from "./assertionLog";

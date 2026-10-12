@@ -14,13 +14,15 @@
  * by a person — is never re-decided, so a second run binds nothing.
  */
 
-import { assertionSourceReferences, type AssertionEntity } from "./assertionLog";
-import { appendAndProjectEntitySource, openAssertionProjectionReadonly, syncAssertionProjection } from "./assertionProjection";
-import { bindingKey, commitEntitySourceEvents, createEntitySourceEvent } from "./entitySourceLog";
+import { assertionSourceReferences, commitAssertionEvents, createIdentityAssertion, type AssertionEntity } from "./assertionLog";
+import {
+  appendAndProjectAssertion, openAssertionProjectionReadonly, projectedSourcesById, syncAssertionProjection,
+} from "./assertionProjection";
+import { bindingKey } from "./entitySourceLog";
 import { sourceMatch, type SourceMatch } from "./entitySourceMatch";
 import type { EventAuthor } from "./insertionLog";
 import { assertionSuperseded } from "./sourceSupersede";
-import { vaultRecord } from "./vaultReadModel";
+import { declaredEntitySources, vaultRecord } from "./vaultReadModel";
 
 export const ENTITY_SOURCE_BIND_PROCEDURE = "entity-source-bind";
 export const ENTITY_SOURCE_SEED_PROCEDURE = "entity-source-seed";
@@ -54,7 +56,7 @@ export function planEntitySourceSeed(root: string): SourceBindingPlan {
   const record = vaultRecord(root);
   const { rows, superseded, sources, aliases } = record;
   const resolve = (entity: AssertionEntity) => aliases.canonical.get(entity.id) ?? entity;
-  const decided = new Set(record.entitySources.flatMap((event) => [
+  const decided = new Set(declaredEntitySources(root).flatMap((event) => [
     bindingKey(event.entity.id, event.insertion_id), bindingKey(resolve(event.entity).id, event.insertion_id),
   ]));
 
@@ -121,7 +123,7 @@ export function seedEntitySources(root: string, opts: SourceSeedOpts): SourceBin
   const plan = planEntitySourceSeed(root);
   if (opts.dryRun) return { ...plan, appended: 0 };
   const paths = bindAll(root, plan.bind, opts.author, ENTITY_SOURCE_SEED_PROCEDURE, opts.now);
-  if (paths.length) commitEntitySourceEvents(root, paths, `entity sources: bind ${paths.length} entities to the sources they are`);
+  if (paths.length) commitAssertionEvents(root, paths, `entity sources: bind ${paths.length} entities to the sources they are`);
   return { ...plan, appended: paths.length };
 }
 
@@ -149,7 +151,7 @@ export function bindMintedEntities(
       }
   } finally { db.close(); }
   const paths = bindAll(root, [...bindings.values()], BIND_AUTHOR, ENTITY_SOURCE_BIND_PROCEDURE, now);
-  if (paths.length) commitEntitySourceEvents(root, paths, `entity sources: bind ${paths.length} new entities to their sources`);
+  if (paths.length) commitAssertionEvents(root, paths, `entity sources: bind ${paths.length} new entities to their sources`);
   return paths;
 }
 
@@ -160,8 +162,9 @@ function bindAll(
   procedure: string,
   now: () => Date = () => new Date(),
 ): string[] {
-  return items.map((item) => appendAndProjectEntitySource(root, createEntitySourceEvent({
-    entity: item.entity, insertion_id: item.insertion_id, bound: true, author,
+  const sources = projectedSourcesById(root, items.map((item) => item.insertion_id));
+  return items.map((item) => appendAndProjectAssertion(root, createIdentityAssertion({
+    identity: { says: "is-source", entity: item.entity }, sources: [item.insertion_id], author,
     created_at: now().toISOString(), produced_by: { procedure, version: ENTITY_SOURCE_VERSION },
-  })).path);
+  }, sources)).path);
 }

@@ -6,9 +6,9 @@ import { insertionEventRel, type SourceInsertion } from "../lib/insertionLog";
 import { OutOfCredits } from "../lib/providerCredits";
 import { copyCandidates, copyCutoff, DEFAULT_CUTOFF, foldCopyEvents, sourceCopies } from "../lib/sourceCopies";
 import { judgeCopies, type CopyJudge } from "../lib/sourceCopyJudge";
-import { createSourceCopyEvent, readSourceCopyLog } from "../lib/sourceCopyLog";
+import { createSourceCopyEvent } from "../lib/sourceCopyLog";
 import { copyReview, declareCopies } from "../lib/sourceCopyReview";
-import { insertion, nativeVault } from "./support/vault";
+import { identities, insertion, nativeVault } from "./support/vault";
 
 const PERSON = { kind: "user" as const, id: "owner@example.com" };
 const MODEL = { kind: "model" as const, id: "test-judge", invocation_id: "run-1" };
@@ -111,7 +111,8 @@ describe("copies in the vault", () => {
     expect(copyReview(root, scan.id).proposals).toEqual([{ path: insertionEventRel(clip), title: clip.title, score: 0.5 }]);
     declareCopies(root, { a: insertionEventRel(scan), b: insertionEventRel(clip), same: true }, PERSON);
     expect(copyReview(root, scan.id)).toEqual({ copies: [{ path: insertionEventRel(clip), title: clip.title, why: "you" }], proposals: [] });
-    expect(readSourceCopyLog(root).map((e) => e.event).sort()).toEqual(["source.copies-declared", "source.copies-judged"]);
+    expect(identities(root).map((e) => (e.identity.says === "copy" && e.identity.score !== undefined ? "judged" : e.identity.says)).sort())
+      .toEqual(["copy", "judged"]);
   });
 
   test("'not the same' splits an exact copy and is never asked again", () => {

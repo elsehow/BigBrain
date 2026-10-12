@@ -1,9 +1,9 @@
 #!/usr/bin/env bun
 /**
- * entity.ts — `bigbrain entity …`: the operator's door to entity aliases
- * (lib/entityAliasLog.ts). An assertion entity's id is a hash of its label,
- * so "Evan" and "Evan Keller" are two entities until someone says they are
- * one; this is where someone says it.
+ * entity.ts — `bigbrain entity …`: the operator's door to entity identity
+ * (identity assertions, lib/assertionLog.ts). An assertion entity's id is a
+ * hash of its label, so "Evan" and "Evan Keller" are two entities until
+ * someone says they are one; this is where someone says it.
  *
  *   bigbrain entity alias "<label>" --into <ent_id|"Label">   declare: the label names that entity
  *   bigbrain entity alias "<label>" --retract                  the label is its own entity again
@@ -25,21 +25,21 @@
 
 import { ownerEmail } from "../lib/env";
 import { userInfo } from "node:os";
-import { assertionEntityId } from "../lib/assertionLog";
+import { assertionEntityId, commitAssertionEvents, createIdentityAssertion, createRetraction, sameAs } from "../lib/assertionLog";
 import { AST_ID, ENT_ID } from "../lib/ids";
 import { flagValue, flagValues, hasFlag, positionals } from "../lib/cliflags";
 import {
-  appendAndProjectEntityAlias,
-  appendAndProjectEntitySource,
+  appendAndProjectAssertion,
+  liveAliasDeclarations,
+  liveBindingDeclarations,
   openAssertionProjectionReadonly,
   projectedAssertionEntity,
+  projectedSourcesById,
   retiredEntitySuccessor,
   syncAssertionProjection,
 } from "../lib/assertionProjection";
 import { requireVaultRoot } from "../lib/engine";
-import { commitEntityAliasEvents, createEntityAliasEvent } from "../lib/entityAliasLog";
 import { seedEntityAliases } from "../lib/entityAliasSeed";
-import { commitEntitySourceEvents, createEntitySourceEvent } from "../lib/entitySourceLog";
 import { seedEntitySources } from "../lib/entitySourceSeed";
 import { supersedeEntity } from "../lib/entitySupersede";
 import { describeFolds, liveFolds, proposeEntityFolds, readEntityFolds } from "../lib/entityFolds";
@@ -61,6 +61,11 @@ const [cmd, ...rest] = process.argv.slice(2);
 const positional = positionals(rest, new Set(["into", "assertion", "model"]));
 const author = { kind: "user" as const, id: ownerEmail() ?? userInfo().username };
 const idOf = (ref: string): string => (ENT_ID.test(ref) ? ref : assertionEntityId(ref));
+/** Withdraw each of `ids`, for one reason; the paths written. */
+const retractAll = (ids: readonly string[], reason: string, produced_by: { procedure: string; version: string }): string[] =>
+  ids.map((retracts) => appendAndProjectAssertion(root, createRetraction({
+    retracts, reason, author, created_at: new Date().toISOString(), produced_by,
+  })).path);
 const show = (id: string): string => {
   const e = projectedAssertionEntity(root, id);
   if (!e) {
@@ -84,36 +89,37 @@ switch (cmd) {
     }
     syncAssertionProjection(root);
     const aliasId = assertionEntityId(label);
-    let entity: { id: string; label: string };
+    const created_at = new Date().toISOString(), produced_by = { procedure: "entity-alias-cli", version: "1" };
     if (retract) {
-      const held = projectedAssertionEntity(root, aliasId);
-      entity = { id: aliasId, label: held?.id === aliasId ? held.label : label };
-    } else {
-      const target = projectedAssertionEntity(root, idOf(into!));
-      if (!target) {
-        if (into!.startsWith("ent_")) {
-          console.error(`bigbrain entity: ${into} is not in the record`);
-          process.exit(2);
-        }
-        // A label no assertion has linked yet: declare toward it anyway —
-        // the entity appears with its first assertion, under this label.
-        entity = { id: assertionEntityId(into!), label: into!.replace(/\s+/g, " ") };
-      } else entity = { id: target.id, label: target.label };
-      if (entity.id === aliasId) {
-        console.error(`bigbrain entity: "${label}" already IS ${entity.id} — nothing to declare`);
+      const declared = liveAliasDeclarations(root, aliasId);
+      if (!declared.length) {
+        console.error(`bigbrain entity: "${label}" names no other entity — nothing to retract`);
         process.exit(2);
       }
+      commitAssertionEvents(root, retractAll(declared, `"${label}" is its own entity`, produced_by), `entity alias: retract "${label}"`);
+      console.log(`retracted: "${label}" is its own entity (${aliasId})`);
+      break;
     }
-    const event = createEntityAliasEvent({
-      alias: label, entity, author, created_at: new Date().toISOString(),
-      produced_by: { procedure: "entity-alias-cli", version: "1" },
-    });
-    const result = appendAndProjectEntityAlias(root, event);
-    commitEntityAliasEvents(root, [result.path],
-      retract ? `entity alias: retract "${label}"` : `entity alias: "${label}" → ${entity.label}`);
-    console.log(retract
-      ? `retracted: "${label}" is its own entity (${aliasId})`
-      : `declared: "${label}" (${aliasId}) → ${show(entity.id)}`);
+    let entity: { id: string; label: string };
+    const target = projectedAssertionEntity(root, idOf(into!));
+    if (!target) {
+      if (into!.startsWith("ent_")) {
+        console.error(`bigbrain entity: ${into} is not in the record`);
+        process.exit(2);
+      }
+      // A label no assertion has linked yet: declare toward it anyway —
+      // the entity appears with its first assertion, under this label.
+      entity = { id: assertionEntityId(into!), label: into!.replace(/\s+/g, " ") };
+    } else entity = { id: target.id, label: target.label };
+    if (entity.id === aliasId) {
+      console.error(`bigbrain entity: "${label}" already IS ${entity.id} — nothing to declare`);
+      process.exit(2);
+    }
+    const result = appendAndProjectAssertion(root, createIdentityAssertion({
+      identity: sameAs(label, entity), author, created_at, produced_by,
+    }));
+    commitAssertionEvents(root, [result.path], `entity alias: "${label}" → ${entity.label}`);
+    console.log(`declared: "${label}" (${aliasId}) → ${show(entity.id)}`);
     break;
   }
   case "seed-aliases": {
@@ -142,12 +148,17 @@ switch (cmd) {
     const entity = projectedAssertionEntity(root, idOf(ref));
     if (!entity) { console.error(`no entity ${ref}`); process.exit(1); }
     const unbind = hasFlag(rest, "unbind");
-    const event = createEntitySourceEvent({
-      entity: { id: entity.id, label: entity.label }, insertion_id: insertionId, bound: !unbind, author,
-      created_at: new Date().toISOString(), produced_by: { procedure: "entity-source-cli", version: "1" },
-    });
-    const result = appendAndProjectEntitySource(root, event);
-    commitEntitySourceEvents(root, [result.path], `entity source: ${unbind ? "unbind" : "bind"} "${entity.label}" ${insertionId}`);
+    const sources = projectedSourcesById(root, [insertionId]);
+    if (!unbind && !sources.has(insertionId)) { console.error(`no source ${insertionId}`); process.exit(1); }
+    const created_at = new Date().toISOString(), produced_by = { procedure: "entity-source-cli", version: "1" };
+    const paths = unbind
+      ? retractAll(liveBindingDeclarations(root, entity.id, insertionId), `"${entity.label}" is not ${insertionId}`, produced_by)
+      : [appendAndProjectAssertion(root, createIdentityAssertion({
+        identity: { says: "is-source", entity: { id: entity.id, label: entity.label } }, sources: [insertionId],
+        author, created_at, produced_by,
+      }, sources)).path];
+    if (!paths.length) { console.error(`bigbrain entity: "${entity.label}" is not bound to ${insertionId}`); process.exit(2); }
+    commitAssertionEvents(root, paths, `entity source: ${unbind ? "unbind" : "bind"} "${entity.label}" ${insertionId}`);
     console.log(`${unbind ? "unbound" : "bound"}: ${show(entity.id)} ${unbind ? "↛" : "→"} ${insertionId}`);
     break;
   }

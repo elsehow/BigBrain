@@ -9,8 +9,11 @@ Where it said **queue**, read nothing: there is no queue, and §2 is why.
 
 ## 1. Everything but the logs is disposable
 
-Five append-only logs are the truth — insertions, assertions, declines,
-revocations, entity aliases (`lib/eventLog.ts`). The views are
+Two append-only logs are the truth: insertions, what arrived, and
+assertions, what was said about it — prose, identity, declines and
+retractions (`lib/assertionLog.ts`). The older decline, revocation, alias,
+binding, copy and fold-reject logs are read until they are migrated
+(`plans/2026-10-11-field-of-assertions.md`). The views are
 derived: the projection database under `.state/`, the search index, the
 graph, the entity dossiers at `projection/entities/`, the memory working
 set. Delete all of it and replay: the same vault comes back. The model

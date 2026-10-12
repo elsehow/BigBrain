@@ -8,13 +8,13 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { appendAndProjectSourceCopy, syncAssertionProjection } from "./assertionProjection";
+import { commitAssertionEvents, createIdentityAssertion } from "./assertionLog";
+import { appendAndProjectAssertion, projectedSourcesById, syncAssertionProjection } from "./assertionProjection";
 import { optionalJevKey } from "./jevSettings";
 import { loadManifest } from "./manifest";
 import { OutOfCredits, withCredits } from "./providerCredits";
 import type { runAgent } from "./run/agent";
 import { askJev, JEV_MODEL } from "./sharedJev";
-import { commitSourceCopyEvents, createSourceCopyEvent } from "./sourceCopyLog";
 import { projectedSource, unjudgedCopies } from "./vaultReadModel";
 
 /** Pairs per pass: a backlog drains over passes, never in one burst of calls. */
@@ -65,14 +65,16 @@ export async function judgeCopies(root: string, store: string, opts: { judge?: C
     try {
       if (!left || !right) throw new Error("a source of the pair is gone");
       const score = await judge.judge(left, right);
-      const event = createSourceCopyEvent({ a, b, score, author: { kind: "model", id: judge.model, invocation_id: randomUUID() },
-        created_at: (opts.now?.() ?? new Date()).toISOString(), produced_by: { procedure: "source-copy-judge", version: "1" } });
-      paths.push(appendAndProjectSourceCopy(root, event).path);
+      const event = createIdentityAssertion({ identity: { says: "copy", score }, sources: [a, b],
+        author: { kind: "model", id: judge.model, invocation_id: randomUUID() },
+        created_at: (opts.now?.() ?? new Date()).toISOString(), produced_by: { procedure: "source-copy-judge", version: "1" } },
+      projectedSourcesById(root, [a, b]));
+      paths.push(appendAndProjectAssertion(root, event).path);
     } catch (e) {
       failed++;
       if (e instanceof OutOfCredits) break;
     }
   }
-  if (paths.length) commitSourceCopyEvents(root, paths, `source copies: ${paths.length} pair${paths.length === 1 ? "" : "s"} judged by ${judge.model}`);
+  if (paths.length) commitAssertionEvents(root, paths, `source copies: ${paths.length} pair${paths.length === 1 ? "" : "s"} judged by ${judge.model}`);
   return { judged: paths.length, failed, left: pairs.length - paths.length };
 }

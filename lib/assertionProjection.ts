@@ -865,6 +865,23 @@ function aliasTargetOf(db: Database, id: string): { id: string; label: string } 
   return row ?? undefined;
 }
 
+/** The standing declarations that a label names another entity, old log
+ * and identity assertions alike: what retracting the alias withdraws. */
+export function liveAliasDeclarations(root: string, aliasId: string, db?: Database): string[] {
+  return reading(root, db, (handle) => (handle.query(`SELECT id FROM entity_alias_events
+    WHERE retracted_by IS NULL AND json_extract(event_json, '$.alias_id') = ?1
+      AND json_extract(event_json, '$.entity.id') != ?1 ORDER BY id`).all(aliasId) as { id: string }[]).map((r) => r.id));
+}
+
+/** The standing bindings of an entity, under its own id or an alias's, to
+ * one source: what unbinding the pair withdraws. */
+export function liveBindingDeclarations(root: string, entityId: string, insertionId: string, db?: Database): string[] {
+  return reading(root, db, (handle) => (handle.query(`SELECT id FROM entity_source_events
+    WHERE retracted_by IS NULL AND json_extract(event_json, '$.bound') = 1 AND json_extract(event_json, '$.insertion_id') = ?2
+      AND json_extract(event_json, '$.entity.id') IN (SELECT ?1 UNION SELECT alias_id FROM entity_aliases WHERE entity_id = ?1)
+    ORDER BY id`).all(entityId, insertionId) as { id: string }[]).map((r) => r.id));
+}
+
 /** The alias table's answer for one raw id, read-side (#628: intake asks
  * this to REFUSE a link through an alias, never to follow it). */
 export function projectedAliasTarget(root: string, id: string, db?: Database): AssertionEntity | undefined {

@@ -429,6 +429,11 @@ function aliasesIn(db: Database): EntityAliasResolution {
 function entitySourcesIn(db: Database): EntitySourceEvent[] {
   return latestEntitySourceDeclarations(decoded<EntitySourceEvent>(db, "SELECT event_json FROM entity_source_events WHERE retracted_by IS NULL"));
 }
+/** Every binding ever declared, retracted ones too: a pair the bulk pass
+ * never decides again (lib/entitySourceSeed.ts). */
+export function declaredEntitySources(root: string): EntitySourceEvent[] {
+  return withVaultSnapshot(root, (db) => decoded<EntitySourceEvent>(db, "SELECT event_json FROM entity_source_events"));
+}
 function sourcesFor(db: Database, rows: readonly AssertionEvent[]): Map<string, SourceMetadata> {
   const ids = [...new Set(rows.flatMap(row => assertionSourceReferences(row).map(ref => ref.insertion_id)))];
   return new Map(decoded<SourceMetadata>(db, "SELECT header_json AS event_json FROM sources WHERE present = 1 AND insertion_id IN (SELECT value FROM json_each(?))", JSON.stringify(ids)).map(s => [s.id, s]));

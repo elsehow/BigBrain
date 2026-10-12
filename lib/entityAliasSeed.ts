@@ -15,14 +15,13 @@
  */
 
 import { norm } from "./ids";
-import { assertionEntityId, type AssertionEntity } from "./assertionLog";
+import { assertionEntityId, commitAssertionEvents, createIdentityAssertion, sameAs, type AssertionEntity } from "./assertionLog";
 import {
-  appendAndProjectEntityAlias,
+  appendAndProjectAssertion,
   projectedAssertionEntity,
   projectedEntityCandidates,
   syncAssertionProjection,
 } from "./assertionProjection";
-import { commitEntityAliasEvents, createEntityAliasEvent } from "./entityAliasLog";
 import { legacyDossiers, type LegacyDossier } from "./entityDossiers";
 import type { EventAuthor } from "./insertionLog";
 
@@ -157,13 +156,13 @@ export function seedEntityAliases(root: string, opts: SeedOpts): SeedResult {
   const now = opts.now ?? (() => new Date());
   const paths: string[] = [];
   for (const item of plan.declare) {
-    const event = createEntityAliasEvent({
-      alias: item.alias, entity: item.entity, author: opts.author, created_at: now().toISOString(),
+    const event = createIdentityAssertion({
+      identity: sameAs(item.alias, item.entity), author: opts.author, created_at: now().toISOString(),
       produced_by: { procedure: ENTITY_ALIAS_SEED_PROCEDURE, version: ENTITY_ALIAS_SEED_VERSION },
     });
-    paths.push(appendAndProjectEntityAlias(root, event).path);
+    paths.push(appendAndProjectAssertion(root, event).path);
   }
   if (paths.length)
-    commitEntityAliasEvents(root, paths, `entity aliases: seed ${paths.length} from entities/ dossiers`);
+    commitAssertionEvents(root, paths, `entity aliases: seed ${paths.length} from entities/ dossiers`);
   return { ...plan, appended: paths.length };
 }

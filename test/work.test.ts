@@ -14,7 +14,7 @@ import { machineTools } from "../lib/run/machineTools";
 import { insertionEventRel } from "../lib/insertionLog";
 import { renderTurns, TRANSCRIPT_MARK, PILOT_TRANSCRIPT_MARK, renderUserSide, userSide } from "../lib/transcriptProjection";
 import { assertionEntityId } from "../lib/assertionLog";
-import { appendDeclineEvent, createDeclineEvent, readDeclineLog } from "../lib/declineLog";
+import { appendDeclineEvent, createDeclineEvent } from "../lib/declineLog";
 import { appendSourceInsertionEvent, type SourceInsertion } from "../lib/insertionLog";
 import {
   classifyIntake,
@@ -28,7 +28,7 @@ import {
   type IntakeJob,
   type SubmitItem,
 } from "../lib/work";
-import { insertionSeq, nativeVault } from "./support/vault";
+import { insertionSeq, nativeVault, recordedOfKind } from "./support/vault";
 
 const AUTHOR = { kind: "model", id: "claude-test", invocation_id: "run-1" } as const;
 const PRODUCED = { procedure: "test-gardener", version: "v1" } as const;
@@ -84,7 +84,7 @@ describe("dueWork — the queue as a view", () => {
     // set comes back — declines included
     rmSync(join(root, ".state"), { recursive: true, force: true });
     expect(due()).toEqual([]);
-    expect(readDeclineLog(root, { strict: true })).toHaveLength(1);
+    expect(recordedOfKind(root, "decline")).toHaveLength(1);
   });
 
   test("intake drains in priority order: voice, meetings, reading, mail, other — oldest first within a class", () => {

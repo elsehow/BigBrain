@@ -16,6 +16,10 @@
  * Its own log directory (`log/revocations/`), for declineLog.ts's reason.
  * Host code constructs and validates events; models never write this log.
  * The append/read/commit machinery is lib/eventLog.ts.
+ *
+ * Read, no longer written: a revocation is an assertion of kind `retraction`
+ * (lib/assertionLog.ts). This log goes when it is migrated
+ * (docs/plans/2026-10-11-field-of-assertions.md).
  */
 
 import type { AssertionProduction } from "./assertionLog";

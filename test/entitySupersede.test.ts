@@ -42,6 +42,7 @@ import {
 } from "../lib/revocationLog";
 import { dueIntakeCount } from "../lib/work";
 import { insertion } from "./support/vault";
+import { revocationEvents } from "../lib/assertionKinds";
 
 const PRODUCED = { procedure: "test", version: "v1" } as const;
 const MODEL = { kind: "model", id: "m", invocation_id: "r" } as const;
@@ -159,7 +160,7 @@ describe("supersede: the stub's assertions move, one by one", () => {
     expect(met.text).toBe(`[[${EK.id}|Evan]] and [[${EK.id}|Evan Keller]] met.`);
 
     // the revocation names the operator and the successor; the old id redirects
-    const revocation = revokedAssertions(root).get(hello.id)!;
+    const revocation = revocationEvents(root).find((r) => r.assertion_id === hello.id)!;
     expect(revocation.superseded_by).toBe(copy.id);
     expect(revocation.reason).toContain("by nick");
     expect(revocation.reason).toContain("[[Evan]] → " + EK.id);
