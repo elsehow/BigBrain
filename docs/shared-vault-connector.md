@@ -263,9 +263,10 @@ With the connector on, these answer without a credential: the two
 `/.well-known/oauth-protected-resource` documents and
 `/.well-known/oauth-authorization-server` (static JSON derived from the
 public URL), `POST /register`, `GET /authorize`, `POST /authorize/consent`,
-`POST /token`, the two font files, and `GET /invite` (a generic page explaining how to use
-an invite or app link opened in a browser: in Claude or the app, once — the
-link's secret is in the fragment and never reaches the door), and `POST /invite/check`, which the page's script calls with that secret in `Authorization` to show the vault's name to a live link's holder — it consumes nothing, and answers anything else with one 404; with Google, also `GET /oauth/google`,
+and `POST /token` (every server, connector or not, also serves the invite
+page, its font and `POST /invite/check`: [the door](shared-vault.md#the-door);
+without Google the page adds how to connect Claude desktop with the link);
+with Google, also `GET /oauth/google`,
 `GET /oauth/google/callback`, `GET /join`, `GET /join/google`, `GET /me`,
 `POST /me/app-link` and `POST /me/signout`; without Google,
 `POST /authorize/invite` instead. `/mcp` still requires a credential; its 401 carries

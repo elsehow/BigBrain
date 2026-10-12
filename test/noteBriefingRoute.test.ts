@@ -35,4 +35,10 @@ test("the endpoint accepts declarative selections, streams before completion, an
   expect(requests).toHaveLength(1);
   expect((await call({ path: "memory/a.md" })).status).toBe(200);
   expect(requests.at(-1)).toBe("memory/a.md");
+  // a lens or a server on: the scope travels with the selection
+  expect((await call({ path: "memory/a.md", scope: { lens: "lens_00000000000a" } })).status).toBe(200);
+  expect(requests.at(-1)).toEqual({ selected: ["memory/a.md"], excluded: [], scope: { lens: "lens_00000000000a" } });
+  expect((await call({ ...selection, scope: { server: "garden" } })).status).toBe(200);
+  expect(requests.at(-1)).toEqual({ ...selection, scope: { server: "garden" } });
+  for (const scope of [{ lens: "garden" }, { server: "" }, "garden"]) expect((await call({ path: "memory/a.md", scope })).status).toBe(400);
 });
