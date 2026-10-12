@@ -8,8 +8,8 @@ import { appendDeclineEvent, createDeclineEvent } from "../lib/declineLog";
 import { appendEntityAliasEvent, createEntityAliasEvent } from "../lib/entityAliasLog";
 import { appendEntityFoldRejectEvent, createEntityFoldRejectEvent } from "../lib/entityFoldLog";
 import { appendEntitySourceEvent, createEntitySourceEvent } from "../lib/entitySourceLog";
-import { appendSourceInsertionEvent } from "../lib/insertionLog";
-import { migrateVault, needsMigration, planMigration, readingDiff, readingOfProjection } from "../lib/migrate";
+import { appendSourceInsertionEvent, readSourceInsertionLog } from "../lib/insertionLog";
+import { importTrees, migrateVault, needsMigration, planMigration, readingDiff, readingOfProjection } from "../lib/migrate";
 import { appendRevocationEvent, createRevocationEvent } from "../lib/revocationLog";
 import { appendSourceCopyEvent, createSourceCopyEvent } from "../lib/sourceCopyLog";
 import { gitVault, insertion } from "./support/vault";
@@ -82,7 +82,7 @@ test("a migration proves the new record reads as the old logs did, then commits 
   const { root } = retiredVault();
   const plan = planMigration(root);
   const head = git(root, "rev-parse", "HEAD");
-  expect(migrateVault(root, plan)).toEqual({ written: plan.assertions.length, committed: true });
+  expect(migrateVault(root, plan)).toEqual({ written: plan.assertions.length, imported: 0, committed: true });
   expect(readingDiff(plan.before, readingOfProjection(root))).toEqual([]);
   expect(plan.before.aliases).toEqual([`${entity("Ada").id} > ${entity("Ada King").id}`, `${entity("Lovelace").id} > ${entity("Ada King").id}`].sort());
   expect(readdirSync(join(root, "log")).sort()).toEqual(["assertions", "insertions"]);
@@ -109,4 +109,62 @@ test("a migration that would read differently puts the vault back as it was", ()
   // and it migrates as it would have
   expect(migrateVault(root, plan).committed).toBe(true);
   expect(readingDiff(plan.before, readingOfProjection(root))).toEqual([]);
+});
+
+/** A vault from before the insertion log (#496), its inbox ignored by git as
+ * the vault template had it: a reference its source was imported from, one
+ * landed beside a source of the same id, an inbox copy of that source's
+ * content, an inbox arrival and a request no source holds, and a dossier. */
+function treesVault() {
+  const note = (id: string, body: string) => `---\nid: ${id}\ntitle: Note ${id}\n---\n${body}\n`;
+  const root = gitVault({ commit: false, files: {
+    ".gitignore": ".state/\ninbox/*.md\n",
+    "references/2026-07-01-imported.md": note("ref-imported", "The tidal gauges were recalibrated."),
+    "references/2026-07-02-landed.md": note("ref-landed", "The river survey resumed."),
+    "inbox/unsorted/.gitkeep": "",
+    "inbox/2026-08-01-copy.md": note("inbox-copy", "The river survey resumed."),
+    "inbox/2026-08-02-new.md": note("inbox-new", "A sketch of the weir."),
+    "requests/done/drop-1.md": note("request-1", "File the weir sketch under hydrology."),
+    "entities/ada-lovelace.md": "---\ntitle: Ada Lovelace\naliases: [Ada]\n---\nSurveyor.\n",
+  } });
+  roots.push(root);
+  appendSourceInsertionEvent(root, insertion({ id: `ins_${"c".repeat(24)}`, source_id: "ref-imported",
+    body: "The tidal gauges were recalibrated.\n", imported_path: "references/2026-07-01-imported.md" }));
+  appendSourceInsertionEvent(root, insertion({ id: `ins_${"d".repeat(24)}`, source_id: "ref-landed", body: "The river survey resumed.\n" }));
+  git(root, "add", "-A"); git(root, "commit", "-q", "-m", "the record");
+  return root;
+}
+
+test("what arrived in the old trees and no source holds becomes a source; the trees go", () => {
+  const root = treesVault();
+  expect(needsMigration(root)).toBe(true);
+  const plan = planMigration(root);
+  expect(plan.trees.trees).toEqual({
+    references: { files: 2, held: 2, repeats: 0, imported: 0 },
+    inbox: { files: 2, held: 0, repeats: 1, imported: 1 },
+    requests: { files: 1, held: 0, repeats: 0, imported: 1 },
+    entities: { files: 1, held: 0, repeats: 0, imported: 0 },
+  });
+  expect(plan.trees.imports.map((s) => [s.source_id, s.imported_path, s.author])).toEqual([
+    ["inbox-new", "inbox/2026-08-02-new.md", { kind: "service", id: "import" }],
+    ["request-1", "requests/done/drop-1.md", { kind: "service", id: "import" }],
+  ]);
+  const result = migrateVault(root, plan);
+  expect(result).toMatchObject({ written: 0, imported: 2, committed: true, kept: { files: 2 } });
+  for (const tree of ["references", "inbox", "requests", "entities"]) expect(existsSync(join(root, tree))).toBe(false);
+  expect(git(root, "status", "--porcelain")).toBe("");
+  // git never held the inbox's files, so they wait where the result says
+  expect(readdirSync(join(root, result.kept!.path, "inbox")).sort()).toEqual(["2026-08-01-copy.md", "2026-08-02-new.md", "unsorted"]);
+  expect(importTrees(join(root, result.kept!.path), readSourceInsertionLog(root)).imports).toEqual([]);
+  expect(needsMigration(root)).toBe(false);
+});
+
+test("a tree file no source would hold puts the vault back as it was", () => {
+  const root = treesVault();
+  const plan = planMigration(root);
+  expect(() => migrateVault(root, { ...plan, trees: { ...plan.trees, imports: plan.trees.imports.slice(1) } }))
+    .toThrow("no source holds 1 files of the retired trees:\ninbox/2026-08-02-new.md");
+  expect(git(root, "status", "--porcelain")).toBe("");
+  expect(existsSync(join(root, "inbox/2026-08-02-new.md"))).toBe(true);
+  expect(readSourceInsertionLog(root)).toHaveLength(2);
 });
