@@ -11,7 +11,7 @@
   let busy = $state(false);
 
   const PROVIDER: Record<string, string> = { anthropic: "Anthropic", "openai-codex": "ChatGPT", openai: "OpenAI", typesafe: "Jev", google: "Google" };
-  const ROLE: Record<string, string> = { tend: "filing", gardener: "filing", memory: "memory", quick: "summaries", feed: "the feed", firewall: "new arrivals", gate: "the worth gate", inclusion: "inclusion rules", pilot: "Pilot", voice: "Pilot voice" };
+  const ROLE: Record<string, string> = { tend: "filing", gardener: "filing", memory: "memory", quick: "summaries", feed: "the feed", firewall: "new arrivals", gate: "the worth gate", inclusion: "inclusion rules", pilot: "Desktops", voice: "Desktop voice" };
   const named = (p: string) => PROVIDER[p] ?? p;
   const paused = (m: Mark) => [...new Set(m.roles.map((r) => ROLE[r] ?? r))].join(", ");
 

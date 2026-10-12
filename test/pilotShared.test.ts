@@ -164,7 +164,7 @@ test("an unavailable selected subscription never silently executes an API fallba
     backend: () => ({ broken: false, transport: "subscription", prepare: async () => false, turn: async () => null, close() {} }) as any });
   const parent = s.create([]); s.setBackend(parent.id, { adapter: "pi", provider: "openai-codex", model: "requested-model" });
   s.send(parent.id, "Answer"); await s.settled(parent.id);
-  expect(parent.phase).toBe("failed"); expect(parent.error).toContain("selected Pilot backend"); expect(apiCalls).toBe(0);
+  expect(parent.phase).toBe("failed"); expect(parent.error).toContain("selected Desktop backend"); expect(apiCalls).toBe(0);
 });
 test("voice disabled does not disable the shared text backend", async () => {
   const root = nativeVault({ files: { ".env": "BIGBRAIN_PILOT_ENABLED=false\nOPENAI_API_KEY=sk-fixture\n" } }); roots.push(root);

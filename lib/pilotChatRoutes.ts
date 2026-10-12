@@ -20,12 +20,12 @@ export function pilotChatRoutes(sessions: PilotChats, options: { graph?: () => P
       const body = JSON.parse(raw);
       if (!body || typeof body !== "object" || Array.isArray(body)) throw new PilotError("Expected an object.");
       return fn(body);
-    }).then(result => json(res, 200, result && typeof result === "object" && "messages" in result && "phase" in result ? pilotChatDetail(result as import("./pilotChatTypes").PilotChatSession) : result)).catch(e => json(res, e instanceof PilotError ? e.status : 400, { error: e instanceof PilotError ? e.message : "Could not update the Pilot session." }));
+    }).then(result => json(res, 200, result && typeof result === "object" && "messages" in result && "phase" in result ? pilotChatDetail(result as import("./pilotChatTypes").PilotChatSession) : result)).catch(e => json(res, e instanceof PilotError ? e.status : 400, { error: e instanceof PilotError ? e.message : "Could not update the Desktop." }));
   } });
   return [
     { method: "GET", path: "/api/pilot/chat/actions", handler: ({ url, res }) => {
       try { json(res, 200, sessions.actionReceipts(url.searchParams.get("id"), actionHistoryQuery(url.searchParams))); }
-      catch { json(res, 404, { error: "Pilot conversation is unavailable." }); }
+      catch { json(res, 404, { error: "Desktop conversation is unavailable." }); }
     } },
     { method: "GET", path: "/api/pilot/chat/image", handler: ({ url, res }) => {
       try { const { bytes, mime } = sessions.image(url.searchParams.get("id")); res.writeHead(200, { "Content-Type": mime, "Cache-Control": "private, max-age=31536000, immutable", "X-Content-Type-Options": "nosniff" }); res.end(bytes); }
@@ -33,18 +33,18 @@ export function pilotChatRoutes(sessions: PilotChats, options: { graph?: () => P
     } },
     { method: "GET", path: "/api/pilot/chat/models", handler: async ({ res }) => {
       try { json(res, 200, { agents: await sessions.models() }); }
-      catch { json(res, 503, { error: "Could not load Pilot models." }); }
+      catch { json(res, 503, { error: "Could not load Desktop models." }); }
     } },
     post("image", b => sessions.uploadImage(b.data, b.name)),
     { method: "GET", path: "/api/pilot/chat", handler: async ({ url, res }) => {
       try {
         const rows = sessions.summaries(url.searchParams.get("query") ?? "", url.searchParams.has("ids") ? url.searchParams.get("ids")!.split(",") : undefined);
         json(res, 200, { sessions: await withContextSourcesOf(rows, options.graph), issues: sessions.loadIssues });
-      } catch { json(res, 500, { error: "Could not list Pilot conversations." }); }
+      } catch { json(res, 500, { error: "Could not list Desktop conversations." }); }
     } },
     { method: "GET", path: "/api/pilot/chat/session", handler: ({ url, res }) => {
       try { json(res, 200, pilotChatDetail(sessions.get(url.searchParams.get("id")))); }
-      catch { json(res, 404, { error: "Pilot conversation is unavailable." }); }
+      catch { json(res, 404, { error: "Desktop conversation is unavailable." }); }
     } },
     { method: "GET", path: "/api/pilot/chat/backend", handler: ({ res }) => json(res, 200, sessions.defaultBackend()) },
     post("create", b => sessions.create(b.context, b.id)),

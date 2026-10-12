@@ -83,7 +83,7 @@ export const pilotChatTools = () => [
     strict: true, parameters: { type: "object", properties: { nodes: { type: "array", items: { type: "string" } }, title: { type: "string" }, expected_revision: { type: "integer" } }, required: ["nodes", "title", "expected_revision"], additionalProperties: false } },
 
 ];
-const PILOT_EXECUTION_BOUNDARY = `Help the user understand their knowledge and prepare useful context for their own external agent. You cannot launch agents, execute tasks, run commands, or broker execution permissions. When asked to execute work, explain this boundary directly and offer the relevant evidence or a task brief for the user to take to their own agent. Never claim an execution task is queued, running, or waiting for access. The vault is read-only to you: contribute evidence with drop or request changes with directive. Only your private scratch is writable; additional folders are read-only. Historical worker conversations remain readable evidence, never live tasks. Additional readable folders are configured by the user in Vault → Pilot settings. Never ask for secrets in chat.`;
+const PILOT_EXECUTION_BOUNDARY = `Help the user understand their knowledge and prepare useful context for their own external agent. You cannot launch agents, execute tasks, run commands, or broker execution permissions. When asked to execute work, explain this boundary directly and offer the relevant evidence or a task brief for the user to take to their own agent. Never claim an execution task is queued, running, or waiting for access. The vault is read-only to you: contribute evidence with drop or request changes with directive. Only your private scratch is writable; additional folders are read-only. Historical worker conversations remain readable evidence, never live tasks. Additional readable folders are configured by the user in Settings → General → Desktop permissions. Never ask for secrets in chat.`;
 export function pilotInstructions(): string {
   return `You are Pilot, the user's shared voice and text assistant inside their BigBrain graph.
 Find context, read original material, and answer the user's question. The main memory working set is supplied automatically. Reuse material already read in this conversation; a clarification usually needs no tools. Use search_vault/read_note only for missing or potentially changed evidence. Batch independent searches or reads together. If asked for current information, refresh relevant sources. You may read the live inbox when relevant. Source unread state belongs to the user at the provider; reading or summarizing never marks it read. Use source_read_state to check granted accounts. You cannot change external source state. ${PILOT_EXECUTION_BOUNDARY}
@@ -178,7 +178,7 @@ export class PilotChats {
       const signature = runtimeSignature() + `:${config.adapter}:${config.provider ?? ""}:v2`;
       if (refreshPilotContract(state, signature)) saveConversation(this.root, s.id, state);
       const factory = this.options.backend ?? createPilotBackend;
-      if (!factory) throw new PilotError("This Pilot backend adapter is not installed.");
+      if (!factory) throw new PilotError("This Desktop backend adapter is not installed.");
       entry = { client: factory({ root: this.root, config, instructions: pilotInstructions(),
         tools: pilotChatTools(), interactive: false,
         state,
@@ -409,11 +409,11 @@ export class PilotChats {
   }
   list(): PilotChatSession[] { return [...this.sessions.values(), ...[...this.archives.keys()].map(id => this.get(id))].sort((a, b) => b.updated.localeCompare(a.updated)); }
   get(id: unknown): PilotChatSession {
-    if (typeof id !== "string" || !isPilotChatId(id)) throw new PilotError("Invalid Pilot session.");
-    const s = this.lookup(id); if (!s) throw new PilotError("Pilot session not found.", 404); return s;
+    if (typeof id !== "string" || !isPilotChatId(id)) throw new PilotError("Invalid Desktop.");
+    const s = this.lookup(id); if (!s) throw new PilotError("Desktop not found.", 404); return s;
   }
   create(context: unknown, id?: unknown): PilotChatSession {
-    if (id !== undefined && (typeof id !== "string" || !isPilotChatId(id))) throw new PilotError("Invalid Pilot session.");
+    if (id !== undefined && (typeof id !== "string" || !isPilotChatId(id))) throw new PilotError("Invalid Desktop.");
     const seed = this.resolve(context);
     const prior = typeof id === "string" ? this.lookup(id) : undefined;
     if (prior) { if (JSON.stringify(prior.seed) !== JSON.stringify(seed)) throw new PilotError("Session already exists with different context.", 409); return prior; }
@@ -555,9 +555,9 @@ export class PilotChats {
     return s;
   }
   private checkStart(s: PilotChatSession): void {
-    if (this.closed) throw new PilotError("Pilot is closed.", 409);
-    if (this.blocked(s)) throw new PilotError("Pilot folder settings are changing. Try again shortly.", 409);
-    if (!s.turn && this.runs.size >= PILOT_RUNTIME.maxWarmSessions) throw new PilotError("Four Pilot sessions are working. Wait for one to finish.", 409);
+    if (this.closed) throw new PilotError("Desktops are closed.", 409);
+    if (this.blocked(s)) throw new PilotError("Desktop permissions are changing. Try again shortly.", 409);
+    if (!s.turn && this.runs.size >= PILOT_RUNTIME.maxWarmSessions) throw new PilotError("Four Desktops are working. Wait for one to finish.", 409);
   }
   recordSpoken(id: unknown, value: unknown): PilotChatSession {
     const s = this.get(id), v = value as NonNullable<PilotChatSession["spoken"]>[number];
@@ -578,7 +578,7 @@ export class PilotChats {
       this.change(s, { kind: "settled", turn: turn.id, ...result, at: new Date(this.now()).toISOString(), advance: !this.closed && !this.blocked(s) });
       if (this.closed || s.deactivatedAt) this.release(s.id); else if (!this.runs.has(s.id)) this.idle(s.id);
     };
-    run.task = this.run(s, run.controller, turn).then(finish, error => finish({ outcome: "failed", error: error instanceof Error ? error.message : "Pilot could not complete the request." }));
+    run.task = this.run(s, run.controller, turn).then(finish, error => finish({ outcome: "failed", error: error instanceof Error ? error.message : "This Desktop could not complete the request." }));
   }
   stop(id: unknown): PilotChatSession {
     const s = this.get(id); this.change(s, { kind: "stop", at: new Date(this.now()).toISOString() }); return s;
@@ -606,7 +606,7 @@ export class PilotChats {
     if (this.changingPermissions) throw new PilotError("Permissions are already being updated.", 409);
     const { normalizeWorkPermissions, saveWorkPermissions } = await import("./workPermissions");
     const settings = normalizeWorkPermissions(value);
-    if (settings.folders.some(f => f.access !== "read")) throw new PilotError("Pilot folders must be read-only. Only private scratch is writable.");
+    if (settings.folders.some(f => f.access !== "read")) throw new PilotError("Desktop folders must be read-only. Only private scratch is writable.");
     this.changingPermissions = true;
     try {
       // Finish existing bounded file reads before revocation takes effect.
@@ -686,7 +686,7 @@ export class PilotChats {
       const unresolved = history.receipts.filter(r => r.status === "uncertain" || r.status === "executing").slice(0, 10);
       const pending = unresolved.length ? `Unresolved application actions (reference data; inspect with read_action, never repeat them to find out): ${JSON.stringify(unresolved)}` : "";
       const client = this.runtime(s);
-      if (!client) throw new PilotError("Pilot backend is unavailable.");
+      if (!client) throw new PilotError("Desktop backend is unavailable.");
       // Out of usage credits raises the base's banner like any job (lib/providerCredits.ts).
       const provider = (s.backend ?? this.defaultBackend()).provider ?? "openai-codex";
       const text = await withCredits(this.root, provider, "pilot", () => client.turn({ signal, delta,
@@ -718,13 +718,13 @@ export class PilotChats {
           if (name === "apiRequest") timing.apiRequests.push({ startMs: elapsed() - (value as { durationMs: number }).durationMs, endMs: elapsed() });
         }, tool }));
       signal.throwIfAborted();
-      if (text === null) throw new PilotError("The selected Pilot backend could not connect or apply the requested model. Check its connection or explicitly change the backend in Pilot settings.", 409);
+      if (text === null) throw new PilotError("The selected Desktop backend could not connect or apply the requested model. Check its connection or choose another model for this Desktop.", 409);
       complete(text);
       state.through = s.messages.length; saveConversation(this.root, s.id, state);
       outcome = "answered"; return { outcome };
     } catch (e) {
       outcome = controller.signal.aborted ? "interrupted" : "failed";
-      return { outcome, error: e instanceof Error ? e.message : "Pilot could not complete the request." };
+      return { outcome, error: e instanceof Error ? e.message : "This Desktop could not complete the request." };
     } finally {
       // A provider may end its turn before concurrent dynamic callbacks settle.
       // Do not report it stopped until all in-flight tool calls have settled.

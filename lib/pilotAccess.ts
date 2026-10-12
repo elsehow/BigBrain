@@ -7,8 +7,8 @@ import type { PilotChatSession } from './pilotChatTypes';
 const string = { type:'string' };
 const tool = (name:string, description:string, properties:Record<string,unknown>, required:string[]=[]) => ({ type:'function' as const, name, description, strict:false, parameters:{type:'object',properties,required,additionalProperties:false} });
 export const PILOT_LOCAL_TOOLS = [
-  tool('list_directories','List the vault, your private scratch, and additional readable folders configured in Vault → Pilot settings.',{}),
-  tool('list_files','List up to 200 entries in a readable directory. Relative paths refer to your scratch. Additional folders must be configured in Vault → Pilot settings; otherwise delegate to a agent session.',{path:string},['path']),
+  tool('list_directories','List the vault, your private scratch, and additional readable folders configured in Settings → General → Desktop permissions.',{}),
+  tool('list_files','List up to 200 entries in a readable directory. Relative paths refer to your scratch. Additional folders must be configured in Settings → General → Desktop permissions; otherwise delegate to a agent session.',{path:string},['path']),
   tool('read_file','Read a bounded UTF-8 text file from your scratch or an approved folder. Use vault search/read tools for vault notes. Relative paths refer to scratch.',{path:string,offset:{type:'integer',minimum:0},limit:{type:'integer',minimum:1,maximum:64000}},['path']),
   tool('write_scratch','Write a UTF-8 text file inside your private scratch, creating parent folders as needed. Never writes vault notes or project files. Use drop/directive for vault contributions and your own external agent application for implementation.',{path:string,text:string},['path','text']),
 ];
@@ -51,11 +51,11 @@ export class PilotAccess {
     if(typeof value!=='string' || !value || value.length>4000 || /[\x00-\x1f]/.test(value)) throw new Error('Provide a file path.');
     const scratch=this.scratch(s), path=canonicalWorkPath(isAbsolute(value)?value:resolve(scratch,value));
     if(write ? !containsPath(scratch,path) : this.unreadable(path,scratch,readable??this.readable(s)))
-      throw new Error(write?'Pilot writes only to private scratch. Delegate project changes to a agent session.':'This path is not readable. Add its folder in Vault → Pilot settings, or delegate to a agent session.');
+      throw new Error(write?'Pilot writes only to private scratch. Delegate project changes to a agent session.':'This path is not readable. Add its folder in Settings → General → Desktop permissions, or delegate to a agent session.');
     return path;
   }
   reference(s:PilotChatSession):string {
-    return `Pilot filesystem: ${JSON.stringify({scratch:this.scratch(s),readableFolders:this.roots(s)})}. Only scratch is writable. Additional read access is configured by the user in Vault → Pilot settings. Delegate execution, GitHub, and browser work to agent sessions.`;
+    return `Pilot filesystem: ${JSON.stringify({scratch:this.scratch(s),readableFolders:this.roots(s)})}. Only scratch is writable. Additional read access is configured by the user in Settings → General → Desktop permissions. Delegate execution, GitHub, and browser work to agent sessions.`;
   }
   async tool(s:PilotChatSession,name:string,args:Record<string,unknown>,signal:AbortSignal):Promise<unknown> {
     signal.throwIfAborted();

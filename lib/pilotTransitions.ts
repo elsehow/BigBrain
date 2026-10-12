@@ -48,7 +48,7 @@ export function transitionPilot(current: PilotChatSession, event: PilotEvent): {
       s.lastActivityAt ??= s.updated; s.lifecycle ??= "active";
       if (s.turn || s.phase === "working") {
         delete s.turn; s.phase = "interrupted"; s.activity = "";
-        s.error = "Pilot stopped when the engine restarted. Send a message to continue.";
+        s.error = "This Desktop stopped when the engine restarted. Send a message to continue.";
       }
       break;
     case "activity": activity(event.at); break;
@@ -60,10 +60,10 @@ export function transitionPilot(current: PilotChatSession, event: PilotEvent): {
         if (prior.text !== a.text || JSON.stringify(prior.images ?? []) !== JSON.stringify(a.images ?? [])) throw new PilotTransitionError("That input ID already belongs to a different message.");
         return unchanged();
       }
-      if (s.turn?.status === "stopping") throw new PilotTransitionError("Pilot is stopping. Wait before resuming it.");
+      if (s.turn?.status === "stopping") throw new PilotTransitionError("This Desktop is stopping. Wait before resuming it.");
       if (s.turn || s.pendingInputs?.length) {
-        if (!event.queue) throw new PilotTransitionError(s.turn ? "Pilot is already working in this session." : "Messages are queued in this session. Resume them first.");
-        if ((s.pendingInputs?.length ?? 0) >= 8) throw new PilotTransitionError("Wait for Pilot to process the queued messages.");
+        if (!event.queue) throw new PilotTransitionError(s.turn ? "This Desktop is already working." : "Messages are queued in this session. Resume them first.");
+        if ((s.pendingInputs?.length ?? 0) >= 8) throw new PilotTransitionError("Wait for this Desktop to process the queued messages.");
         s.pendingInputs = [...(s.pendingInputs ?? []), event.input];
         // Appending is not permission to resume an explicitly stopped queue.
         if (s.turn) activity(event.at);
@@ -73,7 +73,7 @@ export function transitionPilot(current: PilotChatSession, event: PilotEvent): {
       break;
     }
     case "resume": {
-      if (s.turn) throw new PilotTransitionError("Pilot is still working.");
+      if (s.turn) throw new PilotTransitionError("This Desktop is still working.");
       const next = s.pendingInputs?.[0];
       if (!next) return unchanged();
       s.pendingInputs = s.pendingInputs!.slice(1);
@@ -89,7 +89,7 @@ export function transitionPilot(current: PilotChatSession, event: PilotEvent): {
       const turn = s.turn!;
       const stopped = turn.status === "stopping" || !!s.deactivatedAt;
       s.phase = stopped ? "interrupted" : event.outcome; s.activity = "";
-      s.error = s.phase === "failed" ? event.error ?? "Pilot could not complete the request." : "";
+      s.error = s.phase === "failed" ? event.error ?? "This Desktop could not complete the request." : "";
       if (s.phase === "answered") {
         s.live = "";
       }
@@ -126,7 +126,7 @@ export function transitionPilot(current: PilotChatSession, event: PilotEvent): {
     case "published":
     case "publication-failed":
       if (!s.pendingIngestion || s.pendingIngestion.through !== event.chapter.through || s.pendingIngestion.content !== event.chapter.content) return unchanged();
-      if (event.kind === "publication-failed") s.ingestionError = "Pilot transcript could not be ingested. It is saved locally and will retry automatically.";
+      if (event.kind === "publication-failed") s.ingestionError = "Desktop transcript could not be ingested. It is saved locally and will retry automatically.";
       else {
         s.ingestions = [...(s.ingestions ?? []), { through: event.chapter.through, sourceId: event.receipt.id, insertionId: event.receipt.insertionId, path: event.receipt.path }];
         s.ingestedMessages = event.chapter.through; delete s.pendingIngestion; delete s.ingestionError;

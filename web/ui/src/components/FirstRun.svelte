@@ -85,7 +85,7 @@
       <p class="intro">Share basic usage and performance measurements with BigBrain through PostHog. You can change this anytime in Settings → Diagnostics.</p>
       <p class="privacy">Reports are linked by a random installation ID, created when you enable analytics.</p>
       <details><summary>What's collected</summary>
-        <p>Engine version, operating system and architecture; CPU, memory and timer-delay summaries; foreground and gardening state; engine running time; counts, timings and failures for search, graph, note and Pilot requests; and counts of notes opened and Pilot inputs accepted. Reports include event IDs and timestamps.</p>
+        <p>Engine version, operating system and architecture; CPU, memory and timer-delay summaries; foreground and gardening state; engine running time; counts, timings and failures for search, graph, note and Desktop requests; and counts of notes opened and Desktop inputs accepted. Reports include event IDs and timestamps.</p>
         <p>The installation ID persists across restarts. Turning analytics off removes it and clears unsent reports. Enabling again creates a new ID. Previously sent reports remain with PostHog.</p>
       </details>
       <p class="privacy"><a href="https://bigbrain.cool/privacy" target="_blank" rel="noopener noreferrer">Privacy policy</a></p>

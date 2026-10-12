@@ -32,14 +32,14 @@ const tilde = (path: string, home: string): string => containsPath(home, path) ?
 /** Why a canonical folder is too broad to grant, or null. */
 export function folderRefusal(path: string, credentials = credentialPaths()): string | null {
   const home = canonicalWorkPath(homedir());
-  if (dirname(path) === path) return "Pilot cannot read the whole disk. Choose a specific folder, such as a project folder.";
-  if (path === home) return "Pilot cannot read your whole home folder. Choose a specific folder inside it, such as a project folder.";
+  if (dirname(path) === path) return "Desktops cannot read the whole disk. Choose a specific folder, such as a project folder.";
+  if (path === home) return "Desktops cannot read your whole home folder. Choose a specific folder inside it, such as a project folder.";
   if (containsPath(path, home)) return "This folder contains your home folder. Choose a specific folder inside your home folder, such as a project folder.";
   const store = credentials.find(p => containsPath(path, p) || containsPath(p, path));
   if (!store) return null;
   return containsPath(path, store)
     ? `This folder contains ${tilde(store, home)}, which holds credentials. Choose a more specific folder.`
-    : `This folder is part of ${tilde(store, home)}, which holds credentials. Pilot cannot read it.`;
+    : `This folder is part of ${tilde(store, home)}, which holds credentials. Desktops cannot read it.`;
 }
 export function directoryPath(value: unknown, credentials = credentialPaths()): string {
   if (typeof value !== "string" || /[\x00-\x1f]/.test(value)) throw new Error("Choose an absolute folder path.");
@@ -57,7 +57,7 @@ function decode(value: any, stored = false): WorkPermissions {
     return { version: 2, folders: value.folders, ...(value.legacyCowboy ? { legacyCowboy: true as const } : {}) };
   if (typeof value?.cowboy === "boolean" && Array.isArray(value.directories) && value.directories.every((p: any) => typeof p === "string" && (!stored || isAbsolute(p))))
     return { version: 2, folders: value.directories.map((path: string) => ({ path, access: "write" })), ...(value.cowboy ? { legacyCowboy: true as const } : {}) };
-  throw new Error("Invalid Pilot folder settings; update Vault > Pilot settings.");
+  throw new Error("Invalid Desktop permissions; update Settings → General → Desktop permissions.");
 }
 /** Saved folders that are now refused never grant: they move to `removed`,
  * where Settings shows them until the next save. */
@@ -74,7 +74,7 @@ export function readWorkPermissions(root: string): WorkPermissions {
   return { ...stored, folders, ...(removed.length ? { removed } : {}) };
 }
 export function normalizeWorkPermissions(value: unknown): WorkPermissions {
-  if ((value as any)?.cowboy) throw new Error("Pilot only supports read access to configured folders.");
+  if ((value as any)?.cowboy) throw new Error("Desktops only support read access to configured folders.");
   const v = decode(value);
   if (v.folders.length > 32) throw new Error("Choose at most 32 authorized folders.");
   const folders = new Map<string, FolderAccess>(), credentials = credentialPaths();
@@ -88,7 +88,7 @@ export function normalizeWorkPermissions(value: unknown): WorkPermissions {
 export function validatedWorkPermissions(root: string): WorkPermissions {
   const stored = readWorkPermissions(root);
   const validated = normalizeWorkPermissions(stored);
-  if (JSON.stringify(validated.folders) !== JSON.stringify(stored.folders)) throw new Error("An authorized directory changed location. Choose it again in Vault > Pilot settings.");
+  if (JSON.stringify(validated.folders) !== JSON.stringify(stored.folders)) throw new Error("An authorized directory changed location. Choose it again in Settings → General → Desktop permissions.");
   return validated;
 }
 export function saveWorkPermissions(root: string, permissions: unknown): void {

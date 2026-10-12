@@ -75,7 +75,7 @@ export class PiSession implements ModelSession {
     if (this.broken) return false;
     const saved = this.setup.state.piSession;
     if (saved && (dirname(resolve(saved)) !== resolve(cwd) || !existsSync(saved)))
-      throw new Error("The saved Pi conversation is unavailable. Select the backend again in a new Pilot session.");
+      throw new Error("The saved Pi conversation is unavailable. Select the model again in a new Desktop.");
     this.fresh = !saved;
     const sessionManager = saved ? sdk.SessionManager.open(saved, cwd, cwd) : sdk.SessionManager.create(cwd, cwd);
     const customTools: NonNullable<CreateAgentSessionOptions["customTools"]> = this.setup.tools.map(t => ({
@@ -85,7 +85,7 @@ export class PiSession implements ModelSession {
       execute: async (_id, input, signal) => {
         signal?.throwIfAborted();
         const active = this.active;
-        if (!active || this.broken) throw new Error("Pilot tool call has no active turn.");
+        if (!active || this.broken) throw new Error("Tool call has no active turn.");
         active.signal.throwIfAborted();
         this.saveSession();
         const result = await active.tool(t.name, input as Record<string, unknown>);
@@ -135,7 +135,7 @@ export class PiSession implements ModelSession {
     return true;
   }
   async turn(args: ModelSessionTurn): Promise<string | null> {
-    if (this.active) throw new Error("Pilot is already working.");
+    if (this.active) throw new Error("The model is already working.");
     this.active = args;
     let text = "", failure: string | undefined;
     const abort = () => { void this.session?.abort().catch(() => this.close()); };
@@ -165,7 +165,7 @@ export class PiSession implements ModelSession {
       await session.prompt(input, { images, expandPromptTemplates: false });
       args.signal.throwIfAborted();
       if (failure) throw new Error(failure);
-      if (!text && (this.setup.requireText ?? this.requireText)) throw new Error("Pilot completed without an answer.");
+      if (!text && (this.setup.requireText ?? this.requireText)) throw new Error("The model completed without an answer.");
       return text;
     } finally {
       const token = this.quotaToken;

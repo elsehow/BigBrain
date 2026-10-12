@@ -1546,7 +1546,7 @@
   {/if}
 
   {#if openPilot && detail}
-    <section class="chat" class:solo={!showDesktop} bind:this={chatEl} aria-label="Pilot conversation">
+    <section class="chat" class:solo={!showDesktop} bind:this={chatEl} aria-label="Desktop conversation">
       <header>
         <div class="top">
           <div class="who-is">
