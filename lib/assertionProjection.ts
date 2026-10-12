@@ -409,9 +409,13 @@ function resetProjection(db: Database): void {
  * creation and WAL configuration belong to project/sync, never to reads. */
 function openReadonly(root: string): Database {
   const path = assertionDbPath(root);
-  if (!existsSync(path)) throw new Error("assertion-projection: projection is not built");
+  const unbuilt = () => new Error("assertion-projection: projection is not built");
+  if (!existsSync(path)) throw unbuilt();
   const db = new Database(path, { readonly: true });
   db.run("PRAGMA busy_timeout = 5000");
+  // The file exists from the moment a first writer opens it, before its
+  // schema commits: a reader then (a background build) finds no tables.
+  if (!db.query("SELECT 1 FROM sqlite_master WHERE name = 'meta'").get()) { db.close(); throw unbuilt(); }
   return db;
 }
 
