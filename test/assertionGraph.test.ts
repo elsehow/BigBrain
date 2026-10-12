@@ -6,8 +6,8 @@ import { buildAssertionGraph } from "../lib/assertionGraph";
 import { assertionEntityMarkdown, assertionEntityPath, assertionEntityView, projectedEntityMarkdown, truncatedEntityView } from "../lib/assertionEntityView";
 import { assertionEntityId, createAssertionEvent, appendAssertionEvent } from "../lib/assertionLog";
 import { appendSourceInsertionEvent, type SourceInsertion } from "../lib/insertionLog";
-import { appendAndProjectAssertion, appendAndProjectDecline, projectSourceInsertion } from "../lib/assertionProjection";
-import { createDeclineEvent } from "../lib/declineLog";
+import { appendAndProjectAssertion, projectSourceInsertion } from "../lib/assertionProjection";
+import { decline } from "./support/said";
 import { insertion } from "./support/vault";
 
 const source = (id: string, title: string): SourceInsertion =>
@@ -144,10 +144,9 @@ describe("assertion graph", () => {
       citations: [{ insertion_id: drop.id, quotes: [drop.body] }],
       author: gardener, confidence: "direct", created_at: "2026-09-06T10:00:00.000Z", produced_by: produced,
     }, new Map([[drop.id, drop]])));
-    appendAndProjectDecline(root, createDeclineEvent({
-      insertion_ids: [newer.id], reason: "nothing to keep", created_at: "2026-09-06T10:01:00.000Z",
-      author: gardener, produced_by: produced,
-    }, new Map([[newer.id, newer]])));
+    decline(root, [newer.id], "nothing to keep", {
+      created_at: "2026-09-06T10:01:00.000Z", author: gardener, produced_by: produced,
+    });
     graph = buildAssertionGraph(root);
     expect(graph.nodes.map((n) => n.id).sort()).toEqual([ada.id, `source:${drop.id}`, `source:${newer.id}`, `source:${directive.id}`].sort());
     expect(graph.nodes.find(n => n.id === `source:${newer.id}`)?.degree).toBe(0);
@@ -312,11 +311,11 @@ test("declined agent transcripts remain ordinary graph sources and retain provid
     envelope: { source: "agent-chat", from: "codex", from_kind: "agent", key: "provider-thread", type: "reference" } };
   appendSourceInsertionEvent(root, transcript);
   projectSourceInsertion(root, transcript);
-  appendAndProjectDecline(root, createDeclineEvent({
-    insertion_ids: [transcript.id], reason: "No new facts", created_at: "2026-09-08T10:01:00.000Z",
+  decline(root, [transcript.id], "No new facts", {
+    created_at: "2026-09-08T10:01:00.000Z",
     author: { kind: "model", id: "gardener", invocation_id: "run-1" },
     produced_by: { procedure: "intake-agent", version: "v1", invocation_id: "run-1", prompt_version: "p1" },
-  }, new Map([[transcript.id, transcript]])));
+  });
   const graph = buildAssertionGraph(root);
   expect(graph.nodes).toHaveLength(1);
   expect(graph.nodes[0]).toMatchObject({ group: "source", sessionId: "provider-thread", degree: 0 });

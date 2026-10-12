@@ -13,8 +13,7 @@ import { join } from "node:path";
 import { machineTools } from "../lib/run/machineTools";
 import { insertionEventRel } from "../lib/insertionLog";
 import { renderTurns, TRANSCRIPT_MARK, PILOT_TRANSCRIPT_MARK, renderUserSide, userSide } from "../lib/transcriptProjection";
-import { assertionEntityId } from "../lib/assertionLog";
-import { appendDeclineEvent, createDeclineEvent } from "../lib/declineLog";
+import { appendAssertionEvent, assertionEntityId, createDeclineAssertion } from "../lib/assertionLog";
 import { appendSourceInsertionEvent, type SourceInsertion } from "../lib/insertionLog";
 import {
   classifyIntake,
@@ -230,24 +229,24 @@ describe("submitWork — per-item, idempotent, host-validated", () => {
   });
 });
 
-describe("declineLog — immutable verdicts", () => {
+describe("decline assertions — immutable verdicts", () => {
   test("deterministic id, immutable collision, validation bounds", () => {
     const a = insertion();
     const root = vault(a);
     const sources = new Map([[a.id, a]]);
     const input = {
-      insertion_ids: [a.id], reason: "already covered by the record",
+      sources: [a.id], reason: "already covered by the record",
       author: { kind: "model", id: "m", invocation_id: "i" } as const,
       created_at: "2026-08-22T00:00:00.000Z", produced_by: PRODUCED,
     };
-    const event = createDeclineEvent(input, sources);
+    const event = createDeclineAssertion(input, sources);
     // identity excludes created_at: a retry converges on the same id
-    expect(createDeclineEvent({ ...input, created_at: "2026-08-23T00:00:00.000Z" }, sources).id).toBe(event.id);
-    expect(appendDeclineEvent(root, event).deduped).toBe(false);
-    expect(appendDeclineEvent(root, event).deduped).toBe(true);
-    expect(() => appendDeclineEvent(root, { ...event, reason: "changed" })).toThrow("collision");
-    expect(() => createDeclineEvent({ ...input, reason: "  " }, sources)).toThrow("reason");
-    expect(() => createDeclineEvent({ ...input, insertion_ids: [] }, sources)).toThrow("at least one insertion");
+    expect(createDeclineAssertion({ ...input, created_at: "2026-08-23T00:00:00.000Z" }, sources).id).toBe(event.id);
+    expect(appendAssertionEvent(root, event).deduped).toBe(false);
+    expect(appendAssertionEvent(root, event).deduped).toBe(true);
+    expect(() => appendAssertionEvent(root, { ...event, reason: "changed" })).toThrow("collision");
+    expect(() => createDeclineAssertion({ ...input, reason: "  " }, sources)).toThrow("reason");
+    expect(() => createDeclineAssertion({ ...input, sources: [] }, sources)).toThrow("at least one source");
   });
 });
 

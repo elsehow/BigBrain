@@ -4,9 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { appendSourceInsertionEvent } from "../lib/insertionLog";
-import { appendAssertionEvent, assertionEntityId, createAssertionEvent } from "../lib/assertionLog";
-import { appendDeclineEvent, createDeclineEvent } from "../lib/declineLog";
-import { appendRevocationEvent, createRevocationEvent } from "../lib/revocationLog";
+import { appendAssertionEvent, assertionEntityId, createAssertionEvent, createDeclineAssertion, createRetraction } from "../lib/assertionLog";
 import { projectSourceInsertion, syncAssertionProjection } from "../lib/assertionProjection";
 import { buildAssertionGraph } from "../lib/assertionGraph";
 import { pendingInsertionIds, recentFromSourceLog, recentSourcePage } from "../lib/sourceFeed";
@@ -36,8 +34,8 @@ test("settled arrivals never return as pending when the projection is absent or 
       created_at: "2026-09-08T12:00:00Z",
     }, byId);
     appendAssertionEvent(root, event);
-    if (index > 1) appendRevocationEvent(root, createRevocationEvent({
-      assertion_id: event.id, reason: "withdrawn", author, produced_by,
+    if (index > 1) appendAssertionEvent(root, createRetraction({
+      retracts: event.id, reason: "withdrawn", author, produced_by,
       created_at: "2026-09-08T13:00:00Z",
     }));
   }
@@ -46,8 +44,8 @@ test("settled arrivals never return as pending when the projection is absent or 
     sources: [sources[5]!.id], author, produced_by, confidence: "direct",
     created_at: "2026-09-08T13:30:00Z",
   }, byId));
-  appendDeclineEvent(root, createDeclineEvent({
-    insertion_ids: [sources[2]!.id, sources[4]!.id, sources[5]!.id], reason: "nothing to retain", author, produced_by,
+  appendAssertionEvent(root, createDeclineAssertion({
+    sources: [sources[2]!.id, sources[4]!.id, sources[5]!.id], reason: "nothing to retain", author, produced_by,
     created_at: "2026-09-08T14:00:00Z",
   }, byId));
   const check = () => {

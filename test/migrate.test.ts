@@ -3,18 +3,15 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { assertionEntityId, createAssertionEvent, readRecordedAssertions } from "../lib/assertionLog";
-import {
-  appendAndProjectAssertion, appendAndProjectDecline, appendAndProjectEntityAlias, appendAndProjectEntityFoldReject,
-  appendAndProjectEntitySource, appendAndProjectRevocation, appendAndProjectSourceCopy, projectSourceInsertion,
-} from "../lib/assertionProjection";
-import { createDeclineEvent } from "../lib/declineLog";
-import { createEntityAliasEvent } from "../lib/entityAliasLog";
-import { createEntityFoldRejectEvent } from "../lib/entityFoldLog";
-import { createEntitySourceEvent } from "../lib/entitySourceLog";
+import { appendAndProjectAssertion, projectSourceInsertion, recoverAssertionProjection } from "../lib/assertionProjection";
+import { appendDeclineEvent, createDeclineEvent } from "../lib/declineLog";
+import { appendEntityAliasEvent, createEntityAliasEvent } from "../lib/entityAliasLog";
+import { appendEntityFoldRejectEvent, createEntityFoldRejectEvent } from "../lib/entityFoldLog";
+import { appendEntitySourceEvent, createEntitySourceEvent } from "../lib/entitySourceLog";
 import { appendSourceInsertionEvent } from "../lib/insertionLog";
 import { migrateVault, needsMigration, planMigration, readingDiff, readingOfProjection } from "../lib/migrate";
-import { createRevocationEvent } from "../lib/revocationLog";
-import { createSourceCopyEvent } from "../lib/sourceCopyLog";
+import { appendRevocationEvent, createRevocationEvent } from "../lib/revocationLog";
+import { appendSourceCopyEvent, createSourceCopyEvent } from "../lib/sourceCopyLog";
 import { gitVault, insertion } from "./support/vault";
 
 const roots: string[] = [];
@@ -27,7 +24,8 @@ const at = (n: number) => ({ created_at: `2026-09-0${n}T00:00:00Z`, produced_by 
 const entity = (label: string) => ({ id: assertionEntityId(label), label });
 const git = (root: string, ...args: string[]) => spawnSync("git", args, { cwd: root, encoding: "utf8" }).stdout;
 
-/** A vault whose retired logs say a little of everything, committed. */
+/** A vault whose retired logs say a little of everything, committed: as an
+ * engine before the assertion kinds left it, the retired logs unprojected. */
 function retiredVault() {
   const root = gitVault({ commit: false }); roots.push(root);
   const a = insertion({ id: `ins_${"a".repeat(24)}`, title: "Field notes on the river survey" });
@@ -39,17 +37,17 @@ function retiredVault() {
     sources: [a.id], confidence: "direct", author: person, ...at(n) }, sources);
   const wrong = prose("surveyed the wrong river", 1), right = prose("surveyed the river", 2);
   for (const p of [wrong, right]) appendAndProjectAssertion(root, p);
-  appendAndProjectRevocation(root, createRevocationEvent({ assertion_id: wrong.id, superseded_by: right.id, reason: "the river", author: person, ...at(3) }));
-  appendAndProjectDecline(root, createDeclineEvent({ insertion_ids: [b.id], reason: "a calendar stub", author: person, ...at(1) }, sources));
+  appendRevocationEvent(root, createRevocationEvent({ assertion_id: wrong.id, superseded_by: right.id, reason: "the river", author: person, ...at(3) }));
+  appendDeclineEvent(root, createDeclineEvent({ insertion_ids: [b.id], reason: "a calendar stub", author: person, ...at(1) }, sources));
   // "Ada": declared, made its own again, declared toward another; "Lovelace": declared, then moved
   for (const [alias, to, n] of [["Ada", ada, 1], ["Ada", entity("Ada"), 2], ["Ada", king, 3], ["Lovelace", ada, 1], ["Lovelace", king, 4], ["Nobody", entity("Nobody"), 5]] as const)
-    appendAndProjectEntityAlias(root, createEntityAliasEvent({ alias, entity: to, author: person, ...at(n) }));
+    appendEntityAliasEvent(root, createEntityAliasEvent({ alias, entity: to, author: person, ...at(n) }));
   for (const [ent, bound, n] of [[ada, true, 1], [ada, false, 2], [king, false, 3]] as const)
-    appendAndProjectEntitySource(root, createEntitySourceEvent({ entity: ent, insertion_id: a.id, bound, author: person, ...at(n) }));
-  appendAndProjectSourceCopy(root, createSourceCopyEvent({ a: a.id, b: b.id, score: 0.4, author: model, ...at(1) }));
-  appendAndProjectSourceCopy(root, createSourceCopyEvent({ a: a.id, b: b.id, same: true, author: person, ...at(2) }));
-  appendAndProjectSourceCopy(root, createSourceCopyEvent({ a: a.id, b: b.id, score: 0.9, author: model, ...at(3) }));
-  appendAndProjectEntityFoldReject(root, createEntityFoldRejectEvent({ a: ada, b: king, author: person, ...at(1) }));
+    appendEntitySourceEvent(root, createEntitySourceEvent({ entity: ent, insertion_id: a.id, bound, author: person, ...at(n) }));
+  appendSourceCopyEvent(root, createSourceCopyEvent({ a: a.id, b: b.id, score: 0.4, author: model, ...at(1) }));
+  appendSourceCopyEvent(root, createSourceCopyEvent({ a: a.id, b: b.id, same: true, author: person, ...at(2) }));
+  appendSourceCopyEvent(root, createSourceCopyEvent({ a: a.id, b: b.id, score: 0.9, author: model, ...at(3) }));
+  appendEntityFoldRejectEvent(root, createEntityFoldRejectEvent({ a: ada, b: king, author: person, ...at(1) }));
   for (const dir of ["log/attestations/2026-08", "log/goal-assertions/2026-08"]) {
     mkdirSync(join(root, dir), { recursive: true });
     writeFileSync(join(root, dir, "old.json"), "{}\n");
@@ -95,6 +93,11 @@ test("a migration proves the new record reads as the old logs did, then commits 
   expect(needsMigration(root)).toBe(false);
 });
 
+test("a vault that still holds a retired log is refused, not read as if it were empty", () => {
+  const { root } = retiredVault();
+  expect(() => recoverAssertionProjection(root)).toThrow("bigbrain migrate");
+});
+
 test("a migration that would read differently puts the vault back as it was", () => {
   const { root } = retiredVault();
   const plan = planMigration(root);
@@ -103,5 +106,7 @@ test("a migration that would read differently puts the vault back as it was", ()
   expect(git(root, "status", "--porcelain", "--", "log")).toBe("");
   expect(existsSync(join(root, "log/declines"))).toBe(true);
   expect(readRecordedAssertions(root).filter((a) => a.migrated_from)).toEqual([]);
+  // and it migrates as it would have
+  expect(migrateVault(root, plan).committed).toBe(true);
   expect(readingDiff(plan.before, readingOfProjection(root))).toEqual([]);
 });

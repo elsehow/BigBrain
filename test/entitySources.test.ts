@@ -3,9 +3,9 @@ import { rmSync } from "node:fs";
 import { assertionEntityPath } from "../lib/assertionEntityView";
 import { buildAssertionGraph } from "../lib/assertionGraph";
 import { assertionEntityId, createAssertionEvent, type AssertionEntity } from "../lib/assertionLog";
-import { appendAndProjectAssertion, appendAndProjectEntityAlias, appendAndProjectEntitySource, syncAssertionProjection } from "../lib/assertionProjection";
-import { createEntityAliasEvent } from "../lib/entityAliasLog";
+import { appendAndProjectAssertion, liveBindingDeclarations, syncAssertionProjection } from "../lib/assertionProjection";
 import { createEntitySourceEvent, latestEntitySourceDeclarations } from "../lib/entitySourceLog";
+import { alias, bind as bindTo, retract } from "./support/said";
 import { sourceMatch } from "../lib/entitySourceMatch";
 import { planEntitySourceSeed, seedEntitySources } from "../lib/entitySourceSeed";
 import { insertionEventRel, type SourceInsertion } from "../lib/insertionLog";
@@ -156,9 +156,9 @@ describe("bind-sources backfill", () => {
   test("a person's unbind is a decision the backfill leaves alone", () => {
     const root = vault();
     claim(root, [ent(PAPER)], paper, "2026-10-01T00:00:00.000Z");
-    appendAndProjectEntitySource(root, createEntitySourceEvent({
-      entity: ent(PAPER), insertion_id: paper.id, bound: false, author: AUTHOR, created_at: "2026-10-02T00:00:00.000Z", produced_by: PRODUCED,
-    }));
+    expect(seedEntitySources(root, { author: AUTHOR }).appended).toBe(1);
+    for (const binding of liveBindingDeclarations(root, ent(PAPER).id, paper.id))
+      retract(root, binding, { author: AUTHOR, created_at: "2026-10-02T00:00:00.000Z", produced_by: PRODUCED, reason: "not this paper" });
     expect(planEntitySourceSeed(root).bind).toEqual([]);
     expect(buildAssertionGraph(root).nodes.find((n) => n.title === PAPER)?.opens).toBeUndefined();
   });
@@ -169,18 +169,15 @@ describe("bind-sources backfill", () => {
     claim(root, [short], paper, "2026-10-01T00:00:00.000Z");
     claim(root, [ent("Lantern survey")], notes, "2026-10-01T00:01:00.000Z");
     expect(seedEntitySources(root, { author: AUTHOR }).appended).toBe(1);
-    appendAndProjectEntityAlias(root, createEntityAliasEvent({
-      alias: short.label, entity: ent("Lantern survey"), author: AUTHOR, created_at: "2026-10-03T00:00:00.000Z", produced_by: PRODUCED,
-    }));
+    alias(root, short.label, ent("Lantern survey"), { author: AUTHOR, created_at: "2026-10-03T00:00:00.000Z", produced_by: PRODUCED });
     const graph = buildAssertionGraph(root);
     expect(graph.nodes.find((n) => n.title === "Lantern survey")?.opens).toEqual([`source:${paper.id}`]);
   });
 });
 
 describe("reading an entity that is a source", () => {
-  const bind = (root: string, e: AssertionEntity, source: SourceInsertion) => appendAndProjectEntitySource(root, createEntitySourceEvent({
-    entity: e, insertion_id: source.id, bound: true, author: AUTHOR, created_at: "2026-10-02T00:00:00.000Z", produced_by: PRODUCED,
-  }));
+  const bind = (root: string, e: AssertionEntity, source: SourceInsertion) =>
+    bindTo(root, e, source.id, { author: AUTHOR, created_at: "2026-10-02T00:00:00.000Z", produced_by: PRODUCED });
   const read = (root: string, label: string, window = {}) => {
     const p = notePayload(root, assertionEntityPath(ent(label).id), window);
     if (p.status !== 200) throw new Error(p.error);

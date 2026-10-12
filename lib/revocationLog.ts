@@ -17,9 +17,10 @@
  * Host code constructs and validates events; models never write this log.
  * The append/read/commit machinery is lib/eventLog.ts.
  *
- * Read, no longer written: a revocation is an assertion of kind `retraction`
- * (lib/assertionLog.ts). This log goes when it is migrated
- * (docs/plans/2026-10-11-field-of-assertions.md).
+ * A personal vault's revocations are now retractions (lib/assertionLog.ts);
+ * `bigbrain migrate` converts this log (lib/migrate.ts), and a personal
+ * vault holding it is refused until it is migrated. The shared server still
+ * writes it (lib/sharedVault.ts) until it accepts retractions.
  */
 
 import type { AssertionProduction } from "./assertionLog";

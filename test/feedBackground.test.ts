@@ -4,8 +4,8 @@ import { join } from "node:path";
 import { mdVault, insertion } from "./support/vault";
 import { appendSourceInsertionEvent, insertionEventRel } from "../lib/insertionLog";
 import { recentSourcePage, recentSourcePageAsync } from "../lib/sourceFeed";
-import { appendAndProjectDecline, projectSourceInsertion, recoverAssertionProjection } from "../lib/assertionProjection";
-import { createDeclineEvent } from "../lib/declineLog";
+import { appendAndProjectAssertion, projectSourceInsertion, recoverAssertionProjection } from "../lib/assertionProjection";
+import { createDeclineAssertion } from "../lib/assertionLog";
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -26,7 +26,7 @@ test("direct cold feed readers preserve ordering, pagination, filters and filing
   expect(pages[0]).toMatchObject({ total: 2, nextOffset: 1, recent: [{ title: "Second" }] });
   expect(pages[1]).toMatchObject({ nextOffset: null, recent: [{ title: "First" }] });
   expect(pages[2]).toMatchObject({ total: 1, recent: [{ title: "First" }] });
-  appendAndProjectDecline(root, createDeclineEvent({ insertion_ids: [a.id], reason: "Boilerplate",
+  appendAndProjectAssertion(root, createDeclineAssertion({ sources: [a.id], reason: "Boilerplate",
     author: { kind: "agent", id: "test" }, produced_by: { procedure: "test", version: "1" },
     created_at: "2026-09-20T00:00:00Z" }, new Map([[a.id, a]])));
   expect((await recentSourcePageAsync(root, 1, 1)).recent[0]!.status).toBe("declined");

@@ -16,8 +16,7 @@ import {
   projectedEntityToc,
   type ProjectedEntityView,
 } from "../lib/assertionEntityView";
-import { appendAssertionEvent, assertionEntityId, createAssertionEvent } from "../lib/assertionLog";
-import { appendEntityAliasEvent, createEntityAliasEvent } from "../lib/entityAliasLog";
+import { appendAssertionEvent, assertionEntityId, createAssertionEvent, createIdentityAssertion, sameAs } from "../lib/assertionLog";
 import { appendSourceInsertionEvent } from "../lib/insertionLog";
 import { declareOwner } from "./support/identity";
 import { insertion } from "./support/vault";
@@ -231,7 +230,7 @@ describe("assertionsFromSource — the source note's rail", () => {
     expect(assertionsFromSource(root, "ins_5a1e0000000000000000000c")).toEqual([]);
   });
 
-  test("a stub the alias log folds in wears the canonical dossier, once, under the canonical label", () => {
+  test("a stub an alias folds in wears the canonical dossier, once, under the canonical label", () => {
     const root = mkdtempSync(join(tmpdir(), "bb-srcrail-alias-"));
     const src = insertion({
       id: "ins_5a1e0000000000000000001a", source_id: "src-rail-alias", title: "Notes",
@@ -240,8 +239,8 @@ describe("assertionsFromSource — the source note's rail", () => {
     appendSourceInsertionEvent(root, src);
     const ada = { id: assertionEntityId("Ada Lovelace"), label: "Ada Lovelace" };
     const stub = { id: assertionEntityId("Ada"), label: "Ada" };
-    appendEntityAliasEvent(root, createEntityAliasEvent({
-      alias: "Ada", entity: ada, author: { kind: "user", id: "acct_1" },
+    appendAssertionEvent(root, createIdentityAssertion({
+      identity: sameAs("Ada", ada), author: { kind: "user", id: "acct_1" },
       created_at: "2026-08-21T09:00:00.000Z", produced_by,
     }));
     appendAssertionEvent(root, createAssertionEvent(

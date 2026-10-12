@@ -116,12 +116,12 @@ test("stopping the watcher suppresses a ping from an outstanding async warm", as
 });
 
 test("a request serves the last view at once and starts the build; no watcher needed", async () => {
-  const { projectSourceInsertion, appendAndProjectDecline } = await import("../lib/assertionProjection");
-  const { createDeclineEvent } = await import("../lib/declineLog");
+  const { projectSourceInsertion, appendAndProjectAssertion } = await import("../lib/assertionProjection");
+  const { createDeclineAssertion } = await import("../lib/assertionLog");
   const root = fresh(), item = source("1");
   appendSourceInsertionEvent(root, item); projectSourceInsertion(root, item);
   expect((await currentGraph(root)).nodes[0]?.pending).toBe(true);
-  appendAndProjectDecline(root, createDeclineEvent({ insertion_ids: [item.id], reason: "Boilerplate",
+  appendAndProjectAssertion(root, createDeclineAssertion({ sources: [item.id], reason: "Boilerplate",
     author: { kind: "model", id: "gardener", invocation_id: "test" }, produced_by: { procedure: "intake", version: "v1" },
     created_at: "2026-09-20T00:00:00.000Z" }, new Map([[item.id, item]])));
   expect((await currentGraph(root)).nodes[0]?.pending).toBe(true); // the last view, at once

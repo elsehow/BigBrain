@@ -11,7 +11,7 @@ import {sourceKey} from '../lib/sharedRules';
 import {serverBriefingRecord,serverGraph,unionGraph,unionRecent,unionNote,sharedEntityClaims} from '../lib/sharedReadUnion';
 import {briefingInput} from '../lib/noteBriefing';
 import {assertionEntityId} from '../lib/assertionLog';
-import {appendEntityAliasEvent,createEntityAliasEvent} from '../lib/entityAliasLog';
+import {alias} from './support/said';
 test('combined reads link own copies, expose shared-only sources and preserve personal originals after withdrawal',async()=>{
  const dir=mkdtempSync(join(tmpdir(),'union-')),personal=join(dir,'personal'),shared=join(dir,'shared'),members=join(dir,'members.json'),store=join(dir,'connections.json');for(const root of [personal,shared])mkdirSync(root);
  const source=sourceInsertion({id:'personal-example',title:'Local source',from:'Owner',from_kind:'person',source:'web'},'Example source body');appendSourceInsertionEvent(personal,source);
@@ -61,7 +61,7 @@ test('an entity is one entity in every vault: a joined vault\'s mentions, by nam
  const byAlias=vault.assert(verified.actor,{text:'[[Ave]] booked the venue.',sources:[notes.id]});
  vault.assert(verified.actor,{text:'[[Bo Lark]] joined the launch.',sources:[notes.id]});
  const avery={id:assertionEntityId('Avery Quill'),label:'Avery Quill'};
- appendEntityAliasEvent(personal,createEntityAliasEvent({alias:'Ave',entity:avery,author:{kind:'user',id:'owner'},created_at:'2026-08-20T10:00:00.000Z',produced_by:{procedure:'test',version:'v1'}}));
+ alias(personal,'Ave',avery,{author:{kind:'user',id:'owner'},created_at:'2026-08-20T10:00:00.000Z',produced_by:{procedure:'test',version:'v1'}});
  const server=Bun.serve({hostname:'127.0.0.1',port:0,fetch:makeSharedApiHandler({root:shared,storePath:members,vault,log:()=>{}})});const old=process.env.BIGBRAIN_SHARED_CONNECTIONS;process.env.BIGBRAIN_SHARED_CONNECTIONS=store;
  try{
  const c=await saveConnection(store,{name:'Example',endpoint:`http://127.0.0.1:${server.port}`,token:owner.token});

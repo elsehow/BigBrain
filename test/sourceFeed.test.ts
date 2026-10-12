@@ -7,9 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { appendSourceInsertionEvent, sourceInsertion, type SourceInsertion } from "../lib/insertionLog";
 import { assertionEntityId, createAssertionEvent } from "../lib/assertionLog";
-import { appendAndProjectAssertion, appendAndProjectDecline, appendAndProjectRevocation, openAssertionProjectionReadonly, projectSourceInsertion } from "../lib/assertionProjection";
-import { createDeclineEvent } from "../lib/declineLog";
-import { createRevocationEvent } from "../lib/revocationLog";
+import { appendAndProjectAssertion, openAssertionProjectionReadonly, projectSourceInsertion } from "../lib/assertionProjection";
 import {
   insertionStatus,
   readSourceInsertionPath,
@@ -20,6 +18,7 @@ import {
   sourceInsertionMarkdown,
   agentWritten,
 } from "../lib/sourceFeed";
+import { decline, retract } from "./support/said";
 import { insertion } from "./support/vault";
 import { sourceRecord } from "../lib/vaultReadModel";
 import { putBlob } from "../lib/blobs";
@@ -260,11 +259,11 @@ describe("the INGESTED column's claim", () => {
       created_at: "2026-08-27T20:40:00.000Z",
       produced_by: { procedure: "intake-agent", version: "v1", invocation_id: "run-1", prompt_version: "p1" },
     }, new Map([[cited.id, cited]])));
-    appendAndProjectDecline(root, createDeclineEvent({
-      insertion_ids: [passed.id], reason: "boilerplate, nothing to keep", created_at: "2026-08-27T20:41:00.000Z",
+    decline(root, [passed.id], "boilerplate, nothing to keep", {
+      created_at: "2026-08-27T20:41:00.000Z",
       author: { kind: "model", id: "gardener", invocation_id: "run-1" },
       produced_by: { procedure: "intake-agent", version: "v1", invocation_id: "run-1", prompt_version: "p1" },
-    }, new Map([[passed.id, passed]])));
+    });
 
     const rows = recentFromSourceLog(root);
     expect(rows.map((r) => [r.insertionId, r.status])).toEqual([
@@ -280,15 +279,14 @@ describe("the INGESTED column's claim", () => {
     db.close();
     const gardener = { kind: "model" as const, id: "gardener", invocation_id: "run-2" };
     const produced = { procedure: "cleanup", version: "v1" };
-    appendAndProjectRevocation(root, createRevocationEvent({
-      assertion_id: aid, reason: "let in by a retired pre-pass", author: gardener, created_at: "2026-09-04T23:50:00.000Z", produced_by: produced,
-    }));
+    retract(root, aid, {
+      reason: "let in by a retired pre-pass", author: gardener, created_at: "2026-09-04T23:50:00.000Z", produced_by: produced,
+    });
     expect(recentFromSourceLog(root).find((r) => r.insertionId === cited.id)!.status).toBe("filed");
     // …but once a decline names it too, the decline is the record's standing word.
-    appendAndProjectDecline(root, createDeclineEvent({
-      insertion_ids: [cited.id], reason: "a machine notification", created_at: "2026-09-04T23:51:00.000Z",
-      author: gardener, produced_by: produced,
-    }, new Map([[cited.id, cited]])));
+    decline(root, [cited.id], "a machine notification", {
+      created_at: "2026-09-04T23:51:00.000Z", author: gardener, produced_by: produced,
+    });
     expect(recentFromSourceLog(root).find((r) => r.insertionId === cited.id)!.status).toBe("declined");
   });
 });

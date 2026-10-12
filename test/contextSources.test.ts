@@ -3,10 +3,9 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildAssertionGraph } from "../lib/assertionGraph";
-import { appendAssertionEvent, assertionEntityId, createAssertionEvent } from "../lib/assertionLog";
+import { appendAssertionEvent, assertionEntityId, createAssertionEvent, createRetraction } from "../lib/assertionLog";
 import { withContextSources } from "../lib/contextSources";
 import { appendSourceInsertionEvent, insertionEventRel, type SourceInsertion } from "../lib/insertionLog";
-import { appendRevocationEvent, createRevocationEvent } from "../lib/revocationLog";
 import { insertion } from "./support/vault";
 
 // an invented vault: a field report naming Ada and the Orrery, one claim
@@ -28,7 +27,7 @@ const claim = (text: string, entities: typeof ada[], at: string) => {
 };
 claim(`[[${ada.id}|Ada]] repaired the [[${orrery.id}|orrery]].`, [ada, orrery], "2026-10-01T09:00:00.000Z");
 const wrong = claim(`[[${briar.id}|Briar]] repaired the orrery.`, [briar], "2026-10-01T09:01:00.000Z");
-appendRevocationEvent(root, createRevocationEvent({ assertion_id: wrong.id, reason: "misread", author: { kind: "model", id: "test-model", invocation_id: "run-2" },
+appendAssertionEvent(root, createRetraction({ retracts: wrong.id, reason: "misread", author: { kind: "model", id: "test-model", invocation_id: "run-2" },
   created_at: "2026-10-01T09:02:00.000Z", produced_by: { procedure: "test", version: "v1" } }));
 const graph = buildAssertionGraph(root);
 

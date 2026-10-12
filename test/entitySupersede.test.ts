@@ -15,11 +15,9 @@ import { join } from "node:path";
 import { canonicalizeAssertionLinks } from "../lib/assertionAgent";
 import { assertionEntityPath, assertionEntityView } from "../lib/assertionEntityView";
 import { buildAssertionGraph } from "../lib/assertionGraph";
-import { assertionEntityId, createAssertionEvent, readAssertionLog, type AssertionEntity } from "../lib/assertionLog";
+import { assertionEntityId, createAssertionEvent, createRetraction, readAssertionLog, type AssertionEntity } from "../lib/assertionLog";
 import {
   appendAndProjectAssertion,
-  appendAndProjectEntityAlias,
-  appendAndProjectRevocation,
   assertionProjectionDigest,
   assertionProjectionStats,
   projectSourceInsertion,
@@ -29,7 +27,6 @@ import {
   retiredEntitySuccessor,
   searchAssertionEntities,
 } from "../lib/assertionProjection";
-import { createEntityAliasEvent } from "../lib/entityAliasLog";
 import { correctedAssertion, supersedeEntity, SUPERSEDE_AUTHOR } from "../lib/entitySupersede";
 import { appendSourceInsertionEvent, type SourceInsertion } from "../lib/insertionLog";
 import {
@@ -42,6 +39,7 @@ import {
 } from "../lib/revocationLog";
 import { dueIntakeCount } from "../lib/work";
 import { insertion } from "./support/vault";
+import { alias } from "./support/said";
 import { revocationEvents } from "../lib/assertionKinds";
 
 const PRODUCED = { procedure: "test", version: "v1" } as const;
@@ -79,19 +77,22 @@ function vault(...texts: string[]): { root: string; ins: SourceInsertion; ids: s
   return { root, ins, ids };
 }
 
-describe("the revocation log", () => {
-  test.each([false, true])("revocation winners survive reversed arrival order and replay (reverse=%s)", (reverse) => {
+describe("retractions", () => {
+  test.each([false, true])("retraction winners survive reversed arrival order and replay (reverse=%s)", (reverse) => {
     const { root, ids } = vault("[[Evan]] proposed the original claim.", "[[Evan Keller]] proposed the first correction.", "[[Jules Lane]] proposed another correction.");
-    const revocations = ids.slice(1).map((id) => createRevocationEvent({
-      assertion_id: ids[0]!, superseded_by: id, reason: `correct to ${id}`,
+    const retractions = ids.slice(1).map((id) => createRetraction({
+      retracts: ids[0]!, superseded_by: id, reason: `correct to ${id}`,
       author: SUPERSEDE_AUTHOR, produced_by: PRODUCED, created_at: "2026-09-04T00:00:00Z",
     })).sort((a, b) => b.id.localeCompare(a.id));
     // Earlier time, later filename: a filename-ordered replay must agree
     // with a live writer, including a late-arriving earlier correction.
-    revocations[1]!.created_at = "2026-09-05T00:00:00Z";
-    for (const event of reverse ? [...revocations].reverse() : revocations)
-      appendAndProjectRevocation(root, event);
-    const expected = resolveAssertionIdIn(revokedAssertions(root), ids[0]!);
+    retractions[1]!.created_at = "2026-09-05T00:00:00Z";
+    for (const event of reverse ? [...retractions].reverse() : retractions)
+      appendAndProjectAssertion(root, event);
+    const first = new Map<string, ReturnType<typeof revocationEvents>[number]>();
+    for (const r of revocationEvents(root).sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id)))
+      if (!first.has(r.assertion_id)) first.set(r.assertion_id, r);
+    const expected = resolveAssertionIdIn(first, ids[0]!);
     expect(resolveAssertionId(root, ids[0]!)).toBe(expected);
     const digest = assertionProjectionDigest(root);
     rebuildAssertionProjection(root);
@@ -99,7 +100,8 @@ describe("the revocation log", () => {
     expect(assertionProjectionDigest(root)).toBe(digest);
   });
 
-  test("an event round-trips, validates, and supersession resolves through a chain", () => {
+  // the revocation log the shared server still writes (lib/sharedVault.ts)
+  test("a revocation event round-trips, validates, and supersession resolves through a chain", () => {
     const root = mkdtempSync(join(tmpdir(), "bb-rev-log-"));
     const a = "ast_000000000000000000000001", b = "ast_000000000000000000000002", c = "ast_000000000000000000000003";
     const first = createRevocationEvent({ assertion_id: a, superseded_by: b, reason: "link fixed", author: SUPERSEDE_AUTHOR, created_at: stamp(), produced_by: PRODUCED });
@@ -222,7 +224,7 @@ describe("supersede: the stub's assertions move, one by one", () => {
 describe("intake links the canonical thing only (#628)", () => {
   test("a label or id that is an alias is refused naming the canonical; the canonical itself is accepted", () => {
     const { root } = vault("[[Evan Keller]] runs FRI.", "[[Evan]] said hello.");
-    appendAndProjectEntityAlias(root, createEntityAliasEvent({ alias: "Evan", entity: EK, author: { kind: "user", id: "nick" }, created_at: stamp(), produced_by: PRODUCED }));
+    alias(root, "Evan", EK, { author: { kind: "user", id: "nick" }, created_at: stamp(), produced_by: PRODUCED });
     expect(() => canonicalizeAssertionLinks(root, "[[Evan]] agreed.")).toThrow(`"Evan" is an alias of ${EK.id} "Evan Keller" — link [[${EK.id}|Evan]]`);
     expect(() => canonicalizeAssertionLinks(root, `[[${EVAN.id}|Evan Keller]] agreed.`)).toThrow(`${EVAN.id} is an alias of ${EK.id}`);
     expect(canonicalizeAssertionLinks(root, `[[${EK.id}|Evan]] agreed.`)).toEqual({ text: `[[${EK.id}|Evan]] agreed.`, entities: [EK], minted: [] });

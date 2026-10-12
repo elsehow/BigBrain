@@ -8,16 +8,13 @@ import {
   createAssertionEvent,
   type AssertionEvent,
 } from "../lib/assertionLog";
-import { createEntityAliasEvent } from "../lib/entityAliasLog";
-import { createRevocationEvent } from "../lib/revocationLog";
 import { appendSourceInsertionEvent } from "../lib/insertionLog";
 import {
-  appendAndProjectEntityAlias,
-  appendAndProjectRevocation,
   listAssertions,
   syncAssertionProjection,
   tallyAssertionEntities,
 } from "../lib/assertionProjection";
+import { alias, retract } from "./support/said";
 import { insertion } from "./support/vault";
 
 // #686: `search` is a find-X door and requires a term. The SLICE — "every
@@ -118,16 +115,11 @@ describe("listAssertions", () => {
       id: assertionEntityId("Field Research Institute"),
       label: "Field Research Institute",
     };
-    appendAndProjectEntityAlias(
-      root,
-      createEntityAliasEvent({
-        alias: "FRI",
-        entity: canonical,
-        author,
-        created_at: "2026-08-31T10:00:00.000Z",
-        produced_by,
-      })
-    );
+    alias(root, "FRI", canonical, {
+      author,
+      created_at: "2026-08-31T10:00:00.000Z",
+      produced_by,
+    });
     syncAssertionProjection(root);
 
     const viaAlias = listAssertions(root, { entity: assertionEntityId("FRI") });
@@ -140,16 +132,12 @@ describe("listAssertions", () => {
       { n: 1, label: "Atlas", occurred: "2026-08-10T00:00:00.000Z" },
       { n: 2, label: "Babbage", occurred: "2026-08-11T00:00:00.000Z" },
     ]);
-    appendAndProjectRevocation(
-      root,
-      createRevocationEvent({
-        assertion_id: asts[0]!.id,
-        reason: "wrong",
-        author,
-        created_at: "2026-08-31T11:00:00.000Z",
-        produced_by,
-      })
-    );
+    retract(root, asts[0]!.id, {
+      reason: "wrong",
+      author,
+      created_at: "2026-08-31T11:00:00.000Z",
+      produced_by,
+    });
     syncAssertionProjection(root);
     expect(listAssertions(root).map((r) => r.entities[0]!.label)).toEqual(["Babbage"]);
   });
@@ -176,16 +164,12 @@ describe("tallyAssertionEntities", () => {
       { n: 3, label: "Atlas", occurred: "2026-08-01T00:00:00.000Z" },
       { n: 4, label: "Babbage", occurred: "2026-06-01T00:00:00.000Z" },
     ]);
-    appendAndProjectRevocation(
-      root,
-      createRevocationEvent({
-        assertion_id: asts[2]!.id,
-        reason: "wrong",
-        author,
-        created_at: "2026-08-31T11:00:00.000Z",
-        produced_by,
-      })
-    );
+    retract(root, asts[2]!.id, {
+      reason: "wrong",
+      author,
+      created_at: "2026-08-31T11:00:00.000Z",
+      produced_by,
+    });
     syncAssertionProjection(root);
 
     const tally = tallyAssertionEntities(root);

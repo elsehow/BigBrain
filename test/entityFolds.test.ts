@@ -13,17 +13,14 @@ import { join } from "node:path";
 import { assertionEntityId, createAssertionEvent, type AssertionEntity } from "../lib/assertionLog";
 import {
   appendAndProjectAssertion,
-  appendAndProjectEntityAlias,
-  appendAndProjectRevocation,
   projectSourceInsertion,
   rebuildAssertionProjection,
   recoverAssertionProjection,
   searchAssertionEntities,
 } from "../lib/assertionProjection";
-import { createRevocationEvent } from "../lib/revocationLog";
 import { withVaultSnapshot } from "../lib/vaultReadModel";
 import { scanSurface } from "../lib/searchCore";
-import { createEntityAliasEvent } from "../lib/entityAliasLog";
+import { alias, retract } from "./support/said";
 import {
   describeFolds,
   displayWords,
@@ -105,10 +102,7 @@ describe("the census", () => {
 
   test("an alias source is already folded — it is not in the census", () => {
     const root = vault(...CLAIMS);
-    appendAndProjectEntityAlias(root, createEntityAliasEvent({
-      alias: RIDGE_WAYS.label, entity: RIDGEWAYS, author: { kind: "user", id: "nick" },
-      created_at: stamp(), produced_by: PRODUCED,
-    }));
+    alias(root, RIDGE_WAYS.label, RIDGEWAYS, { author: { kind: "user", id: "nick" }, created_at: stamp(), produced_by: PRODUCED });
     const labels = entityCensus(root).map((r) => r.label);
     expect(labels).not.toContain("Ridge Ways");
     expect(labels).toContain("Ridgeways");
@@ -373,7 +367,7 @@ describe("the live view and the two acts", () => {
     await seed(root);
     const [claim] = withVaultSnapshot(root, (db) =>
       db.query("SELECT assertion_id AS id FROM assertion_entities WHERE entity_id = ? ORDER BY assertion_id LIMIT 1").all(RIDGEWAYS.id)) as { id: string }[];
-    appendAndProjectRevocation(root, createRevocationEvent({ assertion_id: claim!.id, reason: "wrong", author: USER, created_at: stamp(), produced_by: PRODUCED }));
+    retract(root, claim!.id, { reason: "wrong", author: USER, created_at: stamp(), produced_by: PRODUCED });
     const census = new Map(entityCensus(root).map((r) => [r.id, r]));
     const members = liveFolds(root).groups.flatMap((g) => g.members);
     expect(members.find((m) => m.id === RIDGEWAYS.id)!.assertions).toBe(1);

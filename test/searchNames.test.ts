@@ -6,8 +6,8 @@ import { searchNames } from '../lib/searchNames';
 import { scanSurface } from '../lib/searchCore';
 import { appendSourceInsertionEvent } from '../lib/insertionLog';
 import { appendAssertionEvent, assertionEntityId, createAssertionEvent } from '../lib/assertionLog';
-import { appendAndProjectEntityAlias, syncAssertionProjection } from '../lib/assertionProjection';
-import { createEntityAliasEvent } from '../lib/entityAliasLog';
+import { syncAssertionProjection } from '../lib/assertionProjection';
+import { alias, retract } from './support/said';
 import { insertion } from './support/vault';
 
 const roots: string[] = [];
@@ -45,9 +45,7 @@ for (const label of ['intake-bench', 'IntakeBench', 'intake bench', 'intake_benc
 test('joined alias spelling resolves to the canonical dossier once', () => {
   const {root, entity} = fixture('Canonical Project');
   syncAssertionProjection(root);
-  appendAndProjectEntityAlias(root, createEntityAliasEvent({alias: 'Intake-Bench', entity,
-    author: {kind: 'user', id: 'test'}, created_at: '2026-09-08T13:00:00Z', produced_by: {procedure: 'test', version: '1'},
-  }));
+  alias(root, 'Intake-Bench', entity, {created_at: '2026-09-08T13:00:00Z'});
   const result = scanSurface(root, 'intakebench', 10, 'web', {filters: {type: 'entity'}});
   if (!result.ok) throw new Error(result.reason);
   expect(result.hits.filter(h => h.path.startsWith('projection/entities/'))).toEqual([
@@ -61,23 +59,18 @@ test('MiniSearch tolerates a typo and refreshes when an alias is added', () => {
   const path = join(root, '.state', 'assertions.db');
   expect(searchNames(path, 'intkae bench', 'entity').map(h => h.id)).toContain(entity.id);
   expect(searchNames(path, 'Historical Benchmark', 'entity')).toEqual([]);
-  appendAndProjectEntityAlias(root, createEntityAliasEvent({alias: 'Historical Benchmark', entity,
-    author: {kind: 'user', id: 'test'}, created_at: '2026-09-08T13:00:00Z', produced_by: {procedure: 'test', version: '1'},
-  }));
+  alias(root, 'Historical Benchmark', entity, {created_at: '2026-09-08T13:00:00Z'});
   expect(searchNames(path, 'historicalbenchmark', 'entity')).toHaveLength(1);
 });
 
 test('cached names disappear after revocation and refresh after projection rebuild', async () => {
   const {root, entity} = fixture('Transient Project');
-  const {liveAssertionsForEntity, appendAndProjectRevocation, rebuildAssertionProjection} = await import('../lib/assertionProjection');
-  const {createRevocationEvent} = await import('../lib/revocationLog');
+  const {liveAssertionsForEntity, rebuildAssertionProjection} = await import('../lib/assertionProjection');
   syncAssertionProjection(root);
   const path = join(root, '.state', 'assertions.db');
   expect(searchNames(path, 'transientproject', 'entity')).toHaveLength(1);
   const [assertion] = liveAssertionsForEntity(root, entity.id);
-  appendAndProjectRevocation(root, createRevocationEvent({assertion_id: assertion!.id, reason: 'test revocation',
-    author: {kind: 'user', id: 'test'}, created_at: '2026-09-08T14:00:00Z', produced_by: {procedure: 'test', version: '1'},
-  }));
+  retract(root, assertion!.id, {reason: 'test revocation', created_at: '2026-09-08T14:00:00Z'});
   expect(searchNames(path, 'transientproject', 'entity')).toEqual([]);
   rebuildAssertionProjection(root);
   expect(searchNames(path, 'transientproject', 'entity')).toEqual([]);
