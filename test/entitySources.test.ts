@@ -5,13 +5,13 @@ import { buildAssertionGraph } from "../lib/assertionGraph";
 import { assertionEntityId, createAssertionEvent, type AssertionEntity } from "../lib/assertionLog";
 import { appendAndProjectAssertion, appendAndProjectEntityAlias, appendAndProjectEntitySource, syncAssertionProjection } from "../lib/assertionProjection";
 import { createEntityAliasEvent } from "../lib/entityAliasLog";
-import { createEntitySourceEvent, latestEntitySourceDeclarations, readEntitySourceLog } from "../lib/entitySourceLog";
+import { createEntitySourceEvent, latestEntitySourceDeclarations } from "../lib/entitySourceLog";
 import { sourceMatch } from "../lib/entitySourceMatch";
 import { planEntitySourceSeed, seedEntitySources } from "../lib/entitySourceSeed";
 import { insertionEventRel, type SourceInsertion } from "../lib/insertionLog";
 import { notePayload } from "../lib/noteRead";
 import { submitWire } from "../lib/work";
-import { insertion, nativeVault } from "./support/vault";
+import { identities, insertion, nativeVault } from "./support/vault";
 
 const PAPER = "Tidal Lanterns in Coastal Navigation: A Field Survey";
 const AUTHOR = { kind: "user" as const, id: "owner@example.com" };
@@ -95,8 +95,8 @@ describe("binding on extraction", () => {
       item("[[Mara Okafor]] wants the survey for [[Harbour Project Atlas]].", notes),
     ], opts);
     expect(result.appended).toBe(2);
-    expect(readEntitySourceLog(root).map((e) => [e.entity.label, e.insertion_id, e.bound, e.author.kind])).toEqual([
-      [PAPER, paper.id, true, "system"],
+    expect(identities(root).flatMap((e) => (e.identity.says === "is-source" ? [[e.identity.entity.label, e.sources[0]!.insertion_id, e.author.kind]] : []))).toEqual([
+      [PAPER, paper.id, "system"],
     ]);
 
     const graph = buildAssertionGraph(root);
@@ -112,7 +112,7 @@ describe("binding on extraction", () => {
     const root = vault();
     submitWire(root, [item(`[[${PAPER}]] was mentioned in passing.`, notes)], opts);
     submitWire(root, [item(`[[${ent(PAPER).id}|${PAPER}]] found lanterns in most harbours.`, paper)], opts);
-    expect(readEntitySourceLog(root)).toEqual([]);
+    expect(identities(root)).toEqual([]);
   });
 });
 
@@ -126,7 +126,7 @@ describe("bind-sources backfill", () => {
     const dry = seedEntitySources(root, { author: AUTHOR, dryRun: true });
     expect(dry.appended).toBe(0);
     expect(dry.bind.map((b) => [b.entity.label, b.insertion_id, b.match, b.citing, b.claims])).toEqual([[PAPER, paper.id, "title", 2, 3]]);
-    expect(readEntitySourceLog(root)).toEqual([]);
+    expect(identities(root)).toEqual([]);
 
     expect(seedEntitySources(root, { author: AUTHOR }).appended).toBe(1);
     expect(buildAssertionGraph(root).nodes.find((n) => n.title === PAPER)?.opens).toEqual([`source:${paper.id}`]);

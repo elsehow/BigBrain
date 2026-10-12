@@ -38,7 +38,8 @@ import {
 import { appendSourceInsertionEvent } from "../lib/insertionLog";
 import type { PiLoader } from "./support/pi";
 import { fakePi } from "./support/pi";
-import { insertion } from "./support/vault";
+import { identities, insertion } from "./support/vault";
+import { aliasEvents } from "../lib/assertionKinds";
 
 const PRODUCED = { procedure: "test", version: "v1" } as const;
 const MODEL = { kind: "model", id: "m", invocation_id: "r" } as const;
@@ -229,7 +230,6 @@ describe("a proposal run", () => {
 import { dispatch } from "../lib/httpx";
 import { createEntityFoldRejectEvent, appendEntityFoldRejectEvent, readEntityFoldRejectLog, validateEntityFoldRejectEvent } from "../lib/entityFoldLog";
 import { acceptFold, changedSince, foldsRoutes, liveFolds, rejectFold, rejectedPairList, rejectedPairs } from "../lib/entityFolds";
-import { readEntityAliasLog } from "../lib/entityAliasLog";
 import { runMemory } from "../lib/memoryRun";
 import { appendAssertionEvent } from "../lib/assertionLog";
 import { gitVault, testManifest } from "./support/vault";
@@ -350,7 +350,7 @@ describe("the live view and the two acts", () => {
     expect(liveFolds(root).groups).toHaveLength(2);
     const r = acceptFold(root, { canonical: RIDGEWAYS.id, members: [AUTO_MAP.id, RIDGE_WAYS.id, RIDGEWAYS.id] }, USER);
     expect(r.aliased.map((e) => e.label).sort()).toEqual(["Auto-MAP", "Ridge Ways"]);
-    const aliases = readEntityAliasLog(root);
+    const aliases = aliasEvents(root);
     expect(aliases.map((e) => `${e.alias}→${e.entity.label}`).sort()).toEqual(["Auto-MAP→Ridgeways", "Ridge Ways→Ridgeways"]);
     expect(aliases[0]!.author).toEqual(USER);
     expect(aliases[0]!.produced_by.procedure).toBe("entity-folds-accept");
@@ -406,7 +406,7 @@ describe("the live view and the two acts", () => {
     const root = vault(...CLAIMS);
     await seed(root);
     rejectFold(root, { member: RIDGE_WAYS.id, others: [AUTO_MAP.id, RIDGEWAYS.id] }, USER);
-    expect(readEntityFoldRejectLog(root)).toHaveLength(2);
+    expect(identities(root).filter((e) => e.identity.says === "distinct")).toHaveLength(2);
     expect(liveFolds(root).groups[0]!.members.map((m) => m.label)).toEqual(["Ridgeways", "Auto-MAP"]);
     // the next proposal cannot bring it back
     const again = await proposeEntityFolds(root, {

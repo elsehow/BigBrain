@@ -8,30 +8,30 @@
  * stub, append a CORRECTED COPY — a plain `assertion.asserted` with the
  * same display words, the canonical id in place of the stub's, the same
  * sources (the insertion stays settled), the original's `created_at` (it
- * sits where the claim belongs), `supersedes: <original>` — then revoke
+ * sits where the claim belongs), `supersedes: <original>` — then retract
  * the original with `superseded_by` pointing at the copy. Readers stay
  * dumb: the copy is just an assertion.
  *
  * Author of the copy is the host procedure (`entity-supersede`); the
- * operator is named in the revocation's reason. The original keeps the
+ * operator is named in the retraction's reason. The original keeps the
  * model's authorship and date. Nothing is rewritten. Idempotent: a re-run
  * finds nothing live on the stub; a retried run converges on the same
  * event ids.
  */
 
 import { ENT_ID, ENTITY_ID_LINK } from "./ids";
-import { assertionEntityId, assertionSourceReferences, createAssertionEvent, type AssertionEntity, type AssertionEvent } from "./assertionLog";
+import {
+  assertionEntityId, assertionSourceReferences, commitAssertionEvents, createAssertionEvent, createRetraction,
+  type AssertionEntity, type AssertionEvent,
+} from "./assertionLog";
 import {
   appendAndProjectAssertion,
-  appendAndProjectRevocation,
   liveAssertionsForEntity,
   projectedEntityRow,
   projectedSourcesById,
   syncAssertionProjection,
 } from "./assertionProjection";
-import { commitAssertionEvents } from "./assertionLog";
 import type { EventAuthor } from "./insertionLog";
-import { commitRevocationEvents, createRevocationEvent } from "./revocationLog";
 
 export const ENTITY_SUPERSEDE_PROCEDURE = "entity-supersede";
 export const ENTITY_SUPERSEDE_VERSION = "1";
@@ -113,8 +113,7 @@ export function supersedeEntity(root: string, opts: SupersedeOpts): SupersedeRes
   const items: SupersedeItem[] = [];
   const sources = projectedSourcesById(root, targets.flatMap((event) => assertionSourceReferences(event).map((ref) => ref.insertion_id)));
   const now = opts.now ?? (() => new Date());
-  const assertionPaths: string[] = [];
-  const revocationPaths: string[] = [];
+  const paths: string[] = [];
   for (const original of targets) {
     const corrected = correctedAssertion(original, from, into);
     const copy = createAssertionEvent({
@@ -127,8 +126,8 @@ export function supersedeEntity(root: string, opts: SupersedeOpts): SupersedeRes
       produced_by: { procedure: ENTITY_SUPERSEDE_PROCEDURE, version: ENTITY_SUPERSEDE_VERSION },
       supersedes: original.id,
     }, sources);
-    const revocation = createRevocationEvent({
-      assertion_id: original.id,
+    const retraction = createRetraction({
+      retracts: original.id,
       superseded_by: copy.id,
       reason: `superseded: [[${from.label}]] → ${into.id} "${into.label}", by ${opts.operator}`,
       author: SUPERSEDE_AUTHOR,
@@ -137,14 +136,9 @@ export function supersedeEntity(root: string, opts: SupersedeOpts): SupersedeRes
     });
     items.push({ original: original.id, copy: copy.id, text: corrected.text });
     if (opts.dryRun) continue;
-    // Copy first, then the revocation that points at it — the order the
-    // projection's sync replays in (assertions before revocations).
-    assertionPaths.push(appendAndProjectAssertion(root, copy).path);
-    revocationPaths.push(appendAndProjectRevocation(root, revocation).path);
+    paths.push(appendAndProjectAssertion(root, copy).path, appendAndProjectAssertion(root, retraction).path);
   }
-  if (!opts.dryRun && items.length) {
-    commitAssertionEvents(root, assertionPaths, `supersede: ${items.length} assertion(s) [[${from.label}]] → ${into.label}`);
-    commitRevocationEvents(root, revocationPaths, `supersede: revoke ${items.length} assertion(s) on [[${from.label}]]`);
-  }
+  if (!opts.dryRun && items.length)
+    commitAssertionEvents(root, paths, `supersede: ${items.length} assertion(s) [[${from.label}]] → ${into.label}, the originals retracted`);
   return { from, into, items, left: live.length - targets.length, appended: opts.dryRun ? 0 : items.length };
 }

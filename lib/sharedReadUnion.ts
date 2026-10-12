@@ -16,7 +16,7 @@ import {join} from 'node:path';
 import {SHARED_AST_CITE} from './ids';
 import {memoryTreeFiles} from './memoryTree';
 import type {RecentEntry} from './viewTypes';
-import {entityAliasResolver} from './entityAliasLog';
+import {entityAliasResolver} from './assertionKinds';
 import {assertionEntityPath,type ProjectedEntityAssertion,type ProjectedEntityView} from './assertionEntityView';
 import {briefingEvidence} from './entityBriefing';
 import {findNode} from './graphIdentity';

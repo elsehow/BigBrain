@@ -15,6 +15,10 @@
  * Host code constructs and validates events; models never write this log
  * directly (the assertionLog.ts discipline). The append/read/commit
  * machinery is lib/eventLog.ts.
+ *
+ * Read, no longer written: a decline is an assertion of kind `decline`
+ * (lib/assertionLog.ts). This log goes when it is migrated
+ * (docs/plans/2026-10-11-field-of-assertions.md).
  */
 
 import type { AssertionProduction, AssertionSourceReference } from "./assertionLog";

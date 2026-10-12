@@ -39,11 +39,10 @@ import { mkdirSync, readFileSync } from "node:fs";
 import { userInfo } from "node:os";
 import { join } from "node:path";
 import type { Database } from "bun:sqlite";
-import type { AssertionEntity } from "./assertionLog";
+import { commitAssertionEvents, createIdentityAssertion, sameAs, type AssertionEntity } from "./assertionLog";
 import {
   DATED_ASSERTIONS,
-  appendAndProjectEntityAlias,
-  appendAndProjectEntityFoldReject,
+  appendAndProjectAssertion,
   openAssertionProjectionReadonly,
   projectedAssertionEntity,
   projectFolds,
@@ -51,8 +50,7 @@ import {
 } from "./assertionProjection";
 import { ENGINE_ROOT } from "./engine";
 import { ownerEmail } from "./env";
-import { commitEntityAliasEvents, createEntityAliasEvent } from "./entityAliasLog";
-import { ENTITY_FOLDS_FILE, commitEntityFoldRejectEvents, createEntityFoldRejectEvent, pairKey } from "./entityFoldLog";
+import { ENTITY_FOLDS_FILE, pairKey } from "./entityFoldLog";
 import { writeAtomic } from "./fsx";
 import { json, readBody, type Ctx, type Route } from "./httpx";
 import { ENT_ID, ENTITY_LINK } from "./ids";
@@ -185,7 +183,8 @@ export type RejectedPair = (a: string, b: string) => boolean;
 export function rejectedPairList(db: Database): Array<[string, string]> {
   return db.query(`SELECT DISTINCT min(a, b), max(a, b) FROM (
       SELECT coalesce(xa.entity_id, r.a) AS a, coalesce(xb.entity_id, r.b) AS b FROM entity_fold_rejects r
-        LEFT JOIN entity_aliases xa ON xa.alias_id = r.a LEFT JOIN entity_aliases xb ON xb.alias_id = r.b)
+        LEFT JOIN entity_aliases xa ON xa.alias_id = r.a LEFT JOIN entity_aliases xb ON xb.alias_id = r.b
+      WHERE r.retracted_by IS NULL)
     WHERE a != b ORDER BY 1, 2`).values() as Array<[string, string]>;
 }
 
@@ -434,9 +433,9 @@ const liveEntity = (root: string, id: string): AssertionEntity => {
   return { id: e.id, label: e.label };
 };
 
-/** ACCEPT: every member's label becomes an alias of the canonical — the
- * alias log's ordinary event, authored by the operator. Returns what was
- * declared. */
+/** ACCEPT: every member's label becomes an alias of the canonical — an
+ * identity assertion saying `same`, authored by the operator. Returns what
+ * was declared. */
 export function acceptFold(
   root: string,
   input: { canonical: string; members: string[] },
@@ -449,17 +448,18 @@ export function acceptFold(
   if (!members.length) throw new Error("entity-folds: nothing to fold — name at least one other member");
   const paths: string[] = [];
   for (const m of members) {
-    const event = createEntityAliasEvent({
-      alias: m.label, entity: canonical, author, created_at: now().toISOString(), produced_by: ACCEPT,
+    const event = createIdentityAssertion({
+      identity: sameAs(m.label, canonical), author, created_at: now().toISOString(), produced_by: ACCEPT,
     });
-    paths.push(appendAndProjectEntityAlias(root, event).path);
+    paths.push(appendAndProjectAssertion(root, event).path);
   }
-  commitEntityAliasEvents(root, paths, `entity folds: ${members.map((m) => `"${m.label}"`).join(", ")} → ${canonical.label}`);
+  commitAssertionEvents(root, paths, `entity folds: ${members.map((m) => `"${m.label}"`).join(", ")} → ${canonical.label}`);
   return { canonical, aliased: members };
 }
 
-/** REJECT: `member` is not the same thing as any of `others` — one event
- * per pair, so the pass never proposes them together again. */
+/** REJECT: `member` is not the same thing as any of `others` — an identity
+ * assertion saying `distinct` per pair, so the pass never proposes them
+ * together again. */
 export function rejectFold(
   root: string,
   input: { member: string; others: string[] },
@@ -472,10 +472,12 @@ export function rejectFold(
   if (!others.length) throw new Error("entity-folds: nothing to reject against");
   const paths: string[] = [];
   for (const o of others) {
-    const event = createEntityFoldRejectEvent({ a: member, b: o, author, created_at: now().toISOString(), produced_by: REJECT });
-    paths.push(appendAndProjectEntityFoldReject(root, event).path);
+    const event = createIdentityAssertion({
+      identity: { says: "distinct", entities: [member, o] }, author, created_at: now().toISOString(), produced_by: REJECT,
+    });
+    paths.push(appendAndProjectAssertion(root, event).path);
   }
-  commitEntityFoldRejectEvents(root, paths, `entity folds: "${member.label}" is not ${others.map((o) => `"${o.label}"`).join(", ")}`);
+  commitAssertionEvents(root, paths, `entity folds: "${member.label}" is not ${others.map((o) => `"${o.label}"`).join(", ")}`);
   return { member, against: others };
 }
 

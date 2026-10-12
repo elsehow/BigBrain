@@ -17,6 +17,7 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { readRecordedAssertions, type IdentityAssertion, type RecordedAssertion } from "../../lib/assertionLog";
 import { appendSourceInsertionEvent, type SourceInsertion } from "../../lib/insertionLog";
 import type { Manifest } from "../../lib/manifest";
 
@@ -167,3 +168,10 @@ export function testManifest(root: string, over: Partial<Manifest> = {}): Manife
     ...over,
   } as Manifest;
 }
+
+/** The assertions of one kind a vault's log holds, oldest first. */
+export const recordedOfKind = <K extends "identity" | "decline" | "retraction">(root: string, kind: K) =>
+  readRecordedAssertions(root).filter((e) => e.kind === kind) as Extract<RecordedAssertion, { kind: K }>[];
+
+/** The identity assertions a vault's log holds, oldest first. */
+export const identities = (root: string): IdentityAssertion[] => recordedOfKind(root, "identity");

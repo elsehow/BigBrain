@@ -27,6 +27,10 @@
  * guard in every reader forever. Host code constructs and validates
  * events; models never write this log directly. The append/read/commit
  * machinery is lib/eventLog.ts.
+ *
+ * Read, no longer written: an alias is an identity assertion saying `same`
+ * (lib/assertionLog.ts). This log goes when it is migrated
+ * (docs/plans/2026-10-11-field-of-assertions.md).
  */
 
 import { assertionEntityId, type AssertionEntity, type AssertionProduction } from "./assertionLog";
@@ -181,11 +185,4 @@ export function entityAliasResolution(events: readonly EntityAliasEvent[]): Enti
     labels.set(to.id, held);
   }
   return { canonical, labels };
-}
-
-/** The read-side resolver over a vault's alias log: an entity as an
- * assertion links it → the entity every reader should show. */
-export function entityAliasResolver(root: string): (entity: AssertionEntity) => AssertionEntity {
-  const { canonical } = entityAliasResolution(log.read(root, { strict: true }));
-  return (entity) => canonical.get(entity.id) ?? entity;
 }

@@ -31,24 +31,18 @@ import {
   assertionEventRel,
   commitAssertionEvents,
   createAssertionEvent,
+  createDeclineAssertion,
   type AssertionEntity,
   type AssertionEvent,
   type AssertionProduction,
 } from "./assertionLog";
 import {
   appendAndProjectAssertion,
-  appendAndProjectDecline,
   assertionIdsExist,
   openAssertionProjectionReadonly,
   projectedSourcesById,
   syncAssertionProjection,
 } from "./assertionProjection";
-import {
-  commitDeclineEvents,
-  createDeclineEvent,
-  declineEventRel,
-  type DeclineEvent,
-} from "./declineLog";
 import { liveSourceSql, supersedesOf } from "./sourceSupersede";
 import {
   admitStaged,
@@ -116,7 +110,7 @@ export interface DueWorkOpts {
 const DUE_INTAKE_FROM = `FROM sources s
   WHERE s.intake_priority IS NOT NULL AND ${liveSourceSql("s")}
     AND NOT EXISTS (SELECT 1 FROM assertion_sources a WHERE a.insertion_id = s.insertion_id)
-    AND NOT EXISTS (SELECT 1 FROM declines d WHERE d.insertion_id = s.insertion_id)`;
+    AND NOT EXISTS (SELECT 1 FROM declines d WHERE d.insertion_id = s.insertion_id AND d.retracted_by IS NULL)`;
 
 function dueIntakeJobs(db: Database, limit = -1): IntakeJob[] {
   const rows = db.query(`SELECT s.insertion_id, s.source_id, s.title,
@@ -340,7 +334,7 @@ export function nextWork(root: string, opts: Omit<DueWorkOpts, "limit"> & { limi
         FROM sources s
         JOIN source_documents sd ON sd.insertion_id = s.insertion_id
         LEFT JOIN assertion_sources a ON a.insertion_id = s.insertion_id
-        LEFT JOIN declines d ON d.insertion_id = s.insertion_id
+        LEFT JOIN declines d ON d.insertion_id = s.insertion_id AND d.retracted_by IS NULL
         WHERE a.assertion_id IS NULL AND d.decline_id IS NULL
           AND s.envelope_kind IN ('directive', 'request')
           AND EXISTS (SELECT 1 FROM json_each(sd.event_json, '$.envelope.about') je
@@ -515,7 +509,7 @@ export function submitWork(root: string, items: readonly SubmitItem[], opts: Sub
     item.submit === "assertion" ? item.sources : item.submit === "decline" ? item.insertion_ids : []);
   const sources = projectedSourcesById(root, cited);
   const assertionPaths: string[] = [];
-  const declinePaths: string[] = [];
+  let declines = 0;
   // The pre-append snapshot answers "does the record already hold this id"
   // (WAL: it will not see this run's own appends — `seenThisRun` covers an
   // intra-batch duplicate).
@@ -547,17 +541,18 @@ export function submitWork(root: string, items: readonly SubmitItem[], opts: Sub
           assertionPaths.push(assertionEventRel(event));
           results.push({ index, ok: true, id: event.id, deduped: appended.deduped });
         } else {
-          const event: DeclineEvent = createDeclineEvent({
-            insertion_ids: item.insertion_ids, reason: item.reason,
+          const event = createDeclineAssertion({
+            sources: item.insertion_ids, reason: item.reason,
             author: opts.author, created_at: createdAt, produced_by: opts.produced_by,
           }, sources);
           if (alreadyHeld(event, "decline")) {
             results.push({ index, ok: true, id: event.id, deduped: true });
             continue;
           }
-          const appended = appendAndProjectDecline(root, event);
+          const appended = appendAndProjectAssertion(root, event);
           seenThisRun.add(event.id);
-          declinePaths.push(declineEventRel(event));
+          assertionPaths.push(assertionEventRel(event));
+          declines++;
           results.push({ index, ok: true, id: event.id, deduped: appended.deduped });
         }
       } catch (error) {
@@ -573,9 +568,8 @@ export function submitWork(root: string, items: readonly SubmitItem[], opts: Sub
   const appended = logged.filter((r) => r.ok && !r.deduped).length;
   const deduped = logged.filter((r) => r.ok && r.deduped).length;
   if (assertionPaths.length)
-    commitAssertionEvents(root, assertionPaths, `Submit ${assertionPaths.length} assertion(s)`);
-  if (declinePaths.length)
-    commitDeclineEvents(root, declinePaths, `Submit ${declinePaths.length} decline(s)`);
+    commitAssertionEvents(root, assertionPaths,
+      `Submit ${assertionPaths.length - declines} assertion(s)${declines ? `, ${declines} decline(s)` : ""}`);
   return { results, appended, deduped, rejected: results.filter((r) => !r.ok).length, admitted, passed };
 }
 

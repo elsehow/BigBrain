@@ -112,12 +112,12 @@ export function sourceRecord(root: string): SourceRecord {
     const sources = summariesById(db.query(`SELECT ${SUMMARY} FROM sources s WHERE s.present = 1
       ORDER BY coalesce(s.received_at, s.occurred_at, ''), s.insertion_id`).all() as SummaryRow[]);
     const ids = (sql: string) => new Set((db.query(sql).all() as { insertion_id: string }[]).map(row => row.insertion_id));
-    const declined = ids("SELECT DISTINCT insertion_id FROM declines");
+    const declined = ids("SELECT DISTINCT insertion_id FROM declines WHERE retracted_by IS NULL");
     // Withdrawal alone never makes an arrival pending again. A decline wins
     // only when no live assertion cites that arrival (sourceSettlement tests).
     const cited = ids(`SELECT DISTINCT x.insertion_id FROM assertion_sources x
       JOIN assertions a ON a.id = x.assertion_id
-      WHERE a.revoked_by IS NULL OR NOT EXISTS (SELECT 1 FROM declines d WHERE d.insertion_id = x.insertion_id)`);
+      WHERE a.revoked_by IS NULL OR NOT EXISTS (SELECT 1 FROM declines d WHERE d.insertion_id = x.insertion_id AND d.retracted_by IS NULL)`);
     const grouped = threadsIn(db, sources);
     return held.sources = { revision, sources, cited, declined, superseded: supersededInsertionIds(sources.values()),
       threads: new Map(grouped.flatMap(t => [t.path, ...t.aliases].map(path => [path, t] as const))),
@@ -197,7 +197,7 @@ function copyLinks(db: Database, landing: (insertionId: string) => string | unde
     const entity = (canonical.get(binding.entity.id) as { entity_id: string } | null)?.entity_id ?? binding.entity.id;
     if (id) joins.set(id, [...(joins.get(id) ?? []), `entity:${entity}`]);
   }
-  const said = foldCopyEvents(decoded<SourceCopyEvent>(db, "SELECT event_json FROM source_copy_events"));
+  const said = foldCopyEvents(decoded<SourceCopyEvent>(db, "SELECT event_json FROM source_copy_events WHERE retracted_by IS NULL"));
   const cutoff = copyCutoff(said);
   const pair = (key: string): [string, string] => key.split("|") as [string, string];
   const pairs: [string, string, CopyWhy][] = [];
@@ -424,10 +424,15 @@ function decoded<T>(db: Database, sql: string, ...params: string[]): T[] {
   return (db.query(sql).all(...params) as { event_json: string }[]).map(r => JSON.parse(r.event_json));
 }
 function aliasesIn(db: Database): EntityAliasResolution {
-  return entityAliasResolution(decoded<EntityAliasEvent>(db, "SELECT event_json FROM entity_alias_events"));
+  return entityAliasResolution(decoded<EntityAliasEvent>(db, "SELECT event_json FROM entity_alias_events WHERE retracted_by IS NULL"));
 }
 function entitySourcesIn(db: Database): EntitySourceEvent[] {
-  return latestEntitySourceDeclarations(decoded<EntitySourceEvent>(db, "SELECT event_json FROM entity_source_events"));
+  return latestEntitySourceDeclarations(decoded<EntitySourceEvent>(db, "SELECT event_json FROM entity_source_events WHERE retracted_by IS NULL"));
+}
+/** Every binding ever declared, retracted ones too: a pair the bulk pass
+ * never decides again (lib/entitySourceSeed.ts). */
+export function declaredEntitySources(root: string): EntitySourceEvent[] {
+  return withVaultSnapshot(root, (db) => decoded<EntitySourceEvent>(db, "SELECT event_json FROM entity_source_events"));
 }
 function sourcesFor(db: Database, rows: readonly AssertionEvent[]): Map<string, SourceMetadata> {
   const ids = [...new Set(rows.flatMap(row => assertionSourceReferences(row).map(ref => ref.insertion_id)))];
@@ -556,7 +561,7 @@ export function voiceReadModel(root: string, keys: ReadonlySet<string>) {
     const settled = new Map<string, string>();
     for (const event of voice) {
       if (db.query("SELECT 1 FROM assertion_sources WHERE insertion_id = ? LIMIT 1").get(event.id)) settled.set(event.id, "absorbed");
-      else if (db.query("SELECT 1 FROM declines WHERE insertion_id = ? LIMIT 1").get(event.id)) settled.set(event.id, "declined");
+      else if (db.query("SELECT 1 FROM declines WHERE insertion_id = ? AND retracted_by IS NULL LIMIT 1").get(event.id)) settled.set(event.id, "declined");
     }
     return { voice, settled };
   });
@@ -571,7 +576,7 @@ export function memoryReadModel(root: string) {
       asserted: decoded<AssertionEvent>(db, "SELECT event_json FROM assertions ORDER BY created_at, id"),
       voice: decoded<SourceInsertion>(db, `SELECT event_json FROM sources JOIN source_documents USING (insertion_id) WHERE ${voiceWhere} ORDER BY coalesce(received_at, occurred_at, ''), insertion_id`, JSON.stringify(VOICE_KINDS)),
       revocations: decoded<RevocationEvent>(db, "SELECT event_json FROM revocations ORDER BY created_at, id"),
-      aliases: decoded<EntityAliasEvent>(db, "SELECT event_json FROM entity_alias_events ORDER BY json_extract(event_json, '$.created_at'), id"),
+      aliases: decoded<EntityAliasEvent>(db, "SELECT event_json FROM entity_alias_events WHERE retracted_by IS NULL ORDER BY json_extract(event_json, '$.created_at'), id"),
     };
   });
 }

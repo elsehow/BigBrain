@@ -9,6 +9,10 @@
  * are one fact; readers resolve both sides through the alias table, so a
  * pair rejected before one side was folded still holds against its
  * canonical. Its own log directory, for declineLog.ts's reason.
+ *
+ * Read, no longer written: a fold reject is an identity assertion saying
+ * `distinct` (lib/assertionLog.ts). This log goes when it is migrated
+ * (docs/plans/2026-10-11-field-of-assertions.md).
  */
 
 import type { AssertionEntity, AssertionProduction } from "./assertionLog";
