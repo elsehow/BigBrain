@@ -1,12 +1,13 @@
 import { sourceThreads } from "../lib/sourceThreads";
 import { afterEach, expect, spyOn, test } from "bun:test";
-import { join } from "node:path";
+import { Database } from "bun:sqlite";
+import { dirname, join } from "node:path";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { mdVault, insertion } from "./support/vault";
 import { appendAssertionEvent, createAssertionEvent, assertionEntityId } from "../lib/assertionLog";
 import { assertionEntityView, assertionEntityPath } from "../lib/assertionEntityView";
 import { appendSourceInsertionEvent, insertionEventRel } from "../lib/insertionLog";
-import { projectSourceInsertion, rebuildAssertionProjection, openAssertionProjectionReadonly, projectionRevision, projectNotes, recoverAssertionProjection } from "../lib/assertionProjection";
+import { assertionDbPath, projectSourceInsertion, rebuildAssertionProjection, openAssertionProjectionReadonly, projectionRevision, projectNotes, recoverAssertionProjection } from "../lib/assertionProjection";
 import { graphEvidence, sourceCatalog, sourceReadTargets, threadReadModel, publishReadModel, vaultRecord, withVaultSnapshot, projectedSource, projectedMarkdown, sourceRecord } from "../lib/vaultReadModel";
 import { buildAssertionGraph } from "../lib/assertionGraph";
 import { graphNow } from "../lib/maintainedGraph";
@@ -20,6 +21,14 @@ function fixture() {
   appendSourceInsertionEvent(root, source);
   return { root, source };
 }
+
+test("a read that opens the projection before its first schema commits builds it instead of failing", () => {
+  const { root, source } = fixture();
+  // the file as a first writer leaves it the instant it opens: no tables yet
+  mkdirSync(dirname(assertionDbPath(root)), { recursive: true });
+  new Database(assertionDbPath(root)).close();
+  expect(withVaultSnapshot(root, () => sourceRecord(root).sources.has(source.id))).toBe(true);
+});
 
 test("a feed-only miss decodes no assertion text, Markdown metadata, or link evidence", () => {
   const { root, source } = fixture();
