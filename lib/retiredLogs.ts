@@ -1,7 +1,8 @@
 /** The logs the assertion kinds replaced (lib/assertionLog.ts), which
  * `bigbrain migrate` converts (lib/migrate.ts) and the engine no longer
  * reads: a vault that still holds one is refused until it is migrated
- * (docs/design-principles.md §5). */
+ * (docs/design-principles.md §5). And the trees from before the insertion
+ * log (#496), whose arrivals `bigbrain migrate` imports as sources. */
 
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
@@ -11,6 +12,9 @@ export const RETIRED_LOGS = [
 ] as const;
 /** Logs nothing ever read, which `bigbrain migrate` deletes. */
 export const UNREAD_LOGS = ["log/attestations", "log/goal-assertions"] as const;
+/** `references/` and `inbox/` held arrivals, `requests/` the owner's requests
+ * and `entities/` the retired editor's dossiers. */
+export const RETIRED_TREES = ["references", "inbox", "requests", "entities"] as const;
 
 /** How many files a vault-relative directory holds, at any depth. */
 export function fileCount(root: string, dir: string): number {

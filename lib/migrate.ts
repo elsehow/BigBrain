@@ -1,5 +1,6 @@
-/** `bigbrain migrate`: the retired logs become assertions
- * (docs/plans/2026-10-11-field-of-assertions.md, migrations 1, 2 and 4;
+/** `bigbrain migrate`: the retired logs become assertions and the trees from
+ * before the insertion log become sources
+ * (docs/plans/2026-10-11-field-of-assertions.md, migrations 1–4;
  * docs/design-principles.md §5).
  *
  * Each event in a retired log becomes the assertion that says what it said,
@@ -13,33 +14,51 @@
  * becomes nothing. `log/attestations/` and `log/goal-assertions/`, which no
  * reader reads, are deleted.
  *
+ * `references/`, `inbox/` and `requests/` held arrivals before #496 wrote
+ * each one to `log/insertions/` instead. A file a source already holds (by
+ * its path, its id or its content) is left to that source; any other is
+ * imported as one, as the importer at the #496 flip did. `entities/` held
+ * the retired editor's dossiers, whose alias lists were seeded into the
+ * record (#642). All four trees are deleted.
+ *
  * The run proves itself before it commits. What the old logs said — the
  * declined sources, the retracted assertions and their successors, the alias
  * table, the standing bindings, the copy judgments and declarations, the
  * refused folds — is folded by the old rules, and read again from the
  * projection rebuilt over the new record. The two must be equal. If they are
- * not, the vault is put back as it was. The retired logs wait in `.state/`
- * until the check passes, and the change is one commit.
+ * not, the vault is put back as it was. So it is if any file in the retired
+ * trees is held by no source. What is removed waits in `.state/` until the
+ * checks pass, and the change is one commit. A removed directory holding
+ * files git never tracked (`inbox/*.md` is ignored) stays there, since no
+ * commit can give them back.
  */
 
-import { existsSync, mkdirSync, renameSync, rmSync, unlinkSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, unlinkSync } from "node:fs";
 import { dirname, join } from "node:path";
 import {
   appendAssertionEvent, assertionEventRel, createDeclineAssertion, createIdentityAssertion, createRetraction,
   type AssertionSourceReference, type RecordedAssertion,
 } from "./assertionLog";
-import { assertionDbPath, openAssertionProjectionReadonly, rebuildAssertionProjection } from "./assertionProjection";
+import {
+  assertionDbPath, openAssertionProjectionReadonly, rebuildAssertionProjection, recoverAssertionProjection,
+} from "./assertionProjection";
 import { readDeclineLog, type DeclineEvent } from "./declineLog";
 import { entityAliasResolution, isRetraction, readEntityAliasLog, type EntityAliasEvent } from "./entityAliasLog";
+import { parseEnvelope, type AttachmentRef } from "./envelope";
 import { readEntityFoldRejectLog, type EntityFoldRejectEvent } from "./entityFoldLog";
 import { bindingKey, latestEntitySourceDeclarations, readEntitySourceLog, type EntitySourceEvent } from "./entitySourceLog";
 import { parseEventFile } from "./eventLog";
-import { commitPathsOnly } from "./git";
-import { listSourceInsertionEventFiles, validateSourceInsertion, type SourceInsertion } from "./insertionLog";
-import { RETIRED_LOGS, UNREAD_LOGS, fileCount } from "./retiredLogs";
+import { commitPathsOnly, gitLines } from "./git";
+import { sha256hex } from "./hash";
+import {
+  appendSourceInsertionEvent, insertionEventRel, listSourceInsertionEventFiles, readSourceInsertionLog, sourceInsertion,
+  validateSourceInsertion, type SourceInsertion,
+} from "./insertionLog";
+import { RETIRED_LOGS, RETIRED_TREES, UNREAD_LOGS, fileCount } from "./retiredLogs";
 import { readRevocationLog, type RevocationEvent } from "./revocationLog";
 import { foldCopyEvents } from "./sourceCopies";
 import { copyPairKey, readSourceCopyLog, type SourceCopyEvent } from "./sourceCopyLog";
+import { walkMarkdown } from "./vaultRead";
 
 
 /** What the retired logs hold, read strictly: one unreadable event stops
@@ -212,34 +231,107 @@ export function readingDiff(before: RecordReading, after: RecordReading): string
   return out;
 }
 
+/** What a source holds besides its envelope: its body and its attachments. */
+const contentKey = (body: string, envelope: Record<string, unknown>): string => {
+  const attachments = Array.isArray(envelope.attachments) ? envelope.attachments as AttachmentRef[] : [];
+  return sha256hex(`${body}\u0000${attachments.map((a) => a.sha256).sort().join(",")}`);
+};
+
+/** The importer at the #496 flip wrote every source it imported as this. */
+const IMPORTER = { kind: "service", id: "import" } as const;
+
+/** A retired tree's markdown files: held by a source already, repeating one's
+ * content, or imported as a new one. */
+export interface TreeTally { files: number; held: number; repeats: number; imported: number }
+
+export interface TreeImport {
+  trees: Partial<Record<(typeof RETIRED_TREES)[number], TreeTally>>;
+  imports: SourceInsertion[];
+}
+
+/** The arrivals in the retired trees under `base` that `insertions` do not
+ * hold, as the sources that would. A file is held when a source was imported
+ * from its path or carries its id. One whose body and attachments a source
+ * already has repeats it, and lands nothing. A dossier is not an arrival. */
+export function importTrees(base: string, insertions: readonly SourceInsertion[]): TreeImport {
+  const paths = new Set(insertions.flatMap((i) => i.imported_path ? [i.imported_path] : []));
+  const ids = new Set(insertions.map((i) => i.source_id));
+  const contents = new Set(insertions.map((i) => contentKey(i.body, i.envelope)));
+  const out: TreeImport = { trees: {}, imports: [] };
+  for (const tree of RETIRED_TREES) {
+    if (!existsSync(join(base, tree))) continue;
+    const files = walkMarkdown(base, [tree]).sort();
+    const tally = out.trees[tree] = { files: files.length, held: 0, repeats: 0, imported: 0 };
+    if (tree === "entities") continue;
+    for (const rel of files) {
+      const { envelope, body } = parseEnvelope(readFileSync(join(base, rel), "utf8"));
+      const named = typeof envelope.id === "string" && envelope.id ? envelope.id : undefined;
+      if (paths.has(rel) || (named && ids.has(named))) { tally.held++; continue; }
+      const key = contentKey(body, envelope);
+      if (contents.has(key)) { tally.repeats++; continue; }
+      const id = named ?? `import-${sha256hex(rel).slice(0, 16)}`;
+      out.imports.push({ ...sourceInsertion({ ...envelope, id }, body), author: IMPORTER, imported_path: rel });
+      contents.add(key);
+      ids.add(id);
+      tally.imported++;
+    }
+  }
+  return out;
+}
 
 export interface MigrationPlan extends Conversion {
   before: RecordReading;
   /** Logs nothing reads, by how many files each holds. */
   unread: Record<string, number>;
+  trees: TreeImport;
 }
 
-/** What `bigbrain migrate` would do. Reads only. */
+/** Every directory `bigbrain migrate` removes. */
+const REMOVED = [...RETIRED_LOGS, ...UNREAD_LOGS, ...RETIRED_TREES];
+
+const holdsRetiredLogs = (root: string): boolean => RETIRED_LOGS.some((dir) => fileCount(root, dir) > 0);
+
+/** What `bigbrain migrate` would do. Writes nothing but the disposable
+ * projection, which a vault without retired logs reads its record from. */
 export function planMigration(root: string): MigrationPlan {
   const retired = readRetired(root);
   const named = new Set([...retired.bindings.map((b) => b.insertion_id), ...retired.copies.flatMap((c) => c.pair)]);
   const conversion = convertRetired(retired, insertionsById(root, named));
   const unread = Object.fromEntries(UNREAD_LOGS.map((dir) => [dir, fileCount(root, dir)]).filter(([, n]) => n));
-  return { ...conversion, before: readingOfRetired(retired), unread };
+  const before = holdsRetiredLogs(root) ? readingOfRetired(retired) : (recoverAssertionProjection(root), readingOfProjection(root));
+  return { ...conversion, before, unread, trees: importTrees(root, readSourceInsertionLog(root, { strict: true })) };
 }
 
 /** Whether the vault holds anything `bigbrain migrate` converts or deletes. */
-export const needsMigration = (root: string): boolean =>
-  [...RETIRED_LOGS, ...UNREAD_LOGS].some((dir) => fileCount(root, dir) > 0);
+export const needsMigration = (root: string): boolean => REMOVED.some((dir) => fileCount(root, dir) > 0);
+
+export interface MigrationResult {
+  written: number;
+  imported: number;
+  committed: boolean;
+  /** Where the removed directories holding untracked files were kept, and how many such files. */
+  kept?: { path: string; files: number };
+}
 
 /** Convert, prove, commit. On a reading that differs, the vault is restored
  * and the difference thrown. */
-export function migrateVault(root: string, plan: MigrationPlan = planMigration(root)): { written: number; committed: boolean } {
-  const moved = [...RETIRED_LOGS, ...UNREAD_LOGS].filter((dir) => existsSync(join(root, dir)));
-  const held = join(root, ".state", `migrate-${new Date().toISOString().replace(/[:.]/g, "-")}`);
-  const written: string[] = [];
+export function migrateVault(root: string, plan: MigrationPlan = planMigration(root)): MigrationResult {
+  const moved = REMOVED.filter((dir) => existsSync(join(root, dir)));
+  const tracked = existsSync(join(root, ".git"));
+  // A pathspec git knows no file under fails the commit, so only directories it tracks are named.
+  const inGit = tracked ? moved.filter((dir) => gitLines(root, ["ls-files", "--", dir]).length) : [];
+  const untracked = tracked ? gitLines(root, ["ls-files", "--others", "--", ...moved]) : [];
+  // What no commit can give back stays: everything, in a vault without git.
+  const keep = tracked ? moved.filter((dir) => untracked.some((rel) => rel.startsWith(`${dir}/`))) : moved;
+  const stamp = `migrate-${new Date().toISOString().replace(/[:.]/g, "-")}`, held = join(root, ".state", stamp);
+  const written: string[] = [], imported: string[] = [];
+  let committed = false;
   try {
     for (const assertion of plan.assertions) if (!appendAssertionEvent(root, assertion).deduped) written.push(assertionEventRel(assertion));
+    // No wake: the gardener finds the imported sources at its next tick,
+    // not while the record is half moved.
+    for (const source of plan.trees.imports)
+      if (!appendSourceInsertionEvent(root, source, { wake: false }).deduped) imported.push(insertionEventRel(source));
     for (const dir of moved) {
       mkdirSync(dirname(join(held, dir)), { recursive: true });
       renameSync(join(root, dir), join(held, dir));
@@ -247,8 +339,16 @@ export function migrateVault(root: string, plan: MigrationPlan = planMigration(r
     rebuildAssertionProjection(root);
     const diff = readingDiff(plan.before, readingOfProjection(root));
     if (diff.length) throw new Error(`migrate: the new record reads differently from the old logs:\n${diff.slice(0, 40).join("\n")}`);
+    const lost = importTrees(held, readSourceInsertionLog(root, { strict: true })).imports.map((s) => s.imported_path);
+    if (lost.length) throw new Error(`migrate: no source holds ${lost.length} files of the retired trees:\n${lost.slice(0, 40).join("\n")}`);
+    const what = [
+      written.length && `${written.length} assertions from the retired logs`,
+      imported.length && `${imported.length} sources from the retired trees`,
+      `${moved.join(", ")} removed`,
+    ].filter(Boolean);
+    committed = tracked && commitPathsOnly(root, "migrate", `Migrate: ${what.join("; ")}`, [...written, ...imported, ...inGit]);
   } catch (error) {
-    for (const rel of written) try { unlinkSync(join(root, rel)); } catch { /* already gone */ }
+    for (const rel of [...written, ...imported]) try { unlinkSync(join(root, rel)); } catch { /* already gone */ }
     for (const dir of moved) if (existsSync(join(held, dir))) renameSync(join(held, dir), join(root, dir));
     rmSync(held, { recursive: true, force: true });
     // The projection read the record the vault did not keep. It is
@@ -256,9 +356,8 @@ export function migrateVault(root: string, plan: MigrationPlan = planMigration(r
     for (const suffix of ["", "-wal", "-shm"]) rmSync(assertionDbPath(root) + suffix, { force: true });
     throw error;
   }
-  const committed = existsSync(join(root, ".git")) && commitPathsOnly(root, "migrate",
-    `Migrate: ${plan.assertions.length} assertions from the retired logs; ${moved.join(", ")} removed`,
-    ["log/assertions", ...moved]);
-  rmSync(held, { recursive: true, force: true });
-  return { written: written.length, committed };
+  for (const dir of moved) if (!keep.includes(dir)) rmSync(join(held, dir), { recursive: true, force: true });
+  if (!keep.length) rmSync(held, { recursive: true, force: true });
+  const files = tracked ? untracked.length : keep.reduce((n, dir) => n + fileCount(held, dir), 0);
+  return { written: written.length, imported: imported.length, committed, ...(keep.length ? { kept: { path: `.state/${stamp}`, files } } : {}) };
 }

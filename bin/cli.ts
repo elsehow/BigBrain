@@ -48,7 +48,7 @@ const SETUP: Record<string, [script: string, blurb: string]> = {
   whoami: ["bin/whoami.ts", "who this vault is about; --declare \"<name>\" to say, --adopt-dossier to fold a hosted-era dossier in"],
   shared: ["bin/shared.ts", "a SHARED vault, named by --vault: init, members, credentials, serve (docs/shared-vault.md)"],
   recover: ["bin/recover.ts", "project what was added to or removed from log/ by hand, now rather than at the next start"],
-  migrate: ["bin/migrate.ts", "convert the retired logs (declines, revocations, aliases, …) to assertions; --yes to write"],
+  migrate: ["bin/migrate.ts", "convert the retired logs (declines, revocations, aliases, …) to assertions and the pre-#496 trees to sources; --yes to write"],
 };
 
 /** Plumbing — the supervisor, doors, and passes invoke these; people don't.
