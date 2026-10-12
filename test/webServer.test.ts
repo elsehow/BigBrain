@@ -379,7 +379,9 @@ test("search keeps grouped thread rows fresh across the live invalidation path",
       if (!text.startsWith("event: views")) return;
       if (opened) resolve(); else opened = true;
     } }));
-    appendSourceInsertionEvent(root, rows[2]!);
+    // projected before any push, as every engine write is: a push that comes
+    // first (a graph view landing, the boot recovery) must not race it
+    appendSourceInsertionEvent(root, rows[2]!); projectSourceInsertion(root, rows[2]!);
     live.handleChange(insertionEventRel(rows[2]!));
     await changed;
     const next = await search();
