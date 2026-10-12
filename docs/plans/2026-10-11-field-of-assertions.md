@@ -16,7 +16,7 @@ Decided in conversation; the migrations below follow the amended
 
 **Assertions** are one schema in one log (`log/assertions/`). Each is made
 by a person or a model, cites the sources it rests on, and has an `added`
-time. Four kinds:
+time. Five kinds, and a stage may add more (Types, below):
 
 | Kind | Says | Recorded today in |
 |---|---|---|
@@ -24,11 +24,14 @@ time. Four kinds:
 | identity | same entity, not the same, copy of, not a copy, this entity is this source | `log/entity-aliases/`, `log/entity-fold-rejects/`, `log/source-copies/`, `log/entity-sources/` |
 | decline | nothing here worth asserting, because… | `log/declines/` |
 | retraction | withdraws an assertion of any kind | `log/revocations/` |
+| inclusion | this source is in, or out of, this lens: a model's verdict on the lens's rule, with its score, or a person's thumbs up or down | `~/.config/bigbrain/inclusion-rules/`, outside the vault |
 
 - An assertion is live until a retraction names it.
-- A source is **settled** when a live assertion of any kind cites it. That
-  is the gardener's whole queue rule (§2: work is a view); retracting a
-  decline sends its sources back.
+- A source is **settled** for a stage when a live assertion of a kind that
+  stage writes cites it. For intake that is prose, identity or decline:
+  the gardener's whole queue rule (§2: work is a view). Retracting a
+  decline sends its sources back, and an inclusion verdict never takes a
+  source off intake's queue.
 - An assertion that cites nothing (a fold made by hand) is valid, but it
   never enters a lens or a server (below).
 - A model's copy judgment keeps its score; the gardener's fold proposals
@@ -57,13 +60,16 @@ field(scope) = layout(graph(live assertions in scope, the sources they cite))
 - **Graph.** Nodes are the entities named and the sources cited. Edges:
   each assertion's entities to its sources; entities named together; links
   in the cited sources' own text. Identity assertions merge nodes or keep
-  them apart. Declines draw nothing.
+  them apart. Declines and inclusion verdicts draw nothing.
 - **Live only.** A retracted assertion is as if never made: "n, retract n,
   m" draws the same as "m".
 - **Layout.** Each node is seated in the order its assertions were added
   (ties by id), beside the earlier nodes it arrived linked to; then a
   settle in which each node's place depends only on its own seat and its
-  neighbours' seats. The same input draws the same picture on any machine.
+  neighbours' seats. The same input draws the same picture on any machine,
+  so layout uses only arithmetic every machine rounds the same way: no
+  `Math.sin` or `Math.cos`, whose last bits are left to the JS engine
+  and can differ between the app and a Linux server.
   A new assertion nudges its neighbours; a retraction can move what sat
   beside it.
 - **You leave your own view**, as today.
@@ -101,18 +107,54 @@ The stages:
 | intake (the gardener) | sources no live assertion cites | assertions |
 | memory | assertions and voice arrivals past its cursors | `memory/` |
 | feed | conversations with assertions it has not sorted | `journal/feed/` |
-| inclusion | sources a lens's rule has no verdict on | inclusion verdicts |
+| inclusion | sources a lens's rule has no verdict on | inclusion assertions |
 
 What breaks the rule today:
 
 - **Lens membership.** A model scores each source against the lens's rule,
   and its verdicts, with the person's thumbs up and down, are kept in a
   file on one machine, outside the vault (`lib/inclusionPolicy.ts`).
-  Moving the vault or opening it elsewhere loses them. They become the
-  inclusion stage's output in the vault, and a lens's members a view over
-  it (step 4).
+  Moving the vault or opening it elsewhere loses them. They become
+  inclusion assertions in the vault, and a lens's members a view over them
+  (step 4).
 - **Layout** starts from the previous layout, and the saved layout is
   state (step 5).
+
+## Types
+
+TypeScript cannot prove a function pure, and `as` gets past any type. What
+it can do is make each rule below fail to compile at every call site, so
+breaking one takes a cast, and a cast can be found.
+
+- **The privacy rules are types only one function makes.** `Live`:
+  retractions applied. `InLens<L>`: every cited source is a member of lens
+  L, the "all" rule. `Publishable<S>`: every cited source is shared to
+  server S. Drawing takes `Live`, a lens draws only `InLens`, and
+  publishing takes only `Publishable`, so a caller that skips the filter
+  does not compile.
+- **A view is handed a snapshot, a stage a model.** A view gets a
+  read-only snapshot of what was written, never `root`, which reaches the
+  disk, git and everything else. A stage gets the snapshot, a model runner,
+  and an append typed to the kinds it writes. Lint keeps view modules from
+  importing `node:fs`, `./git` or the model runners.
+- **`Stage<In, Out>`** names the kinds a stage reads and the kinds it
+  writes, and `settles(out)` the inputs each output settles. Whether a
+  stage is due is then one generic function, not one per chain, and what
+  a stage may take as evidence is its `In`: the feed's rule that nothing
+  it judges comes back to a pass as evidence is a type, not a comment.
+- **Stages are open, kinds are one closed union.** Any number of stages
+  may be added, and a stage may add a kind. Every view switches over the
+  kinds exhaustively, so a new kind does not compile until each view says
+  what it draws; most draw nothing. Views fold the kinds directly:
+  `legacyShape` (`lib/assertionKinds.ts`), which turns them back into the
+  retired logs' shapes, goes.
+- **Branded ids.** Insertion, assertion, entity and envelope ids and vault
+  paths are distinct types, made only by the parser.
+- **Parsed once.** Each log is checked as it is read from disk, and inside
+  the engine the types are trusted.
+
+Each step brings the code it rewrites under these types; step 9 brings the
+rest.
 
 ## Scopes
 
@@ -132,7 +174,7 @@ outside it.
 
 **Publishing** keeps its rule: an assertion goes to a server only while
 every source it cites is shared there. Prose and identity assertions are
-published; declines are not. The shared server accepts identity
+published; declines and inclusion verdicts are not. The shared server accepts identity
 assertions, so a fresh BB applies them too.
 
 ## How it stays fast
@@ -141,6 +183,14 @@ assertions, so a fresh BB applies them too.
   assertion contributes a fixed set of connections, already recorded per
   assertion (`graph_evidence`, #254), so a commit adds or removes only its
   own. A scope's graph is the connections whose assertions are in it.
+  Every view is built this way, as the sum of what each assertion
+  contributes, so every view gets step 8's deltas, not only the graph.
+  Layout is the exception: a seat depends on the seats before it.
+- **A view's cache key is (view, scope, revision).** A view is pure, so
+  nothing else can change its answer.
+- **Stages memoize by content.** A model's answer depends only on the
+  stage's version and its input's content hash (step 2), so the same
+  content judged twice costs no model call.
 - **Seats are computed when an assertion is written.** A seat depends only
   on the seats before it; reads never compute layout. Layout is cached per
   scope and revision, and a change rebuilds only the scopes holding an
@@ -173,16 +223,21 @@ one commit in the vault. Counts are from the large vault's copy.
    None of these cite sources, so none apply inside a lens.
 2. **Declines to decline assertions** (636), **revocations to
    retractions** (1,243).
-3. **The pre-#496 trees.** Import as sources what isn't one yet: 232 of
-   the 932 `references/` files, `inbox/` (337) and `requests/` (7). Then
-   delete `references/`, `inbox/`, `requests/` and `entities/` (267). The
-   700 references already imported stay as sources; readers stop taking a
-   path from their `imported_path`. The entity pages' alias lists already
-   became alias records (migration 1).
+3. **The pre-#496 trees.** Import as sources what isn't one yet. Every
+   one of the 932 `references/` files already was (232 had landed under
+   the same id without an `imported_path`); `inbox/` (337) and `requests/`
+   (7) gave 10 more. Then delete `references/`, `inbox/`, `requests/` and
+   `entities/` (267); readers stop taking a path from `imported_path`.
+   The entity pages' alias lists already became alias records
+   (migration 1). Done on the large vault, 2026-10-12.
 4. **Deleted outright:** `log/attestations/` (540 "X submitted this
    source", each repeating a field of the source it cites) and
    `log/goal-assertions/` (2,492 old per-source gardening records nothing
    reads).
+5. **Lens verdicts into the vault.** Each label in a lens's rule file
+   (`~/.config/bigbrain/inclusion-rules/`) becomes an inclusion assertion
+   citing its source: the model's with its score, the person's authored
+   by the owner. The files go.
 
 No assertion in the large vault uses the old exact-quote citations, so that
 format and its decode go too (#231's last item), once the other vaults are
@@ -194,6 +249,7 @@ checked.
 - The markdown projection for everything but `memory/`.
 - #240's lens rule (any cited note counts) and fading in place.
 - Lens verdicts kept outside the vault (`inclusion-rules/`).
+- `legacyShape`, and every fold over the retired logs' shapes.
 - #249's separate server-field code, and the per-window polling in
   `lib/sharedWorkspace.ts`.
 - Today's layout, which starts from the previous one (#244 placement).
@@ -211,9 +267,14 @@ checked.
 3. Migrations 1–4, with consent, each proven on the scratch copy; then the
    old readers go.
 4. Scopes: the graph from a set of assertion ids; lenses by "all"; a
-   server as its own scope. The inclusion stage: a lens's verdicts in the
-   vault, its members a view over them.
-5. Layout: seats in `added` order with the local settle, for every scope.
+   server as its own scope. `Live`, `InLens` and `Publishable`; views take
+   a snapshot, not `root`. The inclusion kind, and the inclusion stage as
+   the first `Stage<In, Out>`; migration 5, with consent; a lens's members
+   a view over its verdicts.
+5. Layout: seats in `added` order with the local settle, for every scope;
+   a view, cached by scope and revision, with no platform-rounded math.
 6. Servers held locally through their feeds; pushes from the change log.
 7. The shared server accepts identity assertions; publishing sends them.
 8. Graph deltas: per-assertion updates, and pushes that carry only them.
+9. The rest under the types: intake, memory and the feed as `Stage`s;
+   views fold the kinds directly and `legacyShape` goes; branded ids.
