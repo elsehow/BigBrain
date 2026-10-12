@@ -19,10 +19,10 @@ export type View =
   | "vault"
   | "graph"
   | "connectedClients"
-  | "pilotSettings"
   | "integrations"
   | "agents"
   | "sharedVaultSettings"
+  | "lenses"
   | "vaultSettings"
   | "themes"
   | "diagnostics"
@@ -52,6 +52,8 @@ export const app = $state({
   // One open note tab survives visits to Recent, Top, and Pilot until closed.
   noteTab: null as { path: string; title: string } | null,
   query: "",
+  /** The lens open in Settings › lenses (#/lenses/<id>, or "new"), or null for the list. */
+  lens: null as string | null,
   textTab: "recent" as "recent" | "top",
   searchSource: "",
 });
@@ -75,7 +77,7 @@ async function checkSession(): Promise<void> {
 // just work.
 const enc = (p: string) => encodeURIComponent(p).replace(/%2F/gi, "/");
 
-function parseHash(): { view: View; note: string | null; q: string; pilot?: string; source?: string } {
+function parseHash(): { view: View; note: string | null; q: string; pilot?: string; source?: string; lens?: string } {
   const raw = location.hash.replace(/^#\/?/, "");
   const slash = raw.indexOf("/");
   const head = slash === -1 ? raw : raw.slice(0, slash);
@@ -102,16 +104,17 @@ function parseHash(): { view: View; note: string | null; q: string; pilot?: stri
   }
   if (head === "top") return { view: "top", note: null, q: "" };
   if (head === "graph") return { view: "graph", note: null, q: "" };
-  if (head === "connectedClients" || (head === "settings" && rest === "connected-clients")) return { view: "connectedClients", note: null, q: "" };
-  if (head === "connectedAgents" || head === "agentOrchestration" || (head === "settings" && rest === "agent-orchestration") || (head === "settings" && rest === "connected-agents")) return { view: "pilotSettings", note: null, q: "" };
-  if (head === "pilotSettings" || (head === "settings" && rest === "pilot")) return { view: "agents", note: null, q: "" };
-  if (head === "connections" || (head === "settings" && rest === "connections")) return { view: "pilotSettings", note: null, q: "" };
+  if (head === "connectedClients" || head === "connectedAgents" || (head === "settings" && (rest === "connected-clients" || rest === "connected-agents"))) return { view: "connectedClients", note: null, q: "" };
+  // Retired Pilot and orchestration screens' links land on models.
+  if (head === "agentOrchestration" || head === "pilotSettings" || head === "connections" || (head === "settings" && (rest === "agent-orchestration" || rest === "pilot" || rest === "connections"))) return { view: "agents", note: null, q: "" };
   if (head === "integrations") return { view: "integrations", note: null, q: "" };
   if (head === "agents" || head === "models" || (head === "settings" && rest === "models")) return { view: "agents", note: null, q: "" };
   // settings → vault: the folder in use. NOT #/vault — that head is the note
   // route above, so this one carries its own name (goto writes it) and
   // answers #/settings/vault as the readable spelling.
   if(head === "sharedVaultSettings")return {view:"sharedVaultSettings",note:null,q:""};
+  if (head === "lenses" && (rest === "new" || /^lens_[a-f0-9]{12}$/.test(rest))) return { view: "lenses", note: null, q: "", lens: rest };
+  if (head === "lenses" || (head === "settings" && rest === "lenses")) return { view: "lenses", note: null, q: "" };
   if (head === "general" || (head === "settings" && rest === "general") || head === "vaultSettings" || (head === "settings" && rest === "vault"))
     return { view: "vaultSettings", note: null, q: "" };
   // settings → themes: the palette this machine wears (lib/theme.ts). Same
@@ -153,10 +156,17 @@ function applyHash(preserveSelection = false): void {
     app.noteTab = { path: s.note, title: titleOf(s.note.split("/").at(-1) ?? s.note) };
   app.query = s.q;
   app.searchSource = s.source ?? "";
+  app.lens = s.lens ?? null;
 }
 
 export function goto(view: View): void {
   pushRoute(`#/${view}`);
+  applyHash();
+}
+
+/** Open a lens in Settings › lenses ("new" for a new one); null for the list. */
+export function gotoLens(id: string | null): void {
+  pushRoute(id ? `#/lenses/${id}` : "#/lenses");
   applyHash();
 }
 

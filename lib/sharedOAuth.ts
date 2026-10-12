@@ -65,10 +65,10 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { writeAtomic } from "./fsx";
-import { createAppLink, sharedInviteIsLive, sharedVaultIdentity, identifyBySharedInvite } from "./sharedInvites";
+import { createAppLink, sharedVaultIdentity, identifyBySharedInvite } from "./sharedInvites";
 import { SharedMemberBusyError } from "./sharedMemberLock";
 import { bindMemberIdentity, listMembers, mintCredential, revokeCredential, SharedMemberError, type SharedMember } from "./sharedMembers";
-import { authorizePage, consentPage, expiredPage, FONT_PATHS, fontResponse, inviteLinkPage, joinPage, mePage, notMemberPage, refusalPage } from "./sharedPages";
+import { authorizePage, consentPage, expiredPage, joinPage, mePage, notMemberPage, refusalPage } from "./sharedPages";
 
 export interface SharedConnectorConfig {
   /** The door's public origin, e.g. `https://vault.example.com`. */
@@ -852,18 +852,6 @@ export function makeSharedConnector(deps: SharedConnectorDeps): SharedConnector 
     return res;
   }
 
-  // ── POST /invite/check ──
-
-  /** The vault's name for the holder of a live invite link — the opened
-   * link's page asks, with the secret in Authorization as redemption takes
-   * it. Nothing is consumed. Any other answer is one undifferentiated 404. */
-  function inviteCheck(req: Request): Response {
-    if (limited(buckets.pages)) return json(429, { error: "too many requests" }, { "Retry-After": "10" });
-    const auth = req.headers.get("authorization") ?? "";
-    const secret = /^bearer /iu.test(auth) ? auth.slice(7).trim() : "";
-    return sharedInviteIsLive(deps.storePath, secret, deps.now()) ? json(200, { vault: vaultName() }) : json(404, { error: "not found" });
-  }
-
   // ── POST /token ──
 
   async function token(req: Request): Promise<Response> {
@@ -933,11 +921,6 @@ export function makeSharedConnector(deps: SharedConnectorDeps): SharedConnector 
     "/authorize": { GET: authorize },
     "/authorize/consent": { POST: consent },
     "/token": { POST: token },
-    // An invite or app link opened in a browser: how to use it. Its secret
-    // is in the fragment and never arrives, so nothing here redeems it.
-    "/invite": { GET: () => inviteLinkPage({ connectorUrl: resourceUrl, claudeSignIn: !google }) },
-    "/invite/check": { POST: inviteCheck },
-    ...Object.fromEntries(FONT_PATHS.map((path) => [path, { GET: async () => (await fontResponse(path))! }])),
     // With Google, it is the only login: the invite form and its POST do not
     // exist, and the join and personal pages do.
     ...(google

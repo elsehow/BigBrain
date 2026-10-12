@@ -114,6 +114,9 @@ export interface V2SortedRow {
   title?: string;
   path?: string;
   via?: string;
+  /** A lens event's lens (lib/lensSync.ts): the row is no source. A review
+   * opens its lens; what a pass shared selects `entities`, what those notes' claims name. */
+  lens?: string;
 }
 
 const SECTIONS: readonly V2SortedRow["section"][] = ["needs-you", "agent", "know"];
@@ -130,6 +133,8 @@ export const newestFirst = (a: SortedKey, b: SortedKey): number =>
   b.added.localeCompare(a.added) || SECTIONS.indexOf(a.section) - SECTIONS.indexOf(b.section) || a.source.localeCompare(b.source);
 
 export interface SortedPage { rows: V2SortedRow[]; next: string | null }
+/** A row's place in the sorted feed, as `before` and `next` name it. */
+export const pageKey = (r: SortedKey): string => `${r.added}|${r.section}|${r.source}`;
 
 /** One page of the sorted feed: at most `limit` rows, newest first, after
  * the row `before` names (the `next` of the page before). `next` names the
@@ -145,7 +150,17 @@ export function pageSortedFeed(rows: readonly V2SortedRow[], limit: number, befo
   }
   const page = rows.slice(from, from + limit);
   const last = page.at(-1);
-  return { rows: page, next: last && from + page.length < rows.length ? `${last.added}|${last.section}|${last.source}` : null };
+  return { rows: page, next: last && from + page.length < rows.length ? pageKey(last) : null };
+}
+
+/** A page read elsewhere (lib/v2Read.ts readSortedPage) with `extra` rows
+ * merged in where they fall: rows from outside the record, few enough to
+ * hold, paged by the same keys. */
+export function withRows(page: SortedPage, extra: readonly V2SortedRow[], limit: number, before?: string): SortedPage {
+  if (!extra.length) return page;
+  const after = pageSortedFeed([...extra].sort(newestFirst), extra.length, before).rows;
+  const all = [...page.rows, ...after].sort(newestFirst), rows = all.slice(0, limit), last = rows.at(-1);
+  return { rows, next: last && (page.next !== null || all.length > limit) ? pageKey(last) : null };
 }
 
 /** The loaded pages, read again from the top (`fresh`: as many rows as were

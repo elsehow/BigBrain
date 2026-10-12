@@ -15,7 +15,7 @@ import { projectedSourceHeads } from "./assertionProjection";
 import { FEED_SECTIONS } from "./feedJournal";
 import { insertionEventRel } from "./insertionLog";
 import { liveAssertionSql } from "./sourceSupersede";
-import { authorName, feedRow, type SortedPage, type V2Author, type V2Feed, type V2FeedRow, type V2SortedRow } from "./v2Feed";
+import { authorName, feedRow, pageKey, type SortedPage, type V2Author, type V2Feed, type V2FeedRow, type V2SortedRow } from "./v2Feed";
 
 const LIVE = `a.revoked_by IS NULL AND ${liveAssertionSql("a")}`;
 /** The latest assertions the feed shows. */
@@ -72,6 +72,28 @@ export function readEntityFeed(db: Database, entityId: string, limit = 6): V2Fee
   return feedRows(db, latest.reverse());
 }
 
+/** The entities named by live claims citing any of these notes (personal
+ * source ids), folded through the alias table: a lens, as the field filters
+ * to it. */
+export function readEntitiesCiting(db: Database, sourceIds: Iterable<string>): string[] {
+  const canonical = folding(db);
+  const named = db.query(`SELECT DISTINCT e.entity_id AS id FROM assertion_entities e JOIN assertions a ON a.id = e.assertion_id
+    WHERE ${LIVE} AND e.assertion_id IN (SELECT assertion_id FROM assertion_sources WHERE source_id IN (SELECT value FROM json_each(?)))`)
+    .all(JSON.stringify([...sourceIds])) as { id: string }[];
+  return [...new Set(named.map(({ id }) => canonical(id)))];
+}
+
+/** The claims a lens's notes alone support: live, citing at least one note,
+ * every note they cite a member. All a briefing on the lens reads
+ * (lib/noteBriefing.ts claimsOnly). */
+export function readLensClaims(db: Database, members: Iterable<string>): Set<string> {
+  const ids = db.query(`SELECT a.id FROM assertions a WHERE ${LIVE}
+    AND EXISTS (SELECT 1 FROM assertion_sources x WHERE x.assertion_id = a.id)
+    AND NOT EXISTS (SELECT 1 FROM assertion_sources x WHERE x.assertion_id = a.id
+      AND x.source_id NOT IN (SELECT value FROM json_each(?)))`).all(JSON.stringify([...members])) as { id: string }[];
+  return new Set(ids.map(({ id }) => id));
+}
+
 /** One page of the sorted feed (lib/v2Feed.ts pageSortedFeed, as a query):
  * the stage's items newest first, after the row `before` names, each joined
  * to its live claims' entities and to its source. An item whose claims have
@@ -96,5 +118,5 @@ export function readSortedPage(root: string, db: Database, limit: number, before
     };
   });
   const last = rows.at(-1);
-  return { rows, next: last && items.length > limit ? `${last.added}|${last.section}|${last.source}` : null };
+  return { rows, next: last && items.length > limit ? pageKey(last) : null };
 }

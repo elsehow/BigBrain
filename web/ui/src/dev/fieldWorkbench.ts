@@ -35,8 +35,23 @@ if (new URLSearchParams(location.search).has("update")) update.available = { ver
 await installGraphFixture();
 
 const NAMES = ["Orrery repair", "Atlas survey", "Kit Brennan", "Briar Lowe", "Harbor lab", "Ridgeway trail", "Lantern grant", "Quill press", "Tidewater review", "Marlow studio"];
+// `?servers` (fakeApi's Garden club and three lenses): Garden logistics is
+// shared with Garden club, so its entities are on the server too, beside one
+// only the server has; hovering the gear lists them, and one filters the field.
+const serversScene = new URLSearchParams(location.search).has("servers");
+const LENS_ENTITIES: Record<string, string[]> = { lens_00000000000a: ["ent_0", "ent_2", "ent_3", "ent_9"], lens_00000000000b: ["ent_1", "ent_5"], lens_00000000000c: ["ent_4", "ent_6", "ent_8"] };
+const vaultsOf = (id: string) => !serversScene ? {} : id === "ent_7" ? { vaults: ["garden"] } : LENS_ENTITIES.lens_00000000000a!.includes(id) ? { vaults: ["personal", "garden"] } : {};
 const entities = empty ? [] : NAMES.map((title, i) => ({ id: `ent_${i}`, title, group: "entity", entity: true as const, degree: 10 - i,
-  path: `projection/entities/ent_${i}.md`, x: Math.cos(i * 0.9) * (80 + i * 18), y: Math.sin(i * 0.9) * (80 + i * 18) }));
+  path: `projection/entities/ent_${i}.md`, x: Math.cos(i * 0.9) * (80 + i * 18), y: Math.sin(i * 0.9) * (80 + i * 18), ...vaultsOf(`ent_${i}`) }));
+// Garden club's own field (lib/sharedReadUnion.ts serverGraph): the server's
+// record alone, laid out by itself, with what other members brought.
+const GARDEN_NAMES = ["Orrery repair", "Kit Brennan", "Briar Lowe", "Marlow studio", "Ridgeway trail", "Seed library", "Allotment rota", "Compost bays"];
+const gardenField = {
+  hash: "garden-field", projection: "assertions",
+  nodes: GARDEN_NAMES.map((title, i) => ({ id: `ent_g${i}`, title, group: "entity", entity: true as const, degree: 6 - (i % 4),
+    path: `shared/garden/ent_g${i}.md`, vaults: ["garden"], x: Math.cos(i * 1.7) * (60 + i * 22), y: Math.sin(i * 1.7) * (60 + i * 22) })),
+  edges: [[0, 1], [1, 2], [2, 5], [5, 6], [6, 7], [1, 5], [3, 4], [0, 3]].map(([a, b]) => ({ source: `ent_g${a}`, target: `ent_g${b}` })),
+};
 const twinScene = new URLSearchParams(location.search).has("twins");
 const hex = (c: string) => `ent_${c.repeat(20)}`;
 const TWINS = twinScene ? [
@@ -91,6 +106,12 @@ if (new URLSearchParams(location.search).has("longFeed"))
     headline: `Field note ${i}: the north pier tide gauge was read.`, due: null, added: at(-i * 5), entities: [`ent_${i % 4}`],
     title: `Field note ${i}`, path: `log/insertions/2026-10/ins_n${i}.json`, via: "rss" });
 sorted.sort(newestFirst);
+// `?servers`: what a pass shared from Garden logistics (a click selects what
+// it brought), and a paused review (a click opens the lens)
+const LENS_ROWS: V2SortedRow[] = serversScene && !empty ? [
+  { source: "lens:shared", section: "know", headline: "3 items are shared with Garden club", due: null, added: at(25), entities: ["ent_0", "ent_3", "ent_9"], lens: "lens_00000000000a" },
+  { source: "lens:paused", section: "needs-you", headline: "A model upgrade would cause you to share new items with Garden club. Lens is paused until you review.", due: null, added: at(15), entities: [], lens: "lens_00000000000a" },
+] : [];
 
 let outOfCredits = new URLSearchParams(location.search).has("credits");
 const reading = new URLSearchParams(location.search).has("reading");
@@ -144,6 +165,8 @@ const fake = window.fetch;
   const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url, location.origin);
   const json = (v: unknown, status = 200) => new Response(JSON.stringify(v), { status, headers: { "content-type": "application/json" } });
   if (url.pathname === "/api/graph") return json(graph);
+  if (serversScene && url.pathname === "/api/graph/server") return json(gardenField);
+  if (serversScene && url.pathname === "/api/lenses/entities") return json({ entities: LENS_ENTITIES[url.searchParams.get("id") ?? ""] ?? [] });
   // recents from this vault, not the fixture's: what search lists before you type.
   // One row per path, as the engine's: a feed source is a graph node too.
   if (url.pathname === "/api/recent") {
@@ -183,7 +206,7 @@ const fake = window.fetch;
   }
   if (url.pathname === "/api/v2") return json({ authors: [], feed });
   if (url.pathname === "/api/v2/sorted")
-    return json(pageSortedFeed(sorted, Number(url.searchParams.get("limit")) || SORTED_PAGE, url.searchParams.get("before") ?? undefined));
+    return json(pageSortedFeed([...sorted, ...LENS_ROWS].sort(newestFirst), Number(url.searchParams.get("limit")) || SORTED_PAGE, url.searchParams.get("before") ?? undefined));
   if (url.pathname === "/api/v2/entity") return json({ rows: feed.filter((r) => r.entities.includes(url.searchParams.get("id") ?? "")) });
   // the chat's agent picker: two connected agents, more models than a short window holds
   if (url.pathname === "/api/pilot/chat/models") return json({ agents: [

@@ -21,6 +21,10 @@ tauri-plugin-log = "2"
 # the folder picker on first run / settings › vault (lib/native.ts in the viewer)
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
+# bigbrain://connect?invite=… from a server's invite page opens Connect a server
+# with the link filled in (lib.rs invite_from / open_invite). macOS sends the
+# link to the running app itself, so no single-instance plugin.
+tauri-plugin-deep-link = "2"
 # reading `GET /api/engine` from an engine already on the ports (lib.rs)
 serde_json = "1"
 serde = { version = "1", features = ["derive"] }
