@@ -9,6 +9,7 @@ import { existsSync, mkdirSync } from "node:fs";
 import { dirname, join, resolve, sep } from "node:path";
 import { parseEventFile, type EventFile } from "./eventLog";
 import { sha256hex } from "./hash";
+import { proseChars } from "./text";
 import { norm } from "./ids";
 import { classifyIntake } from "./intakeClass";
 import {
@@ -82,7 +83,10 @@ import { withProjectionWrite } from "./projectionWriteLock";
 // 17: compact graph/feed summaries and link evidence; canonical Markdown titles.
 // 18: entity↔source bindings (lib/entitySourceLog.ts).
 // 19: judged and declared copies of one document (lib/sourceCopyLog.ts).
-const SCHEMA_VERSION = "19";
+// 20: narrow apart from wide — source headers and arrival identity in
+//     `sources`, each whole event once in `source_documents`; Markdown
+//     headers in `markdown_documents`, documents in `markdown_bodies`.
+const SCHEMA_VERSION = "20";
 
 export interface AssertionSearchHit {
   id: string;
@@ -137,7 +141,12 @@ function schema(db: Database): void {
   db.run("CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT NOT NULL)");
   db.run("CREATE TABLE IF NOT EXISTS read_feed (position INTEGER PRIMARY KEY, source TEXT, row_json TEXT NOT NULL)");
   db.run("CREATE INDEX IF NOT EXISTS read_feed_source ON read_feed(source, position)");
-  db.run("CREATE TABLE IF NOT EXISTS markdown_documents (path TEXT PRIMARY KEY, stamp TEXT NOT NULL, document_json TEXT NOT NULL, header_json TEXT NOT NULL)");
+  // Narrow apart from wide (schema 20): a header read never walks a body.
+  // SQLite reads a row's columns in order through its overflow pages, so a
+  // header stored beside a transcript costs the transcript; and a table of
+  // headers alone stays small enough to read cold in one sequential pass.
+  db.run("CREATE TABLE IF NOT EXISTS markdown_documents (path TEXT PRIMARY KEY, stamp TEXT NOT NULL, header_json TEXT NOT NULL)");
+  db.run("CREATE TABLE IF NOT EXISTS markdown_bodies (path TEXT PRIMARY KEY, document_json TEXT NOT NULL)");
   db.run("CREATE TABLE IF NOT EXISTS document_links (path TEXT PRIMARY KEY, hash TEXT NOT NULL, links_json TEXT NOT NULL, citations_json TEXT NOT NULL)");
   db.run("CREATE TABLE IF NOT EXISTS read_threads (id TEXT PRIMARY KEY, thread_json TEXT NOT NULL)");
   db.run("CREATE TABLE IF NOT EXISTS read_thread_paths (path TEXT PRIMARY KEY, thread_id TEXT NOT NULL)");
@@ -147,29 +156,39 @@ function schema(db: Database): void {
     insertion_id TEXT PRIMARY KEY,
     source_id TEXT NOT NULL,
     title TEXT NOT NULL,
-    body TEXT NOT NULL,
     occurred_at TEXT,
     received_at TEXT,
     content_sha256 TEXT NOT NULL,
-    event_json TEXT NOT NULL,
     header_json TEXT NOT NULL,
     excerpt TEXT NOT NULL,
     present INTEGER NOT NULL DEFAULT 1,
-    -- Search reads these headers for hundreds of candidates. Materialize
-    -- once rather than parsing potentially megabyte-sized event JSON per hit.
-    -- No affinity: preserve json_extract's types for malformed envelopes too.
-    envelope_kind GENERATED ALWAYS AS (json_extract(event_json, '$.envelope.kind')) STORED,
-    envelope_source GENERATED ALWAYS AS (json_extract(event_json, '$.envelope.source')) STORED,
+    -- The envelope fields readers filter on — kind and source for search's
+    -- candidates, the arrival identity (sha256, stream/key/seq) for dedup
+    -- and revisions — materialized from the event once, at insert. No
+    -- affinity: preserve json_extract's types for malformed envelopes too.
+    envelope_kind,
+    envelope_source,
+    envelope_sha256,
+    envelope_stream,
+    envelope_key,
+    envelope_seq,
+    -- proseChars(body), so a stub test never reads the body (lib/text.ts).
+    prose_chars INTEGER NOT NULL,
     supersedes TEXT,
     intake_class TEXT NOT NULL,
     intake_priority INTEGER,
     intake_at TEXT NOT NULL
   )`);
+  // The whole insertion event, body included, stored once: what a note read,
+  // an evidence check or a snippet opens, by id.
+  db.run("CREATE TABLE IF NOT EXISTS source_documents (insertion_id TEXT PRIMARY KEY, event_json TEXT NOT NULL)");
   db.run("CREATE INDEX IF NOT EXISTS sources_kind ON sources(envelope_kind)");
   db.run("CREATE INDEX IF NOT EXISTS sources_source_id ON sources(source_id)");
   db.run(`CREATE INDEX IF NOT EXISTS sources_headers ON sources
     (insertion_id, source_id, title, occurred_at, received_at, envelope_kind, envelope_source)`);
   db.run("CREATE INDEX IF NOT EXISTS sources_intake ON sources(intake_priority, intake_at, insertion_id)");
+  db.run("CREATE INDEX IF NOT EXISTS sources_sha256 ON sources(envelope_sha256)");
+  db.run("CREATE INDEX IF NOT EXISTS sources_stream ON sources(envelope_stream, envelope_key)");
   // The read-side supersede (lib/sourceSupersede.ts): a later landing of the
   // same source naming this row hides it from every reader. Indexed because
   // the liveness predicate runs per candidate row on the search paths.
@@ -358,12 +377,18 @@ function insertSourceRow(db: Database, source: SourceInsertion): boolean {
   const klass = classifyIntake(facts);
   // null is a record — the feed's word for the same row (lib/sourceFeed.ts)
   const { excerpt, intakePriority: priority, ...metadata } = sourceSummary(source);
-  return insertOnce(db, "sources", "insertion_id", source.id, source, (eventJson) => {
+  return insertOnce(db, "source_documents", "insertion_id", source.id, source, (eventJson) => {
+    db.query("INSERT INTO source_documents(insertion_id, event_json) VALUES (?, ?)").run(source.id, eventJson);
     db.query(`INSERT INTO sources(
-      insertion_id, source_id, title, body, occurred_at, received_at, content_sha256, event_json, header_json, excerpt, supersedes, intake_class, intake_priority, intake_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
-      source.id, source.source_id, source.title, source.body, source.occurred_at ?? null,
-      source.received_at ?? null, source.content_sha256, eventJson, JSON.stringify(metadata), excerpt, supersedesOf(source) ?? null, klass, priority, source.received_at ?? source.occurred_at ?? ""
+      insertion_id, source_id, title, occurred_at, received_at, content_sha256, header_json, excerpt, prose_chars,
+      supersedes, intake_class, intake_priority, intake_at,
+      envelope_kind, envelope_source, envelope_sha256, envelope_stream, envelope_key, envelope_seq
+    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13,
+      json_extract(?14, '$.envelope.kind'), json_extract(?14, '$.envelope.source'), json_extract(?14, '$.envelope.sha256'),
+      json_extract(?14, '$.envelope.stream'), json_extract(?14, '$.envelope.key'), json_extract(?14, '$.envelope.seq'))`).run(
+      source.id, source.source_id, source.title, source.occurred_at ?? null, source.received_at ?? null,
+      source.content_sha256, JSON.stringify(metadata), excerpt, proseChars(source.body),
+      supersedesOf(source) ?? null, klass, priority, source.received_at ?? source.occurred_at ?? "", eventJson
     );
     db.run("INSERT OR REPLACE INTO meta(k,v) VALUES ('threads_dirty','1')");
     db.query("INSERT INTO source_fts(insertion_id, source_id, title, body) VALUES (?, ?, ?, ?)")
@@ -386,7 +411,7 @@ export function projectSourceInsertion(root: string, source: SourceInsertion): b
 function referencedSources(db: Database, event: AssertionEvent): Map<string, SourceInsertion> {
   const sources = new Map<string, SourceInsertion>();
   for (const insertionId of new Set(assertionSourceReferences(event).map((ref) => ref.insertion_id))) {
-    const row = db.query("SELECT event_json FROM sources WHERE insertion_id = ?").get(insertionId) as { event_json: string } | null;
+    const row = db.query("SELECT event_json FROM source_documents WHERE insertion_id = ?").get(insertionId) as { event_json: string } | null;
     if (!row) throw new Error(`assertion-projection: cited insertion is not projected: ${insertionId}`);
     sources.set(insertionId, JSON.parse(row.event_json) as SourceInsertion);
   }
@@ -834,13 +859,15 @@ function reconcileMarkdown(db: Database, root: string): void {
     const body = readMarkdownNote(root, path);
     if (body === undefined) throw new Error(`projection: Markdown disappeared during reconciliation: ${path}`);
     const doc = markdownDocument(path, body), links = parseDocumentLinks(doc);
-    db.query("INSERT OR REPLACE INTO markdown_documents(path,stamp,document_json,header_json) VALUES (?,?,?,?)").run(path, stamp, JSON.stringify(doc), JSON.stringify({ ...doc, body: undefined }));
+    db.query("INSERT OR REPLACE INTO markdown_documents(path,stamp,header_json) VALUES (?,?,?)").run(path, stamp, JSON.stringify({ ...doc, body: undefined }));
+    db.query("INSERT OR REPLACE INTO markdown_bodies(path,document_json) VALUES (?,?)").run(path, JSON.stringify(doc));
     db.query("INSERT OR REPLACE INTO document_links(path,hash,links_json,citations_json) VALUES (?,?,?,?)")
       .run(`markdown:${path}`, stamp, JSON.stringify(links.links), JSON.stringify(links.citations));
     changed = true;
   }
   for (const path of held.keys()) if (!files.has(path)) {
     db.query("DELETE FROM markdown_documents WHERE path = ?").run(path);
+    db.query("DELETE FROM markdown_bodies WHERE path = ?").run(path);
     db.query("DELETE FROM document_links WHERE path = ?").run(`markdown:${path}`);
     changed = true;
   }
@@ -1087,8 +1114,9 @@ export function sourceMatchWindows(
   reading(root, db, (handle) => {
     eachByIds<{ insertion_id: string; window: string }>(handle, ids, (placeholders) =>
       `SELECT insertion_id, substr(body, max(1, coalesce(${first}, 1) - 100), 240) AS window
-        FROM (SELECT insertion_id, body, lower(body) AS lb FROM sources
-          WHERE insertion_id IN (${placeholders}))`,
+        FROM (SELECT insertion_id, body, lower(body) AS lb
+          FROM (SELECT insertion_id, json_extract(event_json, '$.body') AS body FROM source_documents
+            WHERE insertion_id IN (${placeholders})))`,
       (row) => out.set(row.insertion_id, row.window), terms);
   });
   return out;
@@ -1132,7 +1160,7 @@ export function projectedSourcesById(
   if (!ids.length) return out;
   reading(root, db, (handle) => {
     eachByIds<{ insertion_id: string; event_json: string }>(handle, ids, (placeholders) =>
-      `SELECT insertion_id, event_json FROM sources WHERE insertion_id IN (${placeholders})`,
+      `SELECT insertion_id, event_json FROM source_documents WHERE insertion_id IN (${placeholders})`,
       (row) => out.set(row.insertion_id, JSON.parse(row.event_json) as SourceInsertion));
   });
   return out;
@@ -1533,7 +1561,7 @@ export function assertionProjectionDigest(root: string): string {
   const db = openReadonly(root);
   try {
     const rows = [
-      db.query("SELECT event_json FROM sources ORDER BY insertion_id").all(),
+      db.query("SELECT event_json FROM source_documents ORDER BY insertion_id").all(),
       db.query("SELECT event_json FROM assertions ORDER BY id").all(),
       db.query("SELECT assertion_id, entity_id FROM assertion_entities ORDER BY assertion_id, entity_id").all(),
       db.query(`SELECT assertion_id, insertion_id, source_id

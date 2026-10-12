@@ -16,7 +16,7 @@ import { threadsByInsertion, type SourceThread } from "./sourceThreads";
 import { supersededInsertionIds, liveAssertionSql, liveSourceSql } from "./sourceSupersede";
 import { copyCandidates, copyCutoff, foldCopyEvents, PROPOSE_FLOOR, sourceCopies, type CopyWhy, type SourceCopies } from "./sourceCopies";
 import { copyPairKey, type SourceCopyEvent } from "./sourceCopyLog";
-import { proseChars, STUB_CHARS } from "./text";
+import { STUB_CHARS } from "./text";
 import { aboutIds, VOICE_KINDS } from "./voiceFacts";
 import { markVaultChanged, vaultChangeVersion } from "./vaultChanges";
 import { Database } from "bun:sqlite";
@@ -204,11 +204,11 @@ function copiesRecord(root: string): CopiesRecord {
     const pairs: [string, string, CopyWhy][] = [];
     for (const [key, same] of said.declared) if (same) pairs.push([...pair(key), "you"]);
     for (const [key, j] of said.judged) if (j.score >= cutoff && !said.declared.has(key)) pairs.push([...pair(key), "judged"]);
-    const body = db.query("SELECT body FROM sources WHERE insertion_id = ?");
+    const prose = db.query("SELECT prose_chars FROM sources WHERE insertion_id = ?");
     const works = [...sources.values()].filter((s) => !superseded.has(s.id) && !threadByInsertion.has(s.id));
     const groups = sourceCopies(works, {
       joins, pairs, apart: (a, b) => said.declared.get(copyPairKey(a, b)) === false,
-      stub: (source) => proseChars((body.get(source.id) as { body: string } | null)?.body ?? "") < STUB_CHARS,
+      stub: (source) => ((prose.get(source.id) as { prose_chars: number } | null)?.prose_chars ?? 0) < STUB_CHARS,
     });
     const proposals = new Map<string, CopyProposal[]>(), unjudged: [string, string][] = [];
     const members = (id: string): string[] => groups.get(id)?.members.map((m) => m.id) ?? [id];
@@ -350,12 +350,12 @@ export function sourceAssertionReadModel(root: string, ids: readonly string[]) {
   });
 }
 export function projectedSource(root: string, id: string): SourceInsertion | undefined {
-  return withVaultSnapshot(root, db => decoded<SourceInsertion>(db, "SELECT event_json FROM sources WHERE present = 1 AND insertion_id = ?", id)[0]);
+  return withVaultSnapshot(root, db => decoded<SourceInsertion>(db, "SELECT event_json FROM sources JOIN source_documents USING (insertion_id) WHERE present = 1 AND insertion_id = ?", id)[0]);
 }
 
 export function projectedMarkdown(root: string, path: string): string | undefined {
   return withVaultSnapshot(root, db => {
-    const row = db.query("SELECT document_json FROM markdown_documents WHERE path = ?").get(path) as { document_json: string } | null;
+    const row = db.query("SELECT document_json FROM markdown_bodies WHERE path = ?").get(path) as { document_json: string } | null;
     return row ? (JSON.parse(row.document_json) as MarkdownDocument).body : undefined;
   });
 }
@@ -376,8 +376,9 @@ function threadIn<T extends SourceMetadata>(db: Database, key: string, byInserti
   const thread = decoded<Omit<SourceThread<T>, "members">>(db,
     `SELECT thread_json AS event_json FROM read_threads WHERE id = (SELECT thread_id FROM ${lookup} = ?)`, key)[0];
   if (!thread) return;
-  const members = decoded<T>(db, `SELECT s.${bodies ? "event_json" : "header_json"} AS event_json FROM read_thread_members m
-    JOIN sources s ON s.insertion_id = m.insertion_id WHERE m.thread_id = ? ORDER BY m.position`, thread.id);
+  const members = decoded<T>(db, `SELECT ${bodies ? "d.event_json" : "s.header_json"} AS event_json FROM read_thread_members m
+    JOIN sources s ON s.insertion_id = m.insertion_id
+    ${bodies ? "JOIN source_documents d ON d.insertion_id = m.insertion_id" : ""} WHERE m.thread_id = ? ORDER BY m.position`, thread.id);
   if (byInsertion && members.length < 2) return;
   return { ...thread, members };
 }
@@ -429,7 +430,7 @@ export function voiceReadModel(root: string, keys: ReadonlySet<string>) {
   return withVaultSnapshot(root, db => {
     const headers = decoded<SourceMetadata>(db, `SELECT header_json AS event_json FROM sources WHERE ${voiceWhere}`, JSON.stringify(VOICE_KINDS));
     const ids = headers.filter(s => aboutIds(s.envelope).some(id => keys.has(id))).map(s => s.id);
-    const voice = decoded<SourceInsertion>(db, `SELECT event_json FROM sources WHERE insertion_id IN (SELECT value FROM json_each(?))
+    const voice = decoded<SourceInsertion>(db, `SELECT event_json FROM sources JOIN source_documents USING (insertion_id) WHERE insertion_id IN (SELECT value FROM json_each(?))
       ORDER BY coalesce(received_at, occurred_at, ''), insertion_id`, JSON.stringify(ids));
     const settled = new Map<string, string>();
     for (const event of voice) {
@@ -447,7 +448,7 @@ export function memoryReadModel(root: string) {
     return held.memory ??= {
       inss: decoded<SourceMetadata>(db, "SELECT header_json AS event_json FROM sources WHERE present = 1 ORDER BY coalesce(received_at, occurred_at, ''), insertion_id"),
       asserted: decoded<AssertionEvent>(db, "SELECT event_json FROM assertions ORDER BY created_at, id"),
-      voice: decoded<SourceInsertion>(db, `SELECT event_json FROM sources WHERE ${voiceWhere} ORDER BY coalesce(received_at, occurred_at, ''), insertion_id`, JSON.stringify(VOICE_KINDS)),
+      voice: decoded<SourceInsertion>(db, `SELECT event_json FROM sources JOIN source_documents USING (insertion_id) WHERE ${voiceWhere} ORDER BY coalesce(received_at, occurred_at, ''), insertion_id`, JSON.stringify(VOICE_KINDS)),
       revocations: decoded<RevocationEvent>(db, "SELECT event_json FROM revocations ORDER BY created_at, id"),
       aliases: decoded<EntityAliasEvent>(db, "SELECT event_json FROM entity_alias_events ORDER BY json_extract(event_json, '$.created_at'), id"),
     };

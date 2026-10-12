@@ -139,7 +139,7 @@ test("failed catch-up keeps Markdown and the feed at the last complete revision"
   const db = openAssertionProjectionReadonly(root);
   try {
     expect(projectionRevision(root, db)).toBe(revision);
-    expect(JSON.parse((db.query("SELECT document_json FROM markdown_documents").get() as { document_json: string }).document_json).title).toBe("Before");
+    expect(JSON.parse((db.query("SELECT document_json FROM markdown_bodies").get() as { document_json: string }).document_json).title).toBe("Before");
     expect(db.query("SELECT count(*) AS n FROM read_feed").get()).toEqual({ n: 1 });
   } finally { db.close(); }
   rmSync(broken);

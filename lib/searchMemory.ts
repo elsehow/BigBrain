@@ -16,7 +16,7 @@ export function searchMemory(root: string, query: string, filters: SearchFilters
   if (!groups.length || !jailMemoryNotePath(root, "memory/")) return [];
   return withVaultSnapshot(root, db => {
     const hits: RankedHit[] = [];
-    const documents = db.query("SELECT document_json FROM markdown_documents WHERE path LIKE 'memory/%' ORDER BY path").all() as { document_json: string }[];
+    const documents = db.query("SELECT document_json FROM markdown_bodies WHERE path LIKE 'memory/%' ORDER BY path").all() as { document_json: string }[];
     for (const row of documents) {
       const { path, body: raw } = JSON.parse(row.document_json) as MarkdownDocument;
       // a claim's source stamp (lib/memoryProvenance.ts) is the runner's, not the memory's words

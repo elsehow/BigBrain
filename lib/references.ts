@@ -185,7 +185,7 @@ function landedBySha(root: string, sha256: string): SourceInsertion | undefined 
     const db = openAssertionProjectionReadonly(root);
     try {
       const row = db.query(
-        "SELECT event_json FROM sources WHERE json_extract(event_json, '$.envelope.sha256') = ? LIMIT 1"
+        "SELECT event_json FROM sources JOIN source_documents USING (insertion_id) WHERE envelope_sha256 = ? LIMIT 1"
       ).get(sha256) as { event_json: string } | null;
       return row ? (JSON.parse(row.event_json) as SourceInsertion) : undefined;
     } finally { db.close(); }
