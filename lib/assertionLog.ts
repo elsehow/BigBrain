@@ -21,7 +21,7 @@
 
 import { eventLog, type AppendResult } from "./eventLog";
 import { sha256hex } from "./hash";
-import { AST_ID, ENT_ID, ENTITY_LINK, RETRACTABLE_ID, norm } from "./ids";
+import { AST_ID, ENT_ID, ENTITY_LINK, RETIRED_EVENT_ID, RETRACTABLE_ID, norm } from "./ids";
 import { validEventAuthor, type EventAuthor, type SourceInsertion } from "./insertionLog";
 import { revokedAssertions } from "./revocationLog";
 
@@ -66,6 +66,9 @@ interface Asserted {
   author: EventAuthor;
   created_at: string;
   produced_by: AssertionProduction;
+  /** The event in a retired log this was converted from (`bigbrain migrate`,
+   * lib/migrate.ts); its author, time and producer are this one's. */
+  migrated_from?: string;
 }
 
 /** A prose assertion: the kind everything before kinds was, and the one the
@@ -234,6 +237,8 @@ function validateAsserted(event: Asserted): void {
   if (!event.created_at?.trim()) throw new Error("assertion-log: created_at is required");
   if (!event.produced_by?.procedure?.trim() || !event.produced_by.version?.trim())
     throw new Error("assertion-log: production procedure and version are required");
+  if (event.migrated_from !== undefined && !RETIRED_EVENT_ID.test(event.migrated_from))
+    throw new Error("assertion-log: migrated_from names an event in a retired log");
 }
 
 function validateRefs(refs: readonly AssertionSourceReference[] | undefined): void {
@@ -393,7 +398,12 @@ interface KindInput {
   author: EventAuthor;
   created_at: string;
   produced_by: AssertionProduction;
+  migrated_from?: string;
 }
+
+/** `migrated_from` when there is one, for an event and the hash of its id. */
+const migrated = (input: KindInput): { migrated_from?: string } =>
+  (input.migrated_from ? { migrated_from: input.migrated_from } : {});
 
 function resolveSources(ids: readonly string[], sources: ReadonlyMap<string, SourceInsertion>): AssertionSourceReference[] {
   return [...new Set(ids)].sort().map((insertion_id) => {
@@ -431,8 +441,8 @@ export function createIdentityAssertion(
   const { author, created_at, produced_by } = input;
   const event: IdentityAssertion = {
     event: "assertion.asserted",
-    id: assertionId({ kind: "identity", identity, sources: refs, author, created_at, produced_by }),
-    kind: "identity", identity, sources: refs, author, created_at, produced_by,
+    id: assertionId({ kind: "identity", identity, sources: refs, author, created_at, produced_by, ...migrated(input) }),
+    kind: "identity", identity, sources: refs, author, created_at, produced_by, ...migrated(input),
   };
   validateRecordedAssertion(event);
   return event;
@@ -448,8 +458,8 @@ export function createDeclineAssertion(
   const { author, created_at, produced_by } = input;
   const event: DeclineAssertion = {
     event: "assertion.asserted",
-    id: assertionId({ kind: "decline", reason, sources: refs, author, produced_by }),
-    kind: "decline", reason, sources: refs, author, created_at, produced_by,
+    id: assertionId({ kind: "decline", reason, sources: refs, author, produced_by, ...migrated(input) }),
+    kind: "decline", reason, sources: refs, author, created_at, produced_by, ...migrated(input),
   };
   validateRecordedAssertion(event);
   return event;
@@ -464,8 +474,8 @@ export function createRetraction(
   const { retracts, superseded_by, author, created_at, produced_by } = input;
   const event: RetractionAssertion = {
     event: "assertion.asserted",
-    id: assertionId({ kind: "retraction", retracts, superseded_by: superseded_by ?? null, reason, author, produced_by }),
-    kind: "retraction", retracts, ...(superseded_by ? { superseded_by } : {}), reason, author, created_at, produced_by,
+    id: assertionId({ kind: "retraction", retracts, superseded_by: superseded_by ?? null, reason, author, produced_by, ...migrated(input) }),
+    kind: "retraction", retracts, ...(superseded_by ? { superseded_by } : {}), reason, author, created_at, produced_by, ...migrated(input),
   };
   validateRecordedAssertion(event);
   return event;
