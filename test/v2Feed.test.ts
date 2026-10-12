@@ -8,9 +8,9 @@ import {
 } from "../lib/assertionProjection";
 import type { FeedRecord } from "../lib/feedJournal";
 import { appendSourceInsertionEvent, insertionEventRel, type SourceInsertion } from "../lib/insertionLog";
-import { authorName, authorOf, newestFirst, pageSortedFeed, plainText, refreshSortedPages, type V2SortedRow } from "../lib/v2Feed";
-import { readEntitiesCiting, readEntityFeed, readLensClaims, readSortedPage, readV2Feed } from "../lib/v2Read";
-import { withVaultSnapshot } from "../lib/vaultReadModel";
+import { authorName, authorOf, newestFirst, pageSortedFeed, plainText, refreshSortedPages, type V2SortedRow } from "../lib/views/v2Feed";
+import { readEntitiesCiting, readEntityFeed, readLensClaims, readSortedPage, readV2Feed } from "../lib/views/v2Read";
+import { withSnapshot } from "../lib/vaultReadModel";
 import { alias as declareAlias, retract } from "./support/said";
 import { insertion, mdVault } from "./support/vault";
 
@@ -41,8 +41,8 @@ function claim(root: string, author: AssertionEvent["author"], procedure: string
   if (over.project !== false) appendAndProjectAssertion(root, event);
   return event;
 }
-const feed = (root: string) => withVaultSnapshot(root, (db) => readV2Feed(db));
-const entityFeed = (root: string, id: string) => withVaultSnapshot(root, (db) => readEntityFeed(db, id));
+const feed = (root: string) => withSnapshot(root, readV2Feed);
+const entityFeed = (root: string, id: string) => withSnapshot(root, (snapshot) => readEntityFeed(snapshot, id));
 function journal(root: string, dir: "tend" | "feed", id: string, record: object, project = true): void {
   const rel = `journal/${dir}/2026-08/${id}.json`;
   mkdirSync(join(root, "journal", dir, "2026-08"), { recursive: true });
@@ -91,7 +91,7 @@ describe("v2 feed", () => {
     claim(root, pi, "bigbrain-mcp", [short, atlas], day(1));
     claim(root, pi, "bigbrain-mcp", [ada], day(2));
     claim(root, pi, "bigbrain-mcp", [orrery], day(3), { cites: [agenda] });
-    const citing = (ids: string[]) => withVaultSnapshot(root, (db) => readEntitiesCiting(db, ids)).toSorted();
+    const citing = (ids: string[]) => withSnapshot(root, (snapshot) => readEntitiesCiting(snapshot, ids)).toSorted();
     expect(citing(["minutes"])).toEqual([ada.id, atlas.id].toSorted());
     expect(citing([])).toEqual([]);
   });
@@ -102,7 +102,7 @@ describe("v2 feed", () => {
     const both = claim(root, pi, "bigbrain-mcp", [atlas], day(2), { cites: [src, agenda] });
     const gone = claim(root, pi, "bigbrain-mcp", [orrery], day(3));
     retract(root, gone.id, { reason: "wrong", author: pi, created_at: day(4), produced_by: { procedure: "fix", version: "v1" } });
-    const claims = (members: string[]) => withVaultSnapshot(root, (db) => readLensClaims(db, members));
+    const claims = (members: string[]) => withSnapshot(root, (snapshot) => readLensClaims(snapshot, members));
     expect(claims(["minutes"])).toEqual(new Set([minutes.id]));
     expect(claims(["minutes", "agenda"])).toEqual(new Set([minutes.id, both.id]));
     expect(claims([])).toEqual(new Set());
@@ -197,7 +197,7 @@ describe("sorted feed", () => {
     ({ source, section, headline: `About ${source}`, due, assertions });
   const call = (root: string, id: string, completed_at: string, entries: object[], over: Partial<FeedRecord> = {}, project = true) =>
     journal(root, "feed", id, { format: "bigbrain-feed-run/v1", assertions: [], entries, prompt_version: "v", started_at: completed_at, completed_at, ...over }, project);
-  const page = (root: string, limit = 100, before?: string) => withVaultSnapshot(root, (db) => readSortedPage(root, db, limit, before));
+  const page = (root: string, limit = 100, before?: string) => withSnapshot(root, (snapshot) => readSortedPage(snapshot, limit, before));
   function fixture() {
     const root = vault();
     const [a, b, c, d] = [[ada], [atlas], [orrery], [ada, orrery]].map((e, i) => claim(root, gardener, "intake-assertion-agent", e, day(3 + i)));

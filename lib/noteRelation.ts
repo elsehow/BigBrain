@@ -9,7 +9,7 @@ import { sha256hex } from "./hash";
 import { json, readBody, type Route } from "./httpx";
 import { loadManifest } from "./manifest";
 import { briefingCacheFile, noteBriefingInput, type BriefingItem } from "./noteBriefing";
-import { plainText } from "./v2Feed";
+import { plainText } from "./views/v2Feed";
 
 export interface NoteRelationInput {
   focus: BriefingItem; hovered: BriefingItem;

@@ -19,7 +19,8 @@ import { json } from "./httpx";
 import { graphStamp } from "./maintainedGraph";
 import { connectionStorePath, readConnections } from "./sharedConnections";
 import { sha256hex } from "./hash";
-import { withVaultSnapshot } from "./vaultReadModel";
+import { withSnapshot } from "./vaultReadModel";
+import type { Snapshot } from "./views/view";
 
 export interface ViewStamps {
   generation: string;
@@ -44,11 +45,11 @@ export const foldsStamp = stampOf(FOLDS_IGNORES);
 
 /** A read model from one snapshot, with the stamp it was read at. */
 export function serveStamped<T>(res: ServerResponse, root: string, stamp: (root: string, db: Database) => string,
-  read: (db: Database, stamp: string) => T): void {
+  read: (snapshot: Snapshot, stamp: string) => T): void {
   try {
-    const [at, value] = withVaultSnapshot(root, (db) => {
-      const at = stamp(root, db);
-      return [at, read(db, at)] as const;
+    const [at, value] = withSnapshot(root, (snapshot) => {
+      const at = stamp(root, snapshot.db);
+      return [at, read(snapshot, at)] as const;
     });
     res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store", [STAMP_HEADER]: at });
     res.end(JSON.stringify(value));

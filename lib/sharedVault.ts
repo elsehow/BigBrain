@@ -64,7 +64,7 @@ import {
 import { parseEventFile, type EventFile } from "./eventLog";
 import { ensureDir, writeAtomic } from "./fsx";
 import { sha256hex } from "./hash";
-import { AST_ID, ENTITY_LINK, ENT_ID, norm } from "./ids";
+import { AST_ID, ENTITY_LINK, ENT_ID, INS_ID, norm } from "./ids";
 import {
   appendSourceInsertionEvent,
   insertionEventRel,
@@ -103,7 +103,6 @@ export const SEARCH_CAP = 50;
 export const MAX_EVIDENCE_BYTES = 16 * 1024 * 1024;
 export const MAX_SOURCES_PER_ASSERTION = 20;
 
-const INS_ID = /^ins_[a-f0-9]{24}$/u;
 
 /** A refusal with the HTTP status it deserves; the message says what would
  * work. The door maps it 1:1. */

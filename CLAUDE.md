@@ -191,6 +191,14 @@ Two linters, each only where it is competent. Keep it that way.
   assertion adds a case to `lib/assertionLog.ts`, not a log. Id patterns
   and the entity-label normalization live once in `lib/ids.ts`,
   sha256 once in `lib/hash.ts`
+- `lib/views/` and `lib/stages/` — where code lands as the stages-and-views
+  refactor converts it (`docs/plans/2026-10-12-stages-and-views-refactor.md`).
+  A view is a pure function of a `Snapshot` (`lib/views/view.ts`): never
+  `root`, the disk, git, a model, the clock or `Math.random`. Only a
+  `Stage` (`lib/stages/stage.ts`) calls a model. `test/viewGuard.test.ts`
+  enforces both, and its list of modules that call models without being
+  stages yet only shrinks. `bun run field:digest <scratch vault>` proves a
+  refactor left a vault reading the same
 - `integrations/` — inbound/outbound integrations, each ticked by the
   supervisor on its `CADENCE` interval (`lib/desktopSchedule.ts`)
 - `web/` — the read-only web viewer (:4747)

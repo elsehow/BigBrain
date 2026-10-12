@@ -1545,24 +1545,27 @@ export function projectedSourceHeads(
   ids: readonly string[],
   db?: Database
 ): Map<string, SourceHead> {
+  return ids.length ? reading(root, db, (handle) => sourceHeadsIn(handle, ids)) : new Map();
+}
+
+/** projectedSourceHeads, from a snapshot a view already holds. */
+export function sourceHeadsIn(db: Database, ids: readonly string[]): Map<string, SourceHead> {
   const out = new Map<string, SourceHead>();
   if (!ids.length) return out;
-  reading(root, db, (handle) => {
-    eachByIds<HeadRow>(handle, ids, (placeholders) =>
-      `SELECT insertion_id, source_id, title, occurred_at, received_at,
-          envelope_kind AS kind,
-          envelope_source AS source FROM sources INDEXED BY sources_headers
-        WHERE insertion_id IN (${placeholders})`,
-      (row) => out.set(row.insertion_id, {
-        id: row.insertion_id,
-        source_id: row.source_id,
-        title: row.title,
-        ...(row.occurred_at ? { occurred_at: row.occurred_at } : {}),
-        ...(row.received_at ? { received_at: row.received_at } : {}),
-        ...(typeof row.kind === "string" && row.kind ? { kind: row.kind } : {}),
-        ...(typeof row.source === "string" && row.source ? { source: row.source } : {}),
-      }));
-  });
+  eachByIds<HeadRow>(db, ids, (placeholders) =>
+    `SELECT insertion_id, source_id, title, occurred_at, received_at,
+        envelope_kind AS kind,
+        envelope_source AS source FROM sources INDEXED BY sources_headers
+      WHERE insertion_id IN (${placeholders})`,
+    (row) => out.set(row.insertion_id, {
+      id: row.insertion_id,
+      source_id: row.source_id,
+      title: row.title,
+      ...(row.occurred_at ? { occurred_at: row.occurred_at } : {}),
+      ...(row.received_at ? { received_at: row.received_at } : {}),
+      ...(typeof row.kind === "string" && row.kind ? { kind: row.kind } : {}),
+      ...(typeof row.source === "string" && row.source ? { source: row.source } : {}),
+    }));
   return out;
 }
 

@@ -219,7 +219,7 @@ export const api = {
   /** A page of the sorted feed (lib/feedStage.ts), newest first; empty when
    * the vault has no feed. `before` is the `next` of the page before. */
   v2Sorted: (limit: number, before?: string | null) =>
-    get<import("../../../../lib/v2Feed").SortedPage>(`/api/v2/sorted?limit=${limit}${before ? `&before=${encodeURIComponent(before)}` : ""}`),
+    get<import("../../../../lib/views/v2Feed").SortedPage>(`/api/v2/sorted?limit=${limit}${before ? `&before=${encodeURIComponent(before)}` : ""}`),
   /** One entity's latest assertions, dated by when each claim was first recorded. */
   v2Entity: (id: string) => get<{ rows: import("./v2/model").V2FeedRow[] }>(`/api/v2/entity?id=${encodeURIComponent(id)}`),
   /** The standing fold proposals against today's record, and their stamp. */

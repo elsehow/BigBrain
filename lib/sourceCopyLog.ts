@@ -20,11 +20,10 @@
 import type { AssertionProduction } from "./assertionLog";
 import { eventLog, type AppendResult } from "./eventLog";
 import { sha256hex } from "./hash";
+import { INS_ID } from "./ids";
 import { validEventAuthor, type EventAuthor } from "./insertionLog";
 
 export const SOURCE_COPY_LOG_DIR = "log/source-copies";
-
-const INSERTION = /^ins_[a-f0-9]{24}$/u;
 
 interface PairEvent {
   id: string;
@@ -43,7 +42,7 @@ export type SourceCopyAppendResult = AppendResult<SourceCopyEvent>;
 export function validateSourceCopyEvent(event: SourceCopyEvent): void {
   if (!/^scp_[a-f0-9]{24}$/u.test(event.id)) throw new Error("source-copy-log: invalid event identity");
   const [a, b] = event.pair ?? [];
-  if (!INSERTION.test(a ?? "") || !INSERTION.test(b ?? "") || a! >= b!)
+  if (!INS_ID.test(a ?? "") || !INS_ID.test(b ?? "") || a! >= b!)
     throw new Error("source-copy-log: pair must be two insertion ids, ascending");
   if (event.event === "source.copies-judged") {
     if (event.author?.kind !== "model" || typeof event.score !== "number" || !(event.score >= 0 && event.score <= 1))
