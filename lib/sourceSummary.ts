@@ -5,6 +5,9 @@ import { intakePriority } from "./intakeClass";
 export interface SourceSummary extends SourceMetadata {
   excerpt: string;
   intakePriority: number | null;
+  /** The model its attached Claude Code transcript names, as the projection
+   * read it once (null: none); absent where no projection read it. */
+  transcriptModel?: string | null;
 }
 export function sourceSummary(source: SourceInsertion): SourceSummary {
   const { body, ...metadata } = source;

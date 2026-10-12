@@ -1,6 +1,7 @@
 /** Disposable incremental SQLite projection over insertion + assertion logs. */
 import { sourceSummary } from "./sourceSummary";
-import { markdownInventory, markdownDocument, readMarkdownNote, parseDocumentLinks } from "./markdownGraph";
+import { markdownInventory, markdownDocument, readMarkdownNote, parseDocumentLinks, type ParsedDocumentLinks } from "./markdownGraph";
+import { savedClaudeModel } from "./sourceModel";
 
 import { Database } from "bun:sqlite";
 import { searchMatch as matchQuery, searchAlternatives, searchTerms as matchTerms } from "./searchQuery";
@@ -82,7 +83,7 @@ import { withProjectionWrite } from "./projectionWriteLock";
 // 21: the change log — what each revision changed, written in its commit
 //     (docs/plans/2026-10-10-change-log.md).
 // 22: saved views — read models kept by the viewer, each with its revision.
-const SCHEMA_VERSION = "22";
+const SCHEMA_VERSION = "23";
 
 export interface AssertionSearchHit {
   id: string;
@@ -153,7 +154,11 @@ function schema(db: Database): void {
   // headers alone stays small enough to read cold in one sequential pass.
   db.run("CREATE TABLE IF NOT EXISTS markdown_documents (path TEXT PRIMARY KEY, stamp TEXT NOT NULL, header_json TEXT NOT NULL)");
   db.run("CREATE TABLE IF NOT EXISTS markdown_bodies (path TEXT PRIMARY KEY, document_json TEXT NOT NULL)");
+  // A document's links, narrow: what each names, which the graph resolves at
+  // every revision. The paragraph around each, its evidence, is wide (tens of
+  // MB on a vault of mail) and read only by evidence builds (schema 23).
   db.run("CREATE TABLE IF NOT EXISTS document_links (path TEXT PRIMARY KEY, hash TEXT NOT NULL, links_json TEXT NOT NULL, citations_json TEXT NOT NULL)");
+  db.run("CREATE TABLE IF NOT EXISTS document_link_text (path TEXT PRIMARY KEY, texts_json TEXT NOT NULL)");
   db.run("CREATE TABLE IF NOT EXISTS read_threads (id TEXT PRIMARY KEY, thread_json TEXT NOT NULL)");
   db.run("CREATE TABLE IF NOT EXISTS read_thread_paths (path TEXT PRIMARY KEY, thread_id TEXT NOT NULL)");
   db.run("CREATE TABLE IF NOT EXISTS read_thread_members (insertion_id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, position INTEGER NOT NULL)");
@@ -180,6 +185,10 @@ function schema(db: Database): void {
     envelope_seq,
     -- proseChars(body), so a stub test never reads the body (lib/text.ts).
     prose_chars INTEGER NOT NULL,
+    -- The model a Claude Code conversation's attached transcript names
+    -- (lib/sourceModel.ts), read from its blob once, here, rather than by
+    -- every process that files the row (schema 23).
+    transcript_model TEXT,
     supersedes TEXT,
     intake_class TEXT NOT NULL,
     intake_priority INTEGER,
@@ -394,7 +403,14 @@ function insertOnce<T>(
   return inserted;
 }
 
-function insertSourceRow(db: Database, source: SourceInsertion): boolean {
+/** A document's links: what each names, narrow, and their evidence, wide. */
+function writeDocumentLinks(db: Database, path: string, hash: string, parsed: ParsedDocumentLinks): void {
+  db.query("INSERT OR REPLACE INTO document_links(path, hash, links_json, citations_json) VALUES (?,?,?,?)")
+    .run(path, hash, JSON.stringify(parsed.links.map(({ target, markdown }) => ({ target, markdown }))), JSON.stringify(parsed.citations));
+  db.query("INSERT OR REPLACE INTO document_link_text(path, texts_json) VALUES (?,?)").run(path, JSON.stringify(parsed.links.map((l) => l.text)));
+}
+
+function insertSourceRow(db: Database, source: SourceInsertion, root: string): boolean {
   const field = (key: string): string | undefined => typeof source.envelope[key] === "string" ? source.envelope[key] : undefined;
   const facts = { kind: field("kind"), type: field("type"), source: field("source") };
   const klass = classifyIntake(facts);
@@ -404,21 +420,21 @@ function insertSourceRow(db: Database, source: SourceInsertion): boolean {
     db.query("INSERT INTO source_documents(insertion_id, event_json) VALUES (?, ?)").run(source.id, eventJson);
     db.query(`INSERT INTO sources(
       insertion_id, source_id, title, occurred_at, received_at, content_sha256, header_json, excerpt, prose_chars,
-      supersedes, intake_class, intake_priority, intake_at,
+      supersedes, intake_class, intake_priority, intake_at, transcript_model,
       envelope_kind, envelope_source, envelope_sha256, envelope_stream, envelope_key, envelope_seq
-    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13,
+    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?15,
       json_extract(?14, '$.envelope.kind'), json_extract(?14, '$.envelope.source'), json_extract(?14, '$.envelope.sha256'),
       json_extract(?14, '$.envelope.stream'), json_extract(?14, '$.envelope.key'), json_extract(?14, '$.envelope.seq'))`).run(
       source.id, source.source_id, source.title, source.occurred_at ?? null, source.received_at ?? null,
       source.content_sha256, JSON.stringify(metadata), excerpt, proseChars(source.body),
-      supersedesOf(source) ?? null, klass, priority, source.received_at ?? source.occurred_at ?? "", eventJson
+      supersedesOf(source) ?? null, klass, priority, source.received_at ?? source.occurred_at ?? "", eventJson,
+      source.envelope.source === "agent-chat" ? savedClaudeModel(root, source.envelope.attachments) ?? null : null
     );
     db.run("INSERT OR REPLACE INTO meta(k,v) VALUES ('threads_dirty','1')");
     db.query("INSERT INTO source_fts(insertion_id, source_id, title, body) VALUES (?, ?, ?, ?)")
       .run(source.id, source.source_id, source.title, source.body);
-    const links = parseDocumentLinks({ id: source.id, path: "", title: source.title, body: source.body });
-    db.query("INSERT INTO document_links(path, hash, links_json, citations_json) VALUES (?,?,?,?)")
-      .run(`source:${source.id}`, source.content_sha256, JSON.stringify(links.links), JSON.stringify(links.citations));
+    writeDocumentLinks(db, `source:${source.id}`, source.content_sha256,
+      parseDocumentLinks({ id: source.id, path: "", title: source.title, body: source.body }));
   });
 }
 
@@ -426,7 +442,7 @@ function insertSourceRow(db: Database, source: SourceInsertion): boolean {
 export function projectSourceInsertion(root: string, source: SourceInsertion): boolean {
   return withProjectionWrite(root, () => {
     const db = open(root);
-    try { return insertSourceRow(db, source); }
+    try { return insertSourceRow(db, source, root); }
     finally { db.close(); }
   });
 }
@@ -707,25 +723,25 @@ export function projectedEntityAliases(root: string, id: string, db?: Database):
 interface ProjectionKind {
   held: string;
   listFiles: (root: string) => EventFile[];
-  project: (db: Database, file: EventFile) => void;
+  project: (db: Database, file: EventFile, root: string) => void;
 }
 
 const projectionKind = <T extends { id: string }>(spec: {
   held: string;
   listFiles: (root: string) => EventFile[];
   validate: (event: T) => void;
-  insert: (db: Database, event: T) => boolean;
+  insert: (db: Database, event: T, root: string) => boolean;
 }): ProjectionKind => ({
   held: spec.held,
   listFiles: spec.listFiles,
-  project: (db, file) => {
+  project: (db, file, root) => {
     let event: T;
     try {
       event = parseEventFile(file, spec.validate);
     } catch (error) {
       throw new Error(`assertion-projection: unreadable event ${file.abs}: ${error}`);
     }
-    spec.insert(db, event);
+    spec.insert(db, event, root);
   },
 });
 
@@ -837,14 +853,14 @@ function reconcileMarkdown(db: Database, root: string): void {
     const doc = markdownDocument(path, body), links = parseDocumentLinks(doc);
     db.query("INSERT OR REPLACE INTO markdown_documents(path,stamp,header_json) VALUES (?,?,?)").run(path, stamp, JSON.stringify({ ...doc, body: undefined }));
     db.query("INSERT OR REPLACE INTO markdown_bodies(path,document_json) VALUES (?,?)").run(path, JSON.stringify(doc));
-    db.query("INSERT OR REPLACE INTO document_links(path,hash,links_json,citations_json) VALUES (?,?,?,?)")
-      .run(`markdown:${path}`, stamp, JSON.stringify(links.links), JSON.stringify(links.citations));
+    writeDocumentLinks(db, `markdown:${path}`, stamp, links);
     moved.push({ kind: "markdown", id: path, op: held.has(path) ? "edit" : "add" });
   }
   for (const path of held.keys()) if (!files.has(path)) {
     db.query("DELETE FROM markdown_documents WHERE path = ?").run(path);
     db.query("DELETE FROM markdown_bodies WHERE path = ?").run(path);
     db.query("DELETE FROM document_links WHERE path = ?").run(`markdown:${path}`);
+    db.query("DELETE FROM document_link_text WHERE path = ?").run(`markdown:${path}`);
     moved.push({ kind: "markdown", id: path, op: "remove" });
   }
   commitChanges(db, moved);
@@ -877,7 +893,7 @@ function reconcile(db: Database, root: string): AssertionProjectionStats {
   for (const kind of KINDS) {
     const held = heldIds(db, kind.held);
     const files = kind.listFiles(root);
-    for (const file of files) if (!held.has(file.id)) kind.project(db, file);
+    for (const file of files) if (!held.has(file.id)) kind.project(db, file, root);
     if (kind.listFiles === listSourceInsertionEventFiles) {
       // Retractions hide openable sources, but retain validated evidence for
       // assertions already projected. Replaying would reject those assertions.

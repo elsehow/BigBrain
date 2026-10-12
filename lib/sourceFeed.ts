@@ -152,8 +152,14 @@ export function insertionFiler(
   const provenance = fmProvenance(envelope);
   const via = projectedFilerName(envelope);
   const sourceDetail = tracksLabel(source) ?? scalar(envelope.inbox);
-  const model = [envelope.agent_model, envelope.model].map(scalar).find(value => value && value.toLowerCase() !== "n/a")
-    ?? (root && envelope.source === "agent-chat" && via === "claude code" ? savedClaudeModel(root, envelope.attachments) : undefined);
+  // A projected row carries its transcript's model, read once at projection;
+  // anything else reads the transcript itself, and only when nothing else names one.
+  const transcriptModel = (): string | undefined => {
+    if (envelope.source !== "agent-chat" || via !== "claude code") return undefined;
+    if ("transcriptModel" in source) return (source as SourceSummary).transcriptModel ?? undefined;
+    return root ? savedClaudeModel(root, envelope.attachments) : undefined;
+  };
+  const model = [envelope.agent_model, envelope.model].map(scalar).find(value => value && value.toLowerCase() !== "n/a") ?? transcriptModel();
   return {
     band: provenance.band === "engine" ? authorBand(source.author) : provenance.band,
     from: provenance.from ?? source.author.id,

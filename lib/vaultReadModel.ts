@@ -3,7 +3,7 @@
  * Filesystem notifications are hints; a periodic census repairs missed ones. */
 import type { SourceSummary } from "./sourceSummary";
 import { USER_IDENTITY_PROCEDURE, USER_IDENTITY_VERSION, userIdentityDeclarationsFromEvents } from "./userIdentityPolicy";
-import type { MarkdownDocument, MarkdownIdentity, ParsedDocumentLinks } from "./markdownGraph";
+import type { DocumentLinkTargets, MarkdownDocument, MarkdownIdentity } from "./markdownGraph";
 import { assertionDbPath, openAssertionProjectionReadonly, projectionRevision, syncAssertionProjection } from "./assertionProjection";
 import { entityAliasResolution, type EntityAliasEvent, type EntityAliasResolution } from "./entityAliasLog";
 import { assertionSourceReferences, type AssertionEvent } from "./assertionLog";
@@ -33,7 +33,8 @@ export interface SourceRecord {
 }
 export interface VaultRecord extends SourceRecord {
   documents: MarkdownIdentity[];
-  documentLinks: Map<string, ParsedDocumentLinks>;
+  /** What each document's links name; their evidence is documentLinkTexts. */
+  documentLinks: Map<string, DocumentLinkTargets>;
   rows: AssertionEvent[];
   aliases: EntityAliasResolution;
   /** The latest entity↔source declaration per pair (lib/entitySourceLog.ts),
@@ -50,6 +51,7 @@ interface DecodedRevision {
   sources?: SourceRecord;
   copies?: CopiesRecord;
   catalog?: { sources: SourceMetadata[]; threads: SourceThread<SourceMetadata>[] };
+  linkTexts?: Map<string, string[]>;
   memory?: { inss: SourceMetadata[]; asserted: AssertionEvent[]; voice: SourceInsertion[];
     revocations: RevocationEvent[]; aliases: EntityAliasEvent[] };
 }
@@ -130,9 +132,9 @@ export function sourceRecord(root: string): SourceRecord {
   return withVaultSnapshot(root, (db, revision) => {
     const held = decodedRevision(root, revision);
     if (held.sources) return held.sources;
-    const sources = new Map((db.query("SELECT header_json, excerpt, intake_priority FROM sources WHERE present = 1 ORDER BY coalesce(received_at, occurred_at, ''), insertion_id").all() as
-      { header_json: string; excerpt: string; intake_priority: number | null }[]).map(row => {
-        const source: SourceSummary = { ...JSON.parse(row.header_json), excerpt: row.excerpt, intakePriority: row.intake_priority };
+    const sources = new Map((db.query("SELECT header_json, excerpt, intake_priority, transcript_model FROM sources WHERE present = 1 ORDER BY coalesce(received_at, occurred_at, ''), insertion_id").all() as
+      { header_json: string; excerpt: string; intake_priority: number | null; transcript_model: string | null }[]).map(row => {
+        const source: SourceSummary = { ...JSON.parse(row.header_json), excerpt: row.excerpt, intakePriority: row.intake_priority, transcriptModel: row.transcript_model };
         return [source.id, source];
       }));
     const ids = (sql: string) => new Set((db.query(sql).all() as { insertion_id: string }[]).map(row => row.insertion_id));
@@ -163,8 +165,18 @@ export function vaultRecord(root: string, reconcile = false): VaultRecord {
     const entitySources = entitySourcesIn(db);
     const documents = (db.query("SELECT header_json AS document_json FROM markdown_documents ORDER BY path").all() as { document_json: string }[]).map(r => JSON.parse(r.document_json) as MarkdownIdentity);
     const documentLinks = new Map((db.query("SELECT path, links_json, citations_json FROM document_links").all() as { path: string; links_json: string; citations_json: string }[])
-      .map(r => [r.path, { links: JSON.parse(r.links_json), citations: JSON.parse(r.citations_json) } as ParsedDocumentLinks]));
+      .map(r => [r.path, { links: JSON.parse(r.links_json), citations: JSON.parse(r.citations_json) } as DocumentLinkTargets]));
     return held.record = { ...sources, documents, documentLinks, rows, aliases, entitySources, copies: sourceCopiesRecord(root), revoked };
+  });
+}
+
+/** The evidence for each document's links, in link order: the paragraph each
+ * sits in. Wide, so only an evidence build reads it (graphCache). */
+export function documentLinkTexts(root: string): Map<string, string[]> {
+  return withVaultSnapshot(root, (db, revision) => {
+    const held = decodedRevision(root, revision);
+    return held.linkTexts ??= new Map((db.query("SELECT path, texts_json FROM document_link_text").all() as { path: string; texts_json: string }[])
+      .map(r => [r.path, JSON.parse(r.texts_json) as string[]]));
   });
 }
 
