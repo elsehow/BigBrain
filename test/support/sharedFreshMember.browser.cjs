@@ -18,12 +18,15 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
  // Before joining, the empty vault says so.
  await page.goto(fixture.base+'/');await page.getByText('Nothing here yet').waitFor();
  // Connecting changes no view: the joined vault's records join the same field.
- await page.goto(fixture.base+'/#sharedVaultSettings');await page.getByRole('button',{name:'+ Connect vault',exact:true}).click();
+ await page.goto(fixture.base+'/#sharedVaultSettings');await page.getByRole('button',{name:'+ Connect a server',exact:true}).click();
  await page.getByLabel('Invite link',{exact:true}).fill(fixture.invite);await page.getByRole('dialog').getByRole('button',{name:'Connect',exact:true}).click();
  await page.getByRole('dialog').waitFor({state:'detached'});
  const url=new URL(page.url());assert(!url.searchParams.has('vaults')&&!url.searchParams.has('workspace'),url.href);
  await page.keyboard.press('Escape');
  await page.locator('.v2-node',{hasText:'Example project'}).first().waitFor({state:'attached'});
  assert.equal(await page.getByText('Nothing here yet').count(),0);
- assert.deepEqual(pageErrors,[]);console.log('PASS: fresh vault → invite → the joined vault\'s records in the same field, with no switch.');
+ // Opened, a joined server's thing says where it comes from (0c).
+ await page.locator('.v2-node',{hasText:'Example project'}).first().click({force:true});
+ await page.waitForFunction(()=>[...document.querySelectorAll('.eyebrow')].some(e=>/ties? · Example team/.test(e.textContent??'')));
+ assert.deepEqual(pageErrors,[]);console.log('PASS: fresh vault → invite → the joined vault\'s records in the same field, with no switch, each saying which server it comes from.');
 }finally{await browser?.close();child.kill('SIGTERM');}})().catch(e=>{console.error(e);process.exitCode=1;});

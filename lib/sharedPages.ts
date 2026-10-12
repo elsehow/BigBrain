@@ -112,7 +112,7 @@ const MARK = `<svg class="mark" viewBox="-100 -110 200 220" aria-hidden="true" f
  * the fragment, which the server never sees), then reveals each hidden Copy
  * button and copies its field. Without script the fields are still there to
  * select, and the invite page says to copy the address bar instead. */
-const SCRIPT = `if(location.hash.length>1){const show=(s,on)=>{for(const e of document.querySelectorAll(s))e.hidden=!on;};for(const f of document.querySelectorAll("input[data-href]"))f.value=location.href;show("[data-with-link]",true);show("[data-without-link]",false);const v=document.getElementById("invite-vault");if(v)fetch("/invite/check",{method:"POST",headers:{Authorization:"Bearer "+location.hash.slice(1)}}).then(r=>r.ok?r.json():null).then(d=>{if(d&&typeof d.vault==="string"){v.textContent="You're invited to "+d.vault+".";v.hidden=false;}else{show("[data-live]",false);show("[data-dead]",true);}}).catch(()=>{});}for(const b of document.querySelectorAll("button[data-copy]")){const f=document.getElementById(b.dataset.copy);if(!f)continue;b.hidden=false;b.addEventListener("click",async()=>{try{await navigator.clipboard.writeText(f.value);b.textContent="Copied";}catch{f.select();}});}`;
+const SCRIPT = `for(const a of document.querySelectorAll("a[data-open]"))a.href="bigbrain://connect?invite="+encodeURIComponent(location.href);for(const g of document.querySelectorAll("a[data-get]"))g.addEventListener("click",()=>{for(const e of document.querySelectorAll("[data-start]"))e.hidden=true;for(const e of document.querySelectorAll("[data-steps]"))e.hidden=false;});if(location.hash.length>1){const show=(s,on)=>{for(const e of document.querySelectorAll(s))e.hidden=!on;};for(const f of document.querySelectorAll("input[data-href]"))f.value=location.href;show("[data-with-link]",true);show("[data-without-link]",false);const v=document.getElementById("invite-vault");if(v)fetch("/invite/check",{method:"POST",headers:{Authorization:"Bearer "+location.hash.slice(1)}}).then(r=>r.ok?r.json():null).then(d=>{if(d&&typeof d.vault==="string"){v.textContent="You're invited to "+d.vault+".";v.hidden=false;}else{show("[data-live]",false);show("[data-dead]",true);}}).catch(()=>{});}for(const b of document.querySelectorAll("button[data-copy]")){const f=document.getElementById(b.dataset.copy);if(!f)continue;b.hidden=false;b.addEventListener("click",async()=>{try{await navigator.clipboard.writeText(f.value);b.textContent="Copied";}catch{f.select();}});}`;
 
 const hash = (s: string): string => createHash("sha256").update(s).digest("base64");
 
@@ -160,34 +160,35 @@ export const joinPage = (): Response =>
   page(200, "Sign in to a shared BigBrain", `${EYEBROW}<h1>Sign in to a shared BigBrain</h1><div class="actions"><a class="cta" href="/join/google">Sign in with Google</a></div><p class="meta">Use the Google account for the address you were invited with.</p>`);
 
 export interface InviteLinkView {
-  /** `<public>/mcp`, for the Claude steps. */
-  connectorUrl: string;
-  /** No Google: the link is also what a member pastes into the sign-in page
-   * Claude opens. With Google, Claude signs in with Google instead, and an
-   * invite link here is an app link from the personal page. */
-  claudeSignIn: boolean;
+  /** `<public>/mcp`, when the server runs the Claude connector and Claude signs in with an invite link. */
+  claude?: string;
 }
 
-/** `/invite` — what an invite (or app) link shows when opened in a browser:
- * how to use it. The HTML is the same for every link and names no vault or
- * person. The secret is in the fragment, which never reaches the server;
- * the page's script reads it, and asks `/invite/check` (which consumes
- * nothing) for the vault's name — so only the holder of a live link sees
- * it, and a spent or expired link says so instead. */
+/** Where the Mac app comes from. */
+const GET_BIGBRAIN = "https://bigbrain.cool/";
+
+/** `/invite` — what an invite link shows when opened in a browser, on every
+ * server: open it in the BigBrain app, or get the app first and come back.
+ * The HTML is the same for every link and names no server or person. The
+ * secret is in the fragment, which never reaches the server; the page's
+ * script hands it to the app (`bigbrain://connect?invite=…`) and asks
+ * `/invite/check` (which consumes nothing) for the server's name, so only
+ * the holder of a live link sees it, and a spent or expired link says so. */
 export function inviteLinkPage(v: InviteLinkView): Response {
+  const open = `<a class="cta" data-open href="bigbrain://connect">Open in BigBrain</a>`;
   const linkField = `<div data-with-link hidden><label for="invite-link">Your invite link</label><div class="copy"><input id="invite-link" type="text" readonly data-href><button class="cta secondary" type="button" data-copy="invite-link" hidden>Copy</button></div></div>
 <p class="meta" data-without-link>Your invite link is this page's full address, including everything after the #.</p>`;
-  const app = `<section aria-labelledby="app"><h2 id="app">To join in the BigBrain app</h2>
-<p>Settings &gt; Shared vaults &gt; Connect vault</p><p class="meta">Paste your invite link when asked.</p></section>`;
-  const claude = `<section aria-labelledby="claude"><h2 id="claude">To join in Claude desktop</h2>
+  const claude = v.claude ? `<section aria-labelledby="claude"><h2 id="claude">This server also works in Claude desktop</h2>
 <p>Settings &gt; Connectors &gt; Add &gt; Add custom connector</p>
-${copyField("connector", "Connector URL", v.connectorUrl)}
-<p class="meta">Then choose Connect, and paste your invite link when asked.</p></section>`;
-  const title = v.claudeSignIn ? "You're invited to a shared BigBrain vault" : "Connect the BigBrain app";
-  const body = `<h1>${title}</h1><p class="lead" id="invite-vault" hidden></p>
+${copyField("connector", "Connector URL", v.claude)}
+<p class="meta">Then choose Connect, and paste your invite link when asked. An invite link works once.</p></section>` : "";
+  const body = `<p class="eyebrow">Invitation</p><h1 id="invite-vault">You're invited to a BigBrain server</h1>
 <p class="notice" data-dead hidden>This invite has been used or has expired. Ask whoever sent it for a new one.</p>
-<div data-live>${linkField}${v.claudeSignIn ? claude : ""}${app}</div>`;
-  return page(200, "Your shared BigBrain invite", body);
+<div data-live>
+<div data-start><div class="actions">${open}</div><p class="meta">Don't have BigBrain yet? <a data-get href="${GET_BIGBRAIN}" target="_blank" rel="noopener">Get it for Mac</a></p></div>
+<ol data-steps hidden><li>Install BigBrain and set up your vault</li><li>Come back and open the invite<div class="actions">${open}</div></li></ol>
+${linkField}<p class="meta">Or paste it in BigBrain: Settings &gt; Servers &gt; + Connect a server</p>${claude}</div>`;
+  return page(200, "Your BigBrain invite", body);
 }
 
 export interface AuthorizeView {
