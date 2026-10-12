@@ -24,7 +24,7 @@ time. Five kinds, and a stage may add more (Types, below):
 | identity | same entity, not the same, copy of, not a copy, this entity is this source | `log/entity-aliases/`, `log/entity-fold-rejects/`, `log/source-copies/`, `log/entity-sources/` |
 | decline | nothing here worth asserting, because… | `log/declines/` |
 | retraction | withdraws an assertion of any kind | `log/revocations/` |
-| inclusion | this source is in, or out of, this lens: a model's verdict on the lens's rule, with its score, or a person's thumbs up or down | `~/.config/bigbrain/inclusion-rules/`, outside the vault |
+| inclusion | this source is in, or out of, this lens: a model's verdict on the lens's rule, with its score, or a person's thumbs up or down | `~/.config/bigbrain/lenses/` and `inclusion-scores/`, outside the vault |
 
 - An assertion is live until a retraction names it.
 - A source is **settled** for a stage when a live assertion of a kind that
@@ -91,6 +91,12 @@ and is one of two kinds.
 needs a model's judgment splits in two: a stage that judges and records,
 and a view that applies what was recorded.
 
+A stage writes to the **record** when anything must agree on its output:
+another stage reads it, or it decides what a server receives. Otherwise it
+writes to a **memo**, a cache keyed by the stage's version and its input's
+content hash, whose loss costs only asking again (a note's briefing). No
+stage reads a memo as input.
+
 Everything the UI shows is a view:
 
 | The UI shows | The view | Over |
@@ -112,11 +118,13 @@ The stages:
 What breaks the rule today:
 
 - **Lens membership.** A model scores each source against the lens's rule,
-  and its verdicts, with the person's thumbs up and down, are kept in a
-  file on one machine, outside the vault (`lib/inclusionPolicy.ts`).
-  Moving the vault or opening it elsewhere loses them. They become
-  inclusion assertions in the vault, and a lens's members a view over them
-  (step 4).
+  and its verdicts, with the person's thumbs up and down, are kept on one
+  machine, outside the vault (`lib/lenses.ts`), and the members are
+  overwritten each pass and read back as input. Moving the vault orphans
+  them. They become inclusion assertions, and a lens's members a view over
+  them (step 4). `lenses-and-servers.md` decided that lenses live on your
+  computer; whether they move into the vault is decided in the refactor
+  plan.
 - **Layout** starts from the previous layout, and the saved layout is
   state (step 5).
 
@@ -234,10 +242,10 @@ one commit in the vault. Counts are from the large vault's copy.
    source", each repeating a field of the source it cites) and
    `log/goal-assertions/` (2,492 old per-source gardening records nothing
    reads).
-5. **Lens verdicts into the vault.** Each label in a lens's rule file
-   (`~/.config/bigbrain/inclusion-rules/`) becomes an inclusion assertion
-   citing its source: the model's with its score, the person's authored
-   by the owner. The files go.
+5. **Lens verdicts into the vault**, if they move there. Each rating, pin
+   and exclusion in a lens's file (`~/.config/bigbrain/lenses/`) becomes an
+   inclusion assertion citing its source, authored by the owner; the
+   scores land as one assertion per lens. The files go.
 
 No assertion in the large vault uses the old exact-quote citations, so that
 format and its decode go too (#231's last item), once the other vaults are
@@ -248,7 +256,7 @@ checked.
 - The separate identity, decline and revocation logs and their readers.
 - The markdown projection for everything but `memory/`.
 - #240's lens rule (any cited note counts) and fading in place.
-- Lens verdicts kept outside the vault (`inclusion-rules/`).
+- Lens verdicts and members kept outside the vault (`lib/lenses.ts`).
 - `legacyShape`, and every fold over the retired logs' shapes.
 - #249's separate server-field code, and the per-window polling in
   `lib/sharedWorkspace.ts`.
@@ -257,6 +265,8 @@ checked.
 - #251's scoped-summary special cases.
 
 ## Order of work
+
+`2026-10-12-stages-and-views-refactor.md` breaks these steps into PRs.
 
 0. Merge main up through the stack (#235 to #254 conflict with it in ten
    files).
