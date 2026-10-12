@@ -53,7 +53,7 @@ export interface PluginRefresh {
 import type { SubscriptionStatus } from "../../../../lib/providerConnection";
 export type { SubscriptionStatus, SubscriptionProvider } from "../../../../lib/providerConnection";
 export interface SetupState {
-  onboarding?:"vault"|"providers"|"integrations"|"clients"|"analytics"|"complete";
+  onboarding?:"vault"|"providers"|"integrations"|"clients"|"analytics"|"complete"|"reader";
   chatgpt?: SubscriptionStatus;
   anthropic?: SubscriptionStatus;
   codex?: { supported?: boolean; installed: string | false; account: string | null; connected: boolean; everConnected?: boolean; plugin: string | null; connectionStage?: "models" | "plugin" | "saving" };
@@ -100,7 +100,8 @@ export interface SetupState {
 export const vaultSetupDone = (s: SetupState): boolean =>
   s.vault !== null && s.identity !== null && (!!s.claude.connected || s.agent !== null || !!s.chatgpt?.connected || !!s.anthropic?.connected || !!s.codex?.connected || !!s.codex?.everConnected);
 
-export const setupDone = (s:SetupState):boolean => vaultSetupDone(s) && (!s.onboarding || s.onboarding === "complete");
+/** Done: set up, or joined a server to read it, with nothing yet to run the gardener (D5). */
+export const setupDone = (s:SetupState):boolean => (vaultSetupDone(s) && (!s.onboarding || s.onboarding === "complete")) || (s.onboarding === "reader" && s.vault !== null);
 
 /** Is a Claude Code connected right now? */
 export const agentLive = (s: SetupState): boolean => s.agent !== null && s.agent.revoked === null;
@@ -152,6 +153,14 @@ export async function pickVault(path: string): Promise<SetupState> {
   });
   if (!r.ok) throw new Error(`could not use that folder (${r.status})`);
   return (await r.json()) as SetupState;
+}
+
+/** First run's "Join a server": redeem the link, with a vault made quietly if there is none. */
+export async function joinServer(invite: string): Promise<SetupState> {
+  const r = await fetch("/api/setup/join", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ invite: invite.trim() }) });
+  const value = await r.json();
+  if (!r.ok) throw new Error(value.error ?? "Could not join.");
+  return value as SetupState;
 }
 
 /** Say who this vault is about. Appends the declaration — the person's own
