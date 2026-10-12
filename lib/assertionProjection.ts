@@ -1328,28 +1328,30 @@ export interface GraphEvidenceRow { grp: string; pos: number; a: string; b: stri
 export function saveGraphEvidence(root: string, revision: string, rows: readonly GraphEvidenceRow[]): void {
   const runs = new Map<string, GraphEvidenceRow[]>();
   for (const r of rows) { const run = runs.get(r.grp); if (run) run.push(r); else runs.set(r.grp, [r]); }
-  const db = new Database(assertionDbPath(root));
-  try {
-    db.run("PRAGMA busy_timeout = 5000");
-    db.transaction(() => {
-      const held = (db.query("SELECT v FROM meta WHERE k = 'graph_evidence_revision'").get() as { v: string } | null)?.v.split(":");
-      const [generation, at] = revision.split(":");
-      if (held && held[0] === generation && Number(held[1]) > Number(at)) return;
-      const hashes = new Map((db.query("SELECT grp, hash FROM graph_evidence_runs").all() as { grp: string; hash: string }[]).map((r) => [r.grp, r.hash]));
-      const clear = db.query("DELETE FROM graph_evidence WHERE grp = ?"), forget = db.query("DELETE FROM graph_evidence_runs WHERE grp = ?");
-      const put = db.query("INSERT INTO graph_evidence(grp, pos, a, b, assertion, path, link) VALUES (?, ?, ?, ?, ?, ?, ?)");
-      const mark = db.query("INSERT OR REPLACE INTO graph_evidence_runs(grp, hash) VALUES (?, ?)");
-      for (const [grp, run] of runs) {
-        const hash = Bun.hash(JSON.stringify(run.map((r) => [r.a, r.b, r.assertion, r.path, r.link]))).toString(36);
-        if (hashes.get(grp) === hash) continue;
-        clear.run(grp);
-        for (const r of run) put.run(grp, r.pos, r.a, r.b, r.assertion, r.path, r.link);
-        mark.run(grp, hash);
-      }
-      for (const grp of hashes.keys()) if (!runs.has(grp)) { clear.run(grp); forget.run(grp); }
-      db.query("INSERT OR REPLACE INTO meta(k, v) VALUES ('graph_evidence_revision', ?)").run(revision);
-    }).immediate();
-  } finally { db.close(); }
+  withProjectionWrite(root, () => {
+    const db = new Database(assertionDbPath(root));
+    try {
+      db.run("PRAGMA busy_timeout = 5000");
+      db.transaction(() => {
+        const held = (db.query("SELECT v FROM meta WHERE k = 'graph_evidence_revision'").get() as { v: string } | null)?.v.split(":");
+        const [generation, at] = revision.split(":");
+        if (held && held[0] === generation && Number(held[1]) > Number(at)) return;
+        const hashes = new Map((db.query("SELECT grp, hash FROM graph_evidence_runs").all() as { grp: string; hash: string }[]).map((r) => [r.grp, r.hash]));
+        const clear = db.query("DELETE FROM graph_evidence WHERE grp = ?"), forget = db.query("DELETE FROM graph_evidence_runs WHERE grp = ?");
+        const put = db.query("INSERT INTO graph_evidence(grp, pos, a, b, assertion, path, link) VALUES (?, ?, ?, ?, ?, ?, ?)");
+        const mark = db.query("INSERT OR REPLACE INTO graph_evidence_runs(grp, hash) VALUES (?, ?)");
+        for (const [grp, run] of runs) {
+          const hash = Bun.hash(JSON.stringify(run.map((r) => [r.a, r.b, r.assertion, r.path, r.link]))).toString(36);
+          if (hashes.get(grp) === hash) continue;
+          clear.run(grp);
+          for (const r of run) put.run(grp, r.pos, r.a, r.b, r.assertion, r.path, r.link);
+          mark.run(grp, hash);
+        }
+        for (const grp of hashes.keys()) if (!runs.has(grp)) { clear.run(grp); forget.run(grp); }
+        db.query("INSERT OR REPLACE INTO meta(k, v) VALUES ('graph_evidence_revision', ?)").run(revision);
+      }).immediate();
+    } finally { db.close(); }
+  });
 }
 
 /** A generation changes on rebuild; revision advances for record/content changes.
