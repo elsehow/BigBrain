@@ -86,7 +86,9 @@ import { withProjectionWrite } from "./projectionWriteLock";
 // 20: narrow apart from wide — source headers and arrival identity in
 //     `sources`, each whole event once in `source_documents`; Markdown
 //     headers in `markdown_documents`, documents in `markdown_bodies`.
-const SCHEMA_VERSION = "20";
+// 21: the change log — what each revision changed, written in its commit
+//     (docs/plans/2026-10-10-change-log.md).
+const SCHEMA_VERSION = "21";
 
 export interface AssertionSearchHit {
   id: string;
@@ -139,6 +141,13 @@ export function assertionDbPath(root: string): string {
 
 function schema(db: Database): void {
   db.run("CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT NOT NULL)");
+  // What moved each revision, written in the same transaction that moved it:
+  // the projection's commits as one ordered stream, for readers that want
+  // what changed rather than that something did.
+  db.run(`CREATE TABLE IF NOT EXISTS changes (
+    revision INTEGER NOT NULL, kind TEXT NOT NULL, id TEXT NOT NULL, op TEXT NOT NULL,
+    PRIMARY KEY (revision, kind, id)
+  ) WITHOUT ROWID`);
   db.run("CREATE TABLE IF NOT EXISTS read_feed (position INTEGER PRIMARY KEY, source TEXT, row_json TEXT NOT NULL)");
   db.run("CREATE INDEX IF NOT EXISTS read_feed_source ON read_feed(source, position)");
   // Narrow apart from wide (schema 20): a header read never walks a body.
@@ -339,6 +348,21 @@ function openReadonly(root: string): Database {
 
 const encoded = (value: unknown): string => JSON.stringify(value);
 
+/** What a revision changed: an event projected (`add`), a source retracted or
+ * restored by hand (`remove`/`add`), a note created, edited or deleted. */
+export type ChangeKind = "source" | "assertion" | "decline" | "revocation" | "alias" | "entity_source" | "copy" | "markdown";
+export interface ProjectionChange { revision: number; kind: ChangeKind; id: string; op: "add" | "edit" | "remove" }
+
+/** Advance the revision and log what advanced it, in the caller's
+ * transaction — the only way the revision moves, so the log is the commit
+ * order: one revision per commit, every row of it named. */
+function commitChanges(db: Database, changes: ReadonlyArray<Omit<ProjectionChange, "revision">>): void {
+  if (!changes.length) return;
+  db.run("UPDATE meta SET v = CAST(v AS INTEGER) + 1 WHERE k = 'revision'");
+  const row = db.query("INSERT INTO changes(revision, kind, id, op) SELECT CAST(v AS INTEGER), ?, ?, ? FROM meta WHERE k = 'revision'");
+  for (const { kind, id, op } of changes) row.run(kind, id, op);
+}
+
 /** Project one event exactly once, in a transaction. Every kind is the same
  * shape: the event's own table already holds its id or it does not; holding a
  * DIFFERENT event under an id already projected is a collision, because these
@@ -348,6 +372,7 @@ const encoded = (value: unknown): string => JSON.stringify(value);
  * an alias refold. Returns whether the event was new. */
 function insertOnce<T>(
   db: Database,
+  kind: ChangeKind,
   table: string,
   idColumn: string,
   id: string,
@@ -365,7 +390,7 @@ function insertOnce<T>(
       return;
     }
     insert(eventJson);
-    db.run("UPDATE meta SET v = CAST(v AS INTEGER) + 1 WHERE k = 'revision'");
+    commitChanges(db, [{ kind, id, op: "add" }]);
     inserted = true;
   })();
   return inserted;
@@ -377,7 +402,7 @@ function insertSourceRow(db: Database, source: SourceInsertion): boolean {
   const klass = classifyIntake(facts);
   // null is a record — the feed's word for the same row (lib/sourceFeed.ts)
   const { excerpt, intakePriority: priority, ...metadata } = sourceSummary(source);
-  return insertOnce(db, "source_documents", "insertion_id", source.id, source, (eventJson) => {
+  return insertOnce(db, "source", "source_documents", "insertion_id", source.id, source, (eventJson) => {
     db.query("INSERT INTO source_documents(insertion_id, event_json) VALUES (?, ?)").run(source.id, eventJson);
     db.query(`INSERT INTO sources(
       insertion_id, source_id, title, occurred_at, received_at, content_sha256, header_json, excerpt, prose_chars,
@@ -420,7 +445,7 @@ function referencedSources(db: Database, event: AssertionEvent): Map<string, Sou
 
 function insertAssertionRow(db: Database, event: AssertionEvent): boolean {
   validateAssertionEvidence(event, referencedSources(db, event));
-  return insertOnce(db, "assertions", "id", event.id, event, (eventJson) => {
+  return insertOnce(db, "assertion", "assertions", "id", event.id, event, (eventJson) => {
     db.query(`INSERT INTO assertions(
       id, text, author_kind, author_id, author_invocation_id, confidence, created_at, production_json, event_json,
       supersedes
@@ -460,7 +485,7 @@ function insertDeclineRow(db: Database, event: DeclineEvent): boolean {
     const held = db.query("SELECT insertion_id FROM sources WHERE insertion_id = ?").get(ref.insertion_id);
     if (!held) throw new Error(`assertion-projection: declined insertion is not projected: ${ref.insertion_id}`);
   }
-  return insertOnce(db, "declines", "decline_id", event.id, event, (eventJson) => {
+  return insertOnce(db, "decline", "declines", "decline_id", event.id, event, (eventJson) => {
     for (const ref of event.insertions) {
       db.query(`INSERT INTO declines(decline_id, insertion_id, source_id, reason, created_at, event_json)
         VALUES (?, ?, ?, ?, ?, ?)`).run(
@@ -479,7 +504,7 @@ function insertRevocationRow(db: Database, event: RevocationEvent): boolean {
   if (!target) throw new Error(`assertion-projection: revoked assertion is not projected: ${event.assertion_id}`);
   if (event.superseded_by && !db.query("SELECT 1 FROM assertions WHERE id = ?").get(event.superseded_by))
     throw new Error(`assertion-projection: superseding assertion is not projected: ${event.superseded_by}`);
-  return insertOnce(db, "revocations", "id", event.id, event, (eventJson) => {
+  return insertOnce(db, "revocation", "revocations", "id", event.id, event, (eventJson) => {
     db.query(`INSERT INTO revocations(id, assertion_id, superseded_by, reason, created_at, event_json)
       VALUES (?, ?, ?, ?, ?, ?)`).run(
       event.id, event.assertion_id, event.superseded_by ?? null, event.reason, event.created_at, eventJson
@@ -561,7 +586,7 @@ function refoldEntityAliases(db: Database): void {
 
 function insertEntityAliasRow(db: Database, event: EntityAliasEvent): boolean {
   validateEntityAliasEvent(event);
-  return insertOnce(db, "entity_alias_events", "id", event.id, event, (eventJson) => {
+  return insertOnce(db, "alias", "entity_alias_events", "id", event.id, event, (eventJson) => {
     db.query("INSERT INTO entity_alias_events(id, event_json) VALUES (?, ?)").run(event.id, eventJson);
     refoldEntityAliases(db);
   });
@@ -569,14 +594,14 @@ function insertEntityAliasRow(db: Database, event: EntityAliasEvent): boolean {
 
 function insertEntitySourceRow(db: Database, event: EntitySourceEvent): boolean {
   validateEntitySourceEvent(event);
-  return insertOnce(db, "entity_source_events", "id", event.id, event, (eventJson) => {
+  return insertOnce(db, "entity_source", "entity_source_events", "id", event.id, event, (eventJson) => {
     db.query("INSERT INTO entity_source_events(id, event_json) VALUES (?, ?)").run(event.id, eventJson);
   });
 }
 
 function insertSourceCopyRow(db: Database, event: SourceCopyEvent): boolean {
   validateSourceCopyEvent(event);
-  return insertOnce(db, "source_copy_events", "id", event.id, event, (eventJson) => {
+  return insertOnce(db, "copy", "source_copy_events", "id", event.id, event, (eventJson) => {
     db.query("INSERT INTO source_copy_events(id, event_json) VALUES (?, ?)").run(event.id, eventJson);
   });
 }
@@ -853,7 +878,7 @@ export function syncMarkdownProjection(root: string): void {
 function reconcileMarkdown(db: Database, root: string): void {
   const files = markdownInventory(root);
   const held = new Map((db.query("SELECT path, stamp FROM markdown_documents").all() as { path: string; stamp: string }[]).map(d => [d.path, d.stamp]));
-  let changed = false;
+  const moved: Omit<ProjectionChange, "revision">[] = [];
   for (const [path, stamp] of files) {
     if (held.get(path) === stamp) continue;
     const body = readMarkdownNote(root, path);
@@ -863,15 +888,15 @@ function reconcileMarkdown(db: Database, root: string): void {
     db.query("INSERT OR REPLACE INTO markdown_bodies(path,document_json) VALUES (?,?)").run(path, JSON.stringify(doc));
     db.query("INSERT OR REPLACE INTO document_links(path,hash,links_json,citations_json) VALUES (?,?,?,?)")
       .run(`markdown:${path}`, stamp, JSON.stringify(links.links), JSON.stringify(links.citations));
-    changed = true;
+    moved.push({ kind: "markdown", id: path, op: held.has(path) ? "edit" : "add" });
   }
   for (const path of held.keys()) if (!files.has(path)) {
     db.query("DELETE FROM markdown_documents WHERE path = ?").run(path);
     db.query("DELETE FROM markdown_bodies WHERE path = ?").run(path);
     db.query("DELETE FROM document_links WHERE path = ?").run(`markdown:${path}`);
-    changed = true;
+    moved.push({ kind: "markdown", id: path, op: "remove" });
   }
-  if (changed) db.run("UPDATE meta SET v = CAST(v AS INTEGER) + 1 WHERE k = 'revision'");
+  commitChanges(db, moved);
 }
 
 /** Group compact metadata once per source batch, in the same transaction as
@@ -906,10 +931,11 @@ function reconcile(db: Database, root: string): AssertionProjectionStats {
       // Retractions hide openable sources, but retain validated evidence for
       // assertions already projected. Replaying would reject those assertions.
       const ids = JSON.stringify(files.map(file => file.id));
-      const { changes } = db.query(`UPDATE sources SET present = insertion_id IN (SELECT value FROM json_each(?))
-        WHERE present != (insertion_id IN (SELECT value FROM json_each(?)))`).run(ids, ids);
-      if (changes) {
-        db.run("UPDATE meta SET v = CAST(v AS INTEGER) + 1 WHERE k = 'revision'");
+      const flipped = db.query(`UPDATE sources SET present = insertion_id IN (SELECT value FROM json_each(?))
+        WHERE present != (insertion_id IN (SELECT value FROM json_each(?))) RETURNING insertion_id AS id, present`)
+        .all(ids, ids) as { id: string; present: number }[];
+      if (flipped.length) {
+        commitChanges(db, flipped.map(f => ({ kind: "source", id: f.id, op: f.present ? "add" : "remove" })));
         db.run("INSERT OR REPLACE INTO meta(k,v) VALUES ('threads_dirty','1')");
       }
     }
@@ -1006,6 +1032,25 @@ export function rebuildAssertionProjection(root: string): AssertionProjectionSta
   });
   markRecovered(root);
   return stats;
+}
+
+/** What the projection committed after `since` (a `generation:revision`, as
+ * projectionRevision names one), in commit order, with the coordinate it reads
+ * up to. Undefined when `since` is another generation, ahead of this one, or
+ * older than the rows kept: the reader starts again from a snapshot. */
+export function projectionChangesSince(root: string, since: string, db?: Database): { revision: string; changes: ProjectionChange[] } | undefined {
+  return reading(root, db, (handle) => {
+    const at = projectionRevision(root, handle);
+    if (!at) return undefined;
+    const [generation, revision] = at.split(":"), [sinceGeneration, sinceRevision] = since.split(":");
+    const from = Number(sinceRevision), to = Number(revision);
+    if (sinceGeneration !== generation || !Number.isSafeInteger(from) || from > to) return undefined;
+    const oldest = (handle.query("SELECT min(revision) AS r FROM changes").get() as { r: number | null }).r;
+    if (from < to && (oldest === null || oldest > from + 1)) return undefined;
+    const changes = handle.query("SELECT revision, kind, id, op FROM changes WHERE revision > ? AND revision <= ? ORDER BY revision, kind, id")
+      .all(from, to) as ProjectionChange[];
+    return { revision: at, changes };
+  });
 }
 
 /** A generation changes on rebuild; revision advances for record/content changes.
