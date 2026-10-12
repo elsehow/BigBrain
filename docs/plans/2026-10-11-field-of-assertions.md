@@ -35,6 +35,16 @@ time. Four kinds:
   (`.state/entity-folds.json`) stay derived state, and settling one writes
   an identity assertion.
 
+**Exact duplicates land once.** Each source also carries a hash of its
+content alone: its body and its attachments' hashes, without the
+envelope. Today the envelope, with its `received:` time, is part of a
+source's id, so the same note dropped twice lands twice, and copy
+detection only finds the pair later for a model or you to judge. The door
+checks the content hash: an arrival whose content the record already
+holds lands nothing and is answered with the source already there. Exact
+duplicates already in a vault are not rewritten; each pair gets a "copy
+of" assertion made by the system, proven by the hash.
+
 Not the record: run journals (`journal/`), `memory/` (the memory pass's
 output, drawn in your own field only) and `.state/` (disposable).
 
@@ -149,11 +159,13 @@ checked.
    files).
 1. Assertion kinds in the schema and the projection; new writes use them,
    and the old logs are still read.
-2. Migrations 1–4, with consent, each proven on the scratch copy; then the
+2. The content hash at the door, and "copy of" assertions for the
+   exact duplicates already in a vault.
+3. Migrations 1–4, with consent, each proven on the scratch copy; then the
    old readers go.
-3. Scopes: the graph from a set of assertion ids; lenses by "all"; a
+4. Scopes: the graph from a set of assertion ids; lenses by "all"; a
    server as its own scope.
-4. Layout: seats in `added` order with the local settle, for every scope.
-5. Servers held locally through their feeds; pushes from the change log.
-6. The shared server accepts identity assertions; publishing sends them.
-7. Graph deltas: per-assertion updates, and pushes that carry only them.
+5. Layout: seats in `added` order with the local settle, for every scope.
+6. Servers held locally through their feeds; pushes from the change log.
+7. The shared server accepts identity assertions; publishing sends them.
+8. Graph deltas: per-assertion updates, and pushes that carry only them.
