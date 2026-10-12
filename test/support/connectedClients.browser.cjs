@@ -37,7 +37,6 @@ const base=process.env.SIDEBAR_PREVIEW_URL||'http://127.0.0.1:5219';
  assert.equal(await replacement.getByRole('region',{name:'Client setup'}).count(),0);
  await legacy.waitFor({state:'detached'});
  await page.screenshot({path:'/tmp/bb-connected-clients.png'});
- assert.equal(await page.locator('.rail').getByRole('button',{name:'connected agents',exact:true}).count(),0);
  assert.equal(await page.getByRole('button',{name:'Configure Codex settings',exact:true}).count(),0);
  await page.goto(`${base}/sidebar-workbench.html?same-name-clients=1#/settings/connected-clients`);
  const direct=page.locator('.settings-card').filter({hasText:'Connection 44444444'});
@@ -58,7 +57,7 @@ const base=process.env.SIDEBAR_PREVIEW_URL||'http://127.0.0.1:5219';
  await migrated.getByText('Authorized',{exact:true}).waitFor();
  assert.equal(await page.getByRole('heading',{name:'Claude Code',exact:true}).count(),2,'revoking one credential preserves the other');
  await page.setViewportSize({width:1280,height:1000});
- // lapsed connections a client tried share ONE notice, which opens Connected clients
+ // lapsed connections a client tried share ONE notice, which opens Connected agents
  await page.goto(`${base}/sidebar-workbench.html?expired-clients=1#/integrations`);
  const notices=page.locator('[data-notice-kind="connection"]');
  await notices.first().waitFor();
@@ -66,8 +65,8 @@ const base=process.env.SIDEBAR_PREVIEW_URL||'http://127.0.0.1:5219';
  const several=notices.first();
  assert.equal(await several.getByRole('heading').innerText(),'BigBrain connections expired');
  await several.getByText('Claude Code at the studio and claude code on sample laptop. Clients tried to use them; renew to restore the same access.',{exact:true}).waitFor();
- assert.deepEqual(await several.getByRole('button').allInnerTexts(),['Open Connected clients','Clear']);
- await several.getByRole('button',{name:'Open Connected clients',exact:true}).click();
+ assert.deepEqual(await several.getByRole('button').allInnerTexts(),['Open Connected agents','Clear']);
+ await several.getByRole('button',{name:'Open Connected agents',exact:true}).click();
  await page.getByText('Existing connections',{exact:true}).waitFor();
  const lapsed=page.locator('.settings-card').filter({hasText:'Claude Code at the studio'});
  await lapsed.getByText('Expired after 30 days unused',{exact:true}).waitFor();

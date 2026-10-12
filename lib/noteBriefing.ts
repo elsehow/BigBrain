@@ -15,6 +15,7 @@ import { json, readBody, type Route } from "./httpx";
 import { modelErrText } from "./errText";
 import { loadManifest } from "./manifest";
 import { type ConnectionEvidence } from "./markdownGraph";
+import type { Graph } from "./graph";
 
 export interface BriefingEvidence extends ConnectionEvidence { selected?: string[] }
 export interface BriefingConnection {
@@ -36,13 +37,18 @@ export interface NoteBriefing {
   links: Array<BriefingConnection & { description?: string }>;
   costUsd?: number;
 }
-export type NoteBriefingRequest = string | (GraphViewState & { purpose?: "unread" });
+/** What a briefing may read in place of the whole vault: a lens's claims, or
+ * one server's own record (lib/sharedReadUnion.ts serverBriefingRecord). */
+export type BriefingScope = { lens: string } | { server: string };
+export type NoteBriefingRequest = string | (GraphViewState & { purpose?: "unread"; scope?: BriefingScope });
+/** A scope that reads only these claims: no memory passages, no links between notes. */
+export const claimsOnly = (claims: ReadonlySet<string>) => (e: ConnectionEvidence) => !!e.assertion && !e.path && claims.has(e.assertion);
 
 /** Claims about an entity from beyond this vault (the joined shared vaults,
  * lib/sharedReadUnion.ts), by entity id: read alongside its own. */
 export type OtherClaims = ReadonlyMap<string, readonly ProjectedEntityAssertion[]>;
 
-function readBriefingItem(root: string, path: string, graph: ReturnType<typeof assertionGraphEvidenceCached>["graph"], others?: OtherClaims): BriefingItem {
+function readBriefingItem(root: string, path: string, graph: ReturnType<typeof assertionGraphEvidenceCached>["graph"], others?: OtherClaims, keep?: (e: ConnectionEvidence) => boolean): BriefingItem {
   const selected = graph.nodes[findNode(graph.nodes, path)];
   const resolvedPath = selected?.path ?? path;
   const note = resolveNote(root, resolvedPath, { source: sourceInsertionCached, markdown: path => {
@@ -52,8 +58,10 @@ function readBriefingItem(root: string, path: string, graph: ReturnType<typeof a
   if (!note || note.kind === "session") throw new Error("This note is not available for a briefing.");
   const node = graph.nodes[findNode(graph.nodes, note.id)];
   const id = node?.id ?? note.id;
-  const withOthers = (entity: ProjectedEntityView): ProjectedEntityView =>
-    others?.get(entity.id)?.length ? { ...entity, assertions: [...entity.assertions, ...others.get(entity.id)!] } : entity;
+  const withOthers = (entity: ProjectedEntityView): ProjectedEntityView => {
+    const all = [...entity.assertions, ...others?.get(entity.id) ?? []];
+    return { ...entity, assertions: keep ? all.filter(a => keep({ assertion: a.id, text: a.text })) : all };
+  };
   const text = note.kind === "entity" ? briefingEvidence(withOthers(note.entity)).map(a => `${a.created_at} (${a.confidence}${a.vault ? `, from the shared vault ${a.vault.name}` : ""}) ${a.text}`).join("\n")
     : note.kind === "thread" ? note.thread.members.map(s => `${s.title}\n${s.body}`).join("\n\n")
     : note.kind === "source" ? note.source.body : note.markdown.raw;
@@ -61,14 +69,26 @@ function readBriefingItem(root: string, path: string, graph: ReturnType<typeof a
     : note.kind === "thread" || note.kind === "source" ? "source" : "markdown", text: text.slice(0, 16_000), revision: sha256hex(text) };
 }
 
-export function noteBriefingInput(root: string, request: NoteBriefingRequest, others?: OtherClaims): NoteBriefingInput {
-  return withVaultSnapshot(root, () => briefingInputFromSnapshot(root, request, others));
+/** What a briefing reads: a graph, the claim or passage behind each of its
+ * ties, and a selected item's own text. */
+export interface BriefingRecord {
+  graph: Graph;
+  connections: ReadonlyArray<{ from: string; to: string; evidence: ConnectionEvidence }>;
+  item: (key: string) => BriefingItem;
 }
 
-function briefingInputFromSnapshot(root: string, request: NoteBriefingRequest, others?: OtherClaims): NoteBriefingInput {
-  const { graph, connections: observed } = assertionGraphEvidenceCached(root);
+/** `keep`: the evidence a scope allows (claimsOnly); everything else is read as if it weren't there. */
+export function noteBriefingInput(root: string, request: NoteBriefingRequest, others?: OtherClaims, keep?: (e: ConnectionEvidence) => boolean): NoteBriefingInput {
+  return withVaultSnapshot(root, () => {
+    const { graph, connections } = assertionGraphEvidenceCached(root);
+    return briefingInput({ graph, connections: keep ? connections.filter(c => keep(c.evidence)) : connections,
+      item: key => readBriefingItem(root, key, graph, others, keep) }, request);
+  });
+}
+
+export function briefingInput({ graph, connections: observed, item }: BriefingRecord, request: NoteBriefingRequest): NoteBriefingInput {
   const state = canonicalGraphView(graph.nodes, typeof request === "string" ? { selected: [request], excluded: [] } : request);
-  const items = state.selected.map(id => readBriefingItem(root, id, graph, others)).filter(item => !isUserNode(item, graph.userNote));
+  const items = state.selected.map(item).filter(item => !isUserNode(item, graph.userNote));
   if (!items.length) throw new Error("Choose at least one note for a briefing.");
   const selected = new Set(items.map(item => item.id));
   const links: BriefingConnection[] = contextConnections(graph, [...selected], state.excluded, Object.fromEntries(items.map(item => [item.id, item.text]))).flatMap(({ node, selected }) =>
@@ -236,8 +256,8 @@ export function noteBriefingPreview(text: string): string | undefined {
 }
 
 /** Where a selection's briefing is cached, keyed by membership alone. */
-export function briefingCacheFile(root: string, ids: string[], excluded: string[], purpose?: string): string {
-  return join(root, ".state", "note-briefings", `${sha256hex(JSON.stringify([ids, excluded, purpose]))}.json`);
+export function briefingCacheFile(root: string, ids: string[], excluded: string[], purpose?: string, scope?: BriefingScope): string {
+  return join(root, ".state", "note-briefings", `${sha256hex(JSON.stringify(scope ? [ids, excluded, purpose, scope] : [ids, excluded, purpose]))}.json`);
 }
 
 export type NoteBriefingEvent = { type: "preview"; text: string } | { type: "complete"; briefing: NoteBriefing } | { type: "error"; error: string };
@@ -249,10 +269,10 @@ export const requestedEntities = (request: NoteBriefingRequest): string[] =>
 /** The briefing's input, read once the record is warm; `others` fetches what
  * lies beyond this vault about the entities it names. */
 export async function readNoteBriefingInput(root: string, request: NoteBriefingRequest,
-  others?: (ids: string[]) => Promise<OtherClaims>): Promise<NoteBriefingInput> {
+  others?: (ids: string[]) => Promise<OtherClaims>, keep?: (e: ConnectionEvidence) => boolean): Promise<NoteBriefingInput> {
   await assertionGraphEvidenceAsync(root);
   const ids = requestedEntities(request);
-  return noteBriefingInput(root, request, others && ids.length ? await others(ids) : undefined);
+  return noteBriefingInput(root, request, others && ids.length ? await others(ids) : undefined, keep);
 }
 
 export function createNoteBriefingService(run: BriefingModel = runBriefingModel,
@@ -260,13 +280,13 @@ export function createNoteBriefingService(run: BriefingModel = runBriefingModel,
   const pending = new Map<string, { promise: Promise<NoteBriefing>; preview: string; listeners: Set<(text: string) => void> }>();
   return async (root: string, request: NoteBriefingRequest, onPreview: (text: string) => void = () => {}, signal?: AbortSignal): Promise<NoteBriefing> => {
     const full = await read(root, request);
-    const purpose = typeof request === "string" ? undefined : request.purpose;
+    const purpose = typeof request === "string" ? undefined : request.purpose, scope = typeof request === "string" ? undefined : request.scope;
     const today = purpose === "unread" ? new Date().toISOString().slice(0, 10) : undefined;
     const quick = loadManifest(root).quick;
     // Include the whole connection/evidence set, even passages shortened for
     // the prompt: additions, removals and corrections invalidate this view.
     const key = sha256hex(JSON.stringify([14, DESCRIBED_LINKS, quick.adapter, quick.provider, quick.model, quick.reasoning, purpose, today, full]));
-    const file = briefingCacheFile(root, full.items.map(item => item.id), full.excluded, purpose);
+    const file = briefingCacheFile(root, full.items.map(item => item.id), full.excluded, purpose, scope);
     try {
       const cached = JSON.parse(readFileSync(file, "utf8"));
       if (cached.key === key && typeof cached.summary === "string" && Array.isArray(cached.links)) {
@@ -326,10 +346,14 @@ export function noteBriefingRoutes(root: string, generate = createNoteBriefingSe
       try {
         const body = JSON.parse(await readBody(req, 65_536));
         const keys = (value: unknown): value is string[] => Array.isArray(value) && value.every(key => typeof key === "string" && key.length > 0 && key.length <= 2048);
-        const request: NoteBriefingRequest | undefined = typeof body?.path === "string" ? body.path
-          : keys(body?.selected) && body.selected.length > 0 && keys(body.excluded ?? [])
-            ? { selected: body.selected, excluded: body.excluded ?? [], ...(body.purpose === "unread" ? { purpose: "unread" as const } : {}) } : undefined;
-        if (!request) return json(res, 400, { error: "Choose one or more notes for a briefing." });
+        const scope: BriefingScope | undefined | null = body?.scope === undefined ? undefined
+          : typeof body.scope?.lens === "string" && /^lens_[a-f0-9]{12}$/.test(body.scope.lens) ? { lens: body.scope.lens }
+          : typeof body.scope?.server === "string" && body.scope.server.length > 0 && body.scope.server.length <= 200 ? { server: body.scope.server } : null;
+        const view: GraphViewState | undefined = typeof body?.path === "string" ? { selected: [body.path], excluded: [] }
+          : keys(body?.selected) && body.selected.length > 0 && keys(body.excluded ?? []) ? { selected: body.selected, excluded: body.excluded ?? [] } : undefined;
+        if (!view || scope === null) return json(res, 400, { error: "Choose one or more notes for a briefing." });
+        const request: NoteBriefingRequest = typeof body.path === "string" && !scope ? body.path
+          : { ...view, ...(body.purpose === "unread" ? { purpose: "unread" as const } : {}), ...(scope ? { scope } : {}) };
         streaming = body.stream === true;
         if (streaming) { res.writeHead(200, { "content-type": "application/x-ndjson; charset=utf-8", "cache-control": "no-store" }); res.flushHeaders(); }
         const briefing = await generate(root, request, text => { if (streaming) emit({ type: "preview", text }); }, controller.signal);

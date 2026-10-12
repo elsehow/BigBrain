@@ -20,7 +20,7 @@
     startUpdateChecks();
     const unavailable = () => {
       sharedWorkspace.ready = false;
-      sharedWorkspace.error = "The shared vault is unavailable. Reconnecting…";
+      sharedWorkspace.error = "The server is unavailable. Reconnecting…";
     };
     window.addEventListener("shared-unavailable", unavailable);
     void checkSharedWorkspace();
@@ -39,7 +39,7 @@
   </FirstRunGate>
 {:else}
   <div style="padding: 32px; color: var(--text); font: var(--type-meta)">
-    <p role="status">{sharedWorkspace.error || "Connecting to shared vault…"}</p>
+    <p role="status">{sharedWorkspace.error || "Connecting to server…"}</p>
     {#if sharedWorkspace.error}<button onclick={() => void checkSharedWorkspace()}>Retry</button> <button onclick={leaveWorkspace}>Your vault</button>{/if}
   </div>
 {/if}

@@ -1,7 +1,10 @@
 <script lang="ts">
   import ThemeView from "./ThemeView.svelte";
+  import AgentAccessSettings from "./AgentAccessSettings.svelte";
+  import DesktopNetworkSettings from "./DesktopNetworkSettings.svelte";
   import GraphSettingsView from "./GraphSettingsView.svelte";
   import ShortcutsView from "./ShortcutsView.svelte";
+  import SharingSettings from "./SharingSettings.svelte";
   import SettingsPage from "./SettingsPage.svelte";
   import VaultPicker from "./VaultPicker.svelte";
   import { guardNotice, type Notice } from "../lib/notice";
@@ -65,6 +68,12 @@
   <GraphSettingsView />
 
   <ShortcutsView />
+
+  <AgentAccessSettings />
+
+  <DesktopNetworkSettings />
+
+  <SharingSettings />
 </SettingsPage>
 
 <style>

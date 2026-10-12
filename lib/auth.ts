@@ -196,7 +196,7 @@ export const listedInConnectedClients = (record: TokenRecord): boolean =>
  * app for what Connected clients lists, the CLI for an operator's token. */
 export const expiredMessage = (record: TokenRecord): string =>
   listedInConnectedClients(record)
-    ? `This BigBrain connection expired after ${IDLE_EXPIRY_DAYS} days unused. Renew it in BigBrain → Settings → Connected clients.`
+    ? `This BigBrain connection expired after ${IDLE_EXPIRY_DAYS} days unused. Renew it in BigBrain → Settings → Connected agents.`
     : `This BigBrain credential expired after ${IDLE_EXPIRY_DAYS} days unused. Renew it with \`bigbrain auth renew ${record.id}\`.`;
 
 /** Reads the vault and is not the gardener's: the credentials that lapse. */
