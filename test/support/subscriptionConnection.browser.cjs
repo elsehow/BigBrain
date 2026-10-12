@@ -64,7 +64,7 @@ const assert = require('node:assert/strict');
     await page.getByRole('region',{name:`${name} provider`}).getByText('Connected',{exact:true}).waitFor();
     assert.equal(await page.getByRole('dialog', { name: 'Set up BigBrain' }).count(),1);
     await page.getByRole('button',{name:'Next →',exact:true}).click();
-    await page.getByRole('heading',{name:'Connect clients',exact:true}).waitFor();
+    await page.getByRole('heading',{name:'Connect agents',exact:true}).waitFor();
     assert.deepEqual(errors, []);
     console.log(`${name} first-run browser flow passed: no CLI, browser auth, reload, cancel, retry, completion.`);
     await context.close();

@@ -216,6 +216,8 @@ export const api = {
    * a write this client just made (the engine otherwise serves the last view
    * while it builds the next). */
   graph: (current = false) => stamped<GraphData>(`${U.graph()}${current ? "?current" : ""}`, "etag"),
+  /** One server's own field, as everyone who reads it sees it (lib/sharedReadUnion.ts serverGraph). */
+  serverGraph: (id: string) => get<GraphData>(`/api/graph/server?id=${encodeURIComponent(id)}`),
   /** The v2 view's who and what (lib/v2Feed.ts): agents and the latest assertions, and the feed's stamp. */
   v2: () => stamped<import("./v2/model").V2Feed>("/api/v2", "x-bigbrain-stamp"),
   /** A page of the sorted feed (lib/feedStage.ts), newest first; empty when

@@ -1,14 +1,16 @@
 import {includesEverything} from './inclusionMode';
 import {inclusionExcerpt} from './inclusionExamples';
 import {randomUUID} from 'node:crypto';
-import {readInclusionPolicy,writeInclusionPolicy,sourceDigest,type InclusionPolicy,type InclusionSource} from './inclusionPolicy';
+import {readInclusionPolicy,writeInclusionPolicy,sourceDigest,type InclusionLabel,type InclusionPolicy,type InclusionSource} from './inclusionPolicy';
 import {inclusionEvaluator} from './inclusionEvaluation';
 import {rankCandidates,type CandidateEntity} from './inclusionCandidates';
 import type {RuleQueries} from './inclusionQueries';
 import {resolveRuleMentions} from './sharedRuleMentions';
 import {OutOfCredits} from './sharedJev';
 const NO_CREDITS='Out of usage credits. (You need credits to calibrate your inclusion rule.)';
-export interface ReviewContext {root:string;store:string;scope:string;text:string;sources:InclusionSource[];select?:(text:string)=>InclusionSource[];check:()=>void;save:(text:string)=>void;
+export interface ReviewContext {root:string;store:string;scope:string;text:string;sources:InclusionSource[];
+ /** Ratings to start from when this scope has none of its own: a saved lens's. */
+ labels?:InclusionLabel[];select?:(text:string)=>InclusionSource[];check:()=>void;save:(text:string)=>void;
  /** Search phrases and subject mentions for a rule (lib/inclusionQueries.ts); absent, the rule's own words rank. */
  queries?:(text:string,entities:CandidateEntity[])=>Promise<RuleQueries|undefined>}
 type Evaluator=ReturnType<typeof inclusionEvaluator>;
@@ -53,7 +55,7 @@ export function startReview(context:ReviewContext,factory= inclusionEvaluator){
  context.check();for(const [id,s] of sessions)if(Date.now()-s.at>3600000)sessions.delete(id);
  const prior=readInclusionPolicy(context.root,context.store,context.scope,true)??readInclusionPolicy(context.root,context.store,context.scope);
  const text=context.text.trim()||prior?.text||'';
- const policy:InclusionPolicy={version:randomUUID(),scope:context.scope,text,labels:prior?.labels??[],updated:new Date().toISOString()};
+ const policy:InclusionPolicy={version:randomUUID(),scope:context.scope,text,labels:prior?.labels??context.labels??[],updated:new Date().toISOString()};
  const evaluator=factory(context.root,context.store,text,policy.labels);
  const pool=candidatePool(context,text);
  const s:Session={factory,id:randomUUID(),context,policy,evaluator,pool,scores:new Map(),failed:new Map(),cards:[],picked:[],busy:true,revision:0,at:Date.now()};

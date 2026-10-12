@@ -6,7 +6,8 @@
   import ConnectedClientsView from "./ConnectedClientsView.svelte";
   import DiagnosticsView from "./DiagnosticsView.svelte";
   import IntegrationsView from "./IntegrationsView.svelte";
-  import PilotSettingsView from "./PilotSettingsView.svelte";
+  import LensesView from "./LensesView.svelte";
+  import LensEditor from "./LensEditor.svelte";
   import SecurityView from "./SecurityView.svelte";
   import SharedVaultSettings from "./SharedVaultSettings.svelte";
   import VaultSettingsView from "./VaultSettingsView.svelte";
@@ -15,10 +16,10 @@
 
 {#if app.view === "integrations"}
   <IntegrationsView />
+{:else if app.view === "lenses"}
+  {#if app.lens}{#key app.lens}<LensEditor id={app.lens} />{/key}{:else}<LensesView />{/if}
 {:else if app.view === "connectedClients"}
   <ConnectedClientsView />
-{:else if app.view === "pilotSettings"}
-  <PilotSettingsView />
 {:else if app.view === "agents"}
   <AgentsView />
 {:else if app.view === "sharedVaultSettings"}

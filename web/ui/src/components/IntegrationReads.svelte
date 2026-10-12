@@ -33,7 +33,7 @@
   {:else if reads === null}<p>Loading…</p>
   {:else if !reads.length}<p>No agent has read this account through BigBrain in the last 90 days.</p>
   {:else}
-    <p>{reads.length === 1 ? "The last read" : `The last ${reads.length} reads`} by Pilot and connected clients, kept on this computer for at least 90 days. What they read is never kept.</p>
+    <p>{reads.length === 1 ? "The last read" : `The last ${reads.length} reads`} by Pilot and connected agents, kept on this computer for at least 90 days. What they read is never kept.</p>
     <ol>
       {#each reads as read}
         <li>

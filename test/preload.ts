@@ -24,6 +24,11 @@ process.env["BIGBRAIN_VAULT"] = root;
 process.env["BIGBRAIN_SHARED_CONNECTIONS"] = join(mkdtempSync(join(tmpdir(), "bb-test-connections-")), "shared-connections.json");
 delete process.env["TYPESAFE_API_KEY"];
 
+// The machine's vault pointer: a test that makes a vault (the setup door's
+// routes point at it) must never move the developer's (#604, and again on
+// 2026-10-10, when the app relaunched onto a test's scratch vault).
+process.env["BIGBRAIN_VAULT_POINTER"] = join(mkdtempSync(join(tmpdir(), "bb-test-pointer-")), "vault");
+
 // The read log (lib/readLog.ts) lives under ~/.config/bigbrain: a test's live
 // calls must never land in the developer's.
 process.env["BIGBRAIN_READ_LOG"] = mkdtempSync(join(tmpdir(), "bb-test-reads-"));
