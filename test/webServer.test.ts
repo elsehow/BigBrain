@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { join, sep } from "node:path";
+import { join, relative, sep } from "node:path";
 
 // The point of #260: importing web/server.ts is side-effect free — module
 // scope declares, start() binds the socket, and only the entrypoint
@@ -12,7 +12,7 @@ const server = await import("../web/server");
 const { dispatch } = await import("../lib/httpx");
 const { appendSourceInsertionEvent, insertionEventRel } = await import("../lib/insertionLog");
 const { assertionEntityId, createAssertionEvent } = await import("../lib/assertionLog");
-const { appendAndProjectAssertion, projectJournal, projectNotes, projectSourceInsertion, recoverAssertionProjection } = await import("../lib/assertionProjection");
+const { appendAndProjectAssertion, assertionDbPath, projectJournal, projectNotes, projectSourceInsertion, recoverAssertionProjection } = await import("../lib/assertionProjection");
 const { insertion } = await import("./support/vault");
 
 /** Drive one route against the preloaded scratch vault and parse what it
@@ -373,8 +373,11 @@ test("search keeps grouped thread rows fresh across the live invalidation path",
       if (!text.startsWith("event: views")) return;
       if (opened) resolve(); else opened = true;
     } }));
-    appendSourceInsertionEvent(root, rows[2]!);
-    live.handleChange(insertionEventRel(rows[2]!));
+    // projected before any push, as every engine write is: a push that comes
+    // first (a graph view landing, the boot recovery) must not race it. The
+    // viewer hears the commit through the WAL.
+    appendSourceInsertionEvent(root, rows[2]!); projectSourceInsertion(root, rows[2]!);
+    live.handleChange(relative(root, `${assertionDbPath(root)}-wal`));
     await changed;
     const next = await search();
     expect(next.hits).toHaveLength(1);
