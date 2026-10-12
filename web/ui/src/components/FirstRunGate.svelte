@@ -4,7 +4,8 @@
   // (Base.svelte).
   import type { Snippet } from "svelte";
   import FirstRun from "./FirstRun.svelte";
-  import { connectClaude, declareName, pickVault, setupDone, setupStatus, type SetupState } from "../lib/setup";
+  import { connectClaude, declareName, joinServer, pickVault, setupDone, setupStatus, type SetupState } from "../lib/setup";
+  import { reader } from "../lib/reader.svelte";
   import { telemetryState, type TelemetrySnapshot } from "../lib/telemetry";
   import { app } from "../lib/store.svelte";
 
@@ -24,6 +25,7 @@
   let sharing = $state<TelemetrySnapshot | null | undefined>(undefined);
   const telemetryPending = $derived(!!sharing?.configured && !sharing.decided);
   const firstRun = $derived(!!setup && !setupDone(setup));
+  $effect(() => { reader.on = setup?.onboarding === "reader"; reader.named = !!setup?.identity; });
   const waiting = $derived(setup === undefined || (!!setup && sharing === undefined));
   let pickingVault = false, setupEpoch = 0;
   async function refreshSetup(): Promise<void> {
@@ -54,15 +56,10 @@
     }, 3000);
     return () => clearInterval(t);
   });
-  async function onPick(path: string): Promise<void> {
-    pickingVault = true; setupEpoch++;
-    if (setup) setup = { ...setup, pick: undefined };
-    try {
-      setup = await pickVault(path);
-      if (setup?.pick) return;
-    // The door hands the port to the engine (or the engine restarts on the
-    // new vault): a second of nobody answering. Wait for it before the
-    // views re-read, or they read the gap.
+  // The door hands the port to the engine (or the engine restarts on the
+  // new vault): a second of nobody answering. Wait for it before the
+  // views re-read, or they read the gap.
+  async function waitForEngine(): Promise<void> {
     for (let i = 0; i < 40; i++) {
       try {
         const s = await setupStatus();
@@ -73,8 +70,25 @@
       }
     }
     app.rev++;
+  }
+  async function onPick(path: string): Promise<void> {
+    pickingVault = true; setupEpoch++;
+    if (setup) setup = { ...setup, pick: undefined };
+    try {
+      setup = await pickVault(path);
+      if (setup?.pick) return;
+    await waitForEngine();
     } catch (e) {
       if (setup) setup = { ...setup, pick: { path, problem: e instanceof Error ? e.message : String(e) } };
+    } finally { pickingVault = false; }
+  }
+  /** Join a server from first run. Without a vault the door makes one and
+   * hands the port to the engine, so wait for it as a pick does. */
+  async function onJoin(invite: string): Promise<void> {
+    pickingVault = true; setupEpoch++;
+    try {
+      setup = await joinServer(invite);
+      await waitForEngine();
     } finally { pickingVault = false; }
   }
   async function onConsent(enabled: boolean): Promise<void> {
@@ -97,7 +111,7 @@
   <!-- nothing has answered yet: not the app, not first run — say so quietly -->
   <p class="waiting">Waiting for the engine…</p>
 {:else if firstRun && setup}
-  <FirstRun {setup} {onPick} {onConnect} {onName} {telemetryPending} {onConsent} />
+  <FirstRun {setup} {onPick} {onJoin} {onConnect} {onName} {telemetryPending} {onConsent} />
 {:else}
   {@render children()}
 {/if}

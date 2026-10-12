@@ -9,7 +9,9 @@
   // context, and their chat opens here as a flat column over the field.
   import { onMount, tick, untrack } from "svelte";
   import { api } from "../lib/api";
-  import { app, goto } from "../lib/store.svelte";
+  import { app, goto, gotoLens } from "../lib/store.svelte";
+  import { reloadSharedConnections, sharedSettings } from "../lib/sharedSettings.svelte";
+  import { selectedWorkspace } from "../lib/vaultScope";
   import type { CopyWhy, FoldGroup, GraphData, NoteResult, SourceOrigin } from "../lib/types";
   import { barPilots, buildField, foldOffer, latestPerFamily, neighbours, placePilots, searchFound, searchNames, sourceItems, twinsOf, type Field, type PilotSummary, type V2Feed, type V2FeedRow } from "../lib/v2/model";
   import { md, sanitizeHtml } from "../lib/markdown";
@@ -28,6 +30,7 @@
   import { keyText, registerShortcuts, RANK } from "../lib/shortcuts.svelte";
   import { keyboardHints } from "../lib/keyboardHints.svelte";
   import { graphSources } from "../lib/graphSources.svelte";
+  import { lensRequest, type LensSummary, type ServerRef } from "../lib/lenses.svelte";
   import { serializeMentions, type MentionItem } from "../../../../lib/pilotMentions";
   import { mentionRecents, mentionSearch } from "../lib/mentionSources";
   import { viewsBehind, type Rendered } from "../lib/viewStamps";
@@ -43,6 +46,7 @@
   let hudEl: HTMLElement | undefined = $state();
   let feedEl: HTMLElement | undefined = $state();
   let searchEl: HTMLElement | undefined = $state();
+  let lensesEl: HTMLElement | undefined = $state();
   let qEl: HTMLInputElement | undefined = $state();
   let sidebarEl: HTMLElement | undefined = $state();
   /** The chat's width, when you've dragged the split (null: the default
@@ -696,7 +700,8 @@
       // twins with nothing to answer (a joined vault's, a legacy note) are only named
       const same = !offer && tw.length ? `Also in your vault as “${tw.join("”, “")}”.` : undefined;
       return {
-        eyebrow: n.memory ? "Memory" : `${n.degree} ${n.degree === 1 ? "tie" : "ties"}`, name: n.label,
+        // where it comes from, when a server has it (0c): connection ids to their names
+        eyebrow: [n.memory ? "Memory" : `${n.degree} ${n.degree === 1 ? "tie" : "ties"}`, ...n.servers.map((id) => sharedSettings.connections.find((c) => c.id === id)?.name ?? "").filter(Boolean)].join(" · "), name: n.label,
         status: who.length ? `Lately written about by ${who.join(", ")}.` : "", same,
       };
     }
@@ -717,7 +722,7 @@
       fetchedGraph(g.stamp, pushed); fetched.feed = sq.stamp;
       writing = sq.data;
       refreshSorted();
-      if (!data) void loadFolds();
+      if (!data) { void loadFolds(); void loadLensRows(); }
       await drawField(g.data);
     } catch (e) {
       error = errText(e);
@@ -727,16 +732,17 @@
     }
   }
   let graphHash = "";
-  /** The field from /api/graph, drawn anew (a fresh scene: indices change). */
-  async function drawField(graph: GraphData): Promise<void> {
+  /** The field from /api/graph, drawn anew (a fresh scene: indices change).
+   * `fresh`: another field altogether, framed anew rather than from where you were. */
+  async function drawField(graph: GraphData, fresh = false): Promise<void> {
     graphHash = graph.hash;
     field = buildField(graph);
     twins = twinsOf(field);
     const { createV2Scene } = await import("../lib/v2/scene");
-    const camera = scene?.camera();
+    const camera = fresh ? undefined : scene?.camera();
     scene?.dispose();
     scene = createV2Scene(host, field, {
-      blockers: () => [hudEl, feedEl, searching ? searchEl : undefined, chatEl, sidebarEl].filter((e): e is HTMLElement => !!e).map((e) => e.getBoundingClientRect()).filter((r) => r.height > 0),
+      blockers: () => [hudEl, feedEl, searching ? searchEl : undefined, chatEl, sidebarEl, lensesEl].filter((e): e is HTMLElement => !!e).map((e) => e.getBoundingClientRect()).filter((r) => r.height > 0),
       onPick,
       onPickPilot: (id) => (openPilot === id ? closePilot() : openPilotChat(id)),
       onHover: relateTie,
@@ -745,6 +751,7 @@
       onDragEnd: redrawIfIdle,
     }, camera);
     scene.setPilots(placePilots(field, bar));
+    applyLens();
     sceneRev++;
   }
   /** A view's stamp moved (`event: views`, as the base hears it): fetch only
@@ -772,7 +779,7 @@
   $effect(() => { void app.views; untrack(() => void syncViews()); });
   async function refreshGraph(stamps: { graph: string; joined: string }): Promise<void> {
     try {
-      const g = await api.graph();
+      const g = await shownGraph();
       fetchedGraph(g.stamp, stamps);
       if (g.data.hash !== graphHash) { graphStale = true; heldGraph = g.data; }
     } catch { return; /* the next push tries again */ }
@@ -828,6 +835,8 @@
       }
     })();
   }
+  // the joined servers' names, for what the field says about where a thing comes from
+  onMount(() => { if (!data && !selectedWorkspace) void reloadSharedConnections().catch(() => {}); });
   onMount(() => {
     void load();
     // Pilots and desktops re-read when the engine says one changed (`event:
@@ -891,9 +900,52 @@
     scene?.shift(shiftFor());
   }
 
+  // ── lenses and servers: a lens filters your field; a server is its own ─
+  type LensRow = { id: string; name: string; kind: "lens" | "server" };
+  let lensRows: LensRow[] = $state([]);
+  let lensOn: string | null = $state(null);
+  let lensIds: string[] = [];
+  /** The server whose own field is drawn in place of yours: what everyone who reads it sees. */
+  let serverOn: string | null = null;
+  /** A field's graph and its stamp: a server's own (unstamped), or yours. */
+  const graphOf = async (server: string | null, current = false): Promise<{ data: GraphData; stamp: string }> =>
+    server ? { data: await api.serverGraph(server), stamp: "" } : api.graph(current);
+  const shownGraph = (current = false) => graphOf(serverOn, current);
+  async function loadLensRows(): Promise<void> {
+    const r = await lensRequest<{ lenses: LensSummary[]; servers: ServerRef[] }>("").catch(() => null);
+    if (r) lensRows = [...r.lenses.map((l): LensRow => ({ id: l.id, name: l.name, kind: "lens" })), ...r.servers.map((s): LensRow => ({ id: s.id, name: s.name, kind: "server" }))];
+  }
+  /** The chosen lens, as the field's filter. */
+  const applyLens = () => scene?.filter(lensOn && !serverOn && field ? indicesOf(lensIds) : null);
+  async function toggleLens(v: LensRow): Promise<void> {
+    if (!field) return;
+    const on = lensOn === v.id ? null : v.id, server = on && v.kind === "server" ? on : null;
+    lensOn = on; lensIds = [];
+    const before = serverOn;
+    if (server !== before) {
+      // another field altogether: the server's own, or yours again
+      const pushed = app.views?.views;
+      const g = await graphOf(server).catch((e) => { flash(`Couldn’t open ${v.name}: ${errText(e)}`); return null; });
+      if (lensOn !== on) return;
+      if (!g) { lensOn = before; applyLens(); return; }
+      serverOn = server;
+      fetchedGraph(g.stamp, pushed);
+      closeSource(); ent = null; entRows = null; graphStale = false; heldGraph = null;
+      await drawField(g.data, true);
+    }
+    if (on && !server) {
+      const ids = (await lensRequest<{ entities: string[] }>(`entities?id=${on}`).catch(() => ({ entities: [] }))).entities;
+      if (lensOn !== on) return;
+      lensIds = ids;
+    }
+    applyLens();
+  }
+
   // ── walking the feed ──────────────────────────────────────────────────
   function closeSource(): void { if (src || claim) { src = null; claim = null; scene?.search(null); } }
-  const feedEntities = (r: { entities: string[] }) => r.entities.map((id) => field!.byId.get(id)).filter((x): x is number => x != null);
+  /** Entity ids, as the field's indices (those it draws). */
+  const indicesOf = (ids: string[]) => ids.map((id) => field!.byId.get(id)).filter((x): x is number => x != null);
+  const feedEntities = (r: { entities: string[] }) => indicesOf(r.entities);
   const cursorRow = () => sorted.find((r) => r.source === cursor) ?? null;
   /** The feed row under the pointer: set as the pointer moves, not on enter,
    * so a row the walk scrolls under a resting pointer isn't taken for one pointed at. */
@@ -909,6 +961,8 @@
   $effect(() => {
     void sceneRev;
     const r = sourceInHand;
+    // a lens's row is no source: what it shared is lit instead
+    if (r?.lens) { scene?.source(null); if (!src) scene?.hover(feedEntities(r)); return; }
     // walked to (j/k), it opens as an entity does, its headline beside it;
     // only pointed at, it's named and the camera holds still
     scene?.source(r && field ? { label: r.title ?? r.headline, entities: feedEntities(r), open: !openPilot && !src && r !== rowOver, text: r.headline, path: r.path } : null);
@@ -943,6 +997,9 @@
   /** Open a feed row's source: its entities lit and framed, the source and
    * Quick's summary of it where an opened entity's name goes. */
   function openSource(r: V2SortedRow): void {
+    if (r.lens && r.section === "needs-you") return gotoLens(r.lens); // a review opens its lens
+    // what a lens shared: its entities, one selection; clicked again, it lets go
+    if (r.lens && src?.row.source === r.source) { overview(); unlight(); cursor = null; return; }
     if (r.path && !data) return openDraft(r, r.path);
     if (ent != null) { ent = null; entRows = null; }
     claim = null;
@@ -950,7 +1007,7 @@
     rowOver = null;
     src = { row: r, text: r.path && !data ? "" : undefined };
     scene?.hover(null);
-    scene?.search({ matches: feedEntities(r), active: null, move: "frame" });
+    scene?.search({ matches: feedEntities(r), active: null, move: "frame", ties: !!r.lens });
     scene?.shift(shiftFor());
     if (r.path && !data) void briefing(r.path, (text) => { if (src?.row.source === r.source) src = { row: r, text }; })
       .then((ok) => { if (!ok && src?.row.source === r.source && !src.text) src = { row: r }; });
@@ -1022,7 +1079,7 @@
       const done = await act;
       await loadFolds();
       const pushed = app.views?.views;
-      const g = await api.graph(true); // the view with the fold in it
+      const g = await shownGraph(true); // the view with the fold in it
       fetchedGraph(g.stamp, pushed);
       ent = null; entRows = null; graphStale = false; heldGraph = null;
       await drawField(g.data);
@@ -1058,10 +1115,12 @@
     try { return (await api.v2Entity(n.id)).rows; } catch { return writing!.feed.filter((r) => r.entities.includes(n.id)); }
   }
   /** Quick's briefing on a note — the summary the app shows when you select it.
-   * Cached by the engine per note and evidence; a fresh one streams as it's written. */
+   * Cached by the engine per note and evidence; a fresh one streams as it's written.
+   * With a lens or a server on, it reads only that lens's or server's evidence. */
   async function briefing(path: string, onText: (text: string) => void): Promise<boolean> {
+    const scope = serverOn ? { server: serverOn } : lensOn ? { lens: lensOn } : undefined;
     try {
-      const r = await fetch("/api/note/briefing", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ path, stream: true }) });
+      const r = await fetch("/api/note/briefing", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ path, stream: true, ...(scope ? { scope } : {}) }) });
       if (!r.ok || !r.body) return false;
       const reader = r.body.getReader(), dec = new TextDecoder();
       let buf = "", done = false;
@@ -1411,12 +1470,22 @@
       {/each}
       <button type="button" class="new" onclick={() => void createPilot([])} title={`New Desktop ${keyText("new") && `(${keyText("new")})`}`}>+ <span class="k keyboard-hint">{keyText("new")}</span></button>
       <button type="button" class="find" onclick={openSearch}>Search <span class="k keyboard-hint">{keyText("search")}</span></button>
-      <button type="button" class="gear" onclick={openSettings} title={`Settings ${keyText("settings") && `(${keyText("settings")})`}`} aria-label="Settings">
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
-          <circle cx="12" cy="12" r="3" />
-          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.08a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.08a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-        </svg>
-      </button>
+      <span class="gearwrap">
+        <button type="button" class="gear" onclick={openSettings} aria-label="Settings">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+            <circle cx="12" cy="12" r="3" />
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.08a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.08a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+          </svg>
+        </button>
+        {#if lensRows.length}
+          <div class="lenses" bind:this={lensesEl} role="group" aria-label="Lenses and servers">
+            {#each lensRows as v, k (v.kind + v.id)}
+              {#if v.kind === "server" && lensRows[k - 1]?.kind !== "server"}<span class="lenshead">Servers</span>{/if}
+              <button type="button" class="lensrow" class:on={lensOn === v.id} aria-pressed={lensOn === v.id} onclick={() => void toggleLens(v)}>{v.name}</button>
+            {/each}
+          </div>
+        {/if}
+      </span>
     </nav>
   {/if}
 
@@ -1725,6 +1794,15 @@
   .tok.on .k { color: color-mix(in srgb, var(--bg) 65%, var(--fg)); }
   .new { color: var(--v2-muted); }
   .find.lit { color: var(--fg); }
+  /* the lenses and servers show while the pointer is on the gear or on them */
+  .strip .gearwrap { flex: none; position: relative; display: inline-flex; }
+  .lenses { position: absolute; top: 100%; right: 0; width: max-content; display: none; flex-direction: column; align-items: flex-end; gap: 2px; padding-top: 6px; }
+  .gearwrap:hover .lenses, .gearwrap:has(:focus-visible) .lenses { display: flex; }
+  .lenshead { padding: 10px 11px 4px; font: var(--type-eyebrow); text-transform: uppercase; letter-spacing: 1px; color: var(--v2-faint); }
+  .lensrow { display: inline-flex; align-items: center; white-space: nowrap; height: 28px; padding: 0 11px; border: 0; border-radius: 999px;
+    background: color-mix(in srgb, var(--bg) 70%, transparent); color: var(--v2-muted); font: 500 13px/1 var(--font-app); cursor: pointer; }
+  .lensrow:hover { color: var(--fg); background: color-mix(in srgb, var(--fg) 7%, var(--bg)); }
+  .lensrow.on { background: var(--fg); color: var(--bg); }
   /* What sits under the top bar leaves the notification stack its corner
      (NotificationStack.svelte): it starts at --under-bar, --notice-lane keeps
      the chat (--chat-at) and the empty state left of the stack's column, and
