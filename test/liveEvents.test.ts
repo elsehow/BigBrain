@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { createLive, recoverInBackground, type LiveClient, type LiveWatchFn, WATCHED } from "../lib/liveEvents";
-import { assertionProjectionStats, projectSourceInsertion, syncAssertionProjection } from "../lib/assertionProjection";
+import { assertionDbPath, assertionProjectionStats, projectSourceInsertion, syncAssertionProjection } from "../lib/assertionProjection";
+import { projectionWake } from "../lib/projectionWake";
 import { appendSourceInsertionEvent } from "../lib/insertionLog";
 import { insertion, mdVault } from "./support/vault";
 
@@ -258,17 +259,17 @@ describe("createLive — lifecycle", () => {
     expect(closed).toBe(2);
   });
 
-  test("a vanished content path is reconciled while recovering; outside paths are ignored", async () => {
+  test("a vanished content path is reconciled; outside paths are ignored", async () => {
     const h = harness(); h.live.start();
-    h.fireError(Object.assign(new Error("gone"), { code: "ENOENT", path: "/nonexistent-vault/log/insertions/.tmp-file" }));
+    h.fireError(Object.assign(new Error("gone"), { code: "ENOENT", path: "/nonexistent-vault/memory/.tmp-file" }));
     await sleep(20);
     expect(pinged(h.client.writes)).toBe(true);
-    // a log path heals before the refresh: boot recovery, then this one
-    expect(h.recoveries()).toBe(2); expect(h.refreshes()).toBe(1); expect(h.warms()).toBe(1);
+    // the notes are reconciled; recovery ran once, at boot
+    expect(h.recoveries()).toBe(1); expect(h.refreshes()).toBe(1); expect(h.warms()).toBe(1);
     await sleep(110);
-    h.fireError(Object.assign(new Error("outside"), { code: "ENOENT", path: "/elsewhere/log/insertions/.tmp-file" }));
+    h.fireError(Object.assign(new Error("outside"), { code: "ENOENT", path: "/elsewhere/memory/.tmp-file" }));
     await sleep(20);
-    expect(h.recoveries()).toBe(2); expect(h.refreshes()).toBe(1); expect(h.warms()).toBe(1);
+    expect(h.recoveries()).toBe(1); expect(h.refreshes()).toBe(1); expect(h.warms()).toBe(1);
     h.live.stop();
   });
 
@@ -280,25 +281,80 @@ describe("createLive — lifecycle", () => {
   });
 });
 
-describe("createLive — what a log change costs", () => {
-  test("an engine write is one lookup; only a file nothing projected recovers", async () => {
-    const root = mdVault();
-    let recoveries = 0;
-    const live = createLive({ root, watch: () => ({ close() {} }), refresh: () => {}, warmLayout: () => {},
-      recover: async () => { recoveries++; return false; }, debounceMs: 5, heartbeatMs: 60_000 });
+describe("createLive — commits", () => {
+  /** A live viewer over a real projection, with every view stamp real. */
+  function viewer(backstopMs = 60_000) {
+    const root = mdVault(), writes: string[] = [];
+    appendSourceInsertionEvent(root, insertion({ id: `ins_${"a".repeat(24)}`, source_id: "a" }));
+    synced(root);
+    let recoveries = 0, refreshes = 0;
+    const live = createLive({ root, watch: () => ({ close() {} }), refresh: () => { refreshes++; }, warmLayout: () => {},
+      recover: async () => { recoveries++; }, debounceMs: 5, heartbeatMs: 60_000, backstopMs });
+    live.addClient({ write: (text) => writes.push(text) });
+    writes.length = 0; // the connection's stamps
+    const wal = relative(root, `${assertionDbPath(root)}-wal`);
+    return { root, live, writes, wal, recoveries: () => recoveries, refreshes: () => refreshes,
+      done: () => { live.stop(); rmSync(root, { recursive: true, force: true }); } };
+  }
+
+  test("another connection's commit is heard through the WAL and pushed, with no Markdown walk", async () => {
+    const v = viewer();
     try {
-      appendSourceInsertionEvent(root, insertion({ id: `ins_${"a".repeat(24)}`, source_id: "a" }));
-      synced(root);
-      live.start(); await sleep(10);
-      expect(recoveries).toBe(1); // boot
+      v.live.start(); await sleep(10);
+      expect(v.recoveries()).toBe(1); // boot
       const landed = insertion({ id: `ins_${"b".repeat(24)}`, source_id: "b" });
-      const b = appendSourceInsertionEvent(root, landed); projectSourceInsertion(root, landed);
-      live.handleChange(b.path); await sleep(30);
-      expect(recoveries).toBe(1); // projected as written: no census
-      const c = appendSourceInsertionEvent(root, insertion({ id: `ins_${"c".repeat(24)}`, source_id: "c" }));
-      live.handleChange(c.path); await sleep(30);
-      expect(recoveries).toBe(2); // nothing projected it
-    } finally { live.stop(); rmSync(root, { recursive: true, force: true }); }
+      appendSourceInsertionEvent(v.root, landed); projectSourceInsertion(v.root, landed);
+      v.live.handleChange(v.wal); await sleep(30);
+      expect(v.writes.filter((w) => w.startsWith("event: views\n"))).toHaveLength(1);
+      expect(v.refreshes()).toBe(0);
+      // a WAL write that committed nothing new (a checkpoint) pushes nothing
+      v.live.handleChange(v.wal); await sleep(30);
+      expect(v.writes).toHaveLength(1);
+    } finally { v.done(); }
+  });
+
+  test("log/ is not watched: an append by hand waits for recovery, an engine write commits", async () => {
+    const v = viewer();
+    try {
+      v.live.start(); await sleep(10);
+      expect(WATCHED.has("log")).toBe(false);
+      const byHand = appendSourceInsertionEvent(v.root, insertion({ id: `ins_${"c".repeat(24)}`, source_id: "c" }));
+      v.live.handleChange(byHand.path); await sleep(30);
+      expect(v.writes).toEqual([]);
+      expect(v.recoveries()).toBe(1); // boot only
+    } finally { v.done(); }
+  });
+
+  test("a commit whose WAL wake-up was missed is caught by the backstop", async () => {
+    const v = viewer(20);
+    try {
+      v.live.start(); await sleep(10);
+      const landed = insertion({ id: `ins_${"d".repeat(24)}`, source_id: "d" });
+      appendSourceInsertionEvent(v.root, landed); projectSourceInsertion(v.root, landed);
+      await sleep(80); // no handleChange: nothing named the WAL
+      expect(v.writes.filter((w) => w.startsWith("event: views\n"))).toHaveLength(1);
+    } finally { v.done(); }
+  });
+});
+
+describe("projectionWake", () => {
+  test("data_version moves with each commit from another connection, and with a projection replaced", () => {
+    const root = mdVault();
+    const wake = projectionWake(root);
+    try {
+      expect(wake.moved()).toBe(false); // no projection yet: nothing to hear
+      synced(root);
+      expect(wake.moved()).toBe(true); // it appeared
+      expect(wake.moved()).toBe(false);
+      const landed = insertion({ id: `ins_${"e".repeat(24)}`, source_id: "e" });
+      appendSourceInsertionEvent(root, landed); projectSourceInsertion(root, landed);
+      expect(wake.moved()).toBe(true);
+      expect(wake.moved()).toBe(false);
+      // .state deleted and the projection rebuilt under the held connection
+      rmSync(join(root, ".state"), { recursive: true, force: true });
+      synced(root);
+      expect(wake.moved()).toBe(true);
+    } finally { wake.close(); rmSync(root, { recursive: true, force: true }); }
   });
 });
 

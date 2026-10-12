@@ -47,6 +47,7 @@ const SETUP: Record<string, [script: string, blurb: string]> = {
   entity: ["bin/entity.ts", "entity identity: alias <label> --into <id|label>, resolve, aliases, supersede, folds"],
   whoami: ["bin/whoami.ts", "who this vault is about; --declare \"<name>\" to say, --adopt-dossier to fold a hosted-era dossier in"],
   shared: ["bin/shared.ts", "a SHARED vault, named by --vault: init, members, credentials, serve (docs/shared-vault.md)"],
+  recover: ["bin/recover.ts", "project what was added to or removed from log/ by hand, now rather than at the next start"],
 };
 
 /** Plumbing — the supervisor, doors, and passes invoke these; people don't.

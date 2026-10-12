@@ -119,8 +119,8 @@ logs: another process's write is visible in the next snapshot. The log census â€
 event files the projection lacks, insertion files deleted by hand â€” is
 recovery, for what the write path could not do (a process that died between
 append and projection, a file copied into `log/`). It runs once per process
-and projection generation, in a worker when the viewer starts, and whenever the
-viewer's watcher sees `log/` change.
+and projection generation, in a worker when the viewer starts, and on demand
+with `bigbrain recover`. Nothing watches `log/`.
 
 Every commit that moves the revision also writes what moved it to `changes`
 (revision, kind, id, op) in the same transaction, so the projection's commits
@@ -136,7 +136,12 @@ a kind it reads is committed, saved with its revision, and served as bytes
 whose hash is the response's ETag. The viewer's live stream pushes each view's
 stamp ([`viewStamps.ts`](../lib/viewStamps.ts), `event: views`) when a change
 settles and when a view lands; a tab fetches only a view whose stamp moved, and
-never polls. `/api/graph?current` waits for the view to reflect the
+never polls. The viewer hears commits from any process through `PRAGMA
+data_version` on one held connection
+([`projectionWake.ts`](../lib/projectionWake.ts)), asked when the WAL file
+changes and every five seconds besides; its file watcher is for what people
+edit outside the engine (notes, `vault.yaml`) and engine state outside the
+projection. `/api/graph?current` waits for the view to reflect the
 projection as the request found it, for a client reading its own write.
 
 [`vaultReadModel.ts`](../lib/vaultReadModel.ts) is the shared snapshot boundary.
