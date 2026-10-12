@@ -256,7 +256,10 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
   // a source drawn as an entity has no dot of its own: held, it sits on the
   // entity's, switch on or off
   const entityAt = new Map(field.nodes.flatMap((n) => (n.opens ?? []).map((p) => [p, P[n.i]!] as const)));
-  const sPoint = new Float32Array(S);
+  // sPoint: the resting source under the pointer, eased; sSeen: how much it
+  // shows with nothing stepped back, opacity times its ink's contrast (what
+  // picking reads)
+  const sPoint = new Float32Array(S), sSeen = new Float32Array(S);
   let srcShown = hooks.sources?.() ? 1 : 0, underSrc: number | null = null, srcNamed: number | null = null;
   /** How far the named resting source is shown (its name and ties fade with it). */
   const namedVis = () => (srcNamed == null ? 0 : sPoint[srcNamed]! * srcShown);
@@ -405,8 +408,11 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
   let only: Set<number> | null = null;
   let rl: { j: number; text: string } | null = null;
   let shiftGoal = 0, shiftNow = 0;
-  // point: the dot under the pointer, eased so its name fades in and out
+  // point: the dot under the pointer, eased so its name fades in and out;
+  // seen: how much a dot shows with nothing stepped back, opacity times its
+  // ink's contrast (what picking reads)
   const rel = new Float32Array(N), heat = new Float32Array(N), match = new Float32Array(N), point = new Float32Array(N), out = new Float32Array(N);
+  const seen = new Float32Array(N);
   let dim = 0, searchDim = 1, filtered = 0;
 
   // camera: springs toward a goal, a long lens from further back
@@ -499,11 +505,13 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
     if (o !== L.op) { L.style.opacity = String(o); L.style.visibility = o <= 0 ? "hidden" : "visible"; L.op = o; }
   };
   const v3 = new THREE.Vector3();
+  /** A point's distance in front of the camera: the shader's `d`. */
+  const depth = (p: THREE.Vector3) => -v3.copy(p).applyMatrix4(camera.matrixWorldInverse).z;
   /** How far a label stands off its dot, in CSS px: 9 for a dot of the usual size, and the
    * dot's visible radius plus a margin when it is drawn bigger. A point is `size * uRef / depth`
    * px across (pMat's shader); about 0.47 of that is the bright core. */
   const labelGap = (p: THREE.Vector3, size: number) => {
-    const d = -v3.copy(p).applyMatrix4(camera.matrixWorldInverse).z;
+    const d = depth(p);
     return d > 0 ? Math.max(9, 0.235 * size * uRef.value / d + 6) : 9;
   };
   const toScreen = (p: THREE.Vector3, out: { x: number; y: number; ok: boolean }) => {
@@ -516,8 +524,21 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
   // where the canvas sits in the window, below the strips (FieldView): its
   // host ends at the window's foot, so it moves only as it resizes
   let at = { left: 0, top: 0 };
-  // picking: a memory topic's glass under the pointer, else the nearest
-  // visible point within a few pixels of it
+  /** How plainly a dot reads on screen: its core's width in CSS px times how
+   * much it shows (`seen`) under the fog — pMat's shader, done here. 1 is a
+   * one-pixel dot in full ink. */
+  const ink = (p: THREE.Vector3, size: number, alpha: number) => {
+    const d = depth(p);
+    if (d <= 0) return 0;
+    const px = Math.max(1.5, size * uPx.value * uRef.value / d) / uPx.value;
+    return 0.93 * px * alpha * (1 - THREE.MathUtils.smoothstep(d, fog.near.value, fog.far.value));
+  };
+  // A dot is in reach once it reads plainly from here: from far off the
+  // specks are dust and only the bold dots answer; closer in, everything
+  // grows and comes within reach. Bolder dots reach further.
+  const SEEN = 1.6, reachOf = (w: number) => Math.min(28, 10 + 3 * w);
+  // picking: a memory topic's glass under the pointer, else the dot that
+  // reads plainly nearest it, for its reach
   const ray = new THREE.Raycaster(), ndc = new THREE.Vector2(), sp = { x: 0, y: 0, ok: false };
   const pickAt = (clientX: number, clientY: number): number | string | null => {
     const r = canvas.getBoundingClientRect(), x = clientX - r.left, y = clientY - r.top;
@@ -533,17 +554,19 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
     if (near) return `pilot:${near}`;
     const glassHit = ray.intersectObjects(memory.filter((g) => g.vis > 0.5).map((g) => g.mesh), false)[0];
     if (glassHit) return memory.find((g) => g.mesh === glassHit.object)?.i ?? null;
-    const alphas = aAlpha.array as Float32Array;
-    let best: number | string | null = null, bestD = 12 * 12;
-    const consider = (p: THREE.Vector3, hit: number | string) => {
+    const sizes = aSize.array as Float32Array, sSizes = sSize.array as Float32Array;
+    let best: number | string | null = null, bestD = 1;
+    const consider = (p: THREE.Vector3, size: number, alpha: number, hit: number | string) => {
+      const w = ink(p, size, alpha);
+      if (w < SEEN) return;
       toScreen(p, sp);
-      const d = (sp.x - x) ** 2 + (sp.y - y) ** 2;
+      const d = ((sp.x - x) ** 2 + (sp.y - y) ** 2) / reachOf(w) ** 2;
       if (sp.ok && d < bestD) { bestD = d; best = hit; }
     };
-    // anything drawn can be pointed at, an entity as a source: one a selection
-    // or a search steps back is still there to hover
-    for (let i = 0; i < N; i++) if (!field.nodes[i]!.memory && alphas[i]! > 0.02) consider(P[i]!, i);
-    if (srcShown > 0.5) for (let k = 0; k < S; k++) consider(SP[k]!, `src:${k}`);
+    // judged at rest: one a selection or a search steps back is still there
+    // to hover
+    for (let i = 0; i < N; i++) if (!field.nodes[i]!.memory) consider(P[i]!, sizes[i]!, seen[i]!, i);
+    if (srcShown > 0.5) for (let k = 0; k < S; k++) consider(SP[k]!, sSizes[k]!, sSeen[k]!, `src:${k}`);
     return best;
   };
   /** A resting source's index, from a pick. */
@@ -655,6 +678,9 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
   // ── frame ────────────────────────────────────────────────────────────────
   const clock = new THREE.Clock();
   const c1 = new THREE.Color(), c2 = new THREE.Color(), dust = new THREE.Color(), srcInk = new THREE.Color(), entInk = new THREE.Color();
+  // dust: the ink this far toward the page; a dot toned t of the way back to
+  // ink shows 1 - DUST * (1 - t) of it
+  const DUST = 0.42;
   const tA = new THREE.Vector3(), tB = new THREE.Vector3();
   const s1 = { x: 0, y: 0, ok: false }, s2 = { x: 0, y: 0, ok: false };
   let raf = 0;
@@ -688,7 +714,7 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
     searchDim += ((srch && srch.matches.size ? 0.12 : srch ? 0.5 : 1) - searchDim) * ease(10);
     filtered += ((only ? 1 : 0) - filtered) * k;
     rehub();
-    dust.copy(col.fg).lerp(col.bg, 0.42);
+    dust.copy(col.fg).lerp(col.bg, DUST);
     entInk.copy(dust).lerp(col.fg, look.entTone);
     srcShown += ((hooks.sources?.() ? 1 : 0) - srcShown) * ease(8);
     const pointedTies = underSrc != null && srcShown > 0.5 ? new Set(field.sources[underSrc]!.ties) : null;
@@ -706,6 +732,7 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
       const r = rel[i]!;
       sizes[i] = baseSize[i]! * look.entSize * (isNamed[i] ? 1 : THREE.MathUtils.lerp(1, entScale[i]!, look.entByTies)) * (1 + 0.7 * h) * (1 + 0.45 * r * dim);
       const rest = Math.min(1, (isNamed[i] ? 0.95 : 0.6) * look.entAlpha) * (isNamed[i] ? 1 : byMentions(entRank[i]!, look.entAlphaByTies));
+      seen[i] = Math.max(h, rest) * (isNamed[i] ? 1 : 1 - DUST * (1 - look.entTone)) * (i === ent?.i ? 1 : 1 - 0.92 * out[i]!);
       alphas[i] = Math.max(h, THREE.MathUtils.lerp(rest, THREE.MathUtils.lerp(isNamed[i] ? 0.22 : 0.12, 1, r), dim)) * THREE.MathUtils.lerp(searchDim, 1, match[i]!) * (i === ent?.i ? 1 : 1 - 0.92 * out[i]!);
       c1.copy(isNamed[i] || r > 0.5 ? col.fg : entInk).lerp(col.act, h * 0.9).toArray(colors, i * 3);
     }
@@ -734,6 +761,7 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
         sPoint[k]! += ((k === underSrc ? 1 : 0) - sPoint[k]!) * ease(k === underSrc ? 18 : 10);
         sz[k] = SRC_SIZE * look.srcSize * THREE.MathUtils.lerp(1, tieScale[k]!, look.srcByTies) * (1 + 0.6 * sPoint[k]!);
         sa[k] = srcShown * Math.max(sPoint[k]!, rest * byMentions(tieRank[k]!, look.srcAlphaByTies));
+        sSeen[k] = Math.max(sPoint[k]!, look.srcAlpha * byMentions(tieRank[k]!, look.srcAlphaByTies) * (1 - DUST * (1 - look.srcTone)));
         c1.copy(srcInk).lerp(c2, sPoint[k]!).toArray(sc, k * 3);
       }
       sSize.needsUpdate = true; sColor.needsUpdate = true; sAlpha.needsUpdate = true;
