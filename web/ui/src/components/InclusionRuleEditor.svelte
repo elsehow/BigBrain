@@ -5,7 +5,7 @@
  import PilotMentionComposer from './PilotMentionComposer.svelte';
  import InclusionRuleReview,{type RuleExample} from './InclusionRuleReview.svelte';
  import {serializeMentions} from '../../../../lib/pilotMentions';
- let {target,value,onsave,oncancel}:{target:{kind:'shared';id:string};value:string;onsave:(text:string)=>void;oncancel?:()=>void}=$props();
+ let {target,value,onsave,oncancel}:{target:{kind:'lens';id:string};value:string;onsave:(text:string)=>void;oncancel?:()=>void}=$props();
  type View={id:string;text:string;revision:number;busy:boolean;ready:boolean;remaining:number;overlap:boolean;judged:number;unresolved:number;failures:string[];sources:number;untried:number;narrowed:boolean;error?:string;items:RuleExample[];picked:RuleExample[];exhausted:boolean};
  let draft=$state(untrack(()=>value)),view=$state<View|null>(null),problem=$state(''),sending=$state(false),editing=$state(false),disposed=false;
  let editTimer:ReturnType<typeof setTimeout>|undefined;

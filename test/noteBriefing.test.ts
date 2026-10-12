@@ -8,7 +8,9 @@ import { buildAssertionGraph } from "../lib/assertionGraph";
 import { assertionEntityId, createAssertionEvent, appendAssertionEvent } from "../lib/assertionLog";
 import { assertionEntityPath } from "../lib/assertionEntityView";
 import { appendSourceInsertionEvent, insertionEventRel } from "../lib/insertionLog";
-import { createNoteBriefingService, noteBriefingInput, parseNoteBriefing, type NoteBriefingInput } from "../lib/noteBriefing";
+import { claimsOnly, createNoteBriefingService, noteBriefingInput, parseNoteBriefing, type NoteBriefingInput } from "../lib/noteBriefing";
+import { readAssertionLog } from "../lib/assertionLog";
+import { lensClaims } from "../lib/lenses";
 import { explicitNoteLinks, noteLinkResolver, readMarkdownNote } from "../lib/markdownGraph";
 import { declareOwner } from "./support/identity";
 import { insertion, mdVault, gitVault } from "./support/vault";
@@ -444,4 +446,35 @@ test("memory preview warming is sequential, reuses cached Quick output and toler
   });
   expect(failed.failures).toHaveLength(1);
   expect(visited.length).toBe(first.warmed);
+});
+
+test("with a lens on, a briefing reads only the claims its notes alone support", () => {
+  const { root, ada, atlas, source: meeting } = linkedVault();
+  const garden = { id: assertionEntityId("Garden"), label: "Garden" };
+  const chores = insertion({ id: "ins_" + "2".repeat(24), title: "Chores", body: "Ada waters the Garden.", imported_path: "references/chores.md" });
+  appendSourceInsertionEvent(root, chores);
+  appendAssertionEvent(root, createAssertionEvent({ text: `[[${ada.id}|Ada]] waters the [[${garden.id}|Garden]].`, entities: [ada, garden],
+    citations: [{ insertion_id: chores.id, quotes: [chores.body] }], confidence: "direct", author: { kind: "model", id: "test", invocation_id: "test" },
+    created_at: "2026-09-02T00:00:00Z", produced_by: { procedure: "test", version: "1" } }, new Map([[chores.id, chores]])));
+  const path = assertionEntityPath(ada.id);
+  const whole = noteBriefingInput(root, path);
+  expect(whole.items[0]!.text).toContain("waters");
+  expect(whole.links.map(l => l.id)).toEqual(expect.arrayContaining([garden.id, "memory/project.md"]));
+  // a lens holding only the meeting: its claim, its entities, its note; no memory, no other note
+  const lens = noteBriefingInput(root, path, undefined, claimsOnly(lensClaims({ members: [meeting.source_id] }, readAssertionLog(root))));
+  expect(lens.items[0]!.text).toContain("manages");
+  expect(lens.items[0]!.text).not.toContain("waters");
+  expect(lens.links.map(l => l.id).sort()).toEqual([atlas.id, `source:${meeting.id}`].sort());
+  expect(lens.memories).toEqual([]);
+});
+
+test("a scoped briefing keeps its own cache beside the whole vault's", async () => {
+  const root = vault(); let calls = 0;
+  const generate = createNoteBriefingService(async (_root, prompt) => {
+    calls++;
+    return { model: "test", text: JSON.stringify({ summary: "A date needs choosing.", links: JSON.parse(prompt).links.map((l: any) => ({ id: l.id, description: "documents the decision", evidence: [1] })) }) };
+  }, () => input);
+  const selection = { selected: [input.items[0]!.id], excluded: [] };
+  for (let round = 0; round < 2; round++) { await generate(root, selection); await generate(root, { ...selection, scope: { lens: "lens_00000000000a" } }); }
+  expect(calls).toBe(2);
 });

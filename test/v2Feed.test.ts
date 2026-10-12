@@ -6,7 +6,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  authorName, authorOf, buildEntityFeed, buildSortedFeed, buildV2Feed, firstRecordedAt, newestFirst, pageSortedFeed, plainText, refreshSortedPages,
+  authorName, authorOf, buildEntityFeed, buildSortedFeed, buildV2Feed, entitiesCiting, firstRecordedAt, newestFirst, pageSortedFeed, plainText, refreshSortedPages,
   type ChainLink, type V2SortedRow, type V2Source,
 } from "../lib/v2Feed";
 import { gardenerModels } from "../lib/v2Read";
@@ -51,6 +51,23 @@ describe("v2 feed", () => {
       { id: "codex", name: "Codex", count: 2, lastAt: day(4) },
       { id: "pi", name: "Pi", count: 1, lastAt: day(3) },
     ]);
+  });
+
+  test("a lens's entities are those named by claims citing its notes, folded through aliases", () => {
+    const short = { id: assertionEntityId("Ada"), label: "Ada" };
+    const aliases = entityAliasResolution([{
+      event: "entity.aliased", id: "ali_0002", alias: "Ada", alias_id: short.id, entity: ada,
+      author: { kind: "user", id: "robin" }, created_at: day(1), produced_by: { procedure: "fold", version: "v1" },
+    }]);
+    const cites = (r: AssertionEvent, sourceId: string): AssertionEvent => ({ ...r, sources: [{ insertion_id: `ins_${sourceId}`, source_id: sourceId }] });
+    const rows = [
+      cites(row({ kind: "model", id: "pi" }, "bigbrain-mcp", [short, atlas], day(1)), "src_kept"),
+      cites(row({ kind: "model", id: "pi" }, "bigbrain-mcp", [ada], day(2)), "src_kept"),
+      cites(row({ kind: "model", id: "pi" }, "bigbrain-mcp", [orrery], day(3)), "src_other"),
+      row({ kind: "model", id: "pi" }, "bigbrain-mcp", [orrery], day(4)),
+    ];
+    expect(entitiesCiting(source(rows, aliases), new Set(["src_kept"])).toSorted()).toEqual([ada.id, atlas.id].toSorted());
+    expect(entitiesCiting(source(rows, aliases), new Set())).toEqual([]);
   });
 
   test("the feed is the latest rows, oldest first, plain prose, entities folded through aliases", () => {

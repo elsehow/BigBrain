@@ -13,8 +13,8 @@ const base = process.env.SIDEBAR_PREVIEW_URL || 'http://127.0.0.1:5231';
     });
     await page.goto(`${base}/sidebar-workbench.html#/settings/connected-clients`);
     await page.locator('.rail').waitFor();
-    assert.equal(await page.locator('.rail').getByRole('button', { name: 'connected agents', exact: true }).count(), 0);
-    assert.equal(await page.locator('.rail').getByRole('button', { name: 'connected clients', exact: true }).count(), 1);
+    assert.equal(await page.locator('.rail').getByRole('button', { name: 'connected agents', exact: true }).count(), 1);
+    assert.equal(await page.locator('.rail').getByRole('button', { name: 'connected clients', exact: true }).count(), 0);
     for (const route of ['#/settings/agent-orchestration', '#/settings/connected-agents', '#connectedAgents']) {
       await page.goto(`${base}/sidebar-workbench.html${route}`);
       await page.locator('.rail').waitFor();

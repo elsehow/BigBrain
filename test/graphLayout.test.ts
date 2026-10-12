@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { Graph } from "../lib/graph";
 import { NODE_R_MAX, nodeRadius, nodeSpacing, seedPosition } from "../lib/graphGeometry";
-import { computeLayout } from "../lib/graphLayout";
+import { arrivalLayout, computeLayout, edgeKey } from "../lib/graphLayout";
 
 // The force layout, moved out of the browser (web/ui/src/lib/layout.worker.ts,
 // deleted 2026-08-17). What matters is not the exact coordinates — a force
@@ -97,5 +97,38 @@ describe("graphGeometry", () => {
     expect(new Set(seeds.map(([x, y]) => `${x},${y}`)).size).toBe(50);
     // Monotonically outward: the spiral's radius is 12*sqrt(i+0.5).
     expect(Math.hypot(...seeds[49]!)).toBeGreaterThan(Math.hypot(...seeds[0]!));
+  });
+});
+
+// A shared server's field (lib/sharedWorkspace.ts serverField): every reader
+// of the same record must draw the same picture, and it must stay put as the
+// record grows. `claims` claims arrive a minute apart, each naming two
+// entities and citing its own source.
+function grown(claims: number): { graph: Graph; arrivals: Map<string, string> } {
+  const ids = new Set<string>(), links = new Map<string, [string, string]>(), arrivals = new Map<string, string>();
+  const arrive = (key: string, at: string) => { if (!arrivals.has(key)) arrivals.set(key, at); };
+  for (let k = 0; k < claims; k++) {
+    const at = new Date(Date.UTC(2026, 8, 1, 0, k)).toISOString(), named = [`e${(k * 3) % 40}`, `e${(k * 7 + 1) % 40}`], source = `source:s${k}`;
+    for (const id of [...named, source]) { ids.add(id); arrive(id, at); }
+    for (const [a, b] of [[named[0]!, source], [named[1]!, source], [named[0]!, named[1]!]] as const) { links.set(edgeKey(a, b), [a, b]); arrive(edgeKey(a, b), at); }
+  }
+  return { graph: graph([...ids], [...links.values()], String(claims)), arrivals };
+}
+
+describe("arrivalLayout", () => {
+  test("the same record draws the same picture, in whatever order it is read", () => {
+    const { graph: g, arrivals } = grown(60);
+    const reversed = { ...g, nodes: [...g.nodes].reverse(), edges: [...g.edges].reverse() };
+    expect(arrivalLayout(reversed, arrivals)).toEqual(arrivalLayout(g, arrivals));
+  });
+
+  test("what arrives later barely moves what was there", () => {
+    const before = grown(60), after = grown(70);
+    const was = arrivalLayout(before.graph, before.arrivals), now = arrivalLayout(after.graph, after.arrivals);
+    const extent = Math.max(...Object.values(was).map(([x, y]) => Math.hypot(x, y)));
+    const moved = Object.keys(was).map((id) => dist(was[id]!, now[id]!) / extent).sort((a, b) => a - b);
+    // measured: a median of 4% of the field's reach (a layout started afresh moved 66%)
+    expect(moved[moved.length >> 1]!).toBeLessThan(0.08);
+    expect(moved.at(-1)!).toBeLessThan(0.3);
   });
 });
