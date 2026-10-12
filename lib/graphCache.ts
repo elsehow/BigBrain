@@ -122,7 +122,7 @@ export function primaryGraphCached(root: string): Graph {
   return assertions.nodes.length ? assertions : EMPTY_GRAPH;
 }
 
-const EMPTY_GRAPH: Graph = { nodes: [], edges: [], hash: "empty", projection: "assertions" };
+export const EMPTY_GRAPH: Graph = { nodes: [], edges: [], hash: "empty", projection: "assertions" };
 
 /** Invalidate shared freshness and reject workers started before this hint. */
 export function invalidateGraphCaches(root: string): void {
@@ -136,7 +136,6 @@ export function invalidateGraphCaches(root: string): void {
 // Workers terminate after each job, retaining no second vault copy while idle.
 const generations = new Map<string, number>();
 const builds = new Map<string, Promise<void>>();
-const layouts = new Map<string, { hash: string; promise: Promise<Positions> }>();
 export type GraphSnapshot = GraphWithEvidence | { revision: string };
 
 export async function assertionGraphEvidenceAsync(root: string): Promise<GraphWithEvidence> {
@@ -162,47 +161,3 @@ export async function assertionGraphEvidenceAsync(root: string): Promise<GraphWi
   }
 }
 
-export async function primaryGraphAsync(root: string): Promise<Graph> {
-  const { graph } = await assertionGraphEvidenceAsync(root);
-  return graph.nodes.length ? graph : EMPTY_GRAPH;
-}
-
-export async function graphWithLayoutAsync(root: string, graph: Graph): Promise<Graph> {
-  const cached = readLayoutCache(root);
-  if (cached?.hash === graph.hash) { bake(graph.nodes, cached.positions); return graph; }
-  let pending = layouts.get(root);
-  if (pending && pending.hash !== graph.hash) {
-    await pending.promise;
-    return graphWithLayoutAsync(root, graph);
-  }
-  if (!pending) {
-    const promise = background<Positions>({ kind: "layout", graph, previous: cached?.positions })
-      .finally(() => layouts.delete(root));
-    pending = { hash: graph.hash, promise };
-    layouts.set(root, pending);
-  }
-  const positions = await pending.promise;
-  // Old requests may finish after a newer graph. They must not replace the
-  // current layout cache, even though their own graph still gets positions.
-  if (assertionMemo.get(root)?.graph === graph || (graph === EMPTY_GRAPH && assertionMemo.get(root)?.graph.nodes.length === 0)) writeLayout(root, "assertions", { hash: graph.hash, positions });
-  bake(graph.nodes, positions);
-  return graph;
-}
-
-export async function primaryGraphWithLayoutAsync(root: string): Promise<Graph> {
-  for (;;) {
-    const generation = generations.get(root) ?? 0;
-    const graph = await primaryGraphAsync(root);
-    const settling = layouts.get(root);
-    if (settling && settling.hash !== graph.hash) {
-      await settling.promise;
-      continue; // Re-read the latest graph, skipping superseded intermediate layouts.
-    }
-    const result = await graphWithLayoutAsync(root, graph);
-    if (generation === (generations.get(root) ?? 0) && assertionMemo.get(root)?.revision === readModelRevision(root)
-      && (graph === EMPTY_GRAPH || assertionMemo.get(root)?.graph === graph)) return result;
-  }
-}
-export async function warmGraphLayoutAsync(root: string): Promise<void> {
-  await primaryGraphWithLayoutAsync(root);
-}

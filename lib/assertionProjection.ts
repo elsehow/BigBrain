@@ -88,7 +88,8 @@ import { withProjectionWrite } from "./projectionWriteLock";
 //     headers in `markdown_documents`, documents in `markdown_bodies`.
 // 21: the change log — what each revision changed, written in its commit
 //     (docs/plans/2026-10-10-change-log.md).
-const SCHEMA_VERSION = "21";
+// 22: saved views — read models kept by the viewer, each with its revision.
+const SCHEMA_VERSION = "22";
 
 export interface AssertionSearchHit {
   id: string;
@@ -144,6 +145,9 @@ function schema(db: Database): void {
   // What moved each revision, written in the same transaction that moved it:
   // the projection's commits as one ordered stream, for readers that want
   // what changed rather than that something did.
+  // Read models the viewer keeps (lib/maintainedGraph.ts), each saved with the
+  // revision it reflects, so a start serves the last one without a build.
+  db.run("CREATE TABLE IF NOT EXISTS views (name TEXT PRIMARY KEY, revision TEXT NOT NULL, hash TEXT NOT NULL, body TEXT NOT NULL)");
   db.run(`CREATE TABLE IF NOT EXISTS changes (
     revision INTEGER NOT NULL, kind TEXT NOT NULL, id TEXT NOT NULL, op TEXT NOT NULL,
     PRIMARY KEY (revision, kind, id)
@@ -1051,6 +1055,31 @@ export function projectionChangesSince(root: string, since: string, db?: Databas
       .all(from, to) as ProjectionChange[];
     return { revision: at, changes };
   });
+}
+
+export interface ProjectionView { revision: string; hash: string; body: string }
+
+/** A saved view, as its maintainer last saved it; its revision says how
+ * current it is. Undefined before the first save, or without a projection. */
+export function projectionView(root: string, name: string): ProjectionView | undefined {
+  try {
+    const db = openReadonly(root);
+    try { return (db.query("SELECT revision, hash, body FROM views WHERE name = ?").get(name) as ProjectionView | null) ?? undefined; }
+    finally { db.close(); }
+  } catch { return undefined; }
+}
+
+/** Save a view with the revision it reflects. Derived and disposable like the
+ * rest: a projection that cannot take it (another schema, read-only) keeps
+ * the viewer serving from memory and building again next start. */
+export function saveProjectionView(root: string, name: string, view: ProjectionView): void {
+  try {
+    const db = new Database(assertionDbPath(root));
+    try {
+      db.run("PRAGMA busy_timeout = 5000");
+      db.query("INSERT OR REPLACE INTO views(name, revision, hash, body) VALUES (?, ?, ?, ?)").run(name, view.revision, view.hash, view.body);
+    } finally { db.close(); }
+  } catch { /* the view stays in memory */ }
 }
 
 /** A generation changes on rebuild; revision advances for record/content changes.

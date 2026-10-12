@@ -21,7 +21,8 @@ import { watch as fsWatch } from "node:fs";
 import { isAbsolute, relative, sep } from "node:path";
 import { BROWSE_ROOTS } from "./browsePaths";
 import { isLedgerPath } from "./retrieval";
-import { invalidateGraphCaches, warmGraphLayoutAsync } from "./graphCache";
+import { invalidateGraphCaches } from "./graphCache";
+import { maintainGraphView } from "./maintainedGraph";
 import { claimProjectionRecovery, projectionHolds, syncAssertionProjection } from "./assertionProjection";
 import { background } from "./readModelBackground";
 import { readModelRevision } from "./vaultReadModel";
@@ -91,9 +92,10 @@ export interface LiveOptions {
    * projection's incremental sync by default (#495 — the legacy markdown
    * index is gone from the product path). */
   refresh?: (root: string) => void;
-  /** The graph-layout settle ridden off the same signal; graphCache's
-   * warmGraphLayoutAsync by default. A seam for the same reason `refresh` is one:
-   * a fan-out test must not run a force simulation. */
+  /** The graph view's upkeep ridden off the same signal: maintainedGraph's
+   * maintainGraphView by default, which builds only when the projection's
+   * revision moved. A seam for the same reason `refresh` is one: a fan-out
+   * test must not run a force simulation. */
   warmLayout?: (root: string) => void | Promise<void>;
   /** The log census that heals what the write path could not, run at start
    * and after a change under `log/`; recoverInBackground by default. A seam
@@ -127,7 +129,7 @@ export function createLive(opts: LiveOptions): Live {
     watched = WATCHED,
     watch = defaultLiveWatch,
     refresh = syncAssertionProjection,
-    warmLayout = warmGraphLayoutAsync,
+    warmLayout = maintainGraphView,
     recover = recoverInBackground,
     holds = projectionHolds,
     debounceMs = 300,
