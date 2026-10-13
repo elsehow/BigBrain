@@ -29,7 +29,7 @@
 import { GARDENER_PROGRESS_DIR, readGardenerProgress } from "./gardenerProgress";
 import { statSync, watch as fsWatch } from "node:fs";
 import { isAbsolute, join, relative, sep } from "node:path";
-import { BROWSE_ROOTS } from "./browsePaths";
+import { BROWSE_ROOTS, NOTE_ROOTS } from "./browsePaths";
 import { isLedgerPath } from "./retrieval";
 import { maintainGraphView, onGraphView } from "./maintainedGraph";
 import { viewStamps, type ViewStamps } from "./viewStamps";
@@ -241,7 +241,9 @@ export function createLive(opts: LiveOptions): Live {
     // the search index twice a second for as long as the tab stays open
     // (#247/#248).
     if (isLedgerPath(rel) || stopped) return;
-    if (BROWSE_ROOTS.has(first)) notes.noted(rel);
+    // A run journal's markdown report is a note (NOTE_ROOTS); the rest of
+    // journal/ is the runs' JSON, which the files stamp covers.
+    if (BROWSE_ROOTS.has(first) || (NOTE_ROOTS.has(first) && rel.endsWith(".md"))) notes.noted(rel);
     else files = sha256hex(`${files}\n${rel}:${statStamp(join(root, rel))}`).slice(0, 16);
     announce();
   }

@@ -11,6 +11,7 @@ import type { Graph, GraphEdge, GraphNode } from "../graph";
 import { insertionEventRel, sourceMoment, type SourceMetadata } from "../insertionLog";
 import { assertionSuperseded } from "../sourceSupersede";
 import { assertionEntityPath } from "../assertionEntityView";
+import { BROWSE_ROOTS } from "../browsePaths";
 import { insertionFiler, pendingAmong } from "../sourceFeed";
 import { resolveAssertionIdIn } from "../revocationLog";
 import { userIdentityDeclarationsFromEvents } from "../userIdentityPolicy";
@@ -44,7 +45,9 @@ export function drawGraph(record: VaultRecord, scope: Drawable, observe?: Observ
   // processed", and once filed "we follow it, see where it links"). The
   // verdict is the feed's own, so the row's mark and the node agree.
   const pending = pendingAmong(events, record);
-  const documents = members ? [] : record.documents.map(d => ({ ...d }));
+  // The Field draws the notes a person browses (memory/), not the run
+  // journals' reports the projection also holds for reading.
+  const documents = members ? [] : record.documents.filter(d => BROWSE_ROOTS.has(d.path.split("/")[0]!)).map(d => ({ ...d }));
   if (!rows.length && !events.length && !documents.length) return { nodes: [], edges: [], hash: "assertions-empty", projection: "assertions" };
 
   // Copies of one document (lib/sourceCopies.ts) draw as their best copy,

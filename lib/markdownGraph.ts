@@ -2,7 +2,7 @@
 import { AST_CITE } from "./ids";
 import { lstatSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
-import { withinRoot, BROWSE_ROOTS } from "./browsePaths";
+import { withinRoot, NOTE_ROOTS } from "./browsePaths";
 import type { GraphNode } from "./graph";
 import { maskFences, parseWikilinks } from "./linkSyntax";
 import { walkMarkdown, noteText } from "./vaultRead";
@@ -16,11 +16,11 @@ export interface MarkdownIdentity { id: string; path: string; title: string }
 export interface MarkdownDocument extends MarkdownIdentity { body: string }
 
 export function readMarkdownNote(root: string, path: string): string | undefined {
-  const abs = withinRoot(root, path);
+  const abs = withinRoot(root, path, NOTE_ROOTS);
   if (!abs || !path.endsWith(".md")) return;
   try {
     const real = realpathSync(abs), realRoot = realpathSync(root);
-    if (!withinRoot(realRoot, relative(realRoot, real))) return;
+    if (!withinRoot(realRoot, relative(realRoot, real), NOTE_ROOTS)) return;
     return readFileSync(real, "utf8");
   } catch { return; }
 }
@@ -123,11 +123,11 @@ export function explicitNoteLinks(document: MarkdownDocument, resolve: ReturnTyp
   return resolveDocumentLinks(document, parseDocumentLinks(document, fencedText), resolve);
 }
 
-/** Whether the full walk below reaches folder `rel`: a browse root, then
+/** Whether the full walk below reaches folder `rel`: a note root, then
  * real (not linked) folders, none dotted — the walk's own rules. */
 function walkable(root: string, rel: string): boolean {
   const parts = rel.split("/");
-  if (!BROWSE_ROOTS.has(parts[0]!) || parts.some((p) => !p || p.startsWith("."))) return false;
+  if (!NOTE_ROOTS.has(parts[0]!) || parts.some((p) => !p || p.startsWith("."))) return false;
   try {
     if (!statSync(join(root, parts[0]!)).isDirectory()) return false;
     for (let i = 2; i <= parts.length; i++) {
@@ -155,11 +155,11 @@ export function markdownInventory(root: string, under?: readonly string[]): Map<
   const files = new Map<string, string>();
   let realRoot: string;
   try { realRoot = realpathSync(root); } catch { return files; }
-  const paths = under ? [...new Set(under.flatMap((rel) => notesAt(root, rel)))] : walkMarkdown(root, [...BROWSE_ROOTS], { skipDotted: true });
+  const paths = under ? [...new Set(under.flatMap((rel) => notesAt(root, rel)))] : walkMarkdown(root, [...NOTE_ROOTS], { skipDotted: true });
   for (const path of paths.sort()) {
     try {
       const real = realpathSync(join(root, path));
-      if (!withinRoot(realRoot, relative(realRoot, real))) continue;
+      if (!withinRoot(realRoot, relative(realRoot, real), NOTE_ROOTS)) continue;
       const st = statSync(real, { bigint: true });
       files.set(path, `${real}:${st.ino}:${st.size}:${st.mtimeNs}:${st.ctimeNs}`);
     } catch { /* A concurrently removed or inaccessible note is absent. */ }
