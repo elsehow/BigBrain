@@ -22,7 +22,7 @@ import {
 import { copyPairKey, type SourceCopyEvent } from "./sourceCopyLog";
 import { STUB_CHARS } from "./text";
 import { aboutIds, VOICE_KINDS } from "./voiceFacts";
-import type { Snapshot } from "./views/view";
+import type { CacheKey, Snapshot } from "./views/view";
 import { Database } from "bun:sqlite";
 
 /** Source summaries and settlement shared by feed and graph construction. */
@@ -104,48 +104,49 @@ export function withVaultSnapshot<T>(root: string, read: (db: Database, revision
   } finally { if (db.inTransaction) db.run("ROLLBACK"); db.close(); }
 }
 
-/** One snapshot, handed to a view (lib/views/view.ts). */
+/** One snapshot, handed to a view (lib/views/view.ts). Its decodes are
+ * cached per vault and revision, as the root-taking reads' are. */
 export const withSnapshot = <T>(root: string, view: (snapshot: Snapshot) => T): T =>
-  withVaultSnapshot(root, (db, revision) => view({ db, revision }));
+  withVaultSnapshot(root, (db, revision) => view({ db, revision, cache: root as CacheKey }));
 
 /** A feed miss needs neither assertion prose nor Markdown/link evidence.
  * The graph reuses these same objects when it needs the rest of the corpus. */
-export function sourceRecord(root: string): SourceRecord {
-  return withVaultSnapshot(root, (db, revision) => {
-    const held = decodedRevision(root, revision);
-    if (held.sources) return held.sources;
-    const sources = summariesById(db.query(`SELECT ${SUMMARY} FROM sources s WHERE s.present = 1
-      ORDER BY coalesce(s.received_at, s.occurred_at, ''), s.insertion_id`).all() as SummaryRow[]);
-    const ids = (sql: string) => new Set((db.query(sql).all() as { insertion_id: string }[]).map(row => row.insertion_id));
-    const declined = ids("SELECT DISTINCT insertion_id FROM declines WHERE retracted_by IS NULL");
-    // Withdrawal alone never makes an arrival pending again. A decline wins
-    // only when no live assertion cites that arrival (sourceSettlement tests).
-    const cited = ids(`SELECT DISTINCT x.insertion_id FROM assertion_sources x
-      JOIN assertions a ON a.id = x.assertion_id
-      WHERE a.revoked_by IS NULL OR NOT EXISTS (SELECT 1 FROM declines d WHERE d.insertion_id = x.insertion_id AND d.retracted_by IS NULL)`);
-    const grouped = threadsIn(db, sources);
-    return held.sources = { revision, sources, cited, declined, superseded: supersededInsertionIds(sources.values()),
-      threads: new Map(grouped.flatMap(t => [t.path, ...t.aliases].map(path => [path, t] as const))),
-      threadByInsertion: threadsByInsertion(grouped) };
-  });
+export const sourceRecord = (root: string): SourceRecord => withSnapshot(root, sourceRecordOf);
+export function sourceRecordOf({ db, revision, cache }: Snapshot): SourceRecord {
+  const held = decodedRevision(cache, revision);
+  if (held.sources) return held.sources;
+  const sources = summariesById(db.query(`SELECT ${SUMMARY} FROM sources s WHERE s.present = 1
+    ORDER BY coalesce(s.received_at, s.occurred_at, ''), s.insertion_id`).all() as SummaryRow[]);
+  const ids = (sql: string) => new Set((db.query(sql).all() as { insertion_id: string }[]).map(row => row.insertion_id));
+  const declined = ids("SELECT DISTINCT insertion_id FROM declines WHERE retracted_by IS NULL");
+  // Withdrawal alone never makes an arrival pending again. A decline wins
+  // only when no live assertion cites that arrival (sourceSettlement tests).
+  const cited = ids(`SELECT DISTINCT x.insertion_id FROM assertion_sources x
+    JOIN assertions a ON a.id = x.assertion_id
+    WHERE a.revoked_by IS NULL OR NOT EXISTS (SELECT 1 FROM declines d WHERE d.insertion_id = x.insertion_id AND d.retracted_by IS NULL)`);
+  const grouped = threadsIn(db, sources);
+  return held.sources = { revision, sources, cited, declined, superseded: supersededInsertionIds(sources.values()),
+    threads: new Map(grouped.flatMap(t => [t.path, ...t.aliases].map(path => [path, t] as const))),
+    threadByInsertion: threadsByInsertion(grouped) };
 }
 
-export function vaultRecord(root: string): VaultRecord {
-  return withVaultSnapshot(root, (db, revision) => {
-    const held = decodedRevision(root, revision);
-    if (held.record) return held.record;
-    const sources = sourceRecord(root);
-    const rows = decoded<AssertionEvent>(db, "SELECT event_json FROM assertions WHERE revoked_by IS NULL ORDER BY created_at, id");
-    const revoked = new Map<string, RevocationEvent>();
-    for (const event of decoded<RevocationEvent>(db, "SELECT event_json FROM revocations ORDER BY created_at, id"))
-      if (!revoked.has(event.assertion_id)) revoked.set(event.assertion_id, event);
-    const aliases = aliasesIn(db);
-    const entitySources = entitySourcesIn(db);
-    const documents = (db.query("SELECT header_json AS document_json FROM markdown_documents ORDER BY path").all() as { document_json: string }[]).map(r => JSON.parse(r.document_json) as MarkdownIdentity);
-    const documentLinks = new Map((db.query("SELECT path, links_json, citations_json FROM document_links").all() as { path: string; links_json: string; citations_json: string }[])
-      .map(r => [r.path, { links: JSON.parse(r.links_json), citations: JSON.parse(r.citations_json) } as DocumentLinkTargets]));
-    return held.record = { ...sources, documents, documentLinks, rows, aliases, entitySources, copies: sourceCopiesRecord(root), revoked };
-  });
+export const vaultRecord = (root: string): VaultRecord => withSnapshot(root, vaultRecordOf);
+/** Everything the graph draws from, at one snapshot. */
+export function vaultRecordOf(snapshot: Snapshot): VaultRecord {
+  const { db, revision, cache } = snapshot;
+  const held = decodedRevision(cache, revision);
+  if (held.record) return held.record;
+  const sources = sourceRecordOf(snapshot);
+  const rows = decoded<AssertionEvent>(db, "SELECT event_json FROM assertions WHERE revoked_by IS NULL ORDER BY created_at, id");
+  const revoked = new Map<string, RevocationEvent>();
+  for (const event of decoded<RevocationEvent>(db, "SELECT event_json FROM revocations ORDER BY created_at, id"))
+    if (!revoked.has(event.assertion_id)) revoked.set(event.assertion_id, event);
+  const aliases = aliasesIn(db);
+  const entitySources = entitySourcesIn(db);
+  const documents = (db.query("SELECT header_json AS document_json FROM markdown_documents ORDER BY path").all() as { document_json: string }[]).map(r => JSON.parse(r.document_json) as MarkdownIdentity);
+  const documentLinks = new Map((db.query("SELECT path, links_json, citations_json FROM document_links").all() as { path: string; links_json: string; citations_json: string }[])
+    .map(r => [r.path, { links: JSON.parse(r.links_json), citations: JSON.parse(r.citations_json) } as DocumentLinkTargets]));
+  return held.record = { ...sources, documents, documentLinks, rows, aliases, entitySources, copies: copiesRecordOf(snapshot).groups, revoked };
 }
 
 /** The graph view's connections touching `ids`, each with its evidence, in
@@ -221,35 +222,35 @@ function stubIn(db: Database): (source: SourceSummary) => boolean {
  * to its live one, as the graph does), a person's "same" and a judgment at or
  * above the cut-off link a pair; a person's "not the same" cuts it. The whole
  * record, for the graph and the judging pass; a note asks copyGroups. */
-function copiesRecord(root: string): CopiesRecord {
-  return withVaultSnapshot(root, (db, revision) => {
-    const held = decodedRevision(root, revision);
-    if (held.copies) return held.copies;
-    const { sources, superseded, threadByInsertion } = sourceRecord(root);
-    const live = new Map<string, string>();
-    for (const source of sources.values()) if (!superseded.has(source.id)) live.set(source.source_id, source.id);
-    const links = copyLinks(db, (id) => {
-      const landed = sources.get(id);
-      return landed && (superseded.has(landed.id) ? live.get(landed.source_id) : landed.id);
-    });
-    const { said } = links;
-    const works = [...sources.values()].filter((s) => !superseded.has(s.id) && !threadByInsertion.has(s.id));
-    const groups = sourceCopies(works, { ...links, stub: stubIn(db) });
-    const proposals = new Map<string, CopyProposal[]>(), unjudged: [string, string][] = [];
-    const members = (id: string): string[] => groups.get(id)?.members.map((m) => m.id) ?? [id];
-    for (const [a, b] of copyCandidates(works)) {
-      const key = copyPairKey(a, b), group = groups.get(a), judged = said.judged.get(key);
-      if (said.declared.has(key) || (group && group === groups.get(b))) continue;
-      if (!judged) unjudged.push([a, b]);
-      else if (judged.score < PROPOSE_FLOOR) continue;
-      const proposal: CopyProposal = { a, b, ...(judged ? { score: judged.score } : {}) };
-      for (const id of [...members(a), ...members(b)]) {
-        const held = proposals.get(id);
-        if (held) held.push(proposal); else proposals.set(id, [proposal]);
-      }
-    }
-    return held.copies = { groups, proposals, unjudged };
+const copiesRecord = (root: string): CopiesRecord => withSnapshot(root, copiesRecordOf);
+function copiesRecordOf(snapshot: Snapshot): CopiesRecord {
+  const { db, revision, cache } = snapshot;
+  const held = decodedRevision(cache, revision);
+  if (held.copies) return held.copies;
+  const { sources, superseded, threadByInsertion } = sourceRecordOf(snapshot);
+  const live = new Map<string, string>();
+  for (const source of sources.values()) if (!superseded.has(source.id)) live.set(source.source_id, source.id);
+  const links = copyLinks(db, (id) => {
+    const landed = sources.get(id);
+    return landed && (superseded.has(landed.id) ? live.get(landed.source_id) : landed.id);
   });
+  const { said } = links;
+  const works = [...sources.values()].filter((s) => !superseded.has(s.id) && !threadByInsertion.has(s.id));
+  const groups = sourceCopies(works, { ...links, stub: stubIn(db) });
+  const proposals = new Map<string, CopyProposal[]>(), unjudged: [string, string][] = [];
+  const members = (id: string): string[] => groups.get(id)?.members.map((m) => m.id) ?? [id];
+  for (const [a, b] of copyCandidates(works)) {
+    const key = copyPairKey(a, b), group = groups.get(a), judged = said.judged.get(key);
+    if (said.declared.has(key) || (group && group === groups.get(b))) continue;
+    if (!judged) unjudged.push([a, b]);
+    else if (judged.score < PROPOSE_FLOOR) continue;
+    const proposal: CopyProposal = { a, b, ...(judged ? { score: judged.score } : {}) };
+    for (const id of [...members(a), ...members(b)]) {
+      const held = proposals.get(id);
+      if (held) held.push(proposal); else proposals.set(id, [proposal]);
+    }
+  }
+  return held.copies = { groups, proposals, unjudged };
 }
 
 /** Copies of one document (lib/sourceCopies.ts), by insertion id. */
