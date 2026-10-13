@@ -83,8 +83,8 @@ function fixture(dir: string) {
     devDependencies: { vite: "6.3.5", vitest: "3.2.4" },
   }, null, 2));
   writeFileSync(join(dir, "index.html"), "<!doctype html><title>Orrery</title><script type=module src=/src/main.js></script><p>Orrery</p>\n");
-  writeFileSync(join(dir, "src", "main.js"), "export const ratio = (a, b) => a / b;\ndocument.title = 'Orrery ' + ratio(4, 2);\n");
-  writeFileSync(join(dir, "src", "ratio.test.js"), "import { test, expect } from 'vitest';\nimport { ratio } from './main.js';\nglobalThis.document = {};\ntest('ratio', () => expect(ratio(4, 2)).toBe(2));\n");
+  writeFileSync(join(dir, "src", "main.js"), "export const ratio = (a, b) => a / b;\nif (globalThis.document) document.title = 'Orrery ' + ratio(4, 2);\n");
+  writeFileSync(join(dir, "src", "ratio.test.js"), "import { test, expect } from 'vitest';\nimport { ratio } from './main.js';\ntest('ratio', () => expect(ratio(4, 2)).toBe(2));\n");
   const git = (...a: string[]) => execFileSync("git", ["-c", "user.email=orrery@example.invalid", "-c", "user.name=Orrery", ...a], { cwd: dir });
   writeFileSync(join(dir, ".gitignore"), "node_modules\n");
   git("init", "-q", "-b", "main"); git("add", "-A"); git("commit", "-qm", "orrery"); git("tag", "v0.1");
@@ -187,7 +187,8 @@ async function main() {
 
   if (install.code === 0) {
     const guestRuns: number[] = [];
-    for (let i = 0; i < 3; i++) { t = performance.now(); const r = await sh(g, "cd /work/orrery && bun run test 2>&1"); guestRuns.push(performance.now() - t); if (r.code !== 0) console.log(r.out); }
+    let failed = "";
+    for (let i = 0; i < 3; i++) { t = performance.now(); const r = await sh(g, "cd /work/orrery && bun run test 2>&1"); guestRuns.push(performance.now() - t); if (r.code !== 0) failed = r.out.trim().slice(-300); }
     let hostMs = NaN;
     const hostInstall = spawnSync("bun", ["install"], { cwd: project, stdio: "ignore" });
     if (hostInstall.status === 0) {
@@ -196,7 +197,8 @@ async function main() {
       hostMs = p50(hostRuns);
     }
     const ratio = p50(guestRuns) / hostMs;
-    record("test run", `${(p50(guestRuns) / 1000).toFixed(2)} s in the machine, ${(hostMs / 1000).toFixed(2)} s on the host: ${ratio.toFixed(1)}×`, Number.isFinite(ratio) ? judge(ratio, 2, 4) : "not run");
+    if (failed) record("test run", `the fixture's tests failed in the machine: ${failed}`, "no-go");
+    else record("test run", `${(p50(guestRuns) / 1000).toFixed(2)} s in the machine, ${(hostMs / 1000).toFixed(2)} s on the host: ${ratio.toFixed(1)}×`, Number.isFinite(ratio) ? judge(ratio, 2, 4) : "not run");
 
     // preview through a forward
     const dev = await g.exec(["/bin/bash", "-lc", "cd /work/orrery && exec bun run dev"], { cwd: "/work/orrery" }, () => {});

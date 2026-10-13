@@ -38,11 +38,12 @@ this helper happens on a Mac. CI (`.github/workflows/machine.yml`) builds the
 image on each architecture and compiles the helper.
 
 ```
-gh run download <run-id> -n machine-arm64 -D packages/agents/image/out
-gunzip -k packages/agents/image/out/rootfs.img.gz
-bun run vm:build
-BIGBRAIN_VM_TESTS=vz bun test packages/agents/test/machine.test.ts
-bun packages/agents/test/machine.spike.ts            # about 10 minutes; --quick for 5
+bun run vm:spike          # or: bun run vm:spike --quick
 ```
 
-The spike writes `spike-results.md`, the table the plan's go/no-go reads.
+That downloads the latest CI image for the Mac's architecture into
+`packages/agents/image/out`, builds and signs the helper, runs the VM suite
+(`BIGBRAIN_VM_TESTS=vz`), then the spike. The spike writes
+`spike-results.md`, the table the plan's go/no-go reads. The clock row is
+by hand: `bun packages/agents/test/machine.spike.ts --clock`, then sleep the
+Mac for ten minutes and wake it.

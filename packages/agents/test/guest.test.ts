@@ -239,9 +239,13 @@ describe.skipIf(!BIN || !unix)("bigbrain-guest --serve", () => {
   test("64 open connections, then limit", async () => {
     const held: Socket[] = [];
     for (let i = 0; i < 64; i++) held.push(await new Promise<Socket>(done => { const s = connect({ path: sock }, () => done(s)); }));
-    await sleep(100);
-    const a = frames(await raw(sock, control({ op: "hello", protocol: 1, tz: "" })));
-    expect((a[0] as { control: Record<string, unknown> }).control).toMatchObject({ ok: false, error: "limit" });
+    // the guest accepts them in its own time: ask until it is full
+    let a: Record<string, unknown> = {};
+    for (let i = 0; i < 100 && a.error !== "limit"; i++) {
+      a = (frames(await raw(sock, control({ op: "hello", protocol: 1, tz: "" })))[0] as { control: Record<string, unknown> }).control;
+      if (a.error !== "limit") await sleep(50);
+    }
+    expect(a).toMatchObject({ ok: false, error: "limit" });
     held.forEach(s => s.destroy());
     await until(async () => { try { await g.hello(); return true; } catch { return false; } });
     expect((await g.hello()).protocol).toBe(1);

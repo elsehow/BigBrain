@@ -18,6 +18,7 @@
     "guest:build": "cargo build --release --manifest-path packages/guest/Cargo.toml",
     "vm:image": "bash packages/agents/image/build.sh",
     "vm:build": "sh packages/vm/build.sh",
+    "vm:spike": "sh packages/vm/spike.sh",
     "site:build": "bun site/build.ts",
     "lint": "oxlint --deny-warnings bin lib web integrations clients site test packages",
     "plugins:build": "bun bin/build-agent-plugins.ts",
