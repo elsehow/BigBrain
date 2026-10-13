@@ -1,5 +1,5 @@
 import { freshGraph } from "./maintainedGraph";
-import { createNoteBriefingService } from "./noteBriefing";
+import { createNoteBriefingService } from "./stages/briefing";
 import { memoryCategoryCatalogue } from "./memoryCategories";
 
 /** Sequential, content-addressed warming after a successful memory pass.

@@ -8,7 +8,7 @@
  * than churns — and stops for good once a person renames the session by hand
  * (titleSource "human", lib/pilotChat.ts rename()).
  */
-import { runBriefingModel } from "./entityBriefing";
+import { runBriefingModel } from "./stages/quick";
 
 export const TASK_NAME_SYSTEM = `Come up with a name for this task, the way a chat app titles a conversation.
 A few words (usually two to six), plain and specific. Name the subject; don't echo the person's words or start with a verb like "Discussing".
