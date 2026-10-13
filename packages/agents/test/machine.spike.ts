@@ -119,9 +119,17 @@ function cpuPercent(): number {
 /** A host loopback port joined to a guest port: the preview forward of Phase 3c, in miniature. */
 function forward(g: Guest, port: number): Promise<{ port: number; server: Server }> {
   const server = createServer(client => {
-    client.pause();
-    g.connect(port).then(up => { client.pipe(up); up.pipe(client); client.resume(); up.resume(); up.on("error", () => client.destroy()); client.on("error", () => up.destroy()); })
-      .catch(() => client.destroy());
+    // held by hand: bun's paused server socket doesn't give back what it buffered on resume
+    const early: Buffer[] = [];
+    const hold = (d: Buffer) => early.push(d);
+    client.on("data", hold);
+    client.on("error", () => client.destroy());
+    g.connect(port).then(up => {
+      client.off("data", hold);
+      for (const b of early) up.write(b);
+      client.pipe(up); up.pipe(client); up.resume();
+      up.on("error", () => client.destroy()); client.on("close", () => up.destroy());
+    }).catch(() => client.destroy());
   });
   return new Promise(done => server.listen(0, "127.0.0.1", () => done({ port: (server.address() as { port: number }).port, server })));
 }
