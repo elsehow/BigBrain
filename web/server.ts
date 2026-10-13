@@ -59,7 +59,7 @@ import { withinRoot } from "../lib/browsePaths";
 import { serveStatic } from "../lib/staticServe";
 import { parseBlobRef, readBlob } from "../lib/blobs";
 import { recentSourcePageAsync } from "../lib/sourceFeed";
-import { currentGraph, currentGraphView, maintainGraphView } from "../lib/maintainedGraph";
+import { currentGraph, currentGraphView, graphDeltaSince, maintainGraphView } from "../lib/maintainedGraph";
 import { feedStamp, serveStamped } from "../lib/viewStamps";
 import type { Snapshot } from "../lib/views/view";
 import type { ProjectionView } from "../lib/assertionProjection";
@@ -526,7 +526,19 @@ async function graph({ req, res, url }: Ctx): Promise<void> {
   try {
     if (url.searchParams.has("current")) await maintainGraphView(ROOT);
     const filter = vaultFilter(req.headers?.["x-bigbrain-vault-filter"]);
-    if (personalOnly(filter)) return sendView(req, res, await currentGraphView(ROOT));
+    if (personalOnly(filter)) {
+      const view = await currentGraphView(ROOT), since = url.searchParams.get("since");
+      // a viewer holding an earlier picture is sent what changed (step 8), when that is less
+      const delta = since && since !== view.hash ? graphDeltaSince(ROOT, since) : undefined;
+      if (delta) {
+        const body = JSON.stringify({ delta });
+        if (body.length < view.body.length / 2) {
+          res.writeHead(200, { "content-type": "application/json", "cache-control": "no-cache", etag: `"${view.hash}"`, vary: "x-bigbrain-vault-filter" });
+          return void res.end(body);
+        }
+      }
+      return sendView(req, res, view);
+    }
     json(res, 200, await unionGraph(ROOT, await currentGraph(ROOT), filter));
   } catch (error) {
     json(res, 500, { error: errText(error) });

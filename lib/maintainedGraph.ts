@@ -29,6 +29,7 @@ import { recentSourcePage } from "./sourceFeed";
 import { readModelRevision, vaultRecordOf, withSnapshot } from "./vaultReadModel";
 import { fieldOf } from "./views/graph";
 import { liveOf } from "./views/scope";
+import { diffGraph, type GraphDelta } from "./views/graphDelta";
 
 const NAME = "graph";
 /** What the graph does not read. */
@@ -122,8 +123,31 @@ function holds(root: string, view: Held | undefined): boolean {
   return true;
 }
 
+/** The last few pictures served, by hash: what a viewer holding one can be
+ * sent the difference from (step 8, lib/views/graphDelta.ts). */
+const KEPT = 8;
+const served = new Map<string, Map<string, Graph>>();
+function keep(root: string, view: Held | undefined): void {
+  if (!view) return;
+  let kept = served.get(root);
+  if (!kept) served.set(root, kept = new Map());
+  if (kept.has(view.hash)) return;
+  kept.set(view.hash, view.graph ??= JSON.parse(view.body) as Graph);
+  while (kept.size > KEPT) kept.delete(kept.keys().next().value!);
+}
+
+/** What changed since the picture `from`, to the one served now; undefined
+ * when that picture is no longer kept, and the viewer reads the whole. */
+export function graphDeltaSince(root: string, from: string): GraphDelta | undefined {
+  const now = current(root);
+  if (!now) return undefined;
+  const was = from === now.hash ? (now.graph ??= JSON.parse(now.body) as Graph) : served.get(root)?.get(from);
+  return was ? diffGraph(was, savedGraph(root)!, { from, to: now.hash }) : undefined;
+}
+
 /** A built view is the current one: saved after the burst, its stamp heard. */
 function land(root: string, view: ProjectionView): void {
+  keep(root, held.get(root) ?? undefined);
   const before = held.get(root)?.hash;
   held.set(root, view);
   scheduleSave(root, view);

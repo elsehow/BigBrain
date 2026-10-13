@@ -1,6 +1,8 @@
 import { workspaceURL, selectedWorkspace } from "./vaultScope";
 import { vaultStorageKey, vaultReady, assertVaultCurrent } from "./vaultScope";
 import { vaultFetch as fetch } from "./vaultScope";
+import { applyGraphDelta, type GraphDelta } from "../../../../lib/views/graphDelta";
+import type { Graph } from "../../../../lib/graph";
 import type {
   ConfigInfo,
   ConfigPatch,
@@ -96,9 +98,24 @@ async function stamped<T>(url: string, header: "etag" | "x-bigbrain-stamp"): Pro
   return { data, stamp: header === "etag" ? stamp.replace(/^"|"$/g, "") : stamp };
 }
 
+/** The last picture of your field this tab read, kept to apply what changed
+ * (lib/views/graphDelta.ts): a commit sends a few nodes, not the field again.
+ * Callers get their own copy, so nothing they do to it reaches this one. */
+let heldGraph: { stamp: string; data: GraphData } | null = null;
+async function readGraph(current = false): Promise<{ data: GraphData; stamp: string }> {
+  const query = [current ? "current" : "", heldGraph?.stamp ? `since=${encodeURIComponent(heldGraph.stamp)}` : ""].filter(Boolean).join("&");
+  const r = await stamped<GraphData | { delta: GraphDelta }>(`${U.graph()}${query ? `?${query}` : ""}`, "etag");
+  const data = "delta" in r.data && heldGraph && r.data.delta.from === heldGraph.stamp
+    ? applyGraphDelta(heldGraph.data as unknown as Graph, r.data.delta) as unknown as GraphData
+    : "delta" in r.data ? (await stamped<GraphData>(U.graph(), "etag")).data : r.data;
+  heldGraph = r.stamp ? { stamp: r.stamp, data } : null;
+  return { data: structuredClone(data), stamp: r.stamp };
+}
+
 /** Drop response caches for this vault, preserving drafts and delivery IDs. */
 export function clearSwrCache(): void {
   mem.clear();
+  heldGraph = null;
   try {
     const prefix = cachePrefix();
     for (let i = sessionStorage.length - 1; i >= 0; i--) {
@@ -211,7 +228,7 @@ export const api = {
   /** The Field's graph and its stamp. `current`: wait for the view to reflect
    * a write this client just made (the engine otherwise serves the last view
    * while it builds the next). */
-  graph: (current = false) => stamped<GraphData>(`${U.graph()}${current ? "?current" : ""}`, "etag"),
+  graph: readGraph,
   /** One server's own field, as everyone who reads it sees it (lib/sharedReadUnion.ts serverGraph). */
   serverGraph: (id: string) => get<GraphData>(`/api/graph/server?id=${encodeURIComponent(id)}`),
   /** The v2 view's who and what (lib/v2Feed.ts): agents and the latest assertions, and the feed's stamp. */
