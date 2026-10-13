@@ -62,8 +62,9 @@ being done now; don't let it live only in a conversation.
 `docs/design-principles.md` holds the architectural principles
 (everything but the logs is disposable; work is a view, not a queue;
 integrations deliver the discussable version; the engine sorts but
-never answers — BYO model; user vaults are never migrated) — read it
-before designing anything that touches ingestion or curation.
+never answers — BYO model; user vaults are migrated only for a good
+reason, talked through, and with the owner's consent) — read it before
+designing anything that touches ingestion or curation.
 
 ## There are no hosts
 
@@ -191,6 +192,16 @@ Two linters, each only where it is competent. Keep it that way.
   assertion adds a case to `lib/assertionLog.ts`, not a log. Id patterns
   and the entity-label normalization live once in `lib/ids.ts`,
   sha256 once in `lib/hash.ts`
+- `lib/views/` and `lib/stages/` — where code lands as the stages-and-views
+  refactor converts it (`docs/plans/2026-10-12-stages-and-views-refactor.md`).
+  A view is a pure function of a `Snapshot` (`lib/views/view.ts`): never
+  `root`, the disk, git, a model, the clock or `Math.random`. Only a
+  `Stage` (`lib/stages/stage.ts`) calls a model, through the runner a
+  chain hands it (`lib/stages/runner.ts`). `test/viewGuard.test.ts`
+  enforces both; the only other model callers are operational (connection
+  and key checks) and the agents' own tools, and that list only shrinks.
+  `bun run field:digest <scratch vault>` proves a refactor left a vault
+  reading the same
 - `integrations/` — inbound/outbound integrations, each ticked by the
   supervisor on its `CADENCE` interval (`lib/desktopSchedule.ts`)
 - `web/` — the read-only web viewer (:4747)

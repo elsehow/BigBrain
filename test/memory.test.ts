@@ -1,3 +1,4 @@
+import { stageMemoryStamp } from "./support/memoryStamp";
 import { readMemoryInputs } from "../lib/memoryInputs";
 import { describe, expect, spyOn, test } from "bun:test";
 import {
@@ -12,7 +13,7 @@ import { join } from "node:path";
 import type { PiLoader } from "./support/pi";
 import { fakeMemoryPi as fakePi } from "./support/memoryPi";
 import { gitOut } from "../lib/git";
-import { runMemory } from "../lib/memoryRun";
+import { runMemory } from "../lib/stages/memory";
 import { readModelRuns } from "../lib/run/monitor";
 import type { Manifest } from "../lib/manifest";
 import { previousRunFailure } from "../lib/memoryContext";
@@ -26,7 +27,6 @@ import {
   memoryRunning,
   memoryWork,
   readMemoryStamp,
-  writeMemoryStamp,
 } from "../lib/memory";
 import {
   assertionEntityId,
@@ -120,7 +120,7 @@ describe("memoryDue — the pass's own due-check (never a sleep)", () => {
   test("scheduled sweep: due exactly when nextRunAt arrives — given work to do", () => {
     const root = freshRoot();
     const now = new Date("2026-08-05T12:00:00Z");
-    writeMemoryStamp(root, { nextRunAt: "2026-08-05T12:30:00Z" });
+    stageMemoryStamp(root, { nextRunAt: "2026-08-05T12:30:00Z" });
     seedAssertion(root, "2026-08-05T11:00:00.000Z");
     expect(memoryDue(root, { now }).due).toBe(false);
     expect(memoryDue(root, { now: new Date("2026-08-05T12:30:01Z") }).due).toBe(
@@ -136,7 +136,7 @@ describe("memoryDue — the pass's own due-check (never a sleep)", () => {
     // right
     seedAssertion(root, "2026-08-05T11:00:00.000Z");
     const folded = memoryWork(root, {});
-    writeMemoryStamp(root, {
+    stageMemoryStamp(root, {
       nextRunAt: "2026-08-05T12:00:00Z",
       assertionCursor: { at: "2026-08-05T11:00:00.000Z", id: "\uffff" },
     });
@@ -151,7 +151,7 @@ describe("memoryDue — the pass's own due-check (never a sleep)", () => {
 
   test("--force overrides the work gate (an explicit run is intent, not inference)", () => {
     const root = freshRoot();
-    writeMemoryStamp(root, { nextRunAt: "2026-08-05T12:00:00Z" });
+    stageMemoryStamp(root, { nextRunAt: "2026-08-05T12:00:00Z" });
     expect(
       memoryDue(root, { force: true, now: new Date("2026-08-05T13:00:00Z") })
         .due
@@ -160,7 +160,7 @@ describe("memoryDue — the pass's own due-check (never a sleep)", () => {
 
   test("voice arrivals are work, not a trigger: they wait for the sweep (2026-09-02)", () => {
     const root = freshRoot();
-    writeMemoryStamp(root, { nextRunAt: "2026-08-06T00:00:00Z" }); // sweep tomorrow
+    stageMemoryStamp(root, { nextRunAt: "2026-08-06T00:00:00Z" }); // sweep tomorrow
     emitVoice(root, { observation: "fresh why", now: new Date("2026-08-05T12:00:00Z") }, P);
     // hours later, still waiting — there is no settle clock any more
     const waiting = memoryDue(root, { now: new Date("2026-08-05T18:00:00Z") });
@@ -180,7 +180,7 @@ describe("memoryDue — the pass's own due-check (never a sleep)", () => {
       assertionCursor: { at: "2026-08-05T11:00:00.000Z", id: "\uffff" },
       insertionCursor: { at: "2026-08-05T11:00:00.000Z", id: "\uffff" },
     };
-    writeMemoryStamp(root, stamp);
+    stageMemoryStamp(root, stamp);
     expect(hasMemoryWork(memoryWork(root, stamp))).toBe(false);
     expect(memoryDue(root, { now: new Date("2026-08-05T13:00:00Z") }).due).toBe(
       false
@@ -198,7 +198,7 @@ describe("memoryDue — the pass's own due-check (never a sleep)", () => {
 
   test("stamps round-trip", () => {
     const root = freshRoot();
-    writeMemoryStamp(root, { lastRunAt: "a", nextRunAt: "b", run: "c" });
+    stageMemoryStamp(root, { lastRunAt: "a", nextRunAt: "b", run: "c" });
     expect(readMemoryStamp(root)).toEqual({ lastRunAt: "a", nextRunAt: "b", run: "c" });
   });
 });
@@ -213,7 +213,7 @@ describe("memoryDue — the pass's own due-check (never a sleep)", () => {
 describe("urgency now — inert since 2026-09-02", () => {
   test("an urgent arrival waits for the sweep like every other voice note", () => {
     const root = freshRoot();
-    writeMemoryStamp(root, {
+    stageMemoryStamp(root, {
       checkpoint: readMemoryInputs(root).checkpoint,
       lastRunAt: "2026-08-05T00:00:00Z",
       nextRunAt: "2026-08-06T00:00:00Z",
@@ -268,7 +268,7 @@ describe("memoryRunning — the viewer's spinner reads the lock, never guesses",
 // ══════════════════════════════════════════════════════════════════════
 // runMemory — the pass end-to-end. bin/memory.ts was a top-level script,
 // so importing anything from it EXECUTED a sweep and this suite could not
-// exist; the body moved to lib/memoryRun.ts (2026-08-07) precisely so it
+// exist; the body moved to lib/stages/memory.ts (2026-08-07) precisely so it
 // could. The model is stubbed at the spawn seam — what is under test is
 // the RUNNER's mechanical contract, which is the half that is not a guess.
 // ══════════════════════════════════════════════════════════════════════
@@ -371,7 +371,7 @@ describe("runMemory: the mechanical contract", () => {
 
   test("not due is not a run — the model is never spawned", async () => {
     const root = memVault();
-    writeMemoryStamp(root, {
+    stageMemoryStamp(root, {
       lastRunAt: new Date().toISOString(),
       nextRunAt: new Date(Date.now() + 9_000_000).toISOString(),
     });
@@ -408,7 +408,7 @@ describe("runMemory: the mechanical contract", () => {
 
     test("only the clock moves — the cursors, lastRunAt, lastCommit and run still name the last fold", async () => {
       const root = memVault();
-      writeMemoryStamp(root, onTheClock);
+      stageMemoryStamp(root, onTheClock);
       const before = Date.now();
       const res = await runMemory({ root, manifest: daily(root), force: true, loadPi: fell });
       expect(res.error).toBe("claude fell over");

@@ -24,7 +24,9 @@ import {SharedMemberBusyError} from './sharedMemberLock';
  *   GET  /v1/assertions?limit&cursor[&include_revoked]   read   a page of assertions with status
  *   GET  /v1/assertions/:id                 read         one assertion with its revocation/resolution
  *   POST /v1/assertions/:id/correct         write+author {text, sources, confidence?, reason?}
- *   POST /v1/assertions/:id/retract         write+author {reason}
+ *   POST /v1/assertions/:id/retract         write+author {reason} — an identity's too
+ *   POST /v1/identities                     write        {identity: {says: copy|not-copy} | {says: is-source, entity: {label}}, sources} → {id, deduped, seq}
+ *   GET  /v1/identities                     read         every identity that stands (copies, and the entity a landing is)
  *   POST /v1/moderation                     write+OWNER  {assertion_id, reason}
  *   GET  /v1/search?q&limit                 read         term-AND hits over evidence and live assertions
  *   GET  /v1/feed?after&limit               read         the durable change feed from a cursor
@@ -385,6 +387,11 @@ const ROUTE_TABLE: Route[] = [
   { method: "GET", path: "/v1/assertions/:id", permission: "read", handler: getAssertion },
   { method: "POST", path: "/v1/assertions/:id/correct", permission: "write", rateLimited: true, handler: correctAssertion },
   { method: "POST", path: "/v1/assertions/:id/retract", permission: "write", rateLimited: true, handler: retractAssertion },
+  { method: "POST", path: "/v1/identities", permission: "write", rateLimited: true, handler: ({ body, vault, actor, json }) => {
+    const r = vault.identify(actor, body);
+    return json(r.deduped ? 200 : 201, { id: r.identity.id, deduped: r.deduped, seq: r.seq });
+  } },
+  { method: "GET", path: "/v1/identities", permission: "read", handler: ({ vault, json }) => json(200, vault.listIdentities()) },
   { method: "POST", path: "/v1/moderation", permission: "write", rateLimited: true, handler: moderate },
   { method: "GET", path: "/v1/search", permission: "read", handler: search },
   { method: "GET", path: "/v1/feed", permission: "read", handler: feed },

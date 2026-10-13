@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { briefingPrompt, noteBriefingInput, noteBriefingPreview, noteBriefingSchema, NOTE_BRIEFING_MODEL_OPTIONS, NOTE_BRIEFING_SYSTEM, parseNoteBriefing } from "../../lib/noteBriefing";
-import { runBriefingModel } from "../../lib/entityBriefing";
+import { runBriefingModel } from "../../lib/stages/quick";
 
 const [agent = "claude", model = "haiku", mode = "prepare", limit = "10", samples = "3"] = process.argv.slice(2);
 if (!["claude", "pi"].includes(agent) || !/^[a-zA-Z0-9._-]+$/.test(model) || !["live", "prepare"].includes(mode) || !["5", "10"].includes(limit) || !/^[1-5]$/.test(samples))

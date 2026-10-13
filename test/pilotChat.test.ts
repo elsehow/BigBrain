@@ -1,3 +1,4 @@
+import { projectNotes } from "../lib/assertionProjection";
 import { afterAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -217,9 +218,11 @@ test("Pi history retains tool evidence across turns and engine restarts", async 
       : [text("Saffron-37")])]);
   }) as typeof fetch };
   writeAtomic(join(root, "memory", "MEMORY.md"), "Initial memory");
+  projectNotes(root, ["memory"]);
   const first = new PilotChats(root, options), s = first.create([]);
   first.send(s.id, "What is the code?"); await first.settled(s.id); first.close();
   writeAtomic(join(root, "memory", "MEMORY.md"), "Updated memory");
+  projectNotes(root, ["memory"]); // a hand edit reaches reads through the notes door, as the watcher passes it
   const resumed = new PilotChats(root, options);
   resumed.send(s.id, "Repeat it"); await resumed.settled(s.id);
   const last = requests.at(-1);

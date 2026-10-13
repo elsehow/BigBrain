@@ -5,29 +5,35 @@
  * committed something the graph depends on since the view's revision; a build
  * that finishes behind the projection runs again. A journal write moves the
  * revision but not the graph: the view's revision advances without a build.
- * Readers get the last view at once — a request is a lookup — and a start
- * serves the view saved last session when nothing changed while the app was
- * closed. The view's hash is its body's: the stamp the viewer pushes and the
- * ETag /api/graph answers with. Each build also keeps what it drew each
- * connection from (graph_evidence), the briefing's evidence: a briefing reads
- * the rows for its selection (vaultReadModel.graphEvidence), never the
- * record. */
+ * A reader is served the view only when it is current (R4,
+ * docs/plans/2026-10-12-stages-and-views-refactor.md): the saved view is a
+ * cache by revision, so a start serves the one saved last session when
+ * nothing changed while the app was closed, and otherwise waits for the
+ * build the projection's commit began. A read writes nothing: the
+ * maintainer saves what it builds. The view is the graph view
+ * (lib/views/graph.ts) over everything live. Its hash is its body's: the
+ * stamp the viewer pushes and the ETag /api/graph answers with. Each build
+ * also keeps what it drew each connection from (graph_evidence), the
+ * briefing's evidence: a briefing reads the rows for its selection
+ * (vaultReadModel.graphEvidence), never the record. */
 import type { Graph } from "./graph";
-import { buildAssertionGraph } from "./assertionGraph";
 import {
   lastChangeExcept, projectionView, saveGraphEvidence, saveProjectionView,
   type ChangeKind, type GraphEvidenceRow, type ProjectionView,
 } from "./assertionProjection";
 import type { ObserveConnection } from "./markdownGraph";
 import { sha256hex } from "./hash";
-import { EMPTY_GRAPH, graphWithLayout } from "./graphCache";
+import { EMPTY_GRAPH } from "./graphCache";
 import { background } from "./readModelBackground";
 import { recentSourcePage } from "./sourceFeed";
-import { readModelRevision, vaultRecord, withVaultSnapshot } from "./vaultReadModel";
+import { readModelRevision, vaultRecordOf, withSnapshot } from "./vaultReadModel";
+import { fieldOf } from "./views/graph";
+import { liveOf } from "./views/scope";
+import { diffGraph, type GraphDelta } from "./views/graphDelta";
 
 const NAME = "graph";
 /** What the graph does not read. */
-const IGNORES: readonly ChangeKind[] = ["journal", "fold_reject", "folds"];
+const IGNORES: readonly ChangeKind[] = ["journal", "fold_reject", "folds", "inclusion"];
 /** A burst of commits saves once: the view in memory serves meanwhile. */
 const SAVE_AFTER_MS = 5_000;
 
@@ -49,9 +55,12 @@ function evidenceRows(rows: GraphEvidenceRow[]): ObserveConnection {
 export function buildGraphView(root: string): ProjectionView {
   recentSourcePage(root, 0, 1);
   const rows: GraphEvidenceRow[] = [];
-  const view = withVaultSnapshot(root, (_db, revision) => {
-    const built = buildAssertionGraph(root, evidenceRows(rows), vaultRecord(root)); // no text: only where each came from
-    const graph = graphWithLayout(root, built.nodes.length ? built : { ...EMPTY_GRAPH, nodes: [], edges: [] });
+  const view = withSnapshot(root, (snapshot) => {
+    const { revision } = snapshot;
+    // seated as it stands at this revision (lib/views/layout.ts): no layout drawn before is read
+    const record = vaultRecordOf(snapshot);
+    const built = fieldOf(record, liveOf(record), evidenceRows(rows)); // no text: only where each came from
+    const graph = built.nodes.length ? built : { ...EMPTY_GRAPH, nodes: [], edges: [] };
     const body = JSON.stringify(graph);
     return { revision, hash: sha256hex(body).slice(0, 16), body };
   });
@@ -101,7 +110,8 @@ export type BuildGraphView = (root: string) => Promise<ProjectionView>;
 const inWorker: BuildGraphView = (root) => background<ProjectionView>({ kind: "graph-view", root });
 
 /** Whether `view` still reflects the projection: nothing it reads has been
- * committed since. Advances its revision past commits it does not read. */
+ * committed since. Advances its revision past commits it does not read, in
+ * memory: the maintainer saves it. */
 function holds(root: string, view: Held | undefined): boolean {
   if (!view) return false;
   if (view.revision === readModelRevision(root)) return true;
@@ -109,14 +119,35 @@ function holds(root: string, view: Held | undefined): boolean {
   const [generation, revision] = view.revision.split(":");
   const [lastGeneration, last] = log?.last.split(":") ?? [];
   if (!log || generation !== lastGeneration || Number(last) > Number(revision)) return false;
-  const advanced = { ...view, revision: log.at };
-  held.set(root, advanced);
-  scheduleSave(root, advanced);
+  held.set(root, { ...view, revision: log.at });
   return true;
+}
+
+/** The last few pictures served, by hash: what a viewer holding one can be
+ * sent the difference from (step 8, lib/views/graphDelta.ts). */
+const KEPT = 8;
+const served = new Map<string, Map<string, Graph>>();
+function keep(root: string, view: Held | undefined): void {
+  if (!view) return;
+  let kept = served.get(root);
+  if (!kept) served.set(root, kept = new Map());
+  if (kept.has(view.hash)) return;
+  kept.set(view.hash, view.graph ??= JSON.parse(view.body) as Graph);
+  while (kept.size > KEPT) kept.delete(kept.keys().next().value!);
+}
+
+/** What changed since the picture `from`, to the one served now; undefined
+ * when that picture is no longer kept, and the viewer reads the whole. */
+export function graphDeltaSince(root: string, from: string): GraphDelta | undefined {
+  const now = current(root);
+  if (!now) return undefined;
+  const was = from === now.hash ? (now.graph ??= JSON.parse(now.body) as Graph) : served.get(root)?.get(from);
+  return was ? diffGraph(was, savedGraph(root)!, { from, to: now.hash }) : undefined;
 }
 
 /** A built view is the current one: saved after the burst, its stamp heard. */
 function land(root: string, view: ProjectionView): void {
+  keep(root, held.get(root) ?? undefined);
   const before = held.get(root)?.hash;
   held.set(root, view);
   scheduleSave(root, view);
@@ -130,7 +161,8 @@ export function maintainGraphView(root: string, build: BuildGraphView = inWorker
   const run = (async () => {
     do {
       behind.delete(root);
-      if (holds(root, current(root))) continue;
+      const was = current(root)?.revision;
+      if (holds(root, current(root))) { if (current(root)!.revision !== was) scheduleSave(root, current(root)!); continue; }
       land(root, await build(root));
     } while (behind.has(root));
   })().finally(() => builds.delete(root));
@@ -143,13 +175,10 @@ const EMPTY_VIEW: ProjectionView = (() => {
   return { revision: "", hash: sha256hex(body).slice(0, 16), body };
 })();
 
-/** The view for a request, as served: the last one at once, with a build
- * started when the projection has moved past it. Only a vault with no view
- * yet waits. */
+/** The view for a request, as served: the held one when it is current,
+ * else the one the maintainer's build lands. */
 export async function currentGraphView(root: string, build?: BuildGraphView): Promise<ProjectionView> {
-  const view = current(root);
-  if (!view) await maintainGraphView(root, build);
-  else if (view.revision !== readModelRevision(root)) void maintainGraphView(root, build).catch(() => {});
+  if (!holds(root, current(root))) await maintainGraphView(root, build);
   return current(root) ?? EMPTY_VIEW;
 }
 

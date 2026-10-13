@@ -7,6 +7,7 @@
 // treats an unresolvable [[ast_…]] like an over-budget tree — wholesale
 // revert, loud failure. Legacy vaults must be untouched by all of it.
 // ══════════════════════════════════════════════════════════════════════
+import { stageMemoryStamp } from "./support/memoryStamp";
 import { describe, expect, test } from "bun:test";
 import {
   existsSync,
@@ -32,7 +33,7 @@ import {
   appendAndProjectAssertion,
   projectSourceInsertion,
 } from "../lib/assertionProjection";
-import { runMemory, type MemoryRunResult } from "../lib/memoryRun";
+import { runMemory, type MemoryRunResult } from "../lib/stages/memory";
 import { MEMORY_MAX_ASSERTIONS_INLINE, readMemorySnapshot } from "../lib/memoryContext";
 import { memoryStanding, memoryLine } from "../lib/diagnostics";
 import { readMemoryInputs } from "../lib/memoryInputs";
@@ -47,7 +48,6 @@ import {
   MEMORY_PROTOCOL_VERSION,
   memoryWork,
   readMemoryStamp,
-  writeMemoryStamp,
   type MemoryStamp,
 } from "../lib/memory";
 import { alias, retract } from "./support/said";
@@ -124,7 +124,7 @@ function nativeVault(
   }
   commitAll(root);
   // the seeded tree is current: only the protocol tests seed an older one
-  if (opts.tree !== false) writeMemoryStamp(root, { protocolVersion: MEMORY_PROTOCOL_VERSION });
+  if (opts.tree !== false) stageMemoryStamp(root, { protocolVersion: MEMORY_PROTOCOL_VERSION });
   return { root, sources, asts };
 }
 
@@ -194,7 +194,7 @@ describe("native due-ness — assertions trigger, raw arrivals do not", () => {
       assertionCursor: cursorAt(asts[0]!),
       insertionCursor: insCursorAt(sources[0]!),
     };
-    writeMemoryStamp(root, stamp);
+    stageMemoryStamp(root, stamp);
     expect(memoryWork(root)).toMatchObject({ record: 0 });
 
     // a raw arrival lands — inbox state, never a trigger: its assertions
@@ -222,7 +222,7 @@ describe("native due-ness — assertions trigger, raw arrivals do not", () => {
   // messages must not be made due by them.
   test("the frozen done ledger drives nothing, on any vault", () => {
     const { root, asts } = nativeVault(1);
-    writeMemoryStamp(root, {
+    stageMemoryStamp(root, {
       protocolVersion: MEMORY_PROTOCOL_VERSION,
       nextRunAt: "2026-08-18T09:00:00.000Z",
       assertionCursor: cursorAt(asts[0]!),
@@ -245,7 +245,7 @@ describe("runMemory on a native vault", () => {
       assertionCursor: cursorAt(asts[1]!), nextRunAt: at(3),
       checkpoint: readMemoryInputs(root).checkpoint,
     };
-    writeMemoryStamp(root, stamp);
+    stageMemoryStamp(root, stamp);
     expect(hasMemoryWork(memoryWork(root))).toBe(false);
     const corrected = supersedeEntity(root, {
       from: "Ada Lovelace", into: "Augusta Ada King", only: [asts[0]!.id], operator: "test",
@@ -255,16 +255,16 @@ describe("runMemory on a native vault", () => {
     expect(memoryDue(root, { now: new Date(at(4)) }).due).toBe(true);
     expect(snapshot.astDelta[0]!.created_at).toBe(asts[0]!.created_at);
 
-    writeMemoryStamp(root, { ...stamp, checkpoint: snapshot.checkpoint });
+    stageMemoryStamp(root, { ...stamp, checkpoint: snapshot.checkpoint });
     retract(root, asts[1]!.id, { created_at: at(5) });
     expect(memoryWork(root)).toMatchObject({ record: 0, recordChanged: true });
-    writeMemoryStamp(root, { ...stamp, checkpoint: readMemoryInputs(root).checkpoint });
+    stageMemoryStamp(root, { ...stamp, checkpoint: readMemoryInputs(root).checkpoint });
     alias(root, "Countess Lovelace", { id: assertionEntityId("Augusta Ada King"), label: "Augusta Ada King" },
       { created_at: at(6) });
     expect(memoryWork(root)).toMatchObject({ record: 0, recordChanged: true });
   });
 
-  test("a committed run recovers its checkpoint and schedule after .state is deleted", async () => {
+  test("where the pass stands is its journal's: .state keeps only the schedule, and a committed run recovers both after .state is deleted", async () => {
     const { root, asts, sources } = nativeVault(1);
     const result = await run(root, () => writeFileSync(join(root, "memory", "MEMORY.md"),
       `${SEED_INDEX}\nAda tests sparse probes. [[${asts[0]!.id}]]\n`));
@@ -272,6 +272,9 @@ describe("runMemory on a native vault", () => {
     const stamp = readMemoryStamp(root);
     writeFileSync(join(root, ".state", "memory.json"), '{"checkpoint":{"assertions":null}}');
     expect(readMemoryStamp(root).checkpoint).toEqual(stamp.checkpoint);
+    // a well-formed position written beside the vault is not where the pass stands
+    writeFileSync(join(root, ".state", "memory.json"), JSON.stringify({ ...stamp, checkpoint: { assertions: [], insertions: [], revocations: [], aliases: [] } }));
+    expect(readMemoryStamp(root)).toEqual(stamp);
     rmSync(join(root, ".state"), { recursive: true, force: true });
     const recovered = readMemoryStamp(root);
     expect(recovered.checkpoint).toEqual(stamp.checkpoint);
@@ -328,7 +331,7 @@ describe("runMemory on a native vault", () => {
     const uncited = mkSource(5); // arrived, no assertion cites it
     appendSourceInsertionEvent(root, uncited);
     commitAll(root);
-    writeMemoryStamp(root, {
+    stageMemoryStamp(root, {
       protocolVersion: MEMORY_PROTOCOL_VERSION,
       nextRunAt: "2026-08-18T09:00:00.000Z",
       assertionCursor: cursorAt(asts[0]!),
@@ -367,7 +370,7 @@ describe("runMemory on a native vault", () => {
       appendAssertionEvent(root, a);
       extra.push(a);
     }
-    writeMemoryStamp(root, {
+    stageMemoryStamp(root, {
       protocolVersion: MEMORY_PROTOCOL_VERSION,
       nextRunAt: "2026-08-18T09:00:00.000Z",
       assertionCursor: cursorAt(asts[0]!),
@@ -428,7 +431,7 @@ describe("runMemory on a native vault", () => {
       commit: "seed",
     });
     seedDone(root, "2026-08-18T10:30:00.000Z");
-    writeMemoryStamp(root, {});
+    stageMemoryStamp(root, {});
     const captured: { prompt?: string } = {};
     const res = await run(root, () => {}, { captured });
     expect(res.error).toBeUndefined();
@@ -517,7 +520,7 @@ describe("citation validation — strict, like the budget", () => {
 describe("--from-scratch — the native regeneration posture", () => {
   test("backs the tree up out of the way, runs at cursor zero, re-advances", async () => {
     const { root, asts, sources } = nativeVault(1);
-    writeMemoryStamp(root, {
+    stageMemoryStamp(root, {
       nextRunAt: "2027-01-01T00:00:00.000Z", // far off: fromScratch implies force
       assertionCursor: cursorAt(asts[0]!),
       insertionCursor: insCursorAt(sources[0]!),
@@ -631,7 +634,7 @@ describe("voice on a from-scratch run", () => {
 describe("memory protocol upgrade notices", () => {
   test("old memory recommends a rebuild without scheduling one, and its next run rebuilds from scratch", async () => {
     const { root, asts, sources } = nativeVault(1);
-    writeMemoryStamp(root, {
+    stageMemoryStamp(root, {
       nextRunAt: at(3), checkpoint: readMemoryInputs(root).checkpoint,
       assertionCursor: cursorAt(asts[0]!), insertionCursor: insCursorAt(sources[0]!),
     });
@@ -651,7 +654,7 @@ describe("memory protocol upgrade notices", () => {
   test("a v1 tree of topic files is rebuilt as one file, the topics backed up", async () => {
     const { root, asts } = nativeVault(1);
     writeFileSync(join(root, "memory", "atlas.md"), "# Atlas\n\nA v1 topic file.\n");
-    writeMemoryStamp(root, { ...readMemoryStamp(root), protocolVersion: 1 });
+    stageMemoryStamp(root, { ...readMemoryStamp(root), protocolVersion: 1 });
     const result = await run(root, () => writeFileSync(join(root, "memory", "MEMORY.md"), `# Memory\n\nAtlas. [[${asts[0]!.id}]]\n`));
     expect(result.error).toBeUndefined();
     expect(readdirSync(join(root, "memory"))).toEqual(["MEMORY.md"]);
@@ -677,7 +680,7 @@ describe("memory protocol upgrade notices", () => {
     const { root } = nativeVault(1);
     const before = "My uncommitted memory\n";
     writeFileSync(join(root, "memory", "MEMORY.md"), before);
-    writeMemoryStamp(root, { nextRunAt: at(3), protocolVersion: 0 });
+    stageMemoryStamp(root, { nextRunAt: at(3), protocolVersion: 0 });
     const result = await run(root, () => {
       writeFileSync(join(root, "memory", "partial.md"), "Partial output");
       throw new Error("model failed during rebuild");
@@ -691,12 +694,12 @@ describe("memory protocol upgrade notices", () => {
 
   test("retaining the old tree does not clear a notice; newer protocols are not downgraded", async () => {
     const { root, asts } = nativeVault(1);
-    writeMemoryStamp(root, {}); // unversioned: v0
+    stageMemoryStamp(root, {}); // unversioned: v0
     const write = () => writeFileSync(join(root, "memory", "MEMORY.md"), `Context. [[${asts[0]!.id}]]\n`);
     const kept = await run(root, write, { fromScratch: true, keepTree: true });
     expect(kept.error).toBeUndefined();
     expect(memoryNeedsRebuild(root)).toBe(true);
-    writeMemoryStamp(root, { ...readMemoryStamp(root), protocolVersion: MEMORY_PROTOCOL_VERSION + 1 });
+    stageMemoryStamp(root, { ...readMemoryStamp(root), protocolVersion: MEMORY_PROTOCOL_VERSION + 1 });
     expect(memoryNeedsRebuild(root)).toBe(false);
     const rebuilt = await run(root, write, { fromScratch: true });
     expect(rebuilt.error).toBeUndefined();

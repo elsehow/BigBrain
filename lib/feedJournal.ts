@@ -1,4 +1,4 @@
-/** feedJournal.ts — the feed stage's journal (lib/feedStage.ts): one record
+/** feedJournal.ts — the feed stage's journal (lib/stages/feed.ts): one record
  * per model call, none ever overwritten. Read-only helpers, kept apart from
  * the stage so a reader (`bigbrain feed`, the viewer) need not load the runner.
  *

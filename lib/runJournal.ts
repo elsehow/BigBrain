@@ -8,6 +8,19 @@ import { join } from "node:path";
 
 export const TEND_JOURNAL_DIR = "journal/tend";
 export const FEED_JOURNAL_DIR = "journal/feed";
+/** The memory pass's, flat: `journal/memory/<runId>.json`, beside the
+ * directories a from-scratch run backs a tree up into. */
+export const MEMORY_JOURNAL_DIR = "journal/memory";
+
+/** Every memory run record, oldest first, as vault-relative paths. */
+export function memoryJournalFiles(root: string): string[] {
+  try {
+    return readdirSync(join(root, MEMORY_JOURNAL_DIR), { withFileTypes: true })
+      .filter((e) => e.isFile() && e.name.endsWith(".json")).map((e) => `${MEMORY_JOURNAL_DIR}/${e.name}`).sort();
+  } catch {
+    return [];
+  }
+}
 
 /** Every record under `dir` (one of the above), oldest first, as
  * vault-relative paths. Anything flat beside the month shards (tend's

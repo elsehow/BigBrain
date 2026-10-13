@@ -11,10 +11,13 @@
  *   new input since their checkpoint AND their interval has elapsed (memory,
  *   today; `scheduledVerdict` is that rule).
  *
- * The classic chain is tend + memory (lib/tend.ts). The supervisor's one
- * `tend` tick asks every registered chain (lib/chains.ts) whether it has
- * work and runs the ones that do; each chain single-flights on its own lock,
- * so chains never wait on each other.
+ * The classic chain is tend + memory (lib/tend.ts). Every other stage that
+ * calls a model is a chain too (lib/chains.ts): the supervisor is the one
+ * scheduler (docs/plans/2026-10-12-stages-and-views-refactor.md, R3). It
+ * ticks each chain as its own job, on that job's cadence
+ * (lib/desktopSchedule.ts), so a long gardener run never holds up a lens's
+ * scoring; `bigbrain tend` asks every chain at once. Each single-flights on
+ * its own lock, so chains never wait on each other.
  */
 
 import type { Manifest } from "./manifest";
@@ -53,6 +56,8 @@ export interface ChainReport {
 
 export interface Chain<Result = unknown> {
   name: string;
+  /** The supervisor job that ticks it, and whose cadence it runs on. */
+  job: string;
   due(root: string, opts?: { now?: Date }): ChainDue;
   run(opts: ChainRunOpts): Promise<Result>;
   report(result: Result): ChainReport;

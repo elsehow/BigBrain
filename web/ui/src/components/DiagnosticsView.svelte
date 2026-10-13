@@ -84,7 +84,7 @@
   }
   // the memory pass: last fold, next sweep, and the last attempt when it
   // failed — a failed run takes the interval's slot without a word
-  // anywhere else (lib/memoryRun.ts), so this row is the word
+  // anywhere else (lib/stages/memory.ts), so this row is the word
   function memory(f: DiagnosticsReport["facts"]): string {
     const m = f.memory!;
     if (!m.lastRunAt && !m.nextRunAt && !m.failed) return "never run — the first run is bigbrain tend --force";

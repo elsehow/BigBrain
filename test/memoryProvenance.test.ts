@@ -5,17 +5,18 @@
  * set) receive those lines fenced as quoted data with their source; the
  * person's own lines, and every file written before stamps existed, read
  * exactly as they always did. */
+import { stageMemoryStamp } from "./support/memoryStamp";
 import { afterEach, describe, expect, test } from "bun:test";
 import { readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { appendAssertionEvent, assertionEntityId, createAssertionEvent, type AssertionEvent } from "../lib/assertionLog";
-import { syncAssertionProjection } from "../lib/assertionProjection";
+import { projectNotes, syncAssertionProjection } from "../lib/assertionProjection";
 import { appendSourceInsertionEvent, insertionEventRel, type SourceInsertion } from "../lib/insertionLog";
 import { handleMcpTool } from "../lib/mcp";
 import { memoryForAgents, stampMemoryProvenance, stripMemoryProvenance } from "../lib/memoryProvenance";
-import { writeMemoryStamp, MEMORY_PROTOCOL_VERSION } from "../lib/memory";
-import { runMemory } from "../lib/memoryRun";
+import { MEMORY_PROTOCOL_VERSION } from "../lib/memory";
+import { runMemory } from "../lib/stages/memory";
 import { measureTree } from "../lib/memoryTree";
 import { handleVaultTool } from "../lib/vaultTools";
 import { fakeMemoryPi } from "./support/memoryPi";
@@ -97,7 +98,7 @@ describe("stamping", () => {
     roots.push(root);
     events(root);
     spawnSync("git", ["add", "-A"], { cwd: root }); spawnSync("git", ["commit", "-q", "-m", "events"], { cwd: root });
-    writeMemoryStamp(root, { protocolVersion: MEMORY_PROTOCOL_VERSION });
+    stageMemoryStamp(root, { protocolVersion: MEMORY_PROTOCOL_VERSION });
     const res = await runMemory({ root, force: true,
       manifest: testManifest(root, { memory: { adapter: "pi", provider: "anthropic", model: "claude-m", interval: "3h", intervalMs: 1 } }),
       loadPi: fakeMemoryPi(() => { writeFileSync(join(root, "memory/MEMORY.md"), TREE); return { result: "```report\nok\n```\n" }; }) });
@@ -111,7 +112,8 @@ describe("stamping", () => {
 });
 
 describe("reading", () => {
-  const stamped = (root: string) => { events(root); syncAssertionProjection(root); stampMemoryProvenance(root, ["MEMORY.md"]); };
+  // the memory pass stamps, then projects what it wrote through the notes door
+  const stamped = (root: string) => { events(root); syncAssertionProjection(root); stampMemoryProvenance(root, ["MEMORY.md"]); projectNotes(root, ["memory"]); };
 
   test("load_memory fences each outside claim as quoted data with its source; the person's lines read as written", () => {
     const root = nativeVault({ files: { "memory/MEMORY.md": TREE } }); roots.push(root);

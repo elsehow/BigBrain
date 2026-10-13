@@ -18,7 +18,8 @@ const { createLive } = await import(join(engine, "lib/liveEvents.ts"));
 const view = await import(join(engine, "lib/maintainedGraph.ts")).catch(() => ({} as Record<string, never>));
 const build = cache.primaryGraphAsync ?? cache.primaryGraphCached ?? view.graphNow;
 const forget: (root: string) => void = cache.invalidateGraphCaches ?? view.forgetGraphView;
-const layout = cache.graphWithLayoutAsync ?? cache.graphWithLayout;
+// Engines since R7 seat the graph inside the build: no layout step of its own.
+const layout = cache.graphWithLayoutAsync ?? cache.graphWithLayout ?? ((_root: string, graph: unknown) => graph);
 const server = createServer((_req, res) => res.end("ok"));
 await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
 const address = server.address() as { port: number };

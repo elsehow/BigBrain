@@ -7,6 +7,7 @@
  * riding the job it is about, and settling is citation; an observation is
  * memory demand, never an intake job; the viewer reads voice insertions.
  */
+import { stageMemoryStamp } from "./support/memoryStamp";
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { assertionEntityId } from "../lib/assertionLog";
@@ -17,7 +18,6 @@ import {
   describeMemoryWork,
   memoryWork,
   voiceDelta,
-  writeMemoryStamp,
   type MemoryStamp,
 } from "../lib/memory";
 import {
@@ -186,7 +186,7 @@ describe("observations are memory demand, never intake (#521)", () => {
 
     // the cursor consumes it, exactly like every other log read
     const tail = voiceDelta(root, {}).at(-1)!;
-    writeMemoryStamp(root, {
+    stageMemoryStamp(root, {
       insertionCursor: { at: tail.received_at ?? "", id: tail.id },
     });
     expect(memoryWork(root).voice).toHaveLength(0);

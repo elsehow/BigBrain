@@ -21,7 +21,7 @@
   import { pageDoc, themeSheet, themeVars } from "../lib/pageTheme";
   import { otherLoopback } from "../lib/loopbackFrame";
   import type { V2Scene } from "../lib/v2/scene";
-  import { plainText as plain, refreshSortedPages, SORTED_PAGE, type V2SortedRow } from "../../../../lib/v2Feed";
+  import { plainText as plain, refreshSortedPages, SORTED_PAGE, type V2SortedRow } from "../../../../lib/views/v2Feed";
   import type { DesktopTile, DesktopView } from "../../../../lib/pilotDesktop";
   import { DEFAULT_PILOT_BACKEND } from "../../../../lib/pilotBackendTypes";
   import DesktopCube from "./DesktopCube.svelte";
@@ -89,7 +89,7 @@
 
   let ent: number | null = $state(null);
   let entRows: V2FeedRow[] | null = $state(null);
-  /** The sorted feed (lib/feedStage.ts), when the vault has one: the pages
+  /** The sorted feed (lib/stages/feed.ts), when the vault has one: the pages
    * loaded so far, newest first, and the key of the page before them. */
   let sorted: V2SortedRow[] = $state([]);
   let sortedNext: string | null = null, olderLoad: Promise<boolean> | null = null;

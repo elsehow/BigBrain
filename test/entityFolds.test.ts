@@ -5,8 +5,10 @@
  * in one group only, a canonical is a member, a rejected pair never
  * re-forms, and nothing is written when the model wrote no answer.
  */
+import { stageMemoryStamp } from "./support/memoryStamp";
+import { foldsChain } from "../lib/chains";
 import { describe, expect, test } from "bun:test";
-import { MEMORY_PROTOCOL_VERSION, writeMemoryStamp } from "../lib/memory";
+import { MEMORY_PROTOCOL_VERSION } from "../lib/memory";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -27,16 +29,17 @@ import {
   entityCensus,
   entityFoldsFile,
   parseFolds,
-  proposeEntityFolds,
   readEntityFolds,
   renderFoldsPrompt,
   validateFolds,
 } from "../lib/entityFolds";
+import { proposeEntityFolds } from "../lib/stages/foldProposals";
 import { appendSourceInsertionEvent } from "../lib/insertionLog";
 import type { PiLoader } from "./support/pi";
 import { fakePi } from "./support/pi";
 import { identities, insertion } from "./support/vault";
-import { aliasEvents } from "../lib/assertionKinds";
+import { standingAliases } from "../lib/assertionKinds";
+import { readRecordedAssertions } from "../lib/assertionLog";
 
 const PRODUCED = { procedure: "test", version: "v1" } as const;
 const MODEL = { kind: "model", id: "m", invocation_id: "r" } as const;
@@ -224,9 +227,9 @@ describe("a proposal run", () => {
 import { dispatch } from "../lib/httpx";
 import { createEntityFoldRejectEvent, appendEntityFoldRejectEvent, readEntityFoldRejectLog, validateEntityFoldRejectEvent } from "../lib/entityFoldLog";
 import { acceptFold, changedSince, foldsRoutes, liveFolds, rejectFold, rejectedPairList, rejectedPairs } from "../lib/entityFolds";
-import { runMemory } from "../lib/memoryRun";
+import { runMemory } from "../lib/stages/memory";
 import { appendAssertionEvent } from "../lib/assertionLog";
-import { gitVault, testManifest } from "./support/vault";
+import { gitVault, NATIVE_YAML, testManifest } from "./support/vault";
 
 const USER = { kind: "user", id: "nick" } as const;
 const FOLDS_ANSWER = (groups: unknown[]): string => `\`\`\`folds\n${JSON.stringify(groups)}\n\`\`\`\n`;
@@ -344,10 +347,11 @@ describe("the live view and the two acts", () => {
     expect(liveFolds(root).groups).toHaveLength(2);
     const r = acceptFold(root, { canonical: RIDGEWAYS.id, members: [AUTO_MAP.id, RIDGE_WAYS.id, RIDGEWAYS.id] }, USER);
     expect(r.aliased.map((e) => e.label).sort()).toEqual(["Auto-MAP", "Ridge Ways"]);
-    const aliases = aliasEvents(root);
+    const aliases = standingAliases(root);
     expect(aliases.map((e) => `${e.alias}→${e.entity.label}`).sort()).toEqual(["Auto-MAP→Ridgeways", "Ridge Ways→Ridgeways"]);
-    expect(aliases[0]!.author).toEqual(USER);
-    expect(aliases[0]!.produced_by.procedure).toBe("entity-folds-accept");
+    const said = readRecordedAssertions(root).find((e) => e.id === aliases[0]!.id)!;
+    expect(said.author).toEqual(USER);
+    expect(said.produced_by.procedure).toBe("entity-folds-accept");
     const live = liveFolds(root);
     expect(live.groups.map((g) => g.members.map((m) => m.label))).toEqual([["Evan", "Evan Keller"]]);
     // the file is untouched — the view is the file against today
@@ -455,7 +459,7 @@ describe("on the memory clock", () => {
       author: MODEL, confidence: "direct", created_at: "2026-08-20T10:00:00.000Z", produced_by: PRODUCED,
     }, new Map([[ins.id, ins]]));
     appendAssertionEvent(root, ev);
-    writeMemoryStamp(root, { protocolVersion: MEMORY_PROTOCOL_VERSION }); // a current tree: no rebuild
+    stageMemoryStamp(root, { protocolVersion: MEMORY_PROTOCOL_VERSION }); // a current tree: no rebuild
     const prompts: string[] = [];
     const loadPi: PiLoader = fakePi((prompt) => {
       prompts.push(prompt);
@@ -466,27 +470,24 @@ describe("on the memory clock", () => {
     return { root, prompts, loadPi } as unknown as { root: string; prompts: string[] } & { loadPi: PiLoader };
   }
 
-  test("after a good sweep the feeder runs once, journals under `folds`, and writes the state file", async () => {
+  test("a sweep proposes nothing itself: once it has run, the folds chain is due, on the sweep's model", async () => {
     const v = clockVault(FOLDS_ANSWER([{ members: [AUTO_MAP.id, RIDGEWAYS.id], canonical: RIDGEWAYS.id, why: "one" }])) as ReturnType<typeof clockVault> & { loadPi: PiLoader };
-    const result = await runMemory({ root: v.root, manifest: testManifest(v.root), force: true, loadPi: v.loadPi });
+    const manifest = testManifest(v.root);
+    expect(foldsChain.due(v.root).scheduled["folds"]!.due).toBe(false);
+    const result = await runMemory({ root: v.root, manifest, force: true, loadPi: v.loadPi });
     expect(result.error).toBeUndefined();
     expect(result.committed).toBe(true);
-    expect(v.prompts).toHaveLength(2);
-    // a first pass has no `since`: the whole census, in full
-    expect(v.prompts[1]).toContain("live entities, alphabetical");
-    const folds = readEntityFolds(v.root)!;
-    expect(folds.groups[0]!.members.map((m) => m.label)).toEqual(["Auto-MAP", "Ridgeways"]);
-    const journal = JSON.parse(readFileSync(join(v.root, "journal", "memory", `${result.run}.json`), "utf8")) as { folds: { ran: boolean; groups: number; changed: number } };
-    expect(journal.folds).toMatchObject({ ran: true, groups: 1, changed: 2 });
-  });
-
-  test("a feeder that fails is journaled and never fails the sweep", async () => {
-    const v = clockVault("no block here") as ReturnType<typeof clockVault> & { loadPi: PiLoader };
-    const result = await runMemory({ root: v.root, manifest: testManifest(v.root), force: true, loadPi: v.loadPi });
-    expect(result.error).toBeUndefined();
-    expect(result.committed).toBe(true);
-    const journal = JSON.parse(readFileSync(join(v.root, "journal", "memory", `${result.run}.json`), "utf8")) as { folds: { error: string } };
-    expect(journal.folds.error).toContain("no ```folds block");
+    expect(v.prompts).toHaveLength(1);
     expect(readEntityFolds(v.root)).toBeUndefined();
+    const journal = JSON.parse(readFileSync(join(v.root, "journal", "memory", `${result.run}.json`), "utf8")) as Record<string, unknown>;
+    expect(journal["folds"]).toBeUndefined();
+    expect(foldsChain.due(v.root).scheduled["folds"]).toMatchObject({ due: true, reason: "scheduled sweep — 2 entities changed" });
+    // what the chain runs: a first pass has no `since`, the whole census, in full
+    await proposeEntityFolds(v.root, { target: manifest.memory, auth: manifest.auth, loadPi: v.loadPi });
+    expect(v.prompts[1]).toContain("live entities, alphabetical");
+    expect(readEntityFolds(v.root)!.groups[0]!.members.map((m) => m.label)).toEqual(["Auto-MAP", "Ridgeways"]);
+    // its interval is the memory pass's, read from vault.yaml
+    require("node:fs").writeFileSync(join(v.root, "vault.yaml"), NATIVE_YAML);
+    expect(foldsChain.due(v.root).scheduled["folds"]!.due).toBe(false);
   });
 });

@@ -16,7 +16,7 @@ import { modelRunJournalFields } from "../lib/run/journal";
 import type { PiSDK } from "../lib/run/piSession";
 import { nativeVault, insertion } from "./support/vault";
 import { MEMORY_ROLE } from "../lib/memory";
-import { dueIntakeIds } from "../lib/work";
+import { dueIntake } from "../lib/stages/intake";
 import { loadManifest } from "../lib/manifest";
 import { writeEnvValues } from "../lib/envFile";
 
@@ -82,13 +82,13 @@ test("ChatGPT background jobs use Pi with role-scoped tools and machine identity
 test("a dropped arrival is settled through Pi's gardener tools", async () => {
   const frames: any[][] = [], f = await fixture(frames);
   try {
-    expect(dueIntakeIds(f.root)).toContain(f.item.id);
+    expect(dueIntake(f.root)).toContain(f.item.id);
     frames.push(call("submit", { items: [{ submit: "assertion", text: "[[new:Ada]] prefers concise notes.", sources: [f.item.id], confidence: "direct" }] }));
     const activity: string[] = [];
     await runPi({ root: f.root, provider: "openai-codex", role: "tend", model: f.model, prompt: "Review the arrival", timeoutMs: 2000,
       onTool: event => activity.push(`${event.name}:${event.phase}`) }, f.load);
     expect(activity).toEqual(["submit:start", "submit:complete"]);
-    expect(dueIntakeIds(f.root)).not.toContain(f.item.id);
+    expect(dueIntake(f.root)).not.toContain(f.item.id);
   } finally { f.close(); }
 });
 test("all saved Codex roles migrate to Pi without changing model preferences", async () => {

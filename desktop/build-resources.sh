@@ -63,7 +63,7 @@ for d in bin lib integrations prompts deploy clients web packages; do
     "$engine/$d" "$dest/"
 done
 cp "$engine/package.json" "$engine/bun.lock" "$engine/vault.example.yaml" "$engine/.env.example" "$dest/"
-# production deps only — the engine's runtime imports (mcp sdk, d3-force,
+# production deps only — the engine's runtime imports (mcp sdk,
 # typebox, yaml); nothing from devDependencies.
 ( cd "$dest" && bun install --production --frozen-lockfile >/dev/null 2>&1 || bun install --production >/dev/null )
 rm -f "$dest/bun.lock"

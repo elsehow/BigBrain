@@ -8,11 +8,13 @@ import {SharedConnectionError,connectionStorePath,readConnections,publicConnecti
 import {serializeMentions,type MentionPart} from './pilotMentions';
 import {searchRuleEntities} from './sharedRuleMentions';
 import {contributions} from './sharedRules';
-import {listLenses,updateLens} from './lenses';
-import {lensNotes} from './lensScoring';
+import {listLenses} from './lenses';
+import {readLensState,sayOnLens} from './lensRecord';
+import {lensNotes} from './stages/inclusion';
 import {originOf} from './lensSync';
 import {tickPublishing} from './sharedAssertionPublish';
 import {pages} from './sharedReadUnion';
+import {readServer} from './serverStore';
 import type {SourceInsertion} from './insertionLog';
 export async function sharedSettingsApi(req:IncomingMessage,res:ServerResponse,root:string) {
  const url=new URL(req.url??'/','http://localhost');if(!url.pathname.startsWith('/api/shared-settings'))return false;
@@ -29,9 +31,9 @@ export async function sharedSettingsApi(req:IncomingMessage,res:ServerResponse,r
   // A server note opens as your own when it came from your vault.
   const local=()=>new Map(readSourceInsertionLog(root,{strict:true}).map(s=>['origin:'+sourceKey(s),insertionEventRel(s)]));
   if(req.method==='GET'&&action==='vault'){
-   const mine=local(),notes=new Map(lensNotes(root).map(n=>[originOf(n.source_id),n.source_id])),lenses=listLenses(root,store).filter(l=>l.servers.includes(c.id));
-   const items=(await contributions(c)).map(item=>{const sid=notes.get(item.source_id);return {...item,path:mine.get(item.source_id)??`shared/${c.id}/${item.insertion_id}.md`,lenses:sid?lenses.filter(l=>l.members.includes(sid)).map(l=>l.name):[]};});
-   json(res,200,{...publicConnection(c),identity:await sharedRequest(c,'/v1/whoami'),evaluator:jevSettingsStatus(store).evaluator,items});
+   const mine=local(),notes=new Map(lensNotes(root).map(n=>[originOf(n.source_id),n.source_id])),lenses=listLenses(root).filter(l=>l.servers.includes(c.id)).map(l=>({name:l.name,members:readLensState(root,l).members.in}));
+   const items=(await contributions(c)).map(item=>{const sid=notes.get(item.source_id);return {...item,path:mine.get(item.source_id)??`shared/${c.id}/${item.insertion_id}.md`,lenses:sid?lenses.filter(l=>l.members.has(sid)).map(l=>l.name):[]};});
+   json(res,200,{...publicConnection(c),identity:await sharedRequest(c,'/v1/whoami'),evaluator:jevSettingsStatus(store).evaluator,items,sync:readServer(store,c.id).status});
   }
   else if(req.method==='GET'&&action==='notes'){
    const mine=local();
@@ -63,7 +65,10 @@ export async function sharedSettingsApi(req:IncomingMessage,res:ServerResponse,r
     if(typeof body.id!=='string'||!/^sc_[a-f0-9]{24}$/.test(body.id))throw Error('Invalid contribution');
     // Withdrawn here means removed from every lens that shares it with this server, or the next tick puts it back.
     const x=(await contributions(c)).find(x=>x.id===body.id),note=x&&lensNotes(root).find(n=>originOf(n.source_id)===x.source_id);
-    if(note)for(const lens of listLenses(root,store))if(lens.servers.includes(c.id)&&lens.members.includes(note.source_id))updateLens(root,store,lens.id,l=>{l.exclusions=[...new Set([...l.exclusions,note.source_id])];l.pins=l.pins.filter(p=>p!==note.source_id);l.members=l.members.filter(m=>m!==note.source_id);});
+    if(note)for(const lens of listLenses(root))if(lens.servers.includes(c.id)){
+     const {members,hands}=readLensState(root,lens);
+     if(members.in.has(note.source_id))sayOnLens(root,lens,{pins:hands.pins.filter(p=>p!==note.source_id),exclusions:[...new Set([...hands.exclusions,note.source_id])],ratings:hands.ratings});
+    }
     json(res,200,await sharedRequest(c,`/v1/contributions/${body.id}/withdraw`,{request_id:body.request_id,version:body.version}));
     void tickPublishing(root,store,c.id); // retract claims that cited a withdrawn source now, not on the next tick
    }else json(res,404,{error:'Not found'});

@@ -3,10 +3,11 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { labels, readLedger } from "../lib/retrieval";
-import { clampLimit, scanSurface, SEARCH_CAP, type ScanOptions } from "../lib/searchCore";
+import { clampLimit, recordScan, scanSurface, SEARCH_CAP, type ScanOptions } from "../lib/searchCore";
 import { appendSourceInsertionEvent, type SourceInsertion } from "../lib/insertionLog";
 import { appendAssertionEvent, assertionEntityId, createAssertionEvent } from "../lib/assertionLog";
 import { insertion } from "./support/vault";
+import { recoverAssertionProjection } from "../lib/assertionProjection";
 
 // Pins the shared scan every product door runs (#259/#476/#495): ONE index
 // (the assertion projection), one cap (250), the ledger label, and the
@@ -78,6 +79,8 @@ describe("scanSurface", () => {
     const web = scanSurface(root, "Ada Lovelace", 20, "web");
     if (!api.ok) throw new Error(api.reason);
     if (!web.ok) throw new Error(web.reason);
+    recordScan(root, "Ada Lovelace", api, "api");
+    recordScan(root, "Ada Lovelace", web, "web");
     expect(web.hits).toEqual(api.hits);
     expect(api.hits).toEqual([
       // The entity itself leads — the projection note both note doors serve —
@@ -281,7 +284,7 @@ describe("scanSurface", () => {
   // search never names a path the note door cannot open. It stays a STAT,
   // not a parse — the test above (a corrupt event file) still answers from
   // the projection, because #456's no-replay rule is untouched.
-  test("a retracted event is no longer a hit, though its projection row survives", () => {
+  test("a retracted event is no longer a hit once the projection's census sees it gone, though its row survives", () => {
     const { root, source } = assertionVault();
     const paths = (): string[] => {
       const r = scanSurface(root, "Ada Lovelace", 20, "api");
@@ -291,6 +294,7 @@ describe("scanSurface", () => {
     const event = `log/insertions/2026-08/${source.id}.json`;
     expect(paths()).toContain(event);
     rmSync(join(root, event));
+    recoverAssertionProjection(root); // the census, as the watcher runs it on a change in log/: no read checks the disk
     // the entity survives its retracted evidence; only the source hit goes
     expect(paths()).toEqual([`projection/entities/${assertionEntityId("Ada Lovelace")}.md`]);
   });
@@ -336,6 +340,8 @@ describe("scanSurface", () => {
     if (!r.ok) throw new Error(r.reason);
     expect(r.relaxation).toBe("any-term");
     expect(r.hits.length).toBeGreaterThan(0);
+    expect(readLedger(root)).toEqual([]); // the scan writes nothing: its door does
+    recordScan(root, "Ada punchcards", r, "api");
     const rec = readLedger(root).find((row) => row.t === "search")!;
     expect(rec).toMatchObject({ relaxation: "any-term" });
   });
@@ -379,9 +385,10 @@ describe("#476: the CLI door is the same scan", () => {
 
   test("on a native vault the cli door answers from the projection — entity first — and is ledgered as cli", () => {
     const root = nativeVault();
-    const r = scanSurface(root, "Ada", 10, "cli", { now: new Date("2026-08-19T00:00:00Z") });
+    const r = scanSurface(root, "Ada", 10, "cli");
     expect(r.ok).toBe(true);
     if (!r.ok) return;
+    recordScan(root, "Ada", r, "cli", new Date("2026-08-19T00:00:00Z"));
     expect(r.hits[0]!.path).toBe("projection/entities/" + assertionEntityId("Ada Lovelace") + ".md");
     expect(r.hits.some((h) => h.path.startsWith("log/insertions/"))).toBe(true); // the source, openable
     const labels_ = labels(readLedger(root));
@@ -389,9 +396,9 @@ describe("#476: the CLI door is the same scan", () => {
     expect(labels_[0]!.via).toBe("cli");
   });
 
-  test("a machine pass (ledger: false) searches the same projection and writes NO label", () => {
+  test("a machine pass searches the same projection, and its door writes NO label", () => {
     const root = nativeVault();
-    const r = scanSurface(root, "Ada", 10, "cli", { relax: false, ledger: false });
+    const r = scanSurface(root, "Ada", 10, "cli", { relax: false });
     expect(r.ok && r.hits.length > 0).toBe(true);
     expect(labels(readLedger(root))).toEqual([]);
   });

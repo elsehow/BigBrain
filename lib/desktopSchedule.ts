@@ -33,11 +33,28 @@ export const CADENCE: Readonly<Record<string, number>> = {
   "that-tracks": 60,
   email: 60,
   rss: 900,
-  // judges candidates that might be one document (lib/sourceCopyJudge.ts)
+  // The chains besides the classic one (lib/chains.ts). Each tick that finds
+  // nothing due exits before any model call.
+  // judges candidates that might be one document (lib/stages/copyJudge.ts)
   copies: 900,
+  // proposes labels that name one thing; its own due waits the memory interval
+  folds: 3600,
+  // warms Quick previews after a memory sweep
+  briefings: 300,
+  // lens scoring and server sync, then publishing (the viewer's 30s timer once)
+  lenses: 60,
+  // admits what integrations staged, through the worth gate (likewise)
+  admission: 60,
+  // follows each joined server into this computer's copy of it (lib/serverStore.ts)
+  servers: 30,
   // removes agent scratch nothing will read again (lib/scratchPrune.ts)
   prune: 86_400,
 };
+
+/** The jobs that tick a chain (lib/chains.ts, each chain's `job`), named
+ * here so the supervisor plans them without loading every stage.
+ * test/chains.test.ts holds the two lists together. */
+export const CHAIN_JOBS = ["tend", "copies", "folds", "briefings", "lenses", "admission"] as const;
 
 /** Seconds between runs for `name`. An integration with no entry above polls
  * every 5 minutes — the same default the missing-plist path used to give. */

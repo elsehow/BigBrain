@@ -26,7 +26,7 @@ export function machinePath(root: string, path: unknown, write = false): string 
   for (const part of parts) { full = join(full, part); try { const stat = lstatSync(full); if (stat.isSymbolicLink()) throw new Error("symlink paths are forbidden"); if (stat.isFile() && stat.nlink > 1) throw new Error("hard-linked paths are forbidden"); } catch (e) { if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e; } }
   return full;
 }
-export function machineTools(root: string, role: string, noTools = false, clientName = "pi", edits?: import("../memoryEdits").MemoryEdits): RunTool[] {
+export function machineTools(root: string, role: string, noTools = false, clientName = "pi", edits?: import("../memoryEdits").MemoryEdits, model?: string): RunTool[] {
   jobProfile(role, noTools ? "none" : role === "tend" || role === "gardener" ? "gardener" : "memory");
   if (noTools) return [];
   if (role === "gardener") role = "tend";
@@ -42,7 +42,7 @@ export function machineTools(root: string, role: string, noTools = false, client
         throw new Error(`Use read_intake with insertion_id ${insertion?.id ?? "from next"} for arrival bodies; its offsets preserve the intake view.`);
       }
     }
-    return handleVaultTool({ root, via: "gardener", clientName }, t.name, args);
+    return handleVaultTool({ root, via: "gardener", clientName, ...(model ? { model } : {}) }, t.name, args);
   } }));
   if (role === "tend") tools.push({
     name: "read_intake",

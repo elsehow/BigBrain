@@ -15,7 +15,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { insertionEventRel, type SourceInsertion } from "../lib/insertionLog";
-import { appendAssertionEvent, assertionEntityId, createAssertionEvent } from "../lib/assertionLog";
+import { appendAssertionEvent, assertionEntityId, createAssertionEvent, readRecordedAssertions } from "../lib/assertionLog";
 import { handleMcpTool, MCP_INSTRUCTIONS, mcpToolList, McpToolError, type McpContext } from "../lib/mcp";
 import { handleVaultTool } from "../lib/vaultTools";
 import { MCP_CLIENTS, mcpServerEntry, registerMcpClients } from "../lib/mcpRegister";
@@ -323,6 +323,18 @@ describe("next / submit — the gardener loop over lib/work.ts", () => {
 
     const after = handleVaultTool(ctx(root), "next", { kinds: ["intake"] }) as WorkItem[];
     expect(after.filter((i) => i.job.kind === "intake")).toEqual([]);
+  });
+
+  test("what a background job submits names the model the host ran it on", () => {
+    const a = insertion();
+    const root = vault(a);
+    const submit = (model?: string) => handleVaultTool({ ...ctx(root, "gardener"), clientName: "pi", ...(model ? { model } : {}) }, "submit", {
+      items: [{ submit: "assertion", text: "[[Ada Lovelace]] wants sparse probes tested.", sources: [a.id], confidence: "direct" }],
+    });
+    submit("model-z");
+    submit();
+    const productions = readRecordedAssertions(root).map((e) => e.produced_by).sort((x, y) => String(x.model).localeCompare(String(y.model)));
+    expect(productions).toEqual([{ procedure: "bigbrain-mcp", version: "v1", model: "model-z" }, { procedure: "bigbrain-mcp", version: "v1" }]);
   });
 
   test("host validation rejects per item, entities are minted host-side", () => {

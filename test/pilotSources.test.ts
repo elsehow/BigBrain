@@ -27,7 +27,7 @@ test('stored email filter precedes candidate cap and preserves connector metadat
   const events = Array.from({ length: 310 }, (_, i) => insertion({ id: `ins_${i.toString(16).padStart(24, '0')}`, title: 'Request', body: 'Request', received_at: '2026-09-06T12:00:00Z', envelope: { source: 'pilot', kind: 'note' } }));
   events.push(insertion({ id: `ins_${'f'.repeat(24)}`, title: 'Email with a request', body: 'This request has lower textual rank but must survive the source filter.', received_at: '2026-09-05T12:00:00Z', envelope: { source: 'email', kind: 'email', from: 'sender@example.com' } }));
   const root = nativeVault({ files: { 'vault.yaml': NATIVE_YAML }, insertions: events }); roots.push(root);
-  const hits = scanSurface(root, 'request', 1, 'web', { filters: { source: 'email' }, ledger: false });
+  const hits = scanSurface(root, 'request', 1, 'web', { filters: { source: 'email' } });
   expect(hits.ok).toBe(true); if (!hits.ok) return;
   expect(hits.hits).toHaveLength(1); expect(hits.hits[0]?.source).toBe('email');
   const recent = await pilotToolCall(root, 'recent', { source: 'EMAIL', limit: 1 }) as any;

@@ -1,7 +1,7 @@
 /**
  * text.ts — the little scalar/string helpers every envelope and log reader
  * kept re-declaring inline (#642): the same four lambdas lived in
- * memoryRun, voice, work, insertionLog, entityDossiers and
+ * stages/memory, voice, work, insertionLog, entityDossiers and
  * entityAliasSeed, drifting one keystroke at a time. Declared once.
  */
 

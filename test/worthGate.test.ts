@@ -9,7 +9,7 @@ import { readSourceInsertionLog } from "../lib/insertionLog";
 import { saveJevKey } from "../lib/jevSettings";
 import { loadManifest, type GateConfig } from "../lib/manifest";
 import { stage, stagedItems, type StagedItem } from "../lib/stageStorage";
-import { gateDecisions, gateThreshold, type GateDecision } from "../lib/worthGate";
+import { gateDecisions, gateThreshold, type GateDecision } from "../lib/stages/worthGate";
 import { NATIVE_YAML, nativeVault } from "./support/vault";
 
 // All content here is invented.

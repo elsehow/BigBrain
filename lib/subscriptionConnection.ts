@@ -142,7 +142,7 @@ export async function saveSubscriptionConnection(provider: SubscriptionProvider,
   const { setupState } = await import("./firstRun");
   return (await import("./modelCatalog")).curationModels(setupState(root));
 }): Promise<void> {
-  const { readMemoryStamp, writeMemoryStamp } = await import("./memory");
+  const { readMemoryStamp, writeMemorySchedule } = await import("./memory");
   const spec = SUBSCRIPTION_PROVIDERS[provider];
   availableDefaults(spec.defaultProvider, models);
   signal.throwIfAborted();
@@ -155,5 +155,5 @@ export async function saveSubscriptionConnection(provider: SubscriptionProvider,
   (await import("./modelPreferenceRefresh")).refreshModelPreferences(root, connected);
   writeEnvValues(root, { [spec.connectedKey]: "1" });
   const stamp = readMemoryStamp(root);
-  if (!stamp.nextRunAt && !stamp.lastRunAt) writeMemoryStamp(root, { ...stamp, nextRunAt: new Date().toISOString() });
+  if (!stamp.nextRunAt && !stamp.lastRunAt) writeMemorySchedule(root, { ...stamp, nextRunAt: new Date().toISOString() });
 }

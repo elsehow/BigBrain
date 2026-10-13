@@ -28,7 +28,7 @@ import Base from "../components/Base.svelte";
 import { installGraphFixture } from "./graphFixture";
 import { watchSystemTheme } from "../lib/theme";
 import { update } from "../lib/update.svelte";
-import { newestFirst, pageSortedFeed, SORTED_PAGE, type V2SortedRow } from "../../../../lib/v2Feed";
+import { newestFirst, pageSortedFeed, SORTED_PAGE, type V2SortedRow } from "../../../../lib/views/v2Feed";
 
 const empty = new URLSearchParams(location.search).has("empty");
 if (new URLSearchParams(location.search).has("update")) update.available = { version: "0.7.24", notes: "Preview update" };

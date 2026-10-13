@@ -40,20 +40,20 @@
 
 import { parseNoteWindow, NoteWindowError, type NoteWindow } from "./noteWindow";
 import { intakeWireReceipt } from "./intakeWire";
-import { readFileSync, statSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { expiredMessage, hasScope, noteExpiredUse, touchLastUsed, verifyToken, type TokenRecord } from "./auth";
 import { ensureDir, writeAtomic } from "./fsx";
 import { dropErrorStatus, Queued } from "./door";
 import { IntakeError } from "./intake";
 import { landDirective, landDrop } from "./landItem";
-import { jailMemoryPath, noteMarkdownText, notePayload } from "./noteRead";
+import { jailMemoryPath, memoryRead, noteMarkdownText, notePayload } from "./noteRead";
 import { memoryForAgents, noteForAgent, rowsForAgent } from "./agentReads";
 import { TEND_JOURNAL_DIR, tendJournalFiles } from "./tend";
 import { journalFiles, readQueueJournalFile, type QueueJournalRecord } from "./run/journal";
 import { landVoice, VoiceError } from "./voice";
 import { recordUse } from "./retrieval";
-import { clampLimit, scanSurface } from "./searchCore";
+import { clampLimit, recordScan, scanSurface } from "./searchCore";
 import { nextWork, submitWire, WORK_KINDS, type SubmitResult, type WorkItem, type WorkKind, dueIntakeCount } from "./work";
 import { claudeAccount, ownerFor } from "./firstRun";
 import { normalizeClient, redeemPairCode } from "./pair";
@@ -425,7 +425,6 @@ function searchHandler({ root, url, now, json, log, record }: RouteCtx): Respons
     return json(400, { error: `bad type "${type}" — use type=reference or type=entity` });
   const via = gardenerVia(url, record);
   const r = scanSurface(root, q, n, via, {
-    now: now(),
     filters: {
       ...(url.searchParams.get("source")?.trim() && { source: url.searchParams.get("source")!.trim().toLowerCase() }),
       ...(after && { after }),
@@ -449,6 +448,7 @@ function searchHandler({ root, url, now, json, log, record }: RouteCtx): Respons
     );
     return json(500, { error: "search unavailable" });
   }
+  recordScan(root, q, r, via, now());
   // `relaxation` rides only when it fired: an agent seeing it knows these
   // hits came from the any-term rung, not the exact query (#361).
   // An agent's hits wear their provenance, as over local MCP (lib/agentReads.ts).
@@ -468,24 +468,21 @@ function searchHandler({ root, url, now, json, log, record }: RouteCtx): Respons
 // dominated by session-start machinery auto-fetching the working set —
 // machine reads, not knowledge demand (lib/retrieval.ts header, rule 3).
 // The asymmetry with the web viewer, which DOES record its memory reads,
-// is intentional: there the read is a person clicking. The tree is bounded (lib/memoryRun.ts: 9 files,
+// is intentional: there the read is a person clicking. The tree is bounded (lib/stages/memory.ts: 9 files,
 // ~3,300 words), so there is nothing to paginate.
 function memoryHandler({ root, url, json, setBytes, record }: RouteCtx): Response {
   const slug = url.searchParams.get("path") ?? "";
-  const abs = jailMemoryPath(root, slug ? `${slug}.md` : "MEMORY.md");
-  if (!abs) return json(403, { error: "forbidden path" });
-  try {
-    if (!statSync(abs).isFile()) return json(404, { error: "not a file" });
-    const raw = readFileSync(abs, "utf8");
-    const buf = Buffer.from(gardenerVia(url, record) === "gardener" ? raw : memoryForAgents(raw), "utf8");
-    setBytes(buf.byteLength);
-    return new Response(buf, {
-      status: 200,
-      headers: { "Content-Type": "text/markdown; charset=utf-8", ...CORS },
-    });
-  } catch {
-    return json(404, { error: "not found" });
-  }
+  if (!jailMemoryPath(root, slug ? `${slug}.md` : "MEMORY.md")) return json(403, { error: "forbidden path" });
+  // From the projection, as the memory pass's door projected it: a symlink
+  // out of memory/ was never taken in (lib/markdownGraph.ts), so it is 404.
+  const read = memoryRead(root, slug);
+  if (read.status !== 200) return json(read.status, { error: read.error });
+  const buf = Buffer.from(gardenerVia(url, record) === "gardener" ? read.text : memoryForAgents(read.text), "utf8");
+  setBytes(buf.byteLength);
+  return new Response(buf, {
+    status: 200,
+    headers: { "Content-Type": "text/markdown; charset=utf-8", ...CORS },
+  });
 }
 
 async function dropHandler({

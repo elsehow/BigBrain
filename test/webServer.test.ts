@@ -1,3 +1,4 @@
+import { projectNotes } from "../lib/assertionProjection";
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, relative, sep } from "node:path";
@@ -206,6 +207,7 @@ describe("the route table", () => {
       join(root, "entities", "2026-08-02-ada.md"),
       "---\ndate: 2026-08-02T10:00:00.000Z\nkind: entity\n---\nAda.\n"
     );
+    projectNotes(root, ["entities"]); // through the notes door, as the watcher passes it
     const note = call("GET", "/api/note?path=entities/2026-08-02-ada.md") as {
       path: string;
       content: string;
@@ -235,6 +237,7 @@ describe("viewer path normalization (#285)", () => {
       mkdirSync(join(root, path, ".."), { recursive: true });
       writeFileSync(join(root, path), "path containment probe");
     }
+    projectNotes(root);
     try {
       for (const [route, ext] of [["/api/note", "md"], ["/api/file", "bin"]]) {
         for (const path of [`.state/traversal-probe.${ext}`, `.git/traversal-probe.${ext}`,

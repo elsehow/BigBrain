@@ -141,14 +141,33 @@ Consequences:
 - Inbound channels are ingest-only: an emailed question is filed like
   any other arrival, not answered (delivery acknowledgments aside).
 
-## 5. User vaults are never migrated
+## 5. User vaults are migrated rarely, and never without consent
 
-Vault-format changes are **additive and tolerant-read**: new directories
-and optional `vault.yaml` keys are fine, and the engine treats absence
-as default. A change that requires existing vaults to change shape is
-rejected in review on that ground alone — there is no migration step to
-schedule, because there are no migrations. (2026-08-12, from the staging
-plan: `plans/2026-08-12-staging-env.md`.)
+Vault-format changes are **additive and tolerant-read by default**: new
+directories and optional `vault.yaml` keys are fine, and the engine
+treats absence as default. (2026-08-12, from the staging plan:
+`plans/2026-08-12-staging-env.md`.)
+
+A **migration**, a change that rewrites or removes what an existing
+vault holds, is allowed when the reason is good: an old format the engine
+would otherwise have to read forever, or a tolerant-read path that has
+become the mess. (Amended 2026-10-11, from "never migrated": with three
+vaults in the world, reading every retired format forever was costing
+more than converting them.) Every migration:
+
+- **is talked through first.** A plan says what it rewrites or removes,
+  why an additive change won't do, and what keeping the old format would
+  cost. A migration is never a side effect of some other change.
+- **runs only with the vault owner's explicit consent.** The engine
+  names what it will rewrite or delete and waits for a yes; nothing
+  migrates silently on upgrade. A release that stops reading an old
+  format refuses to open a vault still holding it, and says which
+  migration it needs.
+- **is proven on a scratch copy first**, against the old engine's
+  reading of the same vault.
+- **keeps meaning and provenance.** A converted event keeps its author,
+  time and producer, and names the event it came from.
+- **is one commit in the vault**, so it can be reviewed and reverted.
 
 Consequences:
 
@@ -156,14 +175,13 @@ Consequences:
   `.claude/`, `.gitignore` are re-rendered idempotently by the engine;
   regenerating them is deployment, not migration. The protected class is
   the event logs and the curated content the passes wrote.
-- **The arrival envelope and the event logs are the never-break
-  surface.** If a breaking vault-structure change ever becomes
-  unavoidable, the escape hatch is re-derivation, not migration:
-  everything but the logs is disposable (§1), so replaying them rebuilds
-  the vault in the new shape — model spend, not hand-migration. That
-  holds only while the envelope (§3) and the event formats stay stable,
-  and a replay must be proven against a scratch vault before any real
-  vault depends on it.
+- **What arrived is never rewritten.** A migration may change how
+  decisions are recorded; the insertion log stays add-only, with only the
+  exceptions below.
+- **Re-derivation is still the first resort.** Everything but the logs is
+  disposable (§1), so a change to anything derived is a replay, not a
+  migration: model spend, not hand-conversion, proven against a scratch
+  vault before any real vault depends on it.
 
 ## Known exceptions to "add-only"
 

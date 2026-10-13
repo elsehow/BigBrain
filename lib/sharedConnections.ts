@@ -85,11 +85,12 @@ export function updateConnection(path:string,id:string,patch:Partial<Omit<Shared
  Object.assign(connection,patch);writeConnections(path,connections);
 }
 
+/** The connections, each named as its server last told the follower
+ * (lib/serverStore.ts), with how its copy stands: no read asks a server. */
 export async function refreshConnectionNames(path:string) {
- const connections=readConnections(path),names=new Map<string,string>();
- await Promise.all(connections.map(async c=>{try{const who=await sharedRequest<SharedIdentity>(c,'/v1/whoami');if(who.vault?.name)names.set(c.id,who.vault.name);}catch{/* Offline connections keep their last verified name. */}}));
+ const {readServer}=await import('./serverStore');
  const latest=readConnections(path);let changed=false;
- for(const c of latest){const name=names.get(c.id);if(name&&name!==c.name){c.name=name;changed=true;}}
+ for(const c of latest){const name=readServer(path,c.id).status.name;if(name&&name!==c.name){c.name=name;changed=true;}}
  if(changed)writeConnections(path,latest);
- return latest.map(publicConnection);
+ return latest.map(c=>{const {status}=readServer(path,c.id);return {...publicConnection(c),...(status.syncedAt?{syncedAt:status.syncedAt}:{}),...(status.error?{error:status.error}:{})};});
 }

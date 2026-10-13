@@ -36,6 +36,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { sha256hex } from "./hash";
+import { contentHash } from "./contentHash";
 import {
   newItemId,
   normalizeType,
@@ -194,6 +195,21 @@ function landedBySha(root: string, sha256: string): SourceInsertion | undefined 
   }
 }
 
+/** The live landing whose content (lib/contentHash.ts) is this, if any. */
+function landedByContent(root: string, hash: string): SourceInsertion | undefined {
+  try {
+    syncAssertionProjection(root);
+    const db = openAssertionProjectionReadonly(root);
+    try {
+      const row = db.query(`SELECT event_json FROM sources JOIN source_documents USING (insertion_id)
+        WHERE body_sha256 = ? AND present = 1 ORDER BY coalesce(received_at, occurred_at, ''), insertion_id LIMIT 1`).get(hash) as { event_json: string } | null;
+      return row ? (JSON.parse(row.event_json) as SourceInsertion) : undefined;
+    } finally { db.close(); }
+  } catch {
+    return undefined;
+  }
+}
+
 export interface LandOpts {
   attachments?: AttachmentRef[];
   now?: Date;
@@ -213,7 +229,10 @@ export interface LandOpts {
  * is the editor's (record-side, journaled). */
 export function landReference(root: string, content: string, opts: LandOpts = {}): Landing {
   const sha256 = opts.sha256 ?? sha256hex(content);
-  const existing = landedBySha(root, sha256);
+  // The same payload again, or the same content under another envelope
+  // (lib/contentHash.ts): nothing lands, and the source already there answers.
+  const held = contentHash(parseEnvelope(content).body, opts.attachments);
+  const existing = landedBySha(root, sha256) ?? (held ? landedByContent(root, held) : undefined);
   if (existing) {
     const env = existing.envelope;
     const rel = insertionEventRel(existing);

@@ -19,7 +19,7 @@
 
 import { namesTitle, TALK_KINDS, titleShapes } from "./entitySourceMatch";
 import type { SourceMetadata } from "./insertionLog";
-import { copyPairKey, type SourceCopyEvent } from "./sourceCopyLog";
+import { copyPairKey } from "./sourceCopyLog";
 import { sourceOrigins } from "./sourceOrigin";
 import { sourceTime } from "./sourceThreads";
 
@@ -89,7 +89,7 @@ export function sourceCopies<T extends SourceMetadata>(
     stub: (source: T) => boolean;
   },
 ): Map<string, SourceCopies<T>> {
-  const byId = new Map(sources.map((source) => [source.id, source]));
+  const byId = new Map<string, T>(sources.map((source) => [source.id, source]));
   const byKey = new Map<string, string[]>();
   for (const source of sources) for (const key of [...copyKeys(source), ...(joins.get(source.id) ?? [])]) {
     const ids = byKey.get(key);
@@ -136,7 +136,7 @@ export function sourceCopies<T extends SourceMetadata>(
 // label names its source (lib/entitySourceMatch.ts): the same words once an
 // extension, a parenthetical or a "| Publisher" tail is off, or one with its
 // subtitle dropped — never two that share only a head ("Series — Part one",
-// "Series — Part two"), and never on a date or a number alone. A model scores each (lib/sourceCopyJudge.ts); at or above
+// "Series — Part two"), and never on a date or a number alone. A model scores each (lib/stages/copyJudge.ts); at or above
 // the cut-off it is a copy, and below it, above the floor or not yet judged,
 // it is asked. A person's word settles a pair for good, and their answers to
 // judged pairs fit the cut-off.
@@ -158,14 +158,25 @@ export interface CopyRecord {
   judged: Map<string, { score: number; model: string }>;
 }
 
-/** The log, folded: latest per pair and kind. */
-export function foldCopyEvents(events: readonly SourceCopyEvent[]): CopyRecord {
+/** One word on a pair: a model's judgment (`score`, by `model`) or a
+ * person's (`same`). */
+export interface CopySaid {
+  id: string;
+  pair: readonly [string, string];
+  created_at: string;
+  same?: boolean;
+  score?: number;
+  model?: string;
+}
+
+/** What was said of each pair, folded: latest per pair and kind. */
+export function foldCopies(said: readonly CopySaid[]): CopyRecord {
   const out: CopyRecord = { declared: new Map(), judged: new Map() };
-  const byTime = [...events].sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id));
-  for (const event of byTime) {
-    const key = copyPairKey(...event.pair);
-    if (event.event === "source.copies-declared") out.declared.set(key, event.same);
-    else out.judged.set(key, { score: event.score, model: event.author.id });
+  const byTime = [...said].sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id));
+  for (const word of byTime) {
+    const key = copyPairKey(word.pair[0], word.pair[1]);
+    if (word.score === undefined) out.declared.set(key, word.same ?? true);
+    else out.judged.set(key, { score: word.score, model: word.model ?? "" });
   }
   return out;
 }

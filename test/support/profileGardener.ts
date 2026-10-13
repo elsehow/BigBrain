@@ -8,7 +8,8 @@ import { tmpdir } from 'node:os';
 import { stringify } from 'yaml';
 import { loadManifest } from '../../lib/manifest';
 import { syncAssertionProjection, openAssertionProjectionReadonly } from '../../lib/assertionProjection';
-import { dueIntakeIds, submitWire } from '../../lib/work';
+import { submitWire } from '../../lib/work';
+import { dueIntake } from '../../lib/stages/intake';
 import { stagedHeads } from '../../lib/stage';
 import { instrumentVaultTools } from './profileVaultTools';
 import { runTend } from '../../lib/tend';
@@ -72,7 +73,7 @@ if (mode === 'prepare' && input) {
   rmSync(join(root,'.state'),{recursive:true,force:true}); syncAssertionProjection(root);
   git(root,'init','-q');git(root,'config','user.name','Benchmark');git(root,'config','user.email','benchmark@localhost');git(root,'config','core.hooksPath','/dev/null');
   git(root,'add','log','vault.yaml','.gitignore','.benchmark-snapshot');git(root,'commit','-qm','Private replay baseline');
-  const others=dueIntakeIds(root).filter(id=>!ids.has(id));
+  const others=dueIntake(root).filter(id=>!ids.has(id));
   if(others.length)submitWire(root,[{submit:'decline',insertion_ids:others,reason:'Excluded from bounded replay benchmark'}],{author:{kind:'system',id:'benchmark'},produced_by:{procedure:'benchmark',version:'v1'}});
   const staged=stagedHeads(root, Infinity);
   const fixture={version:1,root:realpathSync(root),source,selected:[...ids],staged:staged.map(s=>s.id),removed,suppressed:others.length,
@@ -85,7 +86,7 @@ if (mode === 'prepare' && input) {
   noLinks(baseline);
   const fixture=JSON.parse(readFileSync(join(baseline,'.profile-fixture.json'),'utf8'));
   if(fixture.root!==baseline || fixture.source===baseline)throw new Error('Prepared baseline required');
-  const due=dueIntakeIds(baseline),stage=stagedHeads(baseline,Infinity).map(s=>s.id);
+  const due=dueIntake(baseline),stage=stagedHeads(baseline,Infinity).map(s=>s.id);
   if(due.length!==fixture.selected.length || due.some(id=>!fixture.selected.includes(id)) || stage.length!==fixture.staged.length || stage.some(id=>!fixture.staged.includes(id)))throw new Error('Baseline has already processed work');
   const root=realpathSync(mkdtempSync(join(tmpdir(),'bb-gardener-profile-')));
   for(const rel of ['log','.spool/stage'])if(existsSync(join(baseline,rel)))cpSync(join(baseline,rel),join(root,rel),{recursive:true});
@@ -116,7 +117,7 @@ if (mode === 'prepare' && input) {
     if(!runtime.isUsingSubscription('openai-codex') || !available.some(m=>m.id===manifest.gardener.model))throw new Error('Connect ChatGPT and select an available subscription model');
   }
   const projection=syncAssertionProjection(root);
-  const before=dueIntakeIds(root),stageBefore=stagedHeads(root,Infinity).map(s=>s.id);
+  const before=dueIntake(root),stageBefore=stagedHeads(root,Infinity).map(s=>s.id);
   if(before.length!==fixture.selected.length || before.some(id=>!fixture.selected.includes(id)) || stageBefore.length!==fixture.staged.length || stageBefore.some(id=>!fixture.staged.includes(id)))throw new Error('Fixture queue changed');
   writeFileSync(join(root,'.profile-started'),'started\n');
   const tools: Record<string,{times:number[];errors:number;requestBytes:number;responseBytes:number}>={};
@@ -170,7 +171,7 @@ if (mode === 'prepare' && input) {
   if(sampler)await sampler.exited;
   let toolUnionMs=0,last=begin;
   for(const [a,b] of intervals.sort((a,b)=>a[0]-b[0])){toolUnionMs+=Math.max(0,b-Math.max(a,last));last=Math.max(last,b);}
-  const after=dueIntakeIds(root),stageAfter=stagedHeads(root,Infinity).map(s=>s.id);
+  const after=dueIntake(root),stageAfter=stagedHeads(root,Infinity).map(s=>s.id);
   const completed=before.filter(id=>!after.includes(id)).length+stageBefore.filter(id=>!stageAfter.includes(id)).length;
   const report={stage:'summary',concurrency,model:manifest.gardener,fixture:{projection,intake:fixture.intake,staged:stageBefore.length,removed:fixture.removed,suppressed:fixture.suppressed},
     firstFilingMs,timeline,elapsedMs,toolUnionMs,outsideToolHandlersMs:elapsedMs-toolUnionMs,completedInitialItems:completed,initialItemsPerMinute:completed/(elapsedMs/60000),

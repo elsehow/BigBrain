@@ -2,14 +2,15 @@
  * cache, its delta against the memory checkpoint, the due check a member with
  * an empty personal vault depends on, the run's context and citation gate, and
  * the refresh against a real shared door. Invented names throughout. */
+import { stageMemoryStamp } from "./support/memoryStamp";
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { assertionEntityId } from "../lib/assertionLog";
 import { writeAtomic } from "../lib/fsx";
-import { memoryDue, readMemoryStamp, writeMemoryStamp } from "../lib/memory";
-import { runMemory } from "../lib/memoryRun";
+import { memoryDue, readMemoryStamp } from "../lib/memory";
+import { runMemory } from "../lib/stages/memory";
 import { addMember, initMemberStore, mintCredential } from "../lib/sharedMembers";
 import { SharedVault } from "../lib/sharedVault";
 import { makeSharedApiHandler } from "../lib/sharedVaultApi";
@@ -70,7 +71,7 @@ const writeTree = (root: string, body: string) => () => { mkdirSync(join(root, "
 describe("a member whose personal vault is empty", () => {
   test("is due a sweep once a joined vault holds claims, and memory folds them with shared citations", async () => {
     const root = freshVault();
-    writeMemoryStamp(root, { nextRunAt: "2026-01-01T00:00:00.000Z" });
+    stageMemoryStamp(root, { nextRunAt: "2026-01-01T00:00:00.000Z" });
     expect(memoryDue(root).due).toBe(false);
     writeCache(root, { vaults: [team()] });
     const due = memoryDue(root);
@@ -197,7 +198,7 @@ describe("end to end", () => {
 
       // Bob joined read-only and has filed nothing of his own.
       const member = freshVault();
-      writeMemoryStamp(member, { nextRunAt: "2026-01-01T00:00:00.000Z" });
+      stageMemoryStamp(member, { nextRunAt: "2026-01-01T00:00:00.000Z" });
       await saveConnection(memberStore, { name: "Example team", endpoint, token: bob.token });
       await refreshSharedMemory(member, memberStore);
       expect(memoryDue(member)).toEqual({ due: true, reason: "scheduled sweep — 1 new shared-vault assertion(s)" });

@@ -111,8 +111,7 @@ export function filingStatus(
  * feed's only view of where a filed item landed, since the arrival row's own
  * path is `lake/YYYY/MM/<id>.md`, which names nothing a person filed), and
  * the git row's `filedModel` — the MODEL of the run that filed it, resolved
- * from the note's `triage_run` stamp via the journal (lib/noteLog.ts's
- * journalModelFor) — carries through for the filed-by column's machine-author
+ * from the note's `triage_run` stamp via the journal — carries through for the filed-by column's machine-author
  * fallback. Never the git `author` and never a pass persona: the committer
  * is only the note's most-recent editor, and triage/deep/intake are
  * internal names the feed must not wear (the UI's filedByLabel owns that
