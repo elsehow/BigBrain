@@ -7,9 +7,14 @@
  * every few seconds besides. A change to the files people edit outside the
  * engine (notes, vault.yaml) or engine state outside the projection (the
  * queue, journals) comes from one watcher over the vault. Either becomes one
- * debounced `event: views` carrying each view's stamp (lib/viewStamps.ts), and
- * each tab fetches only the views whose stamp moved. A connection opens with
- * the current stamps.
+ * debounced `event: views` carrying each view's stamp (lib/viewStamps.ts),
+ * read from one snapshot, and each tab fetches only the views whose stamp
+ * moved. A connection opens with the current stamps.
+ *
+ * The stream only reads (R11, docs/plans/2026-10-12-stages-and-views-refactor.md).
+ * A changed note goes through its door (lib/notesDoor.ts), whose commit is
+ * heard like any other; the graph's upkeep is started, not awaited, and the
+ * picture it lands pushes its own stamp.
  *
  * The old server started all of this as live side effects inside
  * startLive(); here it is a value with a lifecycle — createLive() only
@@ -22,14 +27,16 @@
  */
 
 import { GARDENER_PROGRESS_DIR, readGardenerProgress } from "./gardenerProgress";
-import { watch as fsWatch } from "node:fs";
-import { isAbsolute, relative, sep } from "node:path";
+import { statSync, watch as fsWatch } from "node:fs";
+import { isAbsolute, join, relative, sep } from "node:path";
 import { BROWSE_ROOTS } from "./browsePaths";
 import { isLedgerPath } from "./retrieval";
 import { maintainGraphView, onGraphView } from "./maintainedGraph";
 import { viewStamps, type ViewStamps } from "./viewStamps";
 import { assertionDbPath, claimProjectionRecovery, projectNotes } from "./assertionProjection";
 import { projectionWake, type ProjectionWake } from "./projectionWake";
+import { createNotesDoor } from "./notesDoor";
+import { sha256hex } from "./hash";
 import { background } from "./readModelBackground";
 import { readModelRevision } from "./vaultReadModel";
 
@@ -99,10 +106,10 @@ export interface LiveOptions {
   /** The notes door: project the notes a change named (every note, when the
    * watcher may have missed some); assertionProjection.projectNotes by default. */
   refresh?: (root: string, paths?: string[]) => void;
-  /** The graph view's upkeep ridden off the same signal: maintainedGraph's
-   * maintainGraphView by default, which builds only when the projection's
-   * revision moved. A seam for the same reason `refresh` is one: a fan-out
-   * test must not run a force simulation. */
+  /** The graph view's upkeep, started off the same signal and never awaited:
+   * maintainedGraph's maintainGraphView by default, which builds only when
+   * the projection's revision moved, and whose landing pushes the stamps
+   * again. A seam for the same reason `refresh` is one. */
   warmLayout?: (root: string) => void | Promise<void>;
   /** The log census that heals what the write path could not, run once at
    * start; recoverInBackground by default. A seam like `refresh`: a fan-out
@@ -162,11 +169,8 @@ export function createLive(opts: LiveOptions): Live {
   let watchRetryMs = 100;
   let watchGeneration = 0;
 
-  let revision = 0;
-  /** Notes changed since the last settle, projected before it; every note
-   * when the watcher was lost and may have missed some. */
-  const notePaths = new Set<string>();
-  let notesLost = false;
+  /** Notes changed since the last settle, projected before it. */
+  const notes = createNotesDoor(root, refresh);
   let stopped = false;
   let commits: ProjectionWake | null = null;
   let backstop: ReturnType<typeof setInterval> | null = null;
@@ -175,13 +179,17 @@ export function createLive(opts: LiveOptions): Live {
   function checkCommits(): void {
     if (!stopped && commits?.moved()) announce();
   }
+  /** The graph's upkeep, started; its landing is heard through onGraphView. */
+  function upkeep(): void {
+    try { void Promise.resolve(warmLayout(root)).catch(() => {}); } catch { /* a read builds the view at its revision */ }
+  }
   let usageTimer: ReturnType<typeof setTimeout> | null = null;
   let progressTimer: ReturnType<typeof setTimeout> | null = null;
   let lastProgress = "null";
-  // Watched files outside the projection; the epoch names this process, so a
-  // restart reads as a move.
-  const epoch = crypto.randomUUID().slice(0, 8);
-  let files = 0;
+  // Watched files outside the projection: a stamp chained from what each
+  // change left on disk, seeded from the watched entries as they stand, so a
+  // restart after an edit reads as a move and one after none does not.
+  let files = filesSeed(root, watched);
   /** The stamps each client was last sent: it hears only a move from those. */
   const sent = new WeakMap<LiveClient, string>();
   function sendViews(c: LiveClient, data: string): void {
@@ -189,7 +197,7 @@ export function createLive(opts: LiveOptions): Live {
     sent.set(c, data);
     c.write(`event: views\ndata: ${data}\n\n`);
   }
-  const viewsNow = () => JSON.stringify(stamps(root, `${epoch}:${files}`));
+  const viewsNow = () => JSON.stringify(stamps(root, files));
   function publishViews(): void {
     if (stopped || !clients.size) return;
     const data = viewsNow();
@@ -233,38 +241,20 @@ export function createLive(opts: LiveOptions): Live {
     // the search index twice a second for as long as the tab stays open
     // (#247/#248).
     if (isLedgerPath(rel) || stopped) return;
-    if (BROWSE_ROOTS.has(first)) notePaths.add(rel);
-    else files++;
+    if (BROWSE_ROOTS.has(first)) notes.noted(rel);
+    else files = sha256hex(`${files}\n${rel}:${statStamp(join(root, rel))}`).slice(0, 16);
     announce();
   }
 
   /** A vault change: push the stamps once it has settled. */
   function announce(): void {
-    revision++;
     if (pingTimer) return; // debounce: a pull touches many files at once
-    pingTimer = setTimeout(async () => {
+    pingTimer = setTimeout(() => {
       pingTimer = null;
-      const current = revision;
-      // Project edited notes: reads never look at the files. The commit is
-      // heard like any other.
-      if (notesLost || notePaths.size) {
-        const paths = notesLost ? undefined : [...notePaths];
-        notesLost = false;
-        notePaths.clear();
-        try {
-          refresh(root, paths);
-        } catch {
-          /* the next edit, or the next process to start, projects them */
-        }
-      }
-      // Rebuild and settle off-thread before pinging. Requests for the same
-      // revision share this work, while HTTP and heartbeat traffic keep moving.
-      try {
-        await warmLayout(root);
-      } catch {
-        /* warming is best-effort: a read builds the view at its revision */
-      }
-      if (stopped || current !== revision) return;
+      if (stopped) return;
+      // Edited notes through their door: reads never look at the files.
+      notes.flush();
+      upkeep();
       publishViews();
     }, debounceMs);
   }
@@ -299,7 +289,7 @@ export function createLive(opts: LiveOptions): Live {
       if (path) {
         const rel = relative(root, path);
         if (!isAbsolute(rel) && rel !== ".." && !rel.startsWith(`..${sep}`)) {
-          notesLost = true; // what it missed meanwhile, no event will name
+          notes.lost(); // what it missed meanwhile, no event will name
           handleChange(rel);
         }
       }
@@ -333,7 +323,7 @@ export function createLive(opts: LiveOptions): Live {
       commits = wake(root);
       commits.moved(); // the baseline
       // Also the bound on notes a lost watcher missed: projected within it.
-      backstop = setInterval(() => { if (notesLost) announce(); else checkCommits(); }, backstopMs);
+      backstop = setInterval(() => { if (notes.pending()) announce(); else checkCommits(); }, backstopMs);
       backstop.unref?.();
       heartbeat = setInterval(() => {
         publishProgress(); // also clears a dead lock holder after a crash
@@ -348,7 +338,6 @@ export function createLive(opts: LiveOptions): Live {
       stopped = true;
       unsubscribe?.(); unsubscribe = undefined;
       unlanded?.(); unlanded = undefined;
-      revision++;
       if (usageTimer) clearTimeout(usageTimer);
       usageTimer = null;
       if (progressTimer) clearTimeout(progressTimer);
@@ -380,6 +369,17 @@ export function createLive(opts: LiveOptions): Live {
     handleChange,
     refreshViews: publishViews,
   };
+}
+
+/** A file's state as a stamp: its size and mtime, or gone. */
+function statStamp(path: string): string {
+  try { const s = statSync(path); return `${s.size}:${s.mtimeMs}`; } catch { return "gone"; }
+}
+
+/** The watched entries outside the notes, as they stand. */
+function filesSeed(root: string, watched: ReadonlySet<string>): string {
+  const entries = [...watched].filter((first) => !BROWSE_ROOTS.has(first)).sort();
+  return sha256hex(entries.map((first) => `${first}:${statStamp(join(root, first))}`).join("\n")).slice(0, 16);
 }
 
 /** The log census off the request path: recoverAssertionProjection in a
