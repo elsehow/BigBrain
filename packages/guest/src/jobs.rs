@@ -20,6 +20,11 @@ const DEFAULT_GRACE: u64 = 3000;
 
 pub type Exit = (Option<i32>, Option<String>);
 
+/// Held while the guest runs a helper of its own and waits for it (lsof, on
+/// macOS): the reaper takes it before reaping, so it never collects a child
+/// whose own caller is about to wait for it.
+pub static REAP: Mutex<()> = Mutex::new(());
+
 pub struct Job {
     pub argv: Vec<String>,
     pub started: u64,
@@ -62,6 +67,7 @@ impl Jobs {
                 continue;
             }
             let pid = unsafe { info.si_pid() };
+            let _reaping = REAP.lock().unwrap_or_else(|e| e.into_inner());
             let mut st = me.state.lock().unwrap();
             let mut status = 0;
             if unsafe { libc::waitpid(pid, &mut status, libc::WNOHANG) } != pid {

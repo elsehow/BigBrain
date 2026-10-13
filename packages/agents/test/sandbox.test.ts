@@ -104,10 +104,11 @@ describe.if(mac)("a desktop's sandbox", () => {
   test("loopback: its own servers, earlier or in the same command, yes; the host's ports and others' servers, no", async () => {
     const engine = await listen("engine");
     const person = await listen("person");
-    const { h, sh } = await scene({ ports: () => [engine] });
+    const { h, sh, ws } = await scene({ ports: () => [engine] });
     const mine = await sh(`node -e "require('http').createServer((q,s)=>s.end('mine')).listen(0,'127.0.0.1')"`);
     const port = mine.status === "running" ? mine.ports[0]! : 0;
-    const other = await sh(`node -e "require('http').createServer((q,s)=>s.end('theirs')).listen(0,'127.0.0.1')"`, undefined, false, "desk-two");
+    // in its own folder: another desktop's is hidden from it, so its guest can't even start a command there
+    const other = await sh(`node -e "require('http').createServer((q,s)=>s.end('theirs')).listen(0,'127.0.0.1')"`, join(ws.desktops, "desk-two"), false, "desk-two");
     const theirs = other.status === "running" ? other.ports[0]! : 0;
     const curl = (p: number) => `(curl -s -m 2 http://127.0.0.1:${p}/ && echo) || echo refused`;
     const r = await sh([curl(port), curl(engine), curl(person), curl(theirs),
