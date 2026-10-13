@@ -21,7 +21,7 @@
 
 import { eventLog, type AppendResult } from "./eventLog";
 import { sha256hex } from "./hash";
-import { AST_ID, ENT_ID, ENTITY_LINK, RETIRED_EVENT_ID, norm } from "./ids";
+import { AST_ID, ENT_ID, ENTITY_LINK, LENS_ID, RETIRED_EVENT_ID, norm } from "./ids";
 import { validEventAuthor, type EventAuthor, type SourceInsertion } from "./insertionLog";
 import { revokedAssertions } from "./revocationLog";
 
@@ -60,7 +60,7 @@ export interface AssertionProduction {
 }
 
 /** What an assertion says. */
-export type AssertionKind = "prose" | "identity" | "decline" | "retraction";
+export type AssertionKind = "prose" | "identity" | "decline" | "retraction" | "inclusion";
 
 /** What every kind carries. */
 interface Asserted {
@@ -134,8 +134,36 @@ export interface RetractionAssertion extends Asserted {
   reason: string;
 }
 
+/** One source's place in one lens. A model's verdict is its `score` against
+ * the lens's rule; a person's is `include`, and `how` they said it: a rating
+ * (which teaches the evaluator too), a pin or an exclusion. */
+export interface InclusionVerdict {
+  insertion_id: string;
+  source_id: string;
+  /** What was judged: the note's text and the claims read with it
+   * (lib/stages/inclusion.ts verdictInput). A person's verdict has none. */
+  input?: string;
+  score?: number;
+  /** The note was too big to read whole and was judged on a summary of it. */
+  summary?: true;
+  include?: boolean;
+  how?: "rating" | "pin" | "exclusion";
+}
+
+/** Sources in, or out of, a lens (docs/plans/2026-10-11-field-of-assertions.md,
+ * "inclusion"). A scoring pass is one assertion per lens and pass, its
+ * verdicts made under `rule`, the evaluator's identity: the rule's text, its
+ * ratings, the entities it names and the model. A person's word is one per
+ * source. Never published, and never settles intake. */
+export interface InclusionAssertion extends Asserted {
+  kind: "inclusion";
+  lens: string;
+  rule?: string;
+  verdicts: InclusionVerdict[];
+}
+
 /** Any event in the assertion log. */
-export type RecordedAssertion = AssertionEvent | IdentityAssertion | DeclineAssertion | RetractionAssertion;
+export type RecordedAssertion = AssertionEvent | IdentityAssertion | DeclineAssertion | RetractionAssertion | InclusionAssertion;
 
 export const assertionKind = (event: RecordedAssertion): AssertionKind => event.kind ?? "prose";
 export const isProse = (event: RecordedAssertion): event is AssertionEvent => assertionKind(event) === "prose";
@@ -162,6 +190,7 @@ export function assertionSourceReferences(event: AssertionEvent): AssertionSourc
 /** The sources an assertion of any kind cites. */
 export function citedSources(event: RecordedAssertion): AssertionSourceReference[] {
   if (isProse(event)) return assertionSourceReferences(event);
+  if (event.kind === "inclusion") return event.verdicts.map(({ insertion_id, source_id }) => ({ insertion_id, source_id }));
   return event.kind === "retraction" ? [] : event.sources;
 }
 
@@ -321,6 +350,24 @@ export function validateRecordedAssertion(event: RecordedAssertion): void {
       if ("sources" in retraction) throw new Error("assertion-log: a retraction cites nothing");
       return;
     }
+    case "inclusion": {
+      const inclusion = event as InclusionAssertion;
+      validateAsserted(inclusion);
+      if (!LENS_ID.test(inclusion.lens ?? "")) throw new Error("assertion-log: invalid lens id");
+      if (!Array.isArray(inclusion.verdicts) || !inclusion.verdicts.length) throw new Error("assertion-log: an inclusion has verdicts");
+      validateRefs(inclusion.verdicts);
+      for (const v of inclusion.verdicts) {
+        const scored = v.score !== undefined, said = v.include !== undefined;
+        if (scored === said) throw new Error("assertion-log: a verdict is a model's score or a person's word");
+        if (scored && !(typeof v.score === "number" && v.score >= 0 && v.score <= 1 && typeof v.input === "string" && v.input))
+          throw new Error("assertion-log: a score is 0-1, with what it judged");
+        if (said && !(typeof v.include === "boolean" && (v.how === "rating" || v.how === "pin" || v.how === "exclusion")))
+          throw new Error("assertion-log: a person's word says how");
+      }
+      if (inclusion.verdicts.some((v) => v.score !== undefined) && !inclusion.rule?.trim())
+        throw new Error("assertion-log: scores name the rule they were made under");
+      return;
+    }
     default:
       throw new Error(`assertion-log: unknown kind ${String(event.kind)}`);
   }
@@ -465,6 +512,22 @@ export function createDeclineAssertion(
     event: "assertion.asserted",
     id: assertionId({ kind: "decline", reason, sources: refs, author, produced_by, ...migrated(input) }),
     kind: "decline", reason, sources: refs, author, created_at, produced_by, ...migrated(input),
+  };
+  validateRecordedAssertion(event);
+  return event;
+}
+
+/** The identity hash includes `created_at`: the same word said again later
+ * is a new fact in time. */
+export function createInclusionAssertion(
+  input: KindInput & { lens: string; rule?: string; verdicts: InclusionVerdict[] }
+): InclusionAssertion {
+  const { lens, author, created_at, produced_by } = input;
+  const verdicts = input.verdicts.map((v) => ({ ...v }));
+  const event: InclusionAssertion = {
+    event: "assertion.asserted",
+    id: assertionId({ kind: "inclusion", lens, rule: input.rule ?? null, verdicts, author, created_at, produced_by, ...migrated(input) }),
+    kind: "inclusion", lens, ...(input.rule ? { rule: input.rule } : {}), verdicts, author, created_at, produced_by, ...migrated(input),
   };
   validateRecordedAssertion(event);
   return event;

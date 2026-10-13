@@ -69,7 +69,6 @@ const NOT_YET_STAGES = [
   "lib/entityFolds.ts",
   "lib/feedStage.ts",
   "lib/inclusionQueries.ts",
-  "lib/lensScoring.ts",
   "lib/memoryRun.ts",
   "lib/pilotBackend.ts",
   "lib/scanReader.ts",

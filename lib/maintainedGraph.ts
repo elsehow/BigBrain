@@ -32,7 +32,7 @@ import { liveOf } from "./views/scope";
 
 const NAME = "graph";
 /** What the graph does not read. */
-const IGNORES: readonly ChangeKind[] = ["journal", "fold_reject", "folds"];
+const IGNORES: readonly ChangeKind[] = ["journal", "fold_reject", "folds", "inclusion"];
 /** A burst of commits saves once: the view in memory serves meanwhile. */
 const SAVE_AFTER_MS = 5_000;
 

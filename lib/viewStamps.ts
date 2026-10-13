@@ -32,8 +32,8 @@ export interface ViewStamps {
 export const STAMP_HEADER = "x-bigbrain-stamp";
 
 /** What each view does not read: a commit of only these leaves its stamp. */
-const FEED_IGNORES: readonly ChangeKind[] = ["markdown", "fold_reject", "folds"];
-const FOLDS_IGNORES: readonly ChangeKind[] = ["markdown", "journal", "decline", "entity_source", "copy"];
+const FEED_IGNORES: readonly ChangeKind[] = ["markdown", "fold_reject", "folds", "inclusion"];
+const FOLDS_IGNORES: readonly ChangeKind[] = ["markdown", "journal", "decline", "entity_source", "copy", "inclusion"];
 
 const stampOf = (ignores: readonly ChangeKind[]) => (root: string, db?: Database): string => {
   try { return lastChangeExcept(root, ignores, db)?.last ?? ""; } catch { return ""; }

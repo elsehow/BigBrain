@@ -5,6 +5,7 @@ import {logIntegrationCalls} from '../lib/readLog';
 import {inclusionReviewApi} from '../lib/inclusionReviewApi';
 import {lensApi} from '../lib/lensApi';
 import {readLens} from '../lib/lenses';
+import { lensMembersOf } from '../lib/views/lens';
 import { unionGraph, unionRecent, unionSearch, unionNote, vaultFilter, includesPersonal, personalOnly, serverBriefingRecord, serverGraph, sharedEntityClaims } from '../lib/sharedReadUnion';
 import { jevSettingsApi } from '../lib/jevSettingsApi';
 import { optionalJevKey } from '../lib/jevSettings';
@@ -548,9 +549,10 @@ async function briefingFor(root: string, request: NoteBriefingRequest): Promise<
   const scope = typeof request === "string" ? undefined : request.scope;
   if (scope && "server" in scope) return briefingInput(await serverBriefingRecord(scope.server, request, await you()), request);
   if (scope) {
-    const lens = readLens(root, connectionStorePath(), scope.lens);
+    const lens = readLens(root, scope.lens);
     if (!lens) throw new Error("That lens is gone.");
-    return readNoteBriefingInput(root, request, undefined, claimsOnly(withSnapshot(root, (snapshot) => readLensClaims(snapshot, lens.members))));
+    return readNoteBriefingInput(root, request, undefined, claimsOnly(withSnapshot(root, (snapshot) =>
+      readLensClaims(snapshot, lensMembersOf(snapshot, lens).in))));
   }
   return readNoteBriefingInput(root, request, (ids) => sharedEntityClaims(root, ids));
 }

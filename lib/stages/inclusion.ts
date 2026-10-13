@@ -1,5 +1,11 @@
 /**
- * lensScoring.ts — scoring every note in the vault against a lens's rule.
+ * inclusion.ts — the inclusion stage: scoring every note in the vault against
+ * a lens's rule (docs/plans/2026-10-12-stages-and-views-refactor.md, R5).
+ * Its verdicts are record, inclusion assertions, one per lens and pass: the
+ * stage works through the notes no verdict under the lens's current rule
+ * settles (`inclusionStage`, `waiting`), and a lens's members are a view
+ * over what it wrote (lib/views/lens.ts). The score cache below is its
+ * memo: the same content judged again costs no model call.
  *
  * Exact lenses score everything: E1 found that ranking first and scoring the
  * top few hundred missed up to 58% of a rule's matches. Scores go through the
@@ -11,21 +17,25 @@
  * is cached on the note's text, the Quick model and this file's prompt
  * version, so a rule change never redoes it. A fragment is never scored: a
  * matching fragment is not permission to share the whole note. A note whose
- * summary fails is left unscored, and so keeps its place (lib/lenses.ts).
+ * summary fails is left unscored, and so is pending (lib/views/lens.ts).
  */
 import {existsSync,mkdirSync,readFileSync} from 'node:fs';
 import {dirname,join} from 'node:path';
-import {writeAtomic} from './fsx';
-import {sha256hex} from './hash';
-import {loadManifest} from './manifest';
-import {modelErrText} from './errText';
-import {readSourceInsertionLog,type SourceInsertion} from './insertionLog';
-import {includesEverything} from './inclusionMode';
-import {inclusionEvaluator} from './inclusionEvaluation';
-import {sourceDigest,type InclusionLabel} from './inclusionPolicy';
-import {OutOfCredits} from './sharedJev';
-import type {runAgent} from './run/agent';
-import type {LensNote} from './lenses';
+import type {InclusionVerdict} from '../assertionLog';
+import {writeAtomic} from '../fsx';
+import {sha256hex} from '../hash';
+import {loadManifest} from '../manifest';
+import {modelErrText} from '../errText';
+import {readSourceInsertionLog,type SourceInsertion} from '../insertionLog';
+import {includesEverything} from '../inclusionMode';
+import {inclusionEvaluator} from '../inclusionEvaluation';
+import {sourceDigest,type InclusionLabel} from '../inclusionPolicy';
+import {OutOfCredits} from '../sharedJev';
+import type {runAgent} from '../run/agent';
+import type {LensNote} from '../lenses';
+import type {NoteClaims} from '../sharedRuleMentions';
+import {scoresUnderOf} from '../views/lens';
+import type {RecordStage,StageInput} from './stage';
 
 /** Characters, title and body together. E1 saw Jev fail from about 84,000. */
 export const READ_LIMIT=80_000;
@@ -41,10 +51,10 @@ const restingWhy=(key:string)=>{const r=resting.get(key);if(!r)return undefined;
 
 // A note's digest, by the insertion it came from: insertions never change, and hashing every note every tick adds up.
 const digests=new Map<string,string>();
-/** This vault's notes: each source's latest text. */
+/** This vault's notes: each source's latest text, by when it arrived (as lib/views/lens.ts reads them). */
 export function lensNotes(root:string):(LensNote&{insertion:SourceInsertion})[]{
- const latest=new Map<string,SourceInsertion>();
- for(const s of readSourceInsertionLog(root,{strict:true}))latest.set(s.source_id,s);
+ const latest=new Map<string,SourceInsertion>(),at=(s:SourceInsertion)=>s.received_at??s.occurred_at??'';
+ for(const s of readSourceInsertionLog(root,{strict:true}).sort((a,b)=>at(a).localeCompare(at(b))||a.id.localeCompare(b.id))){latest.delete(s.source_id);latest.set(s.source_id,s);}
  return [...latest.values()].map(s=>{
   let digest=digests.get(s.id);if(!digest){digest=sourceDigest(s);if(digests.size>=200_000)digests.clear();digests.set(s.id,digest);}
   return {source_id:s.source_id,digest,title:s.title,body:s.body,insertion:s};
@@ -59,7 +69,7 @@ export async function noteSummary(root:string,store:string,note:LensNote,run?:ty
  const manifest=loadManifest(root),target=manifest.quick,path=summaryPath(root,store,note);
  if(existsSync(path))return readFileSync(path,'utf8');
  const recently=restingWhy(path);if(recently)throw Error(recently);
- const execute=run??(await import('./run/agent')).runAgent;
+ const execute=run??(await import('../run/agent')).runAgent;
  let last:unknown;
  for(let i=0;i<SUMMARY_TRIES;i++){
   try{
@@ -123,4 +133,39 @@ export async function scorePass(root:string,store:string,rule:{text:string;label
  // Every call so far failed: leave this rule and model be for a while rather than fail each note in turn.
  if(errors>=GIVE_UP_AFTER&&!pass.scores.size)rest(stopped,[...pass.failed.values()].at(-1)!);
  return pass;
+}
+
+// ── the stage ───────────────────────────────────────────────────────────────
+/** What a verdict judged: a note's text and the claims the evaluator reads
+ * with it. New claims make a note's verdict stale, as they make its cached
+ * score (lib/inclusionEvaluation.ts). */
+export const verdictInput=(digest:string,claims?:NoteClaims)=>sha256hex(digest+(claims?JSON.stringify(claims):'')).slice(0,24);
+
+export type ScoredNote=ReturnType<typeof lensNotes>[number]&{input:string};
+/** Each note with what its verdict would judge. */
+export const notesToScore=(notes:ReturnType<typeof lensNotes>,claims:ReadonlyMap<string,NoteClaims>):ScoredNote[]=>
+ notes.map(n=>({...n,input:verdictInput(n.digest,claims.get(n.insertion.id))}));
+
+/** One lens's scoring under one rule. A note is settled when a verdict under
+ * `rule` judged its current text and claims; the rest wait. Its run scores
+ * a batch and appends a verdict for each note it scored, and the caller
+ * lands them as one inclusion assertion (lib/lensSync.ts). */
+export function inclusionStage(lens:{id:string;text:string},rule:{identity:string;labels:InclusionLabel[]},notes:readonly ScoredNote[],
+ opts:{store:string;root:string;pass?:PassOptions}):RecordStage<ScoredNote,InclusionVerdict>&{failed:Map<string,string>;outOfCredits:boolean}{
+ const key=(insertion:string,input:string)=>`${insertion}|${input}`;
+ const stage={
+  name:`inclusion:${lens.id}`,version:rule.identity,output:'record' as const,failed:new Map<string,string>(),outOfCredits:false,
+  inputs:():StageInput<ScoredNote>[]=>notes.map(n=>({id:key(n.insertion.id,n.input),hash:n.input,item:n})),
+  written:(snapshot:Parameters<typeof scoresUnderOf>[0])=>scoresUnderOf(snapshot,lens.id,rule.identity),
+  settles:(v:InclusionVerdict)=>[key(v.insertion_id,v.input??'')],
+  async run(context:{write:{append(v:InclusionVerdict):void}},batch:readonly StageInput<ScoredNote>[]){
+   const pass=await scorePass(opts.root,opts.store,{text:lens.text,labels:rule.labels},batch.map(b=>b.item),opts.pass);
+   stage.failed=pass.failed;stage.outOfCredits=pass.outOfCredits;
+   for(const {item:n} of batch){
+    const score=pass.scores.get(n.source_id);
+    if(score!==undefined)context.write.append({insertion_id:n.insertion.id,source_id:n.source_id,input:n.input,score,...(pass.summarized.has(n.source_id)?{summary:true as const}:{})});
+   }
+  },
+ };
+ return stage;
 }
