@@ -10,7 +10,7 @@
 import { describe, expect, test } from "bun:test";
 import { projectedLabelRows } from "../lib/assertionProjection";
 import { lookalikeRefusal } from "../lib/assertionAgent";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { canonicalizeAssertionLinks } from "../lib/assertionAgent";
@@ -40,7 +40,6 @@ import {
   validateEntityAliasEvent,
   type EntityAliasEvent,
 } from "../lib/entityAliasLog";
-import { planEntityAliasSeed, seedEntityAliases } from "../lib/entityAliasSeed";
 import { appendSourceInsertionEvent, type SourceInsertion } from "../lib/insertionLog";
 import { alias, retract } from "./support/said";
 import { insertion } from "./support/vault";
@@ -224,59 +223,6 @@ describe("the readers draw one entity", () => {
     // the folded-in name stays one it answers to: the field's search finds it by either
     expect(graph.nodes.find((n) => n.id === EK.id)?.aliases).toEqual(["Evan"]);
     expect(graph.nodes.find((n) => n.id === JULES.id)?.aliases).toBeUndefined();
-  });
-});
-
-describe("seeding from the legacy dossiers", () => {
-  const dossier = (root: string, name: string, front: string): void => {
-    mkdirSync(join(root, "entities"), { recursive: true });
-    writeFileSync(join(root, "entities", name), `---\n${front}\n---\nbody\n`);
-  };
-
-  test("declares each dossier's aliases for its projected entity, skips the ambiguous, and is idempotent", () => {
-    const { root } = vault(
-      "[[Evan Keller]] runs FRI.", "[[Evan]] said hello.", "[[Jules Lane]] wrote.",
-      "[[Jordan Bell]] and [[Jordan Cole]] met.", "[[Briar]] and [[Briar Williams]] are one person.",
-      "[[BigBrain]] is the product.", "[[Hadley Wu]] and [[Hadley Zhu]] met.",
-    );
-    dossier(root, "evan-keller.md", "type: entity\nentity_type: person\naliases:\n  - Evan Keller\n  - Evan\n  - evan@example.com");
-    dossier(root, "jules-lane.md", "title: Jules Lane\naliases:\n  - Jules");
-    // a person dossier titled by a first name: the FULL name is canonical
-    dossier(root, "briar.md", "entity_type: person\naliases:\n  - Briar\n  - Briar Williams\n  - briar@example.com\n  - agent-chat-ee9c0e16-ace7-4af8-b2d9-6da420b6c434-1-1890");
-    // a first-name title another dossier also carries as an alias: ambiguous both ways
-    dossier(root, "jordan.md", "entity_type: person\naliases:\n  - Jordan\n  - Jordan Bell");
-    dossier(root, "jordan-connor.md", "title: Jordan Cole\nentity_type: person\naliases:\n  - Jordan");
-    // a first name the record knows under another surname: not this dossier's to claim
-    dossier(root, "hadley-wu.md", "title: Hadley Wu\nentity_type: person\naliases:\n  - Hadley");
-    // not a person: the most-cited label is canonical, the unlinked title is an alias
-    dossier(root, "big-brain.md", "title: Big Brain\naliases:\n  - BigBrain\n  - BigBrain (the product)");
-    dossier(root, "nobody.md", "title: Nobody Here\naliases:\n  - Nobody");
-    dossier(root, "evan-k.md", "title: Evan\naliases:\n  - E");
-
-    const plan = planEntityAliasSeed(root);
-    expect(plan.declare.map((d) => [d.alias, d.alias_assertions, d.entity.label])).toEqual([
-      ["Big Brain", 0, "BigBrain"], ["BigBrain (the product)", 0, "BigBrain"],
-      ["Briar", 1, "Briar Williams"], ["briar@example.com", 0, "Briar Williams"],
-      ["E", 0, "Evan"],
-      ["evan@example.com", 0, "Evan Keller"],
-      ["Jules", 0, "Jules Lane"],
-    ]);
-    expect(plan.skipped.map((s) => [s.alias, s.reason])).toEqual([
-      ["Evan", "held by 2 dossiers: entities/evan-k.md, entities/evan-keller.md"],
-      ["Hadley", "the record also knows Hadley Zhu (1)"],
-      ["Jordan", "held by 2 dossiers: entities/jordan-connor.md, entities/jordan.md"],
-      ["Jordan", "held by 2 dossiers: entities/jordan-connor.md, entities/jordan.md"],
-      ["Nobody", 'no projected entity for "Nobody Here"'],
-    ]);
-
-    const run = seedEntityAliases(root, { author: AUTHOR });
-    expect(run.appended).toBe(7);
-    expect(projectedAssertionEntity(root, assertionEntityId("Jules"))?.id).toBe(JULES.id);
-    expect(projectedAssertionEntity(root, assertionEntityId("Briar"))).toMatchObject({ label: "Briar Williams", assertions: 1 });
-    expect(projectedAssertionEntity(root, assertionEntityId("Big Brain"))).toMatchObject({ label: "BigBrain", assertions: 1 });
-    expect(projectedAssertionEntity(root, assertionEntityId("evan@example.com"))?.id).toBe(EK.id);
-    expect(seedEntityAliases(root, { author: AUTHOR }).appended).toBe(0);
-    expect(planEntityAliasSeed(root).declare).toEqual([]);
   });
 });
 

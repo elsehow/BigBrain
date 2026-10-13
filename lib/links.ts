@@ -1,9 +1,9 @@
 /**
  * links.ts — wikilink parsing, Obsidian-rule resolution, and the one-time
- * dialect migration.
+ * dialect migration, over the markdown the vault still keeps: `memory/`.
  *
  * The vault's links are Obsidian-legal, and as of 2026-08-06 they are
- * Obsidian's STRICTEST legal form: [[entities/big-brain]], a path from the
+ * Obsidian's STRICTEST legal form: [[memory/big-brain]], a path from the
  * vault root, which is exactly what the app writes under New link format =
  * "Absolute path in vault". Still no house dialect — any checkout is a real
  * Obsidian vault and off-the-shelf tooling agrees about what's broken — but
@@ -22,23 +22,17 @@
  * date prefix stripped, and rewrite every unresolved link with exactly
  * one match to the full filename, keeping the prose via |alias.
  * Everything else lands in the report for the deep pass to adjudicate.
- *
- * Notes live under the view tree — inbox/ arrivals are transient and
- * would make the count flap.
  */
 
 import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { ENTITY_TYPES, parseEnvelope } from "./envelope";
-import { referenceIdMap, listReferencePaths } from "./references";
 import { slug } from "./slug";
 import { LINK_RE, MD_LINK_RE, pathIndex, mdTarget, maskFences, rewriteLinks, type MdLink } from "./linkSyntax";
 // Keep established maintenance entry points; readers import the syntax layer.
 export { maskFences, parseWikilinks, wikilinkText, type WikilinkMatch, type MdLink } from "./linkSyntax";
 
-// entities/ is the one maintained view tree; memory/ is the derived
-// working set, walked here so its own links resolve.
-const NOTE_ROOTS = ["entities", "memory"];
+// memory/ is the derived working set, walked here so its own links resolve.
+const NOTE_ROOTS = ["memory"];
 
 export type Link = {
   file: string; // vault-relative path of the note containing the link
@@ -48,8 +42,7 @@ export type Link = {
   label: string | null; // |label, if any
 };
 
-/** Every note under the view tree (entities/) plus memory/, as
- * vault-relative paths. */
+/** Every note under memory/, as vault-relative paths. */
 export function listNotes(root: string): string[] {
   const out: string[] = [];
   const walk = (rel: string): void => {
@@ -153,10 +146,7 @@ export type CheckResult = {
 const MEMORY_PREFIX = "memory/";
 const inMemory = (path: string): boolean => path.startsWith(MEMORY_PREFIX);
 
-/** Validate every link in the vault. Only the maintained trees are CHECKED
- * — references are immutable record, never repaired — but reference paths
- * join the RESOLUTION index, so a dossier's [[references/x]] citation
- * counts as resolved.
+/** Validate every link in the vault's notes.
  *
  * Four verdicts, and a link can earn `unqualified` alongside any other:
  *   broken       resolves to nothing
@@ -177,9 +167,8 @@ const inMemory = (path: string): boolean => path.startsWith(MEMORY_PREFIX);
  */
 export function checkLinks(root: string): CheckResult {
   const notes = listNotes(root);
-  const refs = listReferencePaths(root);
-  const idx = noteIndex([...notes, ...refs]);
-  const known = pathIndex([...notes, ...refs]);
+  const idx = noteIndex(notes);
+  const known = pathIndex(notes);
   // bare-name lookup over memory alone — resolve() deliberately cannot do
   // this (it filters memory out of every bare answer), and the diagnosis
   // is worth the extra map: "you meant the memory topic" beats "typo".
@@ -232,158 +221,6 @@ export function checkLinks(root: string): CheckResult {
     }
   }
   return { total, broken, ambiguous, boundary, unqualified, markdown };
-}
-
-// ── the citation contract (phase 3 of the lake/vault/queue plan) ──────────
-// Vault notes cite the references they draw on via `sources:` frontmatter.
-// checkSources is the enforcement half, symmetrical with checkLinks: a dumb
-// validator run by `bigbrain links check` and the runner. GRANDFATHERING IS
-// THE CONTRACT — a note with no `sources:` at all is silently fine (the
-// pre-phase-3 vault must never start failing checks it passed yesterday);
-// only refs that are PRESENT and resolve to nothing are reported.
-
-/** One unresolvable `sources:` entry — reported like a broken wikilink. */
-export type SourceRef = {
-  file: string; // vault-relative path of the citing note
-  ref: string; // the sources entry as written
-};
-
-export type SourcesResult = {
-  /** Notes carrying a `sources:` list at all. */
-  citing: number;
-  /** `sources:` entries seen across the vault. */
-  total: number;
-  unresolved: SourceRef[];
-};
-
-/** A note's `sources:` list, tolerantly: absent, malformed frontmatter, or
- * a non-list value all read as "no sources" (grandfathered — the check can
- * only hold notes to refs they actually declare). A bare string is accepted
- * as a one-entry list. */
-export function noteSources(root: string, file: string): string[] | null {
-  let src: unknown;
-  try {
-    src = parseEnvelope(readFileSync(join(root, file), "utf8")).envelope.sources;
-  } catch {
-    return null;
-  }
-  if (typeof src === "string") return src.trim() ? [src.trim()] : null;
-  if (!Array.isArray(src)) return null;
-  const refs = src
-    .filter((s): s is string => typeof s === "string" && !!s.trim())
-    .map((s) => s.trim());
-  return refs.length ? refs : null;
-}
-
-/** Does one `sources:` ref resolve? Same semantics as the editor era's
- * resolveRefs: a ref with a slash is a
- * vault-relative path (a reference), anything
- * else is a reference id. */
-function sourceResolves(root: string, ref: string, refIds: Map<string, string>): boolean {
-  if (ref.includes("/")) return existsSync(join(root, ref));
-  return refIds.has(ref);
-}
-
-/** Validate every `sources:` ref in the vault's curated notes against the
- * record — notes without `sources:` are silently fine. */
-export function checkSources(root: string): SourcesResult {
-  const refIds = referenceIdMap(root);
-  const res: SourcesResult = { citing: 0, total: 0, unresolved: [] };
-  for (const f of listNotes(root)) {
-    const refs = noteSources(root, f);
-    if (!refs) continue;
-    res.citing++;
-    for (const ref of refs) {
-      res.total++;
-      // The memory boundary applies to citations too: memory/ is cache,
-      // not evidence — a record note's sources: may never point into it,
-      // even though the file exists.
-      if (!f.startsWith("memory/") && ref.startsWith("memory/"))
-        res.unresolved.push({ file: f, ref });
-      else if (!sourceResolves(root, ref, refIds)) res.unresolved.push({ file: f, ref });
-    }
-  }
-  return res;
-}
-
-// ── the type vocabulary (Nick's rule, 2026-08-05) ─────────────────────────
-// The vault has exactly three types, and each is a TREE: references/ holds
-// `type: reference`, entities/ holds `type: entity`, memory/ is derived and
-// carries no envelope typing at all (the memory boundary above is its
-// rule). `note` is retired; `request` is a routing kind (intake diverts it
-// to the editor's work queue), never a type in the record. checkTypes is
-// the enforcement half: a dumb sweep of the two frontmatter-typed trees,
-// run by `bigbrain links check` — informational like every check here, so
-// the editor adjudicates what a violation MEANS.
-
-/** One frontmatter type outside the vocabulary, or machinery in the record. */
-export type TypeViolation = {
-  file: string;
-  declared: string; // the literal `type:` (or offending `kind:`) as written
-  expected: string; // what the tree demands
-};
-
-export type TypesResult = { checked: number; violations: TypeViolation[] };
-
-/** Sweep references/ + entities/: every item's literal stamped `type:` must
- * match its tree, and no record item may carry `kind: request` (a work
- * order is machinery — intake routes it to the queue, so one in the record
- * is a misfile by definition). A missing `type:` on a reference is
- * grandfathered (pre-stamp arrivals; the landing stamps every new one);
- * entities are editor-written and get no such grace. A dossier's
- * `entity_type:` must come from ENTITY_TYPES (lib/envelope.ts, the SSOT
- * the editor prompt renders from) — present-and-foreign is a violation,
- * absent is tolerated (same grandfathering discipline as everything here).
- * Every reference must carry exactly ONE non-empty `category:` (the rule
- * of 2026-08-05: landing stamps it, the editor may reassign it, nothing
- * may drop or pluralize it) — the vocabulary itself is emergent-open and
- * never checked, only the cardinality. */
-export function checkTypes(root: string): TypesResult {
-  const res: TypesResult = { checked: 0, violations: [] };
-  const sweep = (
-    paths: string[],
-    expected: "reference" | "entity",
-    graceMissing: boolean
-  ): void => {
-    for (const f of paths) {
-      let env;
-      try {
-        env = parseEnvelope(readFileSync(join(root, f), "utf8")).envelope;
-      } catch {
-        continue; // unreadable — the link check's tolerance, not a type crime
-      }
-      res.checked++;
-      const declared = typeof env.type === "string" ? env.type.trim() : "";
-      if (declared ? declared !== expected : !graceMissing)
-        res.violations.push({ file: f, declared: declared || "(none)", expected });
-      if (typeof env.kind === "string" && env.kind.trim() === "request")
-        res.violations.push({
-          file: f,
-          declared: "kind: request",
-          expected: "routed to the queue, never landed in the record",
-        });
-      const et = typeof env.entity_type === "string" ? env.entity_type.trim() : "";
-      if (expected === "entity" && et && !(ENTITY_TYPES as readonly string[]).includes(et))
-        res.violations.push({
-          file: f,
-          declared: `entity_type: ${et}`,
-          expected: ENTITY_TYPES.join(" | "),
-        });
-      if (expected === "reference" && (typeof env.category !== "string" || !env.category.trim()))
-        res.violations.push({
-          file: f,
-          declared: Array.isArray(env.category) ? "category: (a list)" : "category: (none)",
-          expected: "exactly one category — stamped at landing, editor-reassignable",
-        });
-    }
-  };
-  sweep(listReferencePaths(root), "reference", true);
-  sweep(
-    listNotes(root).filter((p) => p.startsWith("entities/")),
-    "entity",
-    false
-  );
-  return res;
 }
 
 // ── backlink repair on rename/move (#52) ─────────────────────────────────
@@ -479,7 +316,7 @@ export type MigrateResult = {
 /** Bring every link to canonical form: a vault-root path, with the prose the
  * reader used to see preserved as |alias. Two passes in one walk —
  *
- *   resolvable but bare   [[big-brain]] → [[entities/big-brain|big-brain]]
+ *   resolvable but bare   [[big-brain]] → [[memory/big-brain|big-brain]]
  *   unresolvable          the old date-stripped-slug rescue, now writing
  *                         the full path rather than a bare basename
  *
@@ -501,14 +338,14 @@ export const migrateLinks = (root: string, write: boolean): MigrateResult =>
  * scoped. A file may link anywhere regardless of what else changed. */
 export function canonicalizeLinks(root: string, files: string[], write: boolean): MigrateResult {
   const notes = listNotes(root);
-  const idx = noteIndex([...notes, ...listReferencePaths(root)]);
+  const idx = noteIndex(notes);
   const stripped = new Map<string, string[]>();
   for (const p of notes) {
     const k = slug(stripDate(base(p)));
     stripped.set(k, [...(stripped.get(k) ?? []), p]);
   }
 
-  const known = pathIndex([...notes, ...listReferencePaths(root)]);
+  const known = pathIndex(notes);
   const res: MigrateResult = { rewritten: 0, filesTouched: 0, unmatched: [], contested: [] };
   for (const f of files) {
     if (!existsSync(join(root, f))) continue; // deleted mid-run — nothing to canonicalize

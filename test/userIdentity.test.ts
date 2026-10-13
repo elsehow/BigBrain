@@ -8,7 +8,7 @@
  * satisfy the same reader policy as the hosted one did.
  */
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildAssertionGraph } from "../lib/assertionGraph";
@@ -16,11 +16,8 @@ import { assertionEntityId, createAssertionEvent, readAssertionLog } from "../li
 import { appendAndProjectAssertion, projectSourceInsertion } from "../lib/assertionProjection";
 import { appendSourceInsertionEvent, readSourceInsertionLog } from "../lib/insertionLog";
 import {
-  adoptLegacyUserDossier,
   declareUserIdentity,
   latestUserIdentity,
-  legacyUserLabels,
-  planLegacyUserAdoption,
   userIdentityDeclarations,
 } from "../lib/userIdentity";
 import { declareOwner } from "./support/identity";
@@ -180,83 +177,5 @@ describe("declareUserIdentity — the local door (#572)", () => {
     expect(() => declareUserIdentity(vault, { name: "  ", email: "a@b.c" })).toThrow();
     expect(() => declareUserIdentity(vault, { name: "Ada", email: "" })).toThrow();
     expect(userIdentityDeclarations(vault)).toEqual([]);
-  });
-});
-
-describe("the hosted-era dossier, adopted (#683)", () => {
-  const dossier = (vault: string, front: string): void => {
-    mkdirSync(join(vault, "entities"), { recursive: true });
-    writeFileSync(join(vault, "entities", "alex-rowan.md"), `---\n${front}\n---\n\nbody\n`);
-  };
-  const FRONT =
-    "type: entity\nentity_type: person\nhuman_user: true\naliases:\n  - Alex Rowan\n  - Alex\n  - Alexander Rowan\n  - alex+fri@example.com\n  - demo-user";
-
-  test("no flagged dossier: nothing to plan, nothing to adopt", () => {
-    const vault = root();
-    expect(planLegacyUserAdoption(vault)).toBeUndefined();
-    expect(legacyUserLabels(vault)).toEqual([]);
-    expect(() => adoptLegacyUserDossier(vault, { email: "x@example.com" })).toThrow("nothing to adopt");
-  });
-
-  test("a dossier and no declaration: no prior to restate — adopt refuses and names --declare, which carries the labels itself", () => {
-    const vault = root();
-    dossier(vault, FRONT);
-    const plan = planLegacyUserAdoption(vault)!;
-    expect(plan.dossiers).toEqual(["entities/alex-rowan.md"]);
-    expect(plan.prior).toBeUndefined();
-    expect(plan.missing).toEqual(["Alex Rowan", "Alex", "Alexander Rowan", "alex+fri@example.com", "demo-user"]);
-    expect(plan.email).toBe("alex+fri@example.com");
-    expect(() => adoptLegacyUserDossier(vault, { email: "alex@example.com" })).toThrow("--declare");
-    // the door: the name itself is not an alias, everything else comes along
-    declareUserIdentity(vault, { name: "Alex Rowan", email: "alex@example.com", aliases: legacyUserLabels(vault) });
-    expect(latestUserIdentity(vault)?.aliases).toEqual([
-      "alex@example.com", "Alex", "Alexander Rowan", "alex+fri@example.com", "demo-user",
-    ]);
-    expect(planLegacyUserAdoption(vault)?.missing).toEqual([]);
-  });
-
-  test("a hosted-era declaration beside the dossier: adopt restates it — same name and entity, its aliases first, the dossier's after, attributed to its first email", () => {
-    const vault = root();
-    dossier(vault, FRONT);
-    const first = declareOwner(vault, {
-      ...owner, name: "Alex Rowan", aliases: ["alex@example.com", "demo-user"],
-      now: new Date("2026-08-23T00:00:00Z"),
-    });
-    const plan = planLegacyUserAdoption(vault)!;
-    expect(plan.prior?.assertion_id).toBe(first.assertion_id);
-    expect(plan.missing).toEqual(["Alex", "Alexander Rowan", "alex+fri@example.com"]);
-    expect(plan.email).toBe("alex@example.com"); // acct_alex is a tenant id, not an email
-    const adopted = adoptLegacyUserDossier(vault, { email: plan.email!, now: new Date("2026-09-01T00:00:00Z") });
-    expect(adopted.name).toBe("Alex Rowan");
-    expect(adopted.entity_id).toBe(first.entity_id);
-    expect(adopted.account_id).toBe("alex@example.com");
-    expect(adopted.aliases).toEqual(["alex@example.com", "demo-user", "Alex", "Alexander Rowan", "alex+fri@example.com"]);
-    expect(userIdentityDeclarations(vault)).toHaveLength(2);
-    expect(latestUserIdentity(vault)?.assertion_id).toBe(adopted.assertion_id);
-    // once is enough, and the dossier is the person's — untouched
-    expect(planLegacyUserAdoption(vault)?.missing).toEqual([]);
-    expect(() => adoptLegacyUserDossier(vault, { email: "alex@example.com" })).toThrow("nothing to adopt");
-    expect(readFileSync(join(vault, "entities", "alex-rowan.md"), "utf8")).toContain("human_user: true");
-  });
-
-  test("a dossier title that differs from the declared name becomes an alias, never a rename", () => {
-    const vault = root();
-    dossier(vault, "title: Alexander Rowan\nhuman_user: true\naliases:\n  - demo-user");
-    const first = declareOwner(vault, {
-      ...owner, name: "Alex Rowan", aliases: ["demo-user"], now: new Date("2026-08-23T00:00:00Z"),
-    });
-    const adopted = adoptLegacyUserDossier(vault, { email: "alex@example.com" });
-    expect(adopted.name).toBe("Alex Rowan");
-    expect(adopted.entity_id).toBe(first.entity_id);
-    expect(adopted.aliases).toEqual(["alex@example.com", "demo-user", "Alexander Rowan"]);
-  });
-
-  test("two flagged dossiers merge, unique by normalization, path order", () => {
-    const vault = root();
-    mkdirSync(join(vault, "entities", "sub"), { recursive: true });
-    writeFileSync(join(vault, "entities", "a.md"), "---\ntitle: Ada\nhuman_user: true\naliases:\n  - ADA\n  - Countess\n---\n");
-    writeFileSync(join(vault, "entities", "sub", "b.md"), "---\ntitle: Countess\nhuman_user: true\naliases:\n  - Lovelace\n---\n");
-    expect(legacyUserLabels(vault)).toEqual(["Ada", "Countess", "Lovelace"]);
-    expect(planLegacyUserAdoption(vault)?.dossiers).toEqual(["entities/a.md", "entities/sub/b.md"]);
   });
 });

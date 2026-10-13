@@ -301,7 +301,7 @@ test("the person's allowance covers what was read, not where: new mail and a rew
     { name: "inbox_list", description: "List the inbox.", parameters: { type: "object", properties: {} }, execute: async () => ({ messages: [mailbox] }) },
   ];
   const call = (name: string, args: Record<string, unknown>) => fauxAssistantMessage([fauxToolCall(name, args)], { stopReason: "toolUse" });
-  const drop = "inbox/unsorted/drop.md";
+  const drop = "journal/drop.md";
   const root = nativeVault({ files: { [drop]: "# A drop\n\nPlease review.\n" } }); roots.push(root);
   const { ws, host } = await fakeHost([
     call("read_note", { path: drop }), call("inbox_list", {}), fauxAssistantMessage("Read them."),

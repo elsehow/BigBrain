@@ -1,21 +1,18 @@
 /**
- * links.ts — the editor's wikilink tool (lib/links.ts as a CLI).
+ * links.ts — the wikilink tool over memory/ (lib/links.ts as a CLI).
  *
  *   bun bin/links.ts check               validate every link (Obsidian rule)
- *                                        and every sources: ref (citation
- *                                        contract; unsourced notes are
- *                                        grandfathered)
  *   bun bin/links.ts migrate [--write]   one-time old-dialect cleanup;
  *                                        dry-run unless --write
  *
- * check validates edges that exist — informational (exit 0). Deciding what
- * a broken link MEANS is the editor's job. (The `suggest`/`decline`
- * candidate machinery died 2026-08-05: a replay A/B measured no linking
- * benefit from feeding the editor an embedding-backed shortlist.)
+ * check validates edges that exist — informational (exit 0). (The
+ * `suggest`/`decline` candidate machinery died 2026-08-05: a replay A/B
+ * measured no linking benefit from feeding the editor an embedding-backed
+ * shortlist.)
  */
 
 import { VAULT_ROOT } from "../lib/vaultRoot";
-import { checkLinks, checkSources, checkTypes, migrateLinks, type Link } from "../lib/links";
+import { checkLinks, migrateLinks, type Link } from "../lib/links";
 
 const cmd = process.argv[2];
 const fmt = (l: Link): string =>
@@ -65,27 +62,6 @@ if (cmd === "check") {
       `${r.boundary.length} boundary, ${r.unqualified.length} unqualified, ` +
       `${r.markdown.length} markdown`
   );
-  // the citation contract — same informational discipline (exit 0): notes
-  // WITHOUT sources: are grandfathered and never reported
-  const s = checkSources(VAULT_ROOT);
-  if (s.unresolved.length) {
-    console.log(`UNRESOLVED SOURCES (${s.unresolved.length}) — no reference has this id/path:`);
-    for (const u of s.unresolved) console.log(`  ${u.file}  sources: ${u.ref}`);
-  }
-  console.log(
-    `sources: ${s.total} ref(s) across ${s.citing} citing note(s), ${s.unresolved.length} unresolved`
-  );
-  // the type vocabulary — reference|entity by tree, memory tree-typed,
-  // `note` retired, `request` a routing kind (same informational discipline)
-  const t = checkTypes(VAULT_ROOT);
-  if (t.violations.length) {
-    console.log(
-      `TYPE VIOLATIONS (${t.violations.length}) — the vault's types are reference | entity | memory (by tree):`
-    );
-    for (const v of t.violations)
-      console.log(`  ${v.file}  type: ${v.declared} (expected ${v.expected})`);
-  }
-  console.log(`types: ${t.checked} item(s) checked, ${t.violations.length} violation(s)`);
 } else if (cmd === "migrate") {
   const write = process.argv.includes("--write");
   const r = migrateLinks(VAULT_ROOT, write);

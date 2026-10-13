@@ -11,8 +11,9 @@ Where it said **queue**, read nothing: there is no queue, and §2 is why.
 
 Two append-only logs are the truth: insertions, what arrived, and
 assertions, what was said about it — prose, identity, declines and
-retractions (`lib/assertionLog.ts`). The older decline, revocation, alias,
-binding, copy and fold-reject logs are read until they are migrated
+retractions (`lib/assertionLog.ts`). Nothing else in a vault is read as
+the record: the older logs and the trees from before the insertion log
+are refused until `bigbrain migrate` converts them
 (`plans/2026-10-11-field-of-assertions.md`). The views are
 derived: the projection database under `.state/`, the search index, the
 graph, the entity dossiers at `projection/entities/`, the memory working

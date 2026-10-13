@@ -10,11 +10,11 @@
  * scored as a miss. `--hook` reads the Claude Code hook payload from
  * stdin; a path argument serves manual testing:
  *
- *   bigbrain use references/2026-08-14-some-note.md
+ *   bigbrain use projection/entities/ent_0123456789abcdef0123.md
  *
- * Only content notes are recorded (lib/retrieval.ts contentUseRel):
- * references/ and entities/ markdown, the trees search covers. memory/,
- * the journal, and anything outside the vault stay off the ledger.
+ * Only content notes are recorded (lib/retrieval.ts contentUseRel): the
+ * projection/ and log/ paths search hits carry. memory/, the journal, and
+ * anything outside the vault stay off the ledger.
  *
  * Hook posture throughout: print nothing, exit 0 no matter what — a
  * broken instrument must never cost the session its Read.

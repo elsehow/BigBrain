@@ -327,7 +327,7 @@ describe("scanSurface", () => {
   // (the markdown index itself was removed in #495).
   test("a vault with nothing inserted answers ok with zero hits", () => {
     const root = vault({
-      "references/legacy.md": "---\ntitle: Legacy note\n---\nAnalytical engine.\n",
+      "journal/legacy.md": "---\ntitle: Legacy note\n---\nAnalytical engine.\n",
     });
     const r = scanSurface(root, "analytical engine", 20, "api");
     expect(r.ok).toBe(true);

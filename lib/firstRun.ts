@@ -45,7 +45,7 @@ import { ENGINE_ROOT, vaultPointer } from "./engine";
 import { engineProcessEnv, gitProcessEnv, NO_ENV_FILE } from "./env";
 import { writeAtomic } from "./fsx";
 import { jobsPath } from "./preflight";
-import { declareUserIdentity, latestUserIdentity, legacyUserLabels } from "./userIdentity";
+import { declareUserIdentity, latestUserIdentity } from "./userIdentity";
 import { json, readBody, type Route } from "./httpx";
 import { connectInvite, connectionStorePath } from "./sharedConnections";
 import type { ServerResponse } from "node:http";
@@ -385,9 +385,7 @@ export function setupRoutes(door: SetupDoor): Route[] {
             error: "no email found on this machine — enter your email below to attribute this vault to you",
           });
         try {
-          // A hosted-era vault's `human_user` dossier rides along (#683):
-          // its aliases join the declaration, so nothing it said is lost.
-          declareUserIdentity(root, { name, email, aliases: legacyUserLabels(root) });
+          declareUserIdentity(root, { name, email });
         } catch (error) {
           return json(res, 400, { error: problemText(error) });
         }
@@ -419,7 +417,7 @@ export function setupRoutes(door: SetupDoor): Route[] {
               root = v.path; made = v;
             }
             const email = identityOf(root) ? null : suggestedOwnerEmail(root);
-            if (email) declareUserIdentity(root, { name: joined.identity.display, email, aliases: legacyUserLabels(root) });
+            if (email) declareUserIdentity(root, { name: joined.identity.display, email });
             saveSetupProgress(root, "reader");
             json(res, 200, { ...setupState(root), joined: { id: joined.id, name: joined.name } });
             if (made) door.onVault(made);

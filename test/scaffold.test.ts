@@ -3,34 +3,19 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync } from "
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ENGINE_ROOT } from "../lib/engine";
-import { ensureStoragePlanes, scaffoldVault, shedVaultPrompts } from "../lib/scaffold";
+import { ensureBlobStore, scaffoldVault, shedVaultPrompts } from "../lib/scaffold";
 
 function tmpVault(): string {
   return mkdtempSync(join(tmpdir(), "bb-scaffold-"));
 }
 
-describe("ensureStoragePlanes", () => {
-  test("fresh vault: creates references/.gitkeep and an empty .blobs/", () => {
+describe("ensureBlobStore", () => {
+  test("creates an empty .blobs/ and nothing else, idempotently", () => {
     const root = tmpVault();
-    const changed = ensureStoragePlanes(root);
-    expect(changed).toEqual(["references/.gitkeep"]);
-    expect(existsSync(join(root, "references", ".gitkeep"))).toBe(true);
-    expect(existsSync(join(root, ".blobs"))).toBe(true);
-  });
-
-  test("references/ already has content: no-op, .gitkeep not added", () => {
-    const root = tmpVault();
-    mkdirSync(join(root, "references"), { recursive: true });
-    writeFileSync(join(root, "references", "2026-08-02-x.md"), "---\nid: x\n---\nbody\n");
-    const changed = ensureStoragePlanes(root);
-    expect(changed).toEqual([]);
-    expect(existsSync(join(root, "references", ".gitkeep"))).toBe(false);
-  });
-
-  test("idempotent: a second call reports nothing new", () => {
-    const root = tmpVault();
-    ensureStoragePlanes(root);
-    expect(ensureStoragePlanes(root)).toEqual([]);
+    ensureBlobStore(root);
+    ensureBlobStore(root);
+    expect(readdirSync(root)).toEqual([".blobs"]);
+    expect(readdirSync(join(root, ".blobs"))).toEqual([]);
   });
 });
 

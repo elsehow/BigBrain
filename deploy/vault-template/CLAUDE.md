@@ -65,7 +65,7 @@ Two flows carry the everyday work — reach for them by default:
   <query>`** first — it is a Bash command the guard permits (it names no
   vault tree) — then the **Read / Grep / Glob tools** to open and refine.
   Never shell `grep`/`ls`/`cat`: the write-guard blocks Bash that so much as
-  names a vault tree (`references/`, `entities/`, `memory/`, `log/`, …).
+  names a vault tree (`log/`, `memory/`, `journal/`, …).
 - **To put anything into the vault.** `bigbrain drop <file>` is the way —
   a note you wrote, a file the user handed you, the transcript of an
   exchange. It lands as an immutable source; what the record then claims
@@ -79,8 +79,8 @@ agents settings.
 
 ## The machine contracts
 
-- **The record is machine-written only.** `references/`, `entities/`,
-  `log/`, `memory/` and `.blobs/` are hook-denied for interactive writes.
+- **The record is machine-written only.** `log/`, `memory/` and `.blobs/`
+  are hook-denied for interactive writes.
   Submit content with `bigbrain drop <file>`; submit evidence about the
   record with `bigbrain observe`.
 - **`log/` is the spine and it is append-only.** Nothing edits an
@@ -124,8 +124,6 @@ host-validated, attributed, and reviewable.
 - **Entity pages are virtual.** A dossier at `projection/entities/<id>.md`
   is generated on demand from the assertions that name that entity — a
   legal path to read through the viewer and the API, not a file on disk.
-- `references/` and `entities/` hold the reference era's files: still
-  readable, never added to. A vault created today starts empty there.
 - A source whose body links `blob:<sha256>` (an original PDF, image, audio
   file) has its bytes in the CAS: `bigbrain blob path <sha>` prints a local
   path. The Read tool renders what's there (PDF pages included), so follow
@@ -134,8 +132,8 @@ host-validated, attributed, and reviewable.
 
 **Links are root-relative.** Every `[[wikilink]]` target is the note's path
 from the vault root, sans `.md`, with the prose in the alias:
-`[[references/2026-08-03-nick-ezra|the 1:1]]`. This is Obsidian's "Absolute
-path in vault" format, so the vault stays a real Obsidian vault — and
+`[[projection/entities/ent_0123456789abcdef0123|Ada]]`. This is Obsidian's
+"Absolute path in vault" format, so the vault stays a real Obsidian vault — and
 because a target names its tree, two notes may share a basename without
 either link becoming a guess. A bare `[[name]]` still resolves (against the
 record only), but `bigbrain links check` reports it as `unqualified`; write
@@ -172,13 +170,10 @@ projection never rewrites an insertion event.
   original
 - `log/assertions/` — attributed claims and declines about those arrivals,
   each citing its source
-- `references/`, `entities/` — the reference era's notes and dossiers,
-  frozen and still readable. Raw binary payloads live in `.blobs/`
-  (gitignored), referenced from an arrival by `blob:<sha256>`
+- `.blobs/` — raw binary payloads (gitignored), referenced from an arrival
+  by `blob:<sha256>`
 - `memory/` — the working set, one file: `MEMORY.md` (load first, every
   session); machine-written only, by the memory pass
-- `inbox/` — arrivals in flight; `inbox/unsorted/` holds what could not be
-  placed
 - `journal/` — machine run records (committed)
 - `.state/` — cursors, locks, logs (gitignored; cache, never truth)
 - The system's code lives in the BigBrain engine, NOT here — this repo

@@ -13,10 +13,11 @@
  *    spines, and a record that can vanish untracked breaks "decline is
  *    terminal, nothing is silent". A command that merely SAYS "queue"
  *    still passes: the guard matches `queue/` tokens, not words.
- *  - interactive: deny references/ entities/ log/ lake/ queue/ memory/
- *    observations/ .blobs/ — machine-written-only planes (intake code and
- *    the sanctioned passes, never a model or a hand-edit); inbox writes
- *    are legitimate.
+ *  - interactive: deny log/ queue/ memory/ observations/ .blobs/ — the
+ *    machine-written-only planes (intake code and the sanctioned passes,
+ *    never a model or a hand-edit) — and the retired trees (references/
+ *    entities/ inbox/ requests/ lake/), which a vault holding notes in is
+ *    refused until `bigbrain migrate` (lib/retiredLogs.ts).
  *
  * Each installed entry carries the marker `: bigbrain-guard <root>;` so this
  * module can find, replace, and remove ITS entries without ever touching a
@@ -36,7 +37,7 @@ export function settingsPath(): string {
 
 // ".blobs" needs its dot escaped for the jq regex — same double-escape as
 // regexEscape() below (once for JSON-in-jq, once for the regex engine).
-const GUARDED_TREES = "entities|references|log|lake|queue|memory|observations|\\\\.blobs|\\\\.spool";
+const GUARDED_TREES = "entities|references|inbox|requests|log|lake|queue|memory|observations|\\\\.blobs|\\\\.spool";
 
 /** What a SANCTIONED MACHINE PASS still may not touch (#67): the audit
  * spines. The runner's own queue moves and log appends are in-process,
@@ -52,9 +53,9 @@ const MACHINE_REASON =
   "To submit work, use bigbrain drop; to submit evidence, bigbrain observe.";
 
 const GUARD_REASON =
-  "The vault record (references/, entities/) is machine-written only (the gardener), " +
+  "The vault record (log/) is machine-written only (intake and the gardener), " +
   "and queue/ lifecycle belongs to the runner: " +
-  "submit changes via inbox/ — bigbrain drop <file>. " +
+  "submit changes with bigbrain drop <file>. " +
   "memory/ and observations/ belong to the memory pass: feed them with " +
   "bigbrain observe or bigbrain search --why, never a direct write.";
 

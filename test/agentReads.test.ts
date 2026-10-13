@@ -47,7 +47,6 @@ const clip = insertion({
 function vault(): string {
   const root = nativeVault({ insertions: [mail, mine, clip], files: {
     "memory/MEMORY.md": "# Memory\n- The orrery keeps its 3:1 gearing.\n",
-    "references/curated.md": "---\ntitle: Curated note\n---\nA legacy reference.\n",
   } });
   for (const event of [mail, mine, clip]) projectSourceInsertion(root, event); // as a landing does
   roots.push(root);

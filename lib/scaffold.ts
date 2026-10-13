@@ -13,7 +13,6 @@ import { existsSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs
 import { join } from "node:path";
 import { ENGINE_ROOT } from "./engine";
 import { ensureDir, writeAtomic } from "./fsx";
-import { REFERENCES_DIR } from "./references";
 
 const TEMPLATE_DIR = join(ENGINE_ROOT, "deploy", "vault-template");
 
@@ -113,19 +112,10 @@ export function scaffoldVault(root: string): string[] {
   return changed;
 }
 
-/** Ensure the two storage planes exist: the references tree (committed —
- * needs a .gitkeep until its first landing survives git) and `.blobs/`
- * (gitignored CAS root, created empty so the first `putBlob` isn't the
- * sole thing that conjures it). Called by init (fresh vault) and install.
- * Idempotent, safe to call every run. Returns the vault-relative paths
- * that were newly created. */
-export function ensureStoragePlanes(root: string): string[] {
-  const changed: string[] = [];
-  const refsDir = join(root, REFERENCES_DIR);
-  if (!existsSync(refsDir) || !readdirSync(refsDir).length) {
-    writeAtomic(join(refsDir, ".gitkeep"), "");
-    changed.push(`${REFERENCES_DIR}/.gitkeep`);
-  }
+/** Ensure `.blobs/` exists: the gitignored CAS root, created empty so the
+ * first `putBlob` isn't the sole thing that conjures it. (The record itself
+ * is `log/`, which its first event makes.) Called by init and install;
+ * idempotent. */
+export function ensureBlobStore(root: string): void {
   ensureDir(join(root, ".blobs"));
-  return changed;
 }

@@ -15,7 +15,7 @@ import {
 } from "./assertionLog";
 import { entityAliasResolution, type AliasDeclaration } from "./entityAliasLog";
 import type { AssertionId, InsertionId } from "./ids";
-import { refuseRetiredLogs } from "./retiredLogs";
+import { refuseRetired } from "./retiredLogs";
 import type { CopySaid } from "./sourceCopies";
 
 /** A retraction: the assertion it withdraws, and the one standing in its place. */
@@ -61,7 +61,7 @@ export function copySaidOf(a: IdentityAssertion): CopySaid | undefined {
 /** The assertion log's kinds, and what its retractions withdraw. */
 function recordedKinds(root: string, opts: { strict?: boolean }): { kinds: RecordedAssertion[]; withdrawn: Set<string> } {
   // as the projection does: a retired log is refused, not read as empty
-  refuseRetiredLogs(root);
+  refuseRetired(root);
   const kinds: RecordedAssertion[] = [], withdrawn = new Set<string>();
   for (const event of readRecordedAssertions(root, opts)) {
     if (isProse(event)) continue;

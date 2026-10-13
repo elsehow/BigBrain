@@ -183,9 +183,9 @@ Two linters, each only where it is competent. Keep it that way.
   than reaching for it. `lib/vaultRoot.ts` is the ONE module that
   resolves a vault at import, and only entry points (`bin/`,
   `integrations/*/run.ts`, `web/server.ts`) may import it.
-  The append-only logs — insertions and assertions, and the older
-  decline, revocation, alias, binding, copy and fold-reject logs read
-  until they are migrated — are ONE machine, `lib/eventLog.ts`; a
+  The append-only logs — insertions and assertions (the older logs
+  survive only as `bigbrain migrate`'s readers) — are ONE machine,
+  `lib/eventLog.ts`; a
   `*Log.ts` module is its event type, its validator and its create
   function, and nothing else. A new event log adds a file, not another
   copy of the month-walk and the collision check; a new kind of

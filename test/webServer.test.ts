@@ -77,14 +77,15 @@ describe("web/server.ts imports without listening", () => {
 
   test("within: the path-traversal guard answers pure, no server running", () => {
     // a browse root resolves to an absolute path under the vault root
-    expect(server.within("entities/ada-lovelace.md")).toContain(`${sep}entities${sep}`);
-    expect(server.within("references/2026-08-02-granola-1.md")).toContain(`${sep}references${sep}`);
-    // anything outside the browse roots is refused
+    expect(server.within("memory/MEMORY.md")).toContain(`${sep}memory${sep}`);
+    // anything outside the browse roots is refused, the retired trees included
+    expect(server.within("references/2026-08-02-granola-1.md")).toBeNull();
+    expect(server.within("entities/ada-lovelace.md")).toBeNull();
     expect(server.within("lib/config.ts")).toBeNull();
     expect(server.within(".state/search.db")).toBeNull();
     expect(server.within("vault.yaml")).toBeNull();
     // and no dotted path escapes the vault
-    expect(server.within("entities/../../../etc/passwd")).toBeNull();
+    expect(server.within("memory/../../../etc/passwd")).toBeNull();
   });
 });
 
@@ -202,20 +203,20 @@ describe("the route table", () => {
   // of them in references/ on the live vault — to find one row in it.
   test("a note carries its own date, so opening one lists no directory", () => {
     const root = process.env["BIGBRAIN_VAULT"]!;
-    mkdirSync(join(root, "entities"), { recursive: true });
+    mkdirSync(join(root, "memory"), { recursive: true });
     writeFileSync(
-      join(root, "entities", "2026-08-02-ada.md"),
-      "---\ndate: 2026-08-02T10:00:00.000Z\nkind: entity\n---\nAda.\n"
+      join(root, "memory", "2026-08-02-ada.md"),
+      "---\ndate: 2026-08-02T10:00:00.000Z\n---\nAda.\n"
     );
-    projectNotes(root, ["entities"]); // through the notes door, as the watcher passes it
-    const note = call("GET", "/api/note?path=entities/2026-08-02-ada.md") as {
+    projectNotes(root, ["memory"]); // through the notes door, as the watcher passes it
+    const note = call("GET", "/api/note?path=memory/2026-08-02-ada.md") as {
       path: string;
       content: string;
       modified: number;
     };
     expect(note.content).toContain("Ada.");
     expect(note.modified).toBe(Date.parse("2026-08-02T10:00:00.000Z"));
-    rmSync(join(root, "entities", "2026-08-02-ada.md"));
+    rmSync(join(root, "memory", "2026-08-02-ada.md"));
   });
 });
 
@@ -224,8 +225,8 @@ describe("viewer path normalization (#285)", () => {
     const root = process.env["BIGBRAIN_VAULT"]!;
     const files = [".state/traversal-probe.md", ".state/traversal-probe.bin",
       ".git/traversal-probe.md", ".git/traversal-probe.bin",
-      "entities-private/traversal-probe.md", "entities-private/traversal-probe.bin",
-      "entities/traversal-probe.md", "entities/traversal-probe.bin"];
+      "memory-private/traversal-probe.md", "memory-private/traversal-probe.bin",
+      "memory/traversal-probe.md", "memory/traversal-probe.bin"];
     const read = (route: string, path: string) => {
       let status = 0, body = "";
       const res = { writeHead: (code: number) => { status = code; },
@@ -241,21 +242,21 @@ describe("viewer path normalization (#285)", () => {
     try {
       for (const [route, ext] of [["/api/note", "md"], ["/api/file", "bin"]]) {
         for (const path of [`.state/traversal-probe.${ext}`, `.git/traversal-probe.${ext}`,
-          `inbox/../.state/traversal-probe.${ext}`, `entities/sub/../../.git/traversal-probe.${ext}`,
-          `entities/../entities-private/traversal-probe.${ext}`, `../entities/traversal-probe.${ext}`,
-          join(root, `entities/traversal-probe.${ext}`)]) {
+          `memory/../.state/traversal-probe.${ext}`, `memory/sub/../../.git/traversal-probe.${ext}`,
+          `memory/../memory-private/traversal-probe.${ext}`, `../memory/traversal-probe.${ext}`,
+          join(root, `memory/traversal-probe.${ext}`)]) {
           const result = read(route!, path);
           expect(result.status).toBe(404);
           expect(result.body).not.toContain("path containment probe");
         }
-        for (const path of [`entities/traversal-probe.${ext}`, `entities/sub/../traversal-probe.${ext}`]) {
+        for (const path of [`memory/traversal-probe.${ext}`, `memory/sub/../traversal-probe.${ext}`]) {
           const result = read(route!, path);
           expect(result.status).toBe(200);
           expect(result.body).toContain("path containment probe");
         }
       }
-      expect(read("/api/note", "entities/traversal-probe.bin").status).toBe(404);
-      expect(read("/api/file", "entities/traversal-probe.md").status).toBe(404);
+      expect(read("/api/note", "memory/traversal-probe.bin").status).toBe(404);
+      expect(read("/api/file", "memory/traversal-probe.md").status).toBe(404);
     } finally { for (const path of files) rmSync(join(root, path), { force: true }); }
   });
 });

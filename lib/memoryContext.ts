@@ -261,9 +261,7 @@ export function renderMemoryContext(
   // Who the vault is about (#572): the newest identity declaration, rendered
   // as a link the working set can cite plus the aliases that recognize the
   // person — never prose, which a poisoned arrival could amplify. Absent
-  // until first run or `bigbrain whoami --declare` has been answered. The
-  // editor-era `human_user` dossier is not read here any more (#683):
-  // `bigbrain whoami --adopt-dossier` folds what it held into the declaration.
+  // until first run or `bigbrain whoami --declare` has been answered.
   const me = latestUserIdentity(root);
   const userBlock = me
     ? `

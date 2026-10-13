@@ -81,12 +81,6 @@ export interface Envelope {
    * answered by replay rather than by a shadow store (#46). */
   date?: string;
   aliases?: string[];
-  /** The retired editor's flag for the vault's own USER (issue #51). No
-   * prompt or view reads it any more (#683): who the vault is about is the
-   * identity declaration (lib/userIdentity.ts), and `bigbrain whoami
-   * --adopt-dossier` folds what a flagged dossier holds into it. The file
-   * stays — it is the person's, and a vault is never migrated. */
-  human_user?: boolean;
   from?: string;
   from_kind?: string;
   submitted_by?: string;

@@ -34,7 +34,7 @@ const where = (kind: OriginKind): string => kind === "email" ? "open in Mail" : 
 export function provenanceOf(root: string, path: string): Provenance {
   const p = normalize(path);
   const r = withVaultSnapshot(root, () => resolveNote(root, p, projectedNotePolicy(root)));
-  if (!r) return { kind: p.startsWith("memory/") ? "memory" : /^(?:projection\/)?entities\//u.test(p) ? "entity" : isSourceInsertionPath(p) ? "source" : "note", trusted: false, path: p };
+  if (!r) return { kind: p.startsWith("memory/") ? "memory" : p.startsWith("projection/entities/") ? "entity" : isSourceInsertionPath(p) ? "source" : "note", trusted: false, path: p };
   if (r.kind === "source") return sourceProvenance(r.source, r.path);
   if (r.kind === "thread") {
     const latest = sourceProvenance(r.thread.members[0]!, r.path);
@@ -54,11 +54,10 @@ export function provenanceOf(root: string, path: string): Provenance {
   const { envelope, body, mtime } = r.markdown;
   const at = mtime ? { updated: mtime } : {};
   if (p.startsWith("memory/")) return { kind: "memory", trusted: !memoryHasOutside(body), path: p, ...at };
-  if (p.startsWith("entities/")) return { kind: "entity", trusted: false, path: p, ...at };
   if (p.startsWith("journal/")) return { kind: "note", trusted: false, path: p, ...at };
   const env = envelope as Record<string, unknown>;
   const kind = originOf(env), from = sender(env["from"]);
-  return { kind: p.startsWith("inbox/unsorted/") ? "drop" : kind === "source" ? "note" : kind, trusted: sourceTrusted(env),
+  return { kind: kind === "source" ? "note" : kind, trusted: sourceTrusted(env),
     ...(from ? { from } : {}), ...(typeof env["received"] === "string" ? { received: env["received"] } : {}), path: p, ...at };
 }
 

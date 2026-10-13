@@ -42,7 +42,7 @@ import type { LabelRow } from "./entityLookalikes";
 import { assertionDb } from "./env";
 import { dueOf, FEED_SECTIONS, type FeedRecord } from "./feedJournal";
 import { FEED_JOURNAL_DIR, MEMORY_JOURNAL_DIR, memoryJournalFiles, runJournalFiles, TEND_JOURNAL_DIR } from "./runJournal";
-import { refuseRetiredLogs } from "./retiredLogs";
+import { refuseRetired } from "./retiredLogs";
 import { sourceThreads } from "./sourceThreads";
 import { copyKeys, titleBuckets, titleForms } from "./sourceCopies";
 import type { SourceMetadata } from "./insertionLog";
@@ -1044,7 +1044,7 @@ function reconcileThreads(db: Database): void {
 /** All event kinds and the completion marker share one transaction. A bad
  * event leaves the previously published revision untouched. */
 function reconcile(db: Database, root: string): AssertionProjectionStats {
-  refuseRetiredLogs(root);
+  refuseRetired(root);
   // Runs before the rows they name: a rebuild's gardener rows find theirs.
   reconcileJournals(db, root);
   for (const kind of KINDS) {
@@ -1148,7 +1148,7 @@ export function projectNotes(root: string, paths?: Iterable<string>): void {
  * time, and the append path owns immutability collisions. */
 export function recoverAssertionProjection(root: string): AssertionProjectionStats {
   // Every process passes here first: a retired log is refused, not ignored.
-  refuseRetiredLogs(root);
+  refuseRetired(root);
   const stats = withProjectionWrite(root, () => {
     const ahead = probe(root, true);
     if (ahead && !ahead.pending) return assertionProjectionStats(root);

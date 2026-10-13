@@ -168,14 +168,13 @@ export function recordSearch(
 /**
  * The read hook's filter (#359): map an absolute or vault-relative path to
  * its vault-relative form IF it names a content note the search surface can
- * cite — the legacy trees (references/, entities/) and the native ones
- * (projection/ entity pages, log/ source paths — virtual over HTTP, but
+ * cite: projection/ entity pages and log/ source paths (virtual over HTTP, but
  * exactly the strings search hits carry, so a recorded use can join a
- * search label; #502 closed the native blind spot). Anything else
+ * search label; #502). Anything else
  * (memory/, the journal, code, paths outside the vault) answers null and
  * stays off the ledger.
  */
-const CONTENT_TREES = new Set(["references", "entities", "projection", "log"]);
+const CONTENT_TREES = new Set(["projection", "log"]);
 export function contentUseRel(root: string, p: string): string | null {
   const trimmed = (p ?? "").trim();
   if (!trimmed) return null;

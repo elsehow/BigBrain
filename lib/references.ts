@@ -1,40 +1,21 @@
 /**
- * references.ts — landing and reading the record's arrival tree,
- * `references/` (grown out of the lake plane, docs/plans/2026-07-25-
- * lake-vault-queue.md phase 1; tree renamed at the 2026-08-04 fresh
- * start, module renamed to match 2026-08-07).
- *
- * The storage model, three layers (the vault README is the user-facing
- * statement; this comment is the engine-facing one):
- *  - THE LAKE — what the world delivered, immutable: `log/insertions/`
- *    contains one exact source event per arrival and the blob CAS
- *    (lib/blobs.ts) holds original binary payloads outside git. Never edited;
- *    a source-side revision is a NEW insertion (envelope `supersedes`).
- *  - PROJECTIONS — queryable views rebuilt from the log. `references/`
- *    (one compatibility file per pre-#496 arrival) and `entities/` (the
- *    retired editor's compression) are frozen history, no longer written.
- *  - MEMORY — `memory/`, the derived working set; memory pass only.
- *
- * Every inbox-bound arrival lands in the native source log only (#496:
- * no new `references/` file is written). Readable flat basenames remain on
- * purpose: entity
- * dossiers [[wikilink]] references by basename. No filing stamps, ever:
- * "where did this get filed" is derived by joining reference id →
- * citing dossiers, not written back. Raw payloads live in the CAS
- * (lib/blobs.ts); the envelope carries `attachments` refs.
+ * references.ts — landing an arrival in the record: one immutable insertion
+ * event in `log/insertions/` (#496), its raw payloads in the blob CAS
+ * (lib/blobs.ts; the envelope carries `attachments` refs), committed as
+ * author `intake`. The module keeps the name of the `references/` tree it
+ * once wrote; `bigbrain migrate` imported what that tree held and removed it
+ * (docs/plans/2026-10-11-field-of-assertions.md, migration 3).
  *
  * Exact-dupe short-circuit (issue #1's exact half): the item's sha256 —
  * computed by the front door over the payload as the CLIENT delivered it,
  * BEFORE volatile provenance stamps (received, generated ids), so a
- * byte-identical redelivery hashes the same — keys a small in-memory index
- * (walk-and-refresh on use, appended on write; no daemon); a hash already
- * landed returns the existing item instead of writing a second one.
+ * byte-identical redelivery hashes the same — is looked up in the
+ * projection's sources; a hash already landed returns the existing item
+ * instead of writing a second one.
  *
  * Side-effect-free at import (no manifest.ts) — every function takes `root`.
  */
 
-import { readdirSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
 import { sha256hex } from "./hash";
 import { contentHash } from "./contentHash";
 import {
@@ -57,16 +38,10 @@ import {
   syncAssertionProjection,
 } from "./assertionProjection";
 
-/** The record tree's name. One constant on purpose: legacy vaults with a
- * `lake/` tree are frozen archives — the engine reads and writes only this. */
-export const REFERENCES_DIR = "references";
-
 export interface Landing {
   /** Vault-relative path of the immutable insertion event
    * (`log/insertions/<month>/<id>.json`) — the readable record of the
-   * arrival, served by every note door. #496: the `references/*.md`
-   * compatibility projection is no longer written; existing files are
-   * frozen history. */
+   * arrival, served by every note door. */
   path: string;
   id: string;
   sha256: string;
@@ -77,96 +52,6 @@ export interface Landing {
   insertionId: string;
 }
 
-/** Every `references/**.md` file, as {vault-relative path, absolute path}
- * pairs — the one directory walk shared by shaIndex, listReferencePaths, and
- * listReferenceItems below. Recursive: the tree is flat by construction, but a
- * hand-arranged subdirectory must not hide items from the record. */
-function* walkReferences(
-  root: string,
-  rel: string = REFERENCES_DIR
-): Generator<{ rel: string; abs: string }> {
-  const abs = join(root, rel);
-  let entries;
-  try {
-    entries = readdirSync(abs, { withFileTypes: true });
-  } catch {
-    return; // no record tree yet
-  }
-  for (const e of entries) {
-    if (e.isDirectory()) yield* walkReferences(root, `${rel}/${e.name}`);
-    else if (e.name.endsWith(".md")) yield { rel: `${rel}/${e.name}`, abs: join(abs, e.name) };
-  }
-}
-
-/** Vault-relative paths of every reference — the frozen compatibility
- * corpus, alongside the notes lib/links.ts's listNotes walks. */
-export function listReferencePaths(root: string): string[] {
-  return [...walkReferences(root)].map((x) => x.rel).sort();
-}
-
-export interface ReferenceItem {
-  path: string; // vault-relative, references/<file>.md
-  envelope: Envelope;
-  mtimeMs: number;
-  /** The item's opening words (see firstLine) — enough to identify it when
-   * its TITLE can't. An annotation's title is "Note on: <the subject>", so
-   * a feed that nests it under that subject would otherwise render a row
-   * whose every word is already on the line above. */
-  excerpt?: string;
-}
-
-/** The first line of prose in a body, capped — skipping blanks, markdown
- * headings, and the frontmatter-adjacent noise a body sometimes opens
- * with. Truthful truncation: an ellipsis only when something was cut. */
-function firstLine(body: string, cap = 120): string {
-  for (const raw of body.split("\n")) {
-    const line = raw.trim();
-    if (!line || line.startsWith("#") || line.startsWith(">") || line === "---") continue;
-    return line.length > cap ? `${line.slice(0, cap - 1).trimEnd()}…` : line;
-  }
-  return "";
-}
-
-/** Every reference with its parsed envelope — the web viewer's /api/recent
- * direct-read path (docs/plans/2026-07-25-lake-vault-queue.md, phase 1
- * "visibility"). A fresh filesystem read every call, not the shaIndex cache
- * above: the feed wants this-second freshness, and references are cheap to
- * re-read (no attachments ride in the text). */
-export function listReferenceItems(root: string): ReferenceItem[] {
-  const out: ReferenceItem[] = [];
-  for (const { rel, abs } of walkReferences(root)) {
-    try {
-      // The body was already parsed to find the envelope; keeping one line
-      // of it costs nothing and is the only way a nested row can say
-      // anything (see ReferenceItem.excerpt).
-      const { envelope, body } = parseEnvelope(readFileSync(abs, "utf8"));
-      const excerpt = firstLine(body);
-      out.push({
-        path: rel,
-        envelope,
-        mtimeMs: statSync(abs).mtimeMs,
-        ...(excerpt ? { excerpt } : {}),
-      });
-    } catch {
-      /* unreadable item — skip, matches shaIndex's tolerance */
-    }
-  }
-  return out;
-}
-
-/** id → reference path, one fresh walk per call — the join key for "where did
- * this get filed" (citing vault notes name reference ids in `sources:`) and for
- * resolving a queue message's reference refs. Shared by the worker's ref
- * resolution and the citation check (lib/links.ts checkSources). */
-export function referenceIdMap(root: string): Map<string, string> {
-  const map = new Map<string, string>();
-  for (const item of listReferenceItems(root)) {
-    if (typeof item.envelope.id === "string" && item.envelope.id)
-      map.set(item.envelope.id, item.path);
-  }
-  return map;
-}
-
 /** The dedup lookup: has an item with this pre-stamp sha256 already landed?
  * Answered from the assertion projection's sources table (the stamped
  * envelope carries `sha256`), synced incrementally first — so an item
@@ -175,11 +60,7 @@ export function referenceIdMap(root: string): Map<string, string> {
  * projection rather than a directory walk. Best-effort by design: a write
  * racing between sync and land can still slip a dupe in, and a projection
  * failure must never refuse a landing (worst case an exact dupe lands
- * twice — both immutable, both citing the same source).
- *
- * References-tree walking is GONE from this path (#496): frozen
- * `references/*.md` predating the native flip were imported into the
- * insertion log at promotion, so the log answers for them too. */
+ * twice — both immutable, both citing the same source). */
 function landedBySha(root: string, sha256: string): SourceInsertion | undefined {
   try {
     syncAssertionProjection(root);
@@ -219,7 +100,7 @@ export interface LandOpts {
   sha256?: string;
 }
 
-/** Land one item as an insertion event (#496 — no references/ file). `content` is the full item text as delivered
+/** Land one item as an insertion event (#496). `content` is the full item text as delivered
  * (reserved keys already stripped/stamped by the front door); its identity
  * is `opts.sha256` — the front door's hash of the PRE-stamp payload — or,
  * absent that, the sha256 of `content` itself. The envelope gains `sha256`,
@@ -296,27 +177,15 @@ export function landReference(root: string, content: string, opts: LandOpts = {}
   };
 }
 
-/** The append-only paths a landing commit may carry: the reference and native
- * insertion event that just landed, plus every OTHER uncommitted ADDITION
- * under those trees — an orphan from an earlier fail-soft commit.
+/** The append-only paths a landing commit may carry: the insertion event
+ * that just landed, plus every OTHER uncommitted ADDITION under
+ * `log/insertions/` — an orphan from an earlier fail-soft commit.
  *
- * Never a modification, never a deletion. Intake writes a reference once and
- * never touches it again — the landing commit freezes the arrival — so a
- * CHANGED tracked file under references/ is by construction not intake's, and
- * must not ride an intake-authored commit.
- *
- * That is #216, and it is why the pathspec cannot simply be REFERENCES_DIR.
- * `git commit --only -- references` commits the working-tree state of the
- * whole tree, so a third party's edit to an unrelated reference rode the next
- * landing commit, mis-authored `intake`. Worse, it rode it BEFORE the editor
- * ran: commitLanding is on the arrival path, the tripwire (#127) is on the
- * pass, so by the time the tripwire looked the tree was already clean and the
- * foreign write was laundered into history with nothing flagged. Reproduced on
- * staging 2026-08-12.
- *
- * Splitting on addition-vs-modification keeps both properties: the orphan
- * sweep the whole-tree pathspec existed for, and a landing commit that cannot
- * carry someone else's edit. */
+ * Never a modification, never a deletion (#216): a whole-tree pathspec
+ * commits the working-tree state of the whole tree, so a third party's edit
+ * rode the next landing commit, mis-authored `intake`, before any tripwire
+ * could see it. Splitting on addition-vs-modification keeps the orphan sweep
+ * and a landing commit that cannot carry someone else's edit. */
 function landingPaths(root: string, landingPath: string): string[] {
   const additions = gitLines(root, ["status", "--porcelain", "--", INSERTION_LOG_DIR])
     .filter((l) => l.startsWith("??") || l.startsWith("A"))
@@ -326,8 +195,7 @@ function landingPaths(root: string, landingPath: string): string[] {
 }
 
 /** Commit a landing as author `intake` — the immutable source event
- * (#496: no compatibility reference rides along any more). A
- * PARTIAL commit (commitPathsOnly),
+ * — a PARTIAL commit (commitPathsOnly),
  * never a whole-index one: intake holds no lock over the repo, and the
  * memory pass may have work staged mid-run — a plain commit
  * here would sweep that staged work into an intake-authored commit and
