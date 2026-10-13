@@ -38,6 +38,8 @@ jobs:
       - run: bun install --frozen-lockfile
       # Tests import viewer modules, which resolve against web/ui's own deps.
       - run: bun install --frozen-lockfile --cwd web/ui
+      # Desktops' files and commands run through the guest agent (packages/guest)
+      - run: bun run guest:build
       - run: bun run test -- --part ${{ matrix.part }}/2
   # The guest agent (packages/guest) built for real, and the protocol's
   # conformance suite run against it. The unit suite skips that file
