@@ -13,11 +13,10 @@
  * Here it is computed once per structure, next to the vault that determines
  * it. The forces are the browser worker's, unchanged.
  *
- * A structure change places rather than re-settles (placeLayout): only the
- * nodes whose own connections changed move, settling among the nodes around
- * them, which stay where they are. A whole-graph settle (computeLayout) runs
- * on a cold start, a change too large to place, and once the moves placed
- * since the last settle add up to a share of the graph (lib/graphCache.ts).
+ * Your field and a server's own field are seated instead (lib/views/layout.ts,
+ * R7): a pure function of when each part arrived. What is left here draws
+ * the union of your field with your joined servers' (lib/sharedGraphLayout.ts)
+ * until servers are held locally (R8).
  */
 
 import {
@@ -31,7 +30,6 @@ import {
 } from "d3-force";
 import type { Graph } from "./graph";
 import { nodeSpacing, seedPosition } from "./graphGeometry";
-import { sha256hex } from "./hash";
 
 /** Node id → [x, y], rounded to 2dp (a tenth of a pixel is far below what a
  * canvas node can show, and the rounding is a third of the payload). */
@@ -109,149 +107,4 @@ export function computeLayout(graph: Graph, previous: Positions = {}, hold?: num
   const out: Positions = {};
   for (const n of nodes) out[n.id] = rounded(n);
   return out;
-}
-
-const neighbours = (graph: Graph): Map<string, string[]> => {
-  const around = new Map<string, string[]>(graph.nodes.map((n) => [n.id, []]));
-  for (const e of graph.edges) {
-    const a = around.get(e.source), b = around.get(e.target);
-    if (a && b) { a.push(e.target); b.push(e.source); }
-  }
-  return around;
-};
-
-/** What each node is connected to, as a short signature ("" for none). */
-export function neighbourSignatures(graph: Graph): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const [id, ids] of neighbours(graph)) out[id] = ids.length ? sha256hex(ids.sort().join("\n")).slice(0, 12) : "";
-  return out;
-}
-
-/** A turn of the circle, from the id: where a node sits around its anchor. */
-const angleOf = (id: string): number => (parseInt(sha256hex(id).slice(0, 8), 16) / 2 ** 32) * 2 * Math.PI;
-
-/**
- * Place a structure change into `previous`, a settled layout whose nodes had
- * the connections `before` signs. A node moves only when its connections
- * changed (`now`) or it is new; everything else keeps its position exactly.
- * A moving node that was already connected starts where it was; one that is
- * new or newly connected starts beside what it now connects to; one that
- * connects to nothing placed starts where the layout keeps its lone nodes,
- * at their median distance from the centre, at an angle from its id. They then
- * settle with the same forces as a whole-graph settle, among their
- * neighbours and whatever stands where they land, held still.
- *
- * Undefined when most of the graph is new: there is nothing to place into.
- */
-export function placeLayout(graph: Graph, previous: Positions, before: Record<string, string>,
-  now: Record<string, string> = neighbourSignatures(graph)): { positions: Positions; moved: number } | undefined {
-  if (graph.nodes.filter((n) => previous[n.id]).length <= graph.nodes.length / 2) return undefined;
-  const around = neighbours(graph);
-  const degree = new Map(graph.nodes.map((n) => [n.id, n.degree]));
-  const free = new Set(graph.nodes.filter((n) => !previous[n.id] || before[n.id] !== now[n.id]).map((n) => n.id));
-  const at = new Map<string, [number, number]>();
-  for (const n of graph.nodes) if (!free.has(n.id)) at.set(n.id, previous[n.id]!);
-  const out: Positions = Object.fromEntries(at);
-  if (!free.size) return { positions: out, moved: 0 };
-
-  // Where each moving node starts.
-  let waiting: string[] = [];
-  for (const id of free) {
-    if (previous[id] && before[id]) at.set(id, previous[id]!);
-    else waiting.push(id);
-  }
-  for (let placed = true; placed && waiting.length; ) {
-    placed = false;
-    const next: string[] = [];
-    for (const id of waiting) {
-      const anchors = around.get(id)!.flatMap((o) => { const p = at.get(o); return p ? [p] : []; });
-      if (!anchors.length) { next.push(id); continue; }
-      const a = angleOf(id), r = nodeSpacing(degree.get(id) ?? 0) * 2;
-      at.set(id, [anchors.reduce((t, p) => t + p[0], 0) / anchors.length + Math.cos(a) * r,
-        anchors.reduce((t, p) => t + p[1], 0) / anchors.length + Math.sin(a) * r]);
-      placed = true;
-    }
-    waiting = next;
-  }
-  if (waiting.length) {
-    // A settle spreads unconnected nodes through the outer field; with none
-    // to follow, just outside what is there.
-    const radius = (lone: boolean) => graph.nodes.flatMap((n) => {
-      const p = out[n.id];
-      return p && (!lone || now[n.id] === "") ? [Math.hypot(p[0], p[1])] : [];
-    }).sort((x, y) => x - y);
-    const lone = radius(true), all = radius(false);
-    const ring = lone.length ? lone[Math.floor(lone.length / 2)]! : (all[Math.floor(all.length * 0.98)] ?? 0) + 40;
-    for (const id of waiting) at.set(id, previous[id] ?? [Math.cos(angleOf(id)) * ring, Math.sin(angleOf(id)) * ring]);
-  }
-
-  // What they settle among: their neighbours, and what stands where they land.
-  const CELL = 60, cell = ([x, y]: [number, number]) => [Math.floor(x / CELL), Math.floor(y / CELL)] as const;
-  const grid = new Map<string, string[]>();
-  for (const [id, p] of Object.entries(out)) {
-    const [cx, cy] = cell(p), key = `${cx},${cy}`;
-    const bucket = grid.get(key);
-    if (bucket) bucket.push(id); else grid.set(key, [id]);
-  }
-  const context = new Set<string>();
-  for (const id of free) {
-    for (const o of around.get(id)!) if (!free.has(o)) context.add(o);
-    const [cx, cy] = cell(at.get(id)!);
-    for (let dx = -2; dx <= 2; dx++) for (let dy = -2; dy <= 2; dy++) for (const o of grid.get(`${cx + dx},${cy + dy}`) ?? []) context.add(o);
-  }
-  const ids = [...free, ...context], index = new Map(ids.map((id, i) => [id, i]));
-  const nodes: (SimNode & { fx?: number; fy?: number })[] = ids.map((id, i) => {
-    const [x, y] = at.get(id)!;
-    return { index: i, id, x, y, r: nodeSpacing(degree.get(id) ?? 0), ...(free.has(id) ? {} : { fx: x, fy: y }) };
-  });
-  const links: Link[] = [];
-  for (const e of graph.edges) {
-    const a = index.get(e.source), b = index.get(e.target);
-    if (a !== undefined && b !== undefined && (free.has(e.source) || free.has(e.target))) links.push({ source: a, target: b });
-  }
-  const sim = forceSimulation(nodes).force("charge", charge()).force("link", pull(links)).force("collide", collide())
-    .alpha(0.5).alphaDecay(0.04).stop();
-  while (sim.alpha() > sim.alphaMin()) sim.tick();
-  for (const n of nodes) if (free.has(n.id)) out[n.id] = rounded(n);
-  return { positions: out, moved: free.size };
-}
-
-/** How firmly each node keeps its seat while an arrival layout settles. */
-const SEAT_HOLD = 0.3;
-/** How far a node is seated from the earlier nodes it arrived linked to. */
-const SEAT_GAP = 24;
-const unit = (s: string) => Number.parseInt(sha256hex(s).slice(0, 8), 16) / 0x1_0000_0000;
-/** An edge's key in `arrivals`: its two ends, in order. */
-export const edgeKey = (a: string, b: string) => (a < b ? `${a}\u0000${b}` : `${b}\u0000${a}`);
-
-/**
- * A picture that is a pure function of a record and when each part of it
- * arrived, and that stays put as the record grows. `arrivals` holds a time for
- * every node id and every edge (`edgeKey`). Nodes are seated in arrival order,
- * ties by id: each beside the earlier nodes it arrived linked to (edges that
- * came later never move a seat), and one that arrived alone on the spiral at
- * its rank. Nothing that arrives later can move an earlier seat. Then the
- * whole settles briefly, each node held to its seat, so a new arrival nudges
- * its neighbours and nothing else. Every reader of the same record draws the
- * same picture: a shared server's field (lib/sharedReadUnion.ts serverGraph).
- */
-export function arrivalLayout(graph: Graph, arrivals: ReadonlyMap<string, string>): Positions {
-  const at = (key: string) => arrivals.get(key) ?? "";
-  const order = (a: string, b: string) => at(a).localeCompare(at(b)) || a.localeCompare(b);
-  const nodes = [...graph.nodes].sort((a, b) => order(a.id, b.id));
-  const linked = new Map<string, string[]>();
-  for (const e of graph.edges) for (const [a, b] of [[e.source, e.target], [e.target, e.source]] as const) {
-    // only the links it arrived with: one made later is no reason to have sat elsewhere
-    if (at(edgeKey(a, b)) > at(a)) continue;
-    let list = linked.get(a); if (!list) linked.set(a, list = []); list.push(b);
-  }
-  const seats: Positions = {};
-  nodes.forEach((n, k) => {
-    const near = (linked.get(n.id) ?? []).flatMap((id) => seats[id] ? [seats[id]] : []);
-    if (!near.length) { seats[n.id] = seedPosition(k); return; }
-    const [x, y] = near.reduce(([sx, sy], [px, py]) => [sx + px, sy + py], [0, 0]), turn = unit(n.id) * 2 * Math.PI;
-    seats[n.id] = [x / near.length + Math.cos(turn) * SEAT_GAP, y / near.length + Math.sin(turn) * SEAT_GAP];
-  });
-  const edges = [...graph.edges].sort((a, b) => edgeKey(a.source, a.target).localeCompare(edgeKey(b.source, b.target)));
-  return computeLayout({ ...graph, nodes, edges }, seats, SEAT_HOLD);
 }

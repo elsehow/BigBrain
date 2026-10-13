@@ -16,6 +16,7 @@ import { userIdentityDeclarationsFromEvents } from "../userIdentityPolicy";
 import { resolveDocumentLinks, noteLinkResolver, type ConnectionAt, type ConnectionEvidence, type ObserveConnection } from "../markdownGraph";
 import { isUserNode } from "../userNote";
 import { vaultRecordOf, type VaultRecord } from "../vaultReadModel";
+import { edgeKey, withSeats } from "./layout";
 import type { Drawable } from "./scope";
 import type { Snapshot } from "./view";
 
@@ -311,4 +312,27 @@ function sourceNode(source: SourceMetadata, degree: number): GraphNode {
     ...(filer.channel ? { source: filer.channel } : {}),
     ...(filer.sourceDetail ? { sourceDetail: filer.sourceDetail } : {}),
   };
+}
+
+/** The field: the graph of `scope`, seated (lib/views/layout.ts). A node or
+ * an edge arrives with the first assertion that draws it; a document's link
+ * with the document. A note last, beside what it links; a source nothing
+ * connects, when it arrived. */
+export function fieldOf(record: VaultRecord, scope: Drawable, observe?: ObserveConnection): Graph {
+  const added = new Map(record.rows.map((row) => [row.id, row.created_at]));
+  const arrivals = new Map<string, string>();
+  const arrive = (key: string, at: string) => { const was = arrivals.get(key); if (was === undefined || at < was) arrivals.set(key, at); };
+  const LAST = "\uffff";
+  const graph = drawGraph(record, scope, (a, b, evidence, at) => {
+    observe?.(a, b, evidence, at);
+    const doc = at?.doc;
+    const t = evidence.assertion && !doc?.startsWith("markdown:") ? added.get(evidence.assertion) ?? LAST
+      : doc?.startsWith("source:") ? sourceMoment(record.sources.get(doc.slice(7))!) || LAST : LAST;
+    arrive(edgeKey(a, b), t); arrive(a, t); arrive(b, t);
+  });
+  for (const node of graph.nodes) if (!arrivals.has(node.id)) {
+    const source = node.id.startsWith("source:") ? record.sources.get(node.id.slice(7)) : undefined;
+    arrivals.set(node.id, source ? sourceMoment(source) || LAST : LAST);
+  }
+  return withSeats(graph, arrivals);
 }

@@ -23,11 +23,11 @@ import {
 } from "./assertionProjection";
 import type { ObserveConnection } from "./markdownGraph";
 import { sha256hex } from "./hash";
-import { EMPTY_GRAPH, graphWithLayout } from "./graphCache";
+import { EMPTY_GRAPH } from "./graphCache";
 import { background } from "./readModelBackground";
 import { recentSourcePage } from "./sourceFeed";
 import { readModelRevision, vaultRecordOf, withSnapshot } from "./vaultReadModel";
-import { graphOf } from "./views/graph";
+import { fieldOf } from "./views/graph";
 import { liveOf } from "./views/scope";
 
 const NAME = "graph";
@@ -56,8 +56,10 @@ export function buildGraphView(root: string): ProjectionView {
   const rows: GraphEvidenceRow[] = [];
   const view = withSnapshot(root, (snapshot) => {
     const { revision } = snapshot;
-    const built = graphOf(snapshot, liveOf(vaultRecordOf(snapshot)), evidenceRows(rows)); // no text: only where each came from
-    const graph = graphWithLayout(root, built.nodes.length ? built : { ...EMPTY_GRAPH, nodes: [], edges: [] });
+    // seated as it stands at this revision (lib/views/layout.ts): no layout drawn before is read
+    const record = vaultRecordOf(snapshot);
+    const built = fieldOf(record, liveOf(record), evidenceRows(rows)); // no text: only where each came from
+    const graph = built.nodes.length ? built : { ...EMPTY_GRAPH, nodes: [], edges: [] };
     const body = JSON.stringify(graph);
     return { revision, hash: sha256hex(body).slice(0, 16), body };
   });

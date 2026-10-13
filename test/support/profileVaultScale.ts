@@ -4,7 +4,6 @@
 import { existsSync, writeFileSync } from "node:fs";
 import { join, basename } from "node:path";
 import { performance } from "node:perf_hooks";
-import { graphWithLayout } from "../../lib/graphCache";
 import { graphNow as primaryGraphCached } from "../../lib/maintainedGraph";
 import { assertionEntityView } from "../../lib/assertionEntityView";
 import { noteBriefingInput, briefingPrompt, createNoteBriefingService } from "../../lib/noteBriefing";
@@ -20,8 +19,6 @@ const sync=syncAssertionProjection(root);
 console.log(JSON.stringify({stage:"projection-sync",ms:performance.now()-started,counts:sync}));
 let begin=performance.now(); const graph=primaryGraphCached(root);
 console.log(JSON.stringify({stage:"graph-build",ms:performance.now()-begin,nodes:graph.nodes.length,edges:graph.edges.length}));
-begin=performance.now();graphWithLayout(root,graph);
-console.log(JSON.stringify({stage:"graph-layout",ms:performance.now()-begin}));
 const entities=graph.nodes.filter(n=>n.entity&&n.path&&!isUserNode(n,graph.userNote)).sort((a,b)=>b.degree-a.degree);
 const cached=entities.find(n=>existsSync(join(root,".state","note-briefings",`${sha256hex(JSON.stringify([[n.id],[],undefined]))}.json`)));
 const samples=[{label:"dense-entity",node:entities[0]!},{label:"typical-entity",node:entities[Math.floor(entities.length/2)]!},...(cached&&cached.id!==entities[0]!.id?[{label:"previously-cached-entity",node:cached}]:[])];
