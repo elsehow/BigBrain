@@ -10,6 +10,7 @@ import { eventLog, type AppendResult } from "./eventLog";
 import { sha256hex } from "./hash";
 import { requestWake } from "./supervisorClock";
 import { scalar } from "./text";
+import { parseEnvelopeId, parseInsertionId, parseVaultPath, type EnvelopeId, type InsertionId, type VaultPath } from "./ids";
 
 export const INSERTION_LOG_DIR = "log/insertions";
 
@@ -20,8 +21,8 @@ export type EventAuthor =
 
 export interface SourceInsertion {
   event: "source.inserted";
-  id: string;
-  source_id: string;
+  id: InsertionId;
+  source_id: EnvelopeId;
   author: EventAuthor;
   title: string;
   body: string;
@@ -109,8 +110,8 @@ export function sourceInsertion(envelope: Envelope & Record<string, unknown>, bo
   if (!sourceId) throw new Error("insertion-log: source id is required");
   const contentSha256 = sha256hex(`${JSON.stringify(envelope)}\n${body}`);
   return {
-    event: "source.inserted", id: `ins_${sha256hex(`${sourceId}\u0000${contentSha256}`).slice(0, 24)}`,
-    source_id: sourceId, author: insertionAuthor(envelope), title: insertionTitle(envelope, body, sourceId),
+    event: "source.inserted", id: parseInsertionId(`ins_${sha256hex(`${sourceId}\u0000${contentSha256}`).slice(0, 24)}`),
+    source_id: parseEnvelopeId(sourceId), author: insertionAuthor(envelope), title: insertionTitle(envelope, body, sourceId),
     body, envelope,
     ...(scalar(envelope.date) ? { occurred_at: scalar(envelope.date) } : {}),
     ...(scalar(envelope.received) ? { received_at: scalar(envelope.received) } : {}),
@@ -123,8 +124,8 @@ export function sourceInsertion(envelope: Envelope & Record<string, unknown>, bo
  * no body), because parsing whole events to read titles cost 70ms per
  * keystroke on a one-letter prefix. So this cannot be `log.rel`, which
  * wants the event. */
-export function insertionEventRel(event: Pick<SourceInsertion, "id" | "occurred_at" | "received_at">): string {
-  return log.path(event.id, insertionWhen(event));
+export function insertionEventRel(event: Pick<SourceInsertion, "id" | "occurred_at" | "received_at">): VaultPath {
+  return parseVaultPath(log.path(event.id, insertionWhen(event)));
 }
 
 /** Is the event this projection row describes still IN the log? The log is

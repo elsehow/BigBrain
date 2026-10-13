@@ -11,8 +11,13 @@
  * The branded ids below are distinct types the parsers alone make
  * (docs/plans/2026-10-11-field-of-assertions.md, Types): a string becomes
  * an `EntityId` by passing `parseEntityId`, so handing an insertion id to a
- * function that wants an entity's does not compile. Code that has not been
- * brought under them yet keeps taking `string`; a brand widens to it.
+ * function that wants an entity's does not compile. The record's own types
+ * carry them (R11): a landing's id and envelope id, an assertion's id and
+ * what it retracts or supersedes, an entity's id, every source reference,
+ * and the path a landing is kept at. Each is minted by a parser where it is
+ * made (the logs' create functions); a row read back from a log or the
+ * projection carries the brand its writer checked. A reader that only
+ * compares or looks up takes `string`, which a brand widens to.
  *
  * The link patterns are global regexes shared as constants. Every caller
  * reaches them through `matchAll` or `String.replace`, neither of which

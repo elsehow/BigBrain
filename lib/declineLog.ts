@@ -84,7 +84,7 @@ export function createDeclineEvent(
   const insertions: AssertionSourceReference[] = [...new Set(input.insertion_ids)].map((insertion_id) => {
     const source = sources.get(insertion_id);
     if (!source) throw new Error(`decline-log: unknown source insertion ${insertion_id}`);
-    return { insertion_id, source_id: source.source_id };
+    return { insertion_id: source.id, source_id: source.source_id };
   });
   const identity = JSON.stringify({
     insertions, reason: input.reason, author: input.author, produced_by: input.produced_by,

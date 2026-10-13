@@ -25,7 +25,7 @@
 
 import { ownerEmail } from "../lib/env";
 import { userInfo } from "node:os";
-import { assertionEntityId, commitAssertionEvents, createIdentityAssertion, createRetraction, sameAs } from "../lib/assertionLog";
+import { assertionEntityId, commitAssertionEvents, createIdentityAssertion, createRetraction, sameAs, type AssertionEntity } from "../lib/assertionLog";
 import { AST_ID, ENT_ID } from "../lib/ids";
 import { flagValue, flagValues, hasFlag, positionals } from "../lib/cliflags";
 import {
@@ -101,7 +101,7 @@ switch (cmd) {
       console.log(`retracted: "${label}" is its own entity (${aliasId})`);
       break;
     }
-    let entity: { id: string; label: string };
+    let entity: AssertionEntity;
     const target = projectedAssertionEntity(root, idOf(into!));
     if (!target) {
       if (into!.startsWith("ent_")) {

@@ -14,23 +14,24 @@ import {
   isProse, readRecordedAssertions, type AssertionEntity, type IdentityAssertion, type RecordedAssertion, type RetractionAssertion,
 } from "./assertionLog";
 import { entityAliasResolution, type AliasDeclaration } from "./entityAliasLog";
+import type { AssertionId, InsertionId } from "./ids";
 import { refuseRetiredLogs } from "./retiredLogs";
 import type { CopySaid } from "./sourceCopies";
 
 /** A retraction: the assertion it withdraws, and the one standing in its place. */
 export interface Retraction {
-  id: string;
-  retracts: string;
-  superseded_by?: string;
+  id: AssertionId;
+  retracts: AssertionId;
+  superseded_by?: AssertionId;
   reason: string;
   created_at: string;
 }
 
 /** An is-source identity: an entity that is this landing. */
 export interface Binding {
-  id: string;
+  id: AssertionId;
   entity: AssertionEntity;
-  insertion_id: string;
+  insertion_id: InsertionId;
   created_at: string;
 }
 

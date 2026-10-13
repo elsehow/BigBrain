@@ -19,7 +19,7 @@ import {randomBytes,randomUUID} from 'node:crypto';
 import {commitPathsOnly,gitOut} from './git';
 import {ensureDir,writeAtomic} from './fsx';
 import {sha256hex} from './hash';
-import {LENS_ID} from './ids';
+import {LENS_ID,type EnvelopeId} from './ids';
 import {sourceDigest,type InclusionLabel} from './inclusionPolicy';
 
 /** A change nobody made to a shared lens that would add notes to it (decision D3). */
@@ -111,7 +111,7 @@ export function previewThreshold(lens:Pick<Lens,'text'|'calibration'>&{labels:In
 }
 
 /** A personal note as scoring sees it: its latest text and that text's digest (`sourceDigest`). */
-export interface LensNote {source_id:string;digest:string;title:string;body:string}
+export interface LensNote {source_id:EnvelopeId;digest:string;title:string;body:string}
 
 /** The rule's own answer for each note, before pins and exclusions: a
  * rating, else its score against the cut-off; a note with neither is

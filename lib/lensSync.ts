@@ -20,6 +20,7 @@
  * left where it is. Only what lenses contributed is ever withdrawn
  * (`lens-shares.json`); anything else a member put on a server stays.
  */
+import {parseEnvelopeId} from './ids';
 import {existsSync,mkdirSync,readdirSync,readFileSync,rmSync,appendFileSync} from 'node:fs';
 import {dirname,join} from 'node:path';
 import {randomUUID} from 'node:crypto';
@@ -52,7 +53,7 @@ function recordShares(store:string,connection:string,add:string[],remove:string[
 /** What lenses put on these servers, as origins. */
 export const sharedOrigins=(store:string,servers:readonly string[])=>{const all=readShares(store);return new Set(servers.flatMap(c=>all[c]??[]));};
 /** A personal note's id on a server: its origin key (lib/sharedRules.ts). */
-export const originOf=(sourceId:string)=>'origin:'+sourceKey({source_id:sourceId});
+export const originOf=(sourceId:string)=>'origin:'+sourceKey({source_id:parseEnvelopeId(sourceId)});
 
 // ── events for the feed ─────────────────────────────────────────────────────
 export interface LensEvent {

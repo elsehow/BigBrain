@@ -21,14 +21,17 @@
 
 import { eventLog, type AppendResult } from "./eventLog";
 import { sha256hex } from "./hash";
-import { AST_ID, ENT_ID, ENTITY_LINK, LENS_ID, RETIRED_EVENT_ID, norm } from "./ids";
+import {
+  AST_ID, ENT_ID, ENTITY_LINK, LENS_ID, RETIRED_EVENT_ID, norm, parseAssertionId, parseEntityId,
+  type AssertionId, type EntityId, type EnvelopeId, type InsertionId,
+} from "./ids";
 import { validEventAuthor, type EventAuthor, type SourceInsertion } from "./insertionLog";
 import { revokedAssertions } from "./revocationLog";
 
 export const ASSERTION_LOG_DIR = "log/assertions";
 
 export interface AssertionEntity {
-  id: string;
+  id: EntityId;
   label: string;
 }
 
@@ -39,14 +42,14 @@ export interface AssertionQuote {
 }
 
 export interface AssertionCitation {
-  insertion_id: string;
-  source_id: string;
+  insertion_id: InsertionId;
+  source_id: EnvelopeId;
   quotes: AssertionQuote[];
 }
 
 export interface AssertionSourceReference {
-  insertion_id: string;
-  source_id: string;
+  insertion_id: InsertionId;
+  source_id: EnvelopeId;
 }
 
 export interface AssertionProduction {
@@ -65,7 +68,7 @@ export type AssertionKind = "prose" | "identity" | "decline" | "retraction" | "i
 /** What every kind carries. */
 interface Asserted {
   event: "assertion.asserted";
-  id: string;
+  id: AssertionId;
   author: EventAuthor;
   created_at: string;
   produced_by: AssertionProduction;
@@ -90,7 +93,7 @@ export interface AssertionEvent extends Asserted {
   /** The assertion this one corrects and stands in place of (#629): same
    * claim, better resolved. The original is retracted with `superseded_by`
    * pointing here; both point at each other. */
-  supersedes?: string;
+  supersedes?: AssertionId;
 }
 
 /** Which entities and sources are one thing. `same`: the alias names the
@@ -128,8 +131,8 @@ export interface DeclineAssertion extends Asserted {
 export interface RetractionAssertion extends Asserted {
   kind: "retraction";
   /** The assertion withdrawn: of any kind but a retraction. */
-  retracts: string;
-  superseded_by?: string;
+  retracts: AssertionId;
+  superseded_by?: AssertionId;
   /** One line, durable. Free text is data, never instructions. */
   reason: string;
 }
@@ -138,8 +141,8 @@ export interface RetractionAssertion extends Asserted {
  * the lens's rule; a person's is `include`, and `how` they said it: a rating
  * (which teaches the evaluator too), a pin or an exclusion. */
 export interface InclusionVerdict {
-  insertion_id: string;
-  source_id: string;
+  insertion_id: InsertionId;
+  source_id: EnvelopeId;
   /** What was judged: the note's text and the claims read with it
    * (lib/stages/inclusion.ts verdictInput). A person's verdict has none. */
   input?: string;
@@ -197,10 +200,10 @@ export function citedSources(event: RecordedAssertion): AssertionSourceReference
 /** The id a label names. `[[Evan]]` and `[[Evan Keller]]` are therefore two
  * entities by construction; log/entity-aliases/ is how the record says they
  * are one person (lib/entityAliasLog.ts). */
-export function assertionEntityId(label: string): string {
+export function assertionEntityId(label: string): EntityId {
   const canonical = norm(label);
   if (!canonical) throw new Error("assertion-log: entity label is required");
-  return `ent_${sha256hex(canonical).slice(0, 20)}`;
+  return parseEntityId(`ent_${sha256hex(canonical).slice(0, 20)}`);
 }
 
 function validateLinks(text: string, entities: readonly AssertionEntity[]): void {
@@ -258,7 +261,7 @@ export function validateAssertionEvent(event: AssertionEvent): void {
 
 const clean = (value: string): string => value.trim().replace(/\s+/g, " ");
 /** An assertion's id: what makes it this assertion, hashed. */
-const assertionId = (identity: unknown): string => `ast_${sha256hex(JSON.stringify(identity)).slice(0, 24)}`;
+const assertionId = (identity: unknown): AssertionId => parseAssertionId(`ast_${sha256hex(JSON.stringify(identity)).slice(0, 24)}`);
 const oneLine = (value: unknown): boolean =>
   typeof value === "string" && Boolean(value.trim()) && value.length <= 2_000 && !/\n/u.test(value);
 const validEntity = (entity: AssertionEntity | undefined): boolean =>
@@ -410,13 +413,13 @@ export function createAssertionEvent(
     [...new Set(input.sources)].map((insertion_id) => {
     const source = sources.get(insertion_id);
     if (!source) throw new Error(`assertion-log: unknown source insertion ${insertion_id}`);
-    return { insertion_id, source_id: source.source_id };
+    return { insertion_id: source.id, source_id: source.source_id };
   });
   const citations: AssertionCitation[] | undefined = input.citations?.map((citation) => {
     const source = sources.get(citation.insertion_id);
     if (!source) throw new Error(`assertion-log: unknown cited insertion ${citation.insertion_id}`);
     return {
-      insertion_id: citation.insertion_id,
+      insertion_id: source.id,
       source_id: source.source_id,
       quotes: citation.quotes.map((quote) => {
         const start = source.body.indexOf(quote);
@@ -425,6 +428,7 @@ export function createAssertionEvent(
       }),
     };
   });
+  const supersedes = input.supersedes ? parseAssertionId(input.supersedes) : undefined;
   const event: AssertionEvent = {
     event: "assertion.asserted",
     id: assertionId({
@@ -440,7 +444,7 @@ export function createAssertionEvent(
     confidence: input.confidence,
     created_at: input.created_at,
     produced_by: input.produced_by,
-    ...(input.supersedes ? { supersedes: input.supersedes } : {}),
+    ...(supersedes ? { supersedes } : {}),
   };
   validateAssertionEvidence(event, sources);
   return event;
@@ -461,7 +465,7 @@ function resolveSources(ids: readonly string[], sources: ReadonlyMap<string, Sou
   return [...new Set(ids)].sort().map((insertion_id) => {
     const source = sources.get(insertion_id);
     if (!source) throw new Error(`assertion-log: unknown source insertion ${insertion_id}`);
-    return { insertion_id, source_id: source.source_id };
+    return { insertion_id: source.id, source_id: source.source_id };
   });
 }
 
@@ -539,7 +543,8 @@ export function createRetraction(
   input: KindInput & { retracts: string; superseded_by?: string; reason: string }
 ): RetractionAssertion {
   const reason = clean(input.reason);
-  const { retracts, superseded_by, author, created_at, produced_by } = input;
+  const { author, created_at, produced_by } = input;
+  const retracts = parseAssertionId(input.retracts), superseded_by = input.superseded_by === undefined ? undefined : parseAssertionId(input.superseded_by);
   const event: RetractionAssertion = {
     event: "assertion.asserted",
     id: assertionId({ kind: "retraction", retracts, superseded_by: superseded_by ?? null, reason, author, produced_by, ...migrated(input) }),

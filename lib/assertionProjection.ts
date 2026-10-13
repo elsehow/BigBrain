@@ -11,7 +11,7 @@ import { dirname, join, resolve, sep } from "node:path";
 import { parseEventFile, type AppendResult, type EventFile } from "./eventLog";
 import { sha256hex } from "./hash";
 import { proseChars } from "./text";
-import { norm } from "./ids";
+import { ENT_ID, norm, parseEntityId, type AssertionId, type EntityId, type EnvelopeId, type InsertionId } from "./ids";
 import { classifyIntake } from "./intakeClass";
 import {
   appendAssertionEvent,
@@ -88,7 +88,7 @@ export interface AssertionSearchHit {
 }
 
 export interface AssertionEntityHit {
-  id: string;
+  id: EntityId;
   label: string;
   assertions: number;
   score: number;
@@ -99,7 +99,7 @@ export interface AssertionEntityHit {
 }
 
 export interface ProjectedAssertionEntity {
-  id: string;
+  id: EntityId;
   label: string;
   assertions: number;
   /** Labels the alias table folds into this entity (lib/entityAliasLog.ts). */
@@ -719,7 +719,7 @@ export function liveAssertionsForEntity(root: string, entityId: string, db?: Dat
 export function aliasDeclarationsIn(db: Database): AliasDeclaration[] {
   return (db.query(`SELECT id, alias_label AS alias, alias_id, entity_id, entity_label, created_at FROM identities
     WHERE says = 'same' AND retracted_by IS NULL ORDER BY created_at, id`).all() as
-    { id: string; alias: string; alias_id: string; entity_id: string; entity_label: string; created_at: string }[])
+    { id: AssertionId; alias: string; alias_id: EntityId; entity_id: EntityId; entity_label: string; created_at: string }[])
     .map((r) => ({ id: r.id, alias: r.alias, alias_id: r.alias_id, entity: { id: r.entity_id, label: r.entity_label }, created_at: r.created_at }));
 }
 
@@ -817,9 +817,9 @@ export function appendAndProjectAssertion(root: string, event: RecordedAssertion
 
 /** The canonical entity a raw id resolves to through the alias table, or
  * undefined when the id is its own canonical. */
-function aliasTargetOf(db: Database, id: string): { id: string; label: string } | undefined {
+function aliasTargetOf(db: Database, id: string): AssertionEntity | undefined {
   const row = db.query("SELECT entity_id AS id, entity_label AS label FROM entity_aliases WHERE alias_id = ?")
-    .get(id) as { id: string; label: string } | null;
+    .get(id) as AssertionEntity | null;
   return row ?? undefined;
 }
 
@@ -1566,8 +1566,8 @@ export type SourceHead = Pick<SourceInsertion, "id" | "source_id" | "title" | "o
 };
 
 interface HeadRow {
-  insertion_id: string;
-  source_id: string;
+  insertion_id: InsertionId;
+  source_id: EnvelopeId;
   title: string;
   occurred_at: string | null;
   received_at: string | null;
@@ -1777,7 +1777,8 @@ export function projectedLabelRows(root: string, db?: Database): LabelRow[] {
 export function projectedAssertionEntity(root: string, entityId: string, db?: Database): ProjectedAssertionEntity | undefined {
   return reading(root, db, (handle) => {
     const target = aliasTargetOf(handle, entityId);
-    const id = target?.id ?? entityId;
+    if (!target && !ENT_ID.test(entityId)) return undefined; // no entity id names nothing
+    const id = target?.id ?? parseEntityId(entityId);
     const row = handle.query(`SELECT e.id, e.label,
         (SELECT count(DISTINCT ae.assertion_id) FROM assertion_entities ae WHERE ae.entity_id IN ${RAW_IDS_OF})
           AS assertions
@@ -1897,7 +1898,7 @@ export function listAssertions(
     const ents = handle.query(`SELECT ae.assertion_id AS a, e.id, e.label
       FROM assertion_entities ae JOIN entities e ON e.id = ae.entity_id
       WHERE ae.assertion_id IN (${holes})`)
-      .all(...rows.map((r) => r.id)) as Array<{ a: string; id: string; label: string }>;
+      .all(...rows.map((r) => r.id)) as Array<{ a: string; id: EntityId; label: string }>;
     const byAssertion = new Map<string, AssertionEntity[]>();
     for (const e of ents) {
       const list = byAssertion.get(e.a);
