@@ -170,7 +170,9 @@ date: their text comes through `read_note`, which taints.
 The view says why the shell is off, shows the refused command, and offers
 **Allow shell for this desktop**. Only the person can allow it; no tool the
 agent has reaches it. Allowed, its commands still write only its own
-worktrees, never a project in place, and use their own toolchain caches. What they allowed it despite is named by its content,
+worktrees, never a project in place, and use their own toolchain caches.
+Its file tools are held to the same: they write through the desktop's
+guest, which runs in the same sandbox. What they allowed it despite is named by its content,
 so reading it again doesn't taint, but new mail or a changed note does,
 and so does a PDF the note links (`read_note` with `attachment`), named by its own bytes. The
 package asks its host before each command and write, and tells it what each
