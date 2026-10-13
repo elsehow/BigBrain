@@ -1,6 +1,6 @@
 export { Agents, Desktop, WORKING_INSTRUCTIONS, CONTAINED_INSTRUCTIONS, type HostTool, type OpenOptions } from "./agent";
 export { EventLog, type AgentEvent, type Stamped } from "./events";
-export { startWork, discardWork, landWork, listWork, readWork, rewriteVenv, workDiff, type WorkRecord, type WorkDiff, type LandHow, type Landed } from "./worktree";
+export { startWork, discardWork, landWork, publish, listWork, readWork, rewriteVenv, workDiff, type WorkRecord, type WorkDiff, type LandHow, type Landed } from "./worktree";
 export { Harbor, type HarborOptions, type Job, type RunResult } from "./harbor";
 export { LocalGuests, TAG, SCOPE, scopeOf, commandEnv, loginEnv, guestBinary, landing, listeners, NO_GUEST, type Guests, type Prepared, type LocalGuestsOptions, type Listener } from "./guests";
 export { Machine, MachineError, imageAt, cloneDisk, consoleTail, socketDir, defaultCpus, type MachineImage, type MachineOptions, type MachineState } from "./machine";
@@ -14,3 +14,4 @@ export { Machines, vmHelper, QEMU_HELPER, type MachinesOptions, type MachineEven
 export { MachineImages, readPins, machineArch, sha256File, PINS, type Pins, type PinnedFile, type Arch, type Progress } from "./images";
 export { containedTools, inMachine, type ContainedContext } from "./containedTools";
 export { openProject, syncProject, projectState, ahead, WORK, type CopyRecord, type ProjectState } from "./projects";
+export { copyDiff, landCopy, discardCopy, saveCopy, readCopy, listCopies, type CopyDiff } from "./review";

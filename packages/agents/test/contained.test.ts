@@ -111,6 +111,49 @@ describe.skipIf(!enabled)(`a contained desktop (${BACKEND})`, () => {
     await desktop.archive();
   }, 180_000);
 
+  test("review and Land: host git reviews the bundle in its own repo, and only the reviewed commit lands (I7)", async () => {
+    const { ws, home } = scene();
+    const machines = machinesFor(ws);
+    const agents = new Agents(ws, new Harbor({ env: {}, discovery: false }), machines);
+    const { openProject } = await import("../src/projects");
+    const { saveCopy } = await import("../src/review");
+    const g = await agents.contained!.files("desk-l1");
+    saveCopy(ws, "desk-l1", await openProject(ws, "desk-l1", g, "orrery"));
+    const sh = async (script: string) => { let o = ""; const x = await g.exec(["/bin/bash", "-c", `set -e; cd /work/orrery; ${script}`], { cwd: "/work" }, (_k, d) => { o += d; }); const e = await x.exit; if (e.code) throw new Error(o); return o.trim(); };
+
+    // nothing of its own yet: nothing to review
+    expect((await agents.diff("desk-l1", "orrery")).commits).toEqual([]);
+    await sh("sed -i s/1.25/1.5/ src/ratios.sh && printf '{}\\n' > package.json && git add -A && git commit -qm 'Moon ratio 1.5'");
+    await sh("echo draft > scratch.txt");
+    const review = await agents.diff("desk-l1", "orrery") as Awaited<ReturnType<typeof agents.diff>> & { files: string[]; dirty: number };
+    expect(review.commits.map(c => c.subject)).toEqual(["Moon ratio 1.5"]);
+    expect(review.files.sort()).toEqual(["package.json", "src/ratios.sh"]);
+    expect(review.dirty).toBe(1);
+    expect(review.patch).toContain("+moon=1.5");
+    // the review repo is the host's, borrowing the project's objects
+    const repo = join(ws.state, "desk-l1", "review", "orrery.git");
+    expect(readFileSync(join(repo, "objects", "info", "alternates"), "utf8").trim()).toBe(join(home, ".git", "objects"));
+
+    // the agent keeps working after the review: that commit must not land
+    await sh("echo later >> src/ratios.sh && git commit -qam 'Unreviewed'");
+    const unreviewed = await sh("git rev-parse HEAD");
+    const landed = await agents.land("desk-l1", "orrery", "branch", review.head);
+    expect(landed).toMatchObject({ how: "branch", branch: "desktop/desk-l1" });
+    expect(git(home, "rev-parse", "desktop/desk-l1")).toBe(review.head);
+    expect(git(home, "log", "--format=%s", "-1", "desktop/desk-l1")).toBe("Moon ratio 1.5");
+    expect(() => execFileSync("git", ["cat-file", "-e", unreviewed], { cwd: home, stdio: "ignore" })).toThrow();
+    // the person's own branch and files: untouched
+    expect(git(home, "rev-parse", "--abbrev-ref", "HEAD")).toBe("main");
+    expect(readFileSync(join(home, "src", "ratios.sh"), "utf8")).toBe("moon=1.25\n");
+    // a stale review can't land
+    await expect(agents.land("desk-l1", "orrery", "branch", "0".repeat(40))).rejects.toThrow(/changed since you reviewed/);
+
+    await agents.discard("desk-l1", "orrery");
+    expect(existsSync(repo)).toBe(false);
+    expect(await g.stat("/work/orrery").catch(() => "gone")).toBe("gone");
+    await machines.stopAll();
+  }, 180_000);
+
   test("one machine at a time: starting a second stops the idle first, and says so", async () => {
     const { ws } = scene();
     const machines = machinesFor(ws, 1);

@@ -369,11 +369,18 @@ export class CodingDesktops {
     return this.save(r);
   }
 
-  /** What landing a project would bring home: its commits and their diff, which the person reviews before Land. */
-  diff(id: unknown, project: unknown) {
+  /** What landing a project would bring home: its commits and their diff, which the person reviews before Land, with two flags:
+   * files that run code on their own (AUTORUN), and the material from outside the person this desktop read. */
+  async diff(id: unknown, project: unknown) {
     const r = this.get(id);
     if (typeof project !== "string" || !project) throw new CodingDesktopError("Say which project to review.");
-    return this.agents.diff(r.id, project);
+    const d = await this.agents.diff(r.id, project);
+    const files = "files" in d ? d.files : [];
+    return { ...d, flags: {
+      autorun: files.filter(f => AUTORUN.test(f)),
+      outside: (r.taint?.sources ?? []).map(s => s.title),
+      allowed: !!r.allowed?.keys.length,
+    } };
   }
 
   /** Land what the person reviewed: `head` is the commit `diff` showed them, and nothing else is pushed. */
@@ -709,6 +716,7 @@ export function transcript(events: Stamped[]): TranscriptItem[] {
     else if (e.type === "message.done") out.push({ id: `m${e.seq}`, role: "assistant", text: e.text, at: e.at });
     else if (e.type === "tool.end") out.push({ id: `a${e.seq}`, role: "activity", text: e.label, at: e.at, ok: e.ok });
     else if (e.type === "work.started") out.push({ id: `a${e.seq}`, role: "activity", text: `Started its own worktree of ${e.project} (branch ${e.branch}, ${(e.ms / 1000).toFixed(1)}s)`, at: e.at, ok: true });
+    else if (e.type === "project.discarded") out.push({ id: `a${e.seq}`, role: "activity", text: `Discarded its copy of ${e.project}`, at: e.at, ok: true });
     else if (e.type === "machine.failed") out.push({ id: `a${e.seq}`, role: "activity", text: e.message, at: e.at, ok: false });
     else if (e.type === "machine.stopped" && /idle longest/.test(e.why)) out.push({ id: `a${e.seq}`, role: "activity", text: `Stopped this desktop's machine: ${e.why}`, at: e.at, ok: true });
     else if (e.type === "project.landed") out.push({ id: `a${e.seq}`, role: "activity", text: e.how === "pr" ? `Opened a pull request for ${e.project}: ${e.url}` : `${e.branch} is ready to merge in ${e.project}`, at: e.at, ok: true });

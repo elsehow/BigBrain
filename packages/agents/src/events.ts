@@ -22,6 +22,7 @@ export type AgentEvent =
   | { type: "server.exited"; job: number; code: number | null }
   | { type: "project.opened"; project: string; base: string; branch: string; ms: number; bytes: number }
   | { type: "project.synced"; project: string; from: string; to: string }
+  | { type: "project.discarded"; project: string }
   | { type: "machine.preparing"; got: number; total: number }
   | { type: "machine.started"; ms: number; image: string }
   | { type: "machine.stopped"; why: string }

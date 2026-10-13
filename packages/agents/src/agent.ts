@@ -20,6 +20,7 @@ import { Harbor, scopeOf } from "./harbor";
 import { codingTools, type AgentTool } from "./tools";
 import { containedTools } from "./containedTools";
 import type { Machines } from "./machines";
+import { copyDiff, discardCopy, landCopy, listCopies, readCopy, saveCopy, type CopyDiff } from "./review";
 import { AgentsError, checkDesktopId, releaseLeases, stateFolder, workspace, type Workspace } from "./workspace";
 
 type Model = NonNullable<CreateAgentSessionOptions["model"]>;
@@ -121,20 +122,35 @@ export class Agents {
   /** Events for a desktop, whether or not it's open. */
   events(id: string, since = 0): Stamped[] { return this.log(id).since(since); }
 
-  /** Delete a desktop's worktree of a project and its branch; its processes are stopped first. */
+  /** Delete a desktop's own copy of a project: a contained desktop's copy in its machine and its review repo, or a worktree and its branch (its processes stopped first). */
   async discard(id: string, project: string): Promise<void> {
+    if (readCopy(this.ws, checkDesktopId(id), project)) {
+      await discardCopy(this.ws, id, project, this.contained ? await this.contained.files(id) : undefined);
+      this.log(id).append({ type: "project.discarded", project });
+      return;
+    }
     await this.harbor.stopDesktop(checkDesktopId(id));
     await discardWork(this.ws, id, project);
     this.log(id).append({ type: "work.discarded", project });
   }
 
-  /** What Land would bring home, for the person to review first (worktree.ts, workDiff). */
-  diff(id: string, project: string): Promise<WorkDiff> { return workDiff(this.ws, checkDesktopId(id), project); }
+  /** What Land would bring home, for the person to review first: from a contained
+   * desktop's copy, fetched into a review repo here (review.ts); else its worktree (worktree.ts, workDiff). */
+  async diff(id: string, project: string): Promise<WorkDiff | CopyDiff> {
+    if (readCopy(this.ws, checkDesktopId(id), project)) {
+      if (!this.contained) throw new AgentsError("Contained desktops aren't available here.");
+      return copyDiff(this.ws, id, project, await this.contained.files(id));
+    }
+    return workDiff(this.ws, id, project);
+  }
 
-  /** Bring a worktree's committed work home (worktree.ts, landWork): `reviewed`
-   * is the head the person saw in `diff`. A person's verb: no tool exposes it to the agent. */
+  /** Bring a desktop's committed work home: `reviewed` is the head the person
+   * saw in `diff`, and nothing else lands. A person's verb: no tool exposes it to the agent. */
   async land(id: string, project: string, how: LandHow = "auto", reviewed?: string): Promise<Landed> {
-    const landed = await landWork(this.ws, checkDesktopId(id), project, how, reviewed);
+    checkDesktopId(id);
+    const copied = readCopy(this.ws, id, project);
+    if (copied && !reviewed) throw new AgentsError("Review the changes before landing them.");
+    const landed = copied ? await landCopy(this.ws, id, project, how, reviewed!) : await landWork(this.ws, id, project, how, reviewed);
     this.log(id).append({ type: "project.landed", project,
       how: landed.how, branch: landed.branch, ...(landed.how === "pr" ? { url: landed.url } : {}) });
     return landed;
@@ -178,7 +194,7 @@ export class Desktop {
 
     const coding: AgentTool[] = options.contained ? containedTools({
       ws: this.ws, desktop: this.id, harbor: this.harbor, elsewhere: options.elsewhere,
-      opened: r => this.emit({ type: "project.opened", project: r.project, base: r.base, branch: r.branch, ms: r.ms, bytes: r.bytes }),
+      opened: r => { saveCopy(this.ws, this.id, r); this.emit({ type: "project.opened", project: r.project, base: r.base, branch: r.branch, ms: r.ms, bytes: r.bytes }); },
       synced: (project, from, to) => this.emit({ type: "project.synced", project, from, to }),
       server: (port, job, command) => {
         this.emit({ type: "server.started", port, job, command });
@@ -278,8 +294,10 @@ export class Desktop {
   /** The worktrees this desktop has started. */
   work(): WorkRecord[] { return listWork(this.ws, this.id); }
 
-  /** Per worktree: branch, commits since it started, uncommitted files, and a diffstat. */
+  /** Per worktree, or per copy in a running machine: branch, commits of its own, uncommitted files, and a diffstat. */
   async changes(): Promise<Array<{ project: string; branch: string; commits: number; dirty: number; stat: string }>> {
+    const copies = listCopies(this.ws, this.id);
+    if (copies.length) return this.copyChanges(copies.map(c => ({ project: c.project, branch: c.desktopBranch })));
     return Promise.all(this.work().map(async f => {
       const [commits, dirty, stat] = await Promise.all([
         run("git", ["rev-list", "--count", `${f.base}..HEAD`], f.path, this.ws.env?.()),
@@ -288,6 +306,22 @@ export class Desktop {
       ]);
       return { project: f.project, branch: f.branch, commits: Number(commits.out.trim()) || 0,
         dirty: dirty.out.split("\n").filter(Boolean).length, stat: stat.out.trim() };
+    }));
+  }
+
+  /** A copy's own commits and uncommitted files, asked of its machine, only while that runs: a header never starts one. */
+  private async copyChanges(copies: Array<{ project: string; branch: string }>) {
+    const guests = this.harbor.guests as Partial<Machines>;
+    if (guests.state?.(this.id) !== "running") return copies.map(c => ({ ...c, commits: 0, dirty: 0, stat: "" }));
+    const g = await this.harbor.files(this.id);
+    return Promise.all(copies.map(async c => {
+      let out = "";
+      const q = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
+      const x = await g.exec(["/bin/bash", "-c", `cd /work/${q(c.project)} 2>/dev/null || exit 0; git rev-list --count ${q(c.branch)} --not --remotes=origin; git status --porcelain | wc -l; git diff --shortstat $(git merge-base ${q(c.branch)} HEAD) 2>/dev/null | tail -1`],
+        { cwd: "/work" }, (_k, d) => { out += d; });
+      await x.exit;
+      const [commits = "0", dirty = "0", stat = ""] = out.trim().split("\n");
+      return { ...c, commits: Number(commits) || 0, dirty: Number(dirty) || 0, stat: stat.trim() };
     }));
   }
 

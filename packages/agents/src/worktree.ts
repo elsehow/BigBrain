@@ -148,15 +148,22 @@ export async function landWork(ws: Workspace, id: string, name: string, how: Lan
   if (reviewed !== undefined && reviewed !== head) throw new AgentsError(`${name} has changed in desktop ${id}'s worktree since you reviewed it. Review it again before landing.`);
   const commits = Number(await git(ws, rec.path, "rev-list", "--count", `${rec.base}..${head}`));
   if (!commits) throw new AgentsError(`${name} has no commits on ${rec.branch} yet; there's nothing to land.`);
-  const remote = (await run("git", ["remote", "get-url", "origin"], rec.path, ws.env?.())).out.trim();
-  if (!(how === "pr" || (how === "auto" && /github\.com[:/]/.test(remote)))) return { how: "branch", branch: rec.branch, home: homeOf(ws, name) };
-  if (!remote) throw new AgentsError(`${name} has no origin remote to open a pull request on. Its branch ${rec.branch} is already in your repo.`);
-  await git(ws, rec.path, "push", "--quiet", "origin", `${head}:refs/heads/${rec.branch}`);
-  const created = await run("gh", ["pr", "create", "--head", rec.branch, "--fill"], rec.path, ws.env?.());
-  if (created.code === 0) return { how: "pr", branch: rec.branch, url: created.out.trim().split("\n").at(-1)! };
-  const existing = await run("gh", ["pr", "view", rec.branch, "--json", "url", "--jq", ".url"], rec.path, ws.env?.());
-  if (existing.code === 0 && existing.out.trim()) return { how: "pr", branch: rec.branch, url: existing.out.trim() };
-  throw new AgentsError(`Pushed ${rec.branch}, but couldn't open a pull request: ${(created.err || created.out).trim()}`);
+  return publish(ws, rec.path, name, rec.branch, head, how);
+}
+
+/** A landed branch, as the person asked: left as a branch in their repo, or
+ * (on GitHub, or with `how: "pr"`) pushed at exactly `head` and opened as a
+ * pull request, with their credentials, run from `cwd` in their repo. */
+export async function publish(ws: Workspace, cwd: string, name: string, branch: string, head: string, how: LandHow): Promise<Landed> {
+  const remote = (await run("git", ["remote", "get-url", "origin"], cwd, ws.env?.())).out.trim();
+  if (!(how === "pr" || (how === "auto" && /github\.com[:/]/.test(remote)))) return { how: "branch", branch, home: homeOf(ws, name) };
+  if (!remote) throw new AgentsError(`${name} has no origin remote to open a pull request on. Its branch ${branch} is already in your repo.`);
+  await git(ws, cwd, "push", "--quiet", "origin", `${head}:refs/heads/${branch}`);
+  const created = await run("gh", ["pr", "create", "--head", branch, "--fill"], cwd, ws.env?.());
+  if (created.code === 0) return { how: "pr", branch, url: created.out.trim().split("\n").at(-1)! };
+  const existing = await run("gh", ["pr", "view", branch, "--json", "url", "--jq", ".url"], cwd, ws.env?.());
+  if (existing.code === 0 && existing.out.trim()) return { how: "pr", branch, url: existing.out.trim() };
+  throw new AgentsError(`Pushed ${branch}, but couldn't open a pull request: ${(created.err || created.out).trim()}`);
 }
 
 /** Delete a desktop's worktree of a project and its branch. */
