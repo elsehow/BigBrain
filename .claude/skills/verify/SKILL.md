@@ -13,6 +13,12 @@ Reviewed against engine `38b78005` on 2026-09-26.
    invented record data, and a fresh git repository. Do not copy a real vault,
    its configuration, credentials, prompts, or excerpts. Prompts come from the
    engine; do not seed a vault-local `prompts/` directory.
+   `bun run vault:synthetic <empty dir> [--sources N] [--seed S]` writes one
+   at scale (2,000 sources by default): threads, copies, re-landings,
+   retractions, rewrites, declines, pending arrivals, aliases, bindings, run
+   and feed journals and memory topics, all invented, and the same for the
+   same seed. A refactor proves itself on it with `bun run field:digest`
+   before and after.
 2. In the isolated engine worktree, run `bun install --frozen-lockfile` and
    `bun run web:build`. `bun run ci:checks` covers plugin consistency, lint,
    engine types, the UI build, unit tests, and Svelte checks.
