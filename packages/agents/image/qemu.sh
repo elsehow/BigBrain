@@ -38,7 +38,7 @@ trap 'exit 0' TERM INT
   -device "vhost-vsock-pci,guest-cid=$CID" \
   -device virtio-serial-pci -chardev "file,id=con,path=$CONSOLE" -device virtconsole,chardev=con \
   -device virtio-rng-pci -device virtio-balloon-pci -serial none -monitor none \
-  -pidfile "$STATE/qemu.pid" &
+  -pidfile "$STATE/qemu.pid" 2>"$STATE/qemu.err" &
 pids+=($!)
 socat "UNIX-LISTEN:$STATE/guest.sock,fork,unlink-early" "VSOCK-CONNECT:$CID:7470" &
 pids+=($!)
@@ -46,7 +46,7 @@ socat "VSOCK-LISTEN:$EGRESS,fork,reuseaddr" "UNIX-CONNECT:$STATE/egress.sock" 2>
 pids+=($!)
 for _ in $(seq 1 300); do
   grep -q "serving on vsock" "$CONSOLE" 2>/dev/null && { echo running; break; }
-  kill -0 "${pids[0]}" 2>/dev/null || { echo "failed"; exit 1; }
+  kill -0 "${pids[0]}" 2>/dev/null || { echo "failed"; tail -5 "$STATE/qemu.err" >&2 2>/dev/null; exit 1; }
   sleep 0.05
 done
 wait "${pids[0]}"

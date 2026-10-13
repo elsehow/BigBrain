@@ -127,7 +127,8 @@ export class Machine {
         detached: true, stdio: ["pipe", "pipe", "pipe"], env: { ...process.env, MEMORY: String(this.o.memoryMiB ?? 2048), CPUS: String(this.o.cpus ?? 2), DISK: this.disk, CONSOLE: this.consoleLog } });
     this.child = child;
     this.exited = new Promise(done => child.once("exit", code => done(code)));
-    let said = "";
+    let said = "", stderr = "";
+    const why = () => [said, stderr.trim()].filter(Boolean).join("; ").slice(0, 400);
     const running = new Promise<void>((done, fail) => {
       let buf = "";
       child.stdout!.on("data", (d: Buffer) => {
@@ -137,11 +138,15 @@ export class Machine {
           let state: unknown;
           try { state = (JSON.parse(line) as { state?: unknown }).state; } catch { state = line; }
           if (state === "running") done();
-          if (state === "failed") { said = clean(line, 300); fail(new MachineError(`The desktop's machine did not start (${said}).`, consoleTail(this.consoleLog))); }
+          if (state === "failed") {
+            try { said = clean((JSON.parse(line) as { error?: string }).error ?? line, 300); } catch { said = clean(line, 300); }
+            // the helper's own words on stderr may still be arriving
+            setTimeout(() => fail(new MachineError(`The desktop's machine did not start (${why()}).`, consoleTail(this.consoleLog))), 100);
+          }
         }
       });
-      child.stderr!.on("data", (d: Buffer) => { said = clean((said + d.toString()).slice(-600), 300); });
-      void this.exited!.then(code => fail(new MachineError(`The desktop's machine stopped as it started (exit ${code}${said ? `: ${said}` : ""}).`, consoleTail(this.consoleLog))));
+      child.stderr!.on("data", (d: Buffer) => { stderr = clean((stderr + d.toString()).slice(-600), 300); });
+      void this.exited!.then(code => fail(new MachineError(`The desktop's machine stopped as it started (exit ${code}${why() ? `: ${why()}` : ""}).`, consoleTail(this.consoleLog))));
     });
     if (this.o.backend === "vz") {
       child.stdin!.write(JSON.stringify({
