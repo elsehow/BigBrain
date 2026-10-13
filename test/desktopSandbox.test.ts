@@ -7,7 +7,7 @@ import { canonical, confinement, DEFAULT_HOSTS, Harbor, scopeOf, workspace } fro
 import { hostAgents } from "../lib/agentHost";
 import { arrivalsBase } from "../lib/arrivals";
 import { CodingDesktops } from "../lib/codingDesktops";
-import { desktopHosts, enginePorts, hostEntry, sandboxPolicy, saveDesktopHosts, savedDesktopHosts } from "../lib/desktopNetwork";
+import { desktopHosts, enginePorts, hostEntry, hostMode, sandboxPolicy, saveDesktopHosts, savedDesktopHosts, savedHostModes } from "../lib/desktopNetwork";
 import { nativeVault } from "./support/vault";
 
 const mac = process.platform === "darwin";
@@ -39,8 +39,18 @@ describe("the desktop network setting", () => {
     writeFileSync(join(root, ".env"), `BIGBRAIN_DESKTOP_HOSTS='["pkgs.example.com","*","localhost:${enginePorts()[0]}"]'\n`);
     expect(savedDesktopHosts(root)).toEqual(["pkgs.example.com"]);
     const desktops = new CodingDesktops(root, { agents: hostAgents(root, workspace(scratch())) });
-    expect(desktops.network()).toEqual({ defaults: DEFAULT_HOSTS, hosts: ["pkgs.example.com"] });
+    expect(desktops.network()).toEqual({ defaults: DEFAULT_HOSTS, hosts: ["pkgs.example.com"], modes: {} });
     expect(() => desktops.setNetwork(["*"])).toThrow("is not a host name");
+    // a host's mode for contained desktops: read by default, kept only for the person's own hosts
+    expect(hostMode(root, "pkgs.example.com")).toBe("read");
+    expect(desktops.setNetwork(["pkgs.example.com"], { "pkgs.example.com": "upload" }).modes).toEqual({ "pkgs.example.com": "upload" });
+    expect(hostMode(root, "pkgs.example.com")).toBe("upload");
+    expect(hostMode(root, "registry.npmjs.org")).toBe("read");
+    expect(() => desktops.setNetwork(["pkgs.example.com"], { "registry.npmjs.org": "upload" })).toThrow("stay read-only");
+    expect(() => desktops.setNetwork(["pkgs.example.com"], { "pkgs.example.com": "everything" })).toThrow("read, upload or tunnel");
+    // removing the host forgets its mode
+    desktops.setNetwork([]);
+    expect(savedHostModes(root)).toEqual({});
     desktops.close();
   });
 });
