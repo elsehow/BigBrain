@@ -251,7 +251,7 @@ async function run(root: string): Promise<Run> {
     // every stage that calls a model, each on its cadence, none waiting on another.
     for (const job of CHAIN_JOBS)
       jobs.push({ name: job, script: "bin/tend.ts", args: ["--chain", job], interval: cadence(job), atStart: false });
-    for (const name of ["publish", "arrivals"])
+    for (const name of ["publish", "arrivals", "servers"])
       jobs.push({ name, script: `bin/${name}.ts`, interval: cadence(name), atStart: false });
     // daily, and at launch: an app restarted more often than that would otherwise never prune
     jobs.push({ name: "prune", script: "bin/prune.ts", interval: cadence("prune"), atStart: true });

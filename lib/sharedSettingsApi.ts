@@ -14,6 +14,7 @@ import {lensNotes} from './stages/inclusion';
 import {originOf} from './lensSync';
 import {tickPublishing} from './sharedAssertionPublish';
 import {pages} from './sharedReadUnion';
+import {readServer} from './serverStore';
 import type {SourceInsertion} from './insertionLog';
 export async function sharedSettingsApi(req:IncomingMessage,res:ServerResponse,root:string) {
  const url=new URL(req.url??'/','http://localhost');if(!url.pathname.startsWith('/api/shared-settings'))return false;
@@ -32,7 +33,7 @@ export async function sharedSettingsApi(req:IncomingMessage,res:ServerResponse,r
   if(req.method==='GET'&&action==='vault'){
    const mine=local(),notes=new Map(lensNotes(root).map(n=>[originOf(n.source_id),n.source_id])),lenses=listLenses(root).filter(l=>l.servers.includes(c.id)).map(l=>({name:l.name,members:readLensState(root,l).members.in}));
    const items=(await contributions(c)).map(item=>{const sid=notes.get(item.source_id);return {...item,path:mine.get(item.source_id)??`shared/${c.id}/${item.insertion_id}.md`,lenses:sid?lenses.filter(l=>l.members.has(sid)).map(l=>l.name):[]};});
-   json(res,200,{...publicConnection(c),identity:await sharedRequest(c,'/v1/whoami'),evaluator:jevSettingsStatus(store).evaluator,items});
+   json(res,200,{...publicConnection(c),identity:await sharedRequest(c,'/v1/whoami'),evaluator:jevSettingsStatus(store).evaluator,items,sync:readServer(store,c.id).status});
   }
   else if(req.method==='GET'&&action==='notes'){
    const mine=local();

@@ -7,8 +7,8 @@
  * the coordinate of the last commit the v2 feed reads, the stamp /api/v2
  * reports in `x-bigbrain-stamp`; `folds` is the same for the fold proposals
  * (/api/entity/folds). `joined` names
- * the shared vaults the Field's graph merges in: joining or leaving one moves
- * it (their own records are read per request, #230). `files` moves
+ * the shared vaults the Field's graph merges in: joining or leaving one, or
+ * its follower landing a new head (lib/serverStore.ts), moves it. `files` moves
  * when a watched file outside the projection changes (vault.yaml, the queue,
  * a journal): the views that have no stamp of their own re-read on it, and
  * on `revision`. */
@@ -18,6 +18,7 @@ import { lastChangeExcept, openAssertionProjectionReadonly, type ChangeKind } fr
 import { json } from "./httpx";
 import { graphStamp } from "./maintainedGraph";
 import { connectionStorePath, readConnections } from "./sharedConnections";
+import { readServer } from "./serverStore";
 import { sha256hex } from "./hash";
 import { withSnapshot } from "./vaultReadModel";
 import type { Snapshot } from "./views/view";
@@ -69,8 +70,10 @@ export function viewStamps(root: string, files: string): ViewStamps {
   let graph = "", joined = "";
   try { graph = graphStamp(root); } catch { /* no view yet */ }
   try {
-    const ids = readConnections(connectionStorePath()).map((c) => c.id).sort();
-    if (ids.length) joined = sha256hex(ids.join(",")).slice(0, 16);
+    // which servers are joined, and how far this computer's copy of each has come
+    const store = connectionStorePath();
+    const held = readConnections(store).map((c) => c.id).sort().map((id) => { const { snapshot, status } = readServer(store, id); return `${id}:${snapshot?.head ?? ""}:${status.error?.at ?? ""}`; });
+    if (held.length) joined = sha256hex(held.join(",")).slice(0, 16);
   } catch { /* an unreadable store joins nothing */ }
   return { generation, revision, views: { graph, joined, feed: log?.last ?? "", folds, files } };
 }
