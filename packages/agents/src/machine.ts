@@ -37,7 +37,8 @@ export interface MachineOptions {
   /** The helper: bigbrain-vm's path, or qemu.sh's. */
   helper: string;
   cpus?: number;
-  memoryMiB?: number;
+  /** MiB, or a function asked at each start (a setting that changes). */
+  memoryMiB?: number | (() => number);
   /** Where the egress socket's connections go: called once per start with its path. */
   egress?: (socketPath: string) => Promise<void>;
   /** Told when the machine stops on its own: a crash, or the guest powering off. */
@@ -160,7 +161,7 @@ export class Machine {
     if (this.o.backend === "vz") {
       child.stdin!.write(JSON.stringify({
         kernel: this.o.image.kernel, initramfs: this.o.image.initramfs, cmdline: "console=hvc0 panic=-1 quiet",
-        cpus: this.o.cpus ?? defaultCpus(), memoryMiB: this.o.memoryMiB ?? 2048, disk: this.disk, console: this.consoleLog,
+        cpus: this.o.cpus ?? defaultCpus(), memoryMiB: this.memory(), disk: this.disk, console: this.consoleLog,
         guestSocket: this.guestSocket, egressSocket: this.egressSocket,
       }) + "\n");
     }
@@ -226,6 +227,8 @@ export class Machine {
     else this.child.kill("SIGKILL");
     await within(this.exited!, 5000);
   }
+
+  private memory(): number { const m = this.o.memoryMiB; return (typeof m === "function" ? m() : m) ?? 2048; }
 
   /** The helper's pid, while it runs. */
   get pid(): number | undefined { return this.child?.pid; }

@@ -135,6 +135,23 @@ The former Connected Agents / Agent Orchestration settings and approval cards
 have been removed. Existing worker transcripts and operation history remain
 readable, with no resume or follow-up controls. See [retired project workers](project-workers.md).
 
+## Desktops' machines
+
+On Apple silicon, each coding desktop works in a small Linux machine of its
+own ([docs/design/coding-desktops.md](design/coding-desktops.md)). The app
+carries what that needs: `bigbrain-vm`, signed with the
+`com.apple.security.virtualization` entitlement (no Apple approval needed),
+and `bigbrain-guest`. The first contained desktop downloads the machine image
+(about 320 MB, checked against `packages/agents/machine.json`) to
+`~/.local/share/bigbrain/machine/`; each desktop's disk is a clone of it
+under `~/bigbrain/.agents/<id>/vm/`, taking only what the desktop writes.
+**Settings → General → Desktop machines** sets memory per desktop and how
+many run at once, and deletes images no desktop uses. Intel Macs keep
+sandboxed desktops for now. From a checkout, `bun run guest:build` (Rust)
+and `bun run vm:build` (Swift) build the two helpers;
+`BIGBRAIN_DESKTOP_MACHINES=off` keeps desktops sandboxed, and
+`BIGBRAIN_MACHINE_IMAGE=<dir>` boots a local `bun run vm:image` build.
+
 ## Connect the browser extension
 
 Pairing (#486): in the viewer, **settings → integrations → PAIR A
@@ -267,6 +284,10 @@ The vault directory is yours and is left alone.
 - Hardcover, once connected → `api.hardcover.app`, only when an agent looks
   something up ([docs/hardcover.md](hardcover.md)).
 - The app's update check → wherever it is published, on launch.
+- The desktop machine's image → downloaded once from `bigbrain.exe.xyz`,
+  on the first contained desktop; nothing is sent.
+- A coding desktop's commands → package registries, GitHub and the hosts
+  you allow, through the engine's egress proxy only.
 - `git push origin main`, if and only if you configured an origin.
 - Optional usage and performance summaries → PostHog US, only after you
   enable sharing in Settings → Diagnostics. Sharing defaults off. Reports

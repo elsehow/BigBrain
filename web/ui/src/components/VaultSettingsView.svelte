@@ -2,6 +2,7 @@
   import ThemeView from "./ThemeView.svelte";
   import AgentAccessSettings from "./AgentAccessSettings.svelte";
   import DesktopNetworkSettings from "./DesktopNetworkSettings.svelte";
+  import DesktopMachineSettings from "./DesktopMachineSettings.svelte";
   import GraphSettingsView from "./GraphSettingsView.svelte";
   import ShortcutsView from "./ShortcutsView.svelte";
   import SharingSettings from "./SharingSettings.svelte";
@@ -70,6 +71,8 @@
   <ShortcutsView />
 
   <AgentAccessSettings />
+
+  <DesktopMachineSettings />
 
   <DesktopNetworkSettings />
 

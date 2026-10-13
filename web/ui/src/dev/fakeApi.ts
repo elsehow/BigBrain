@@ -1115,6 +1115,7 @@ let current: VaultState = FIRST_RUN.noVault!;
 let pilotBackend = { ...DEFAULT_PILOT_BACKEND };
 let agentPermissions: import("../../../../lib/workPermissions").WorkPermissions = { version: 2, folders: [{ path: "~/Projects", access: "write" }] };
 let desktopHosts: string[] = [];
+let desktopMachines = { memoryGiB: 2, running: 3 };
 const DESKTOP_DEFAULT_HOSTS = ["registry.npmjs.org", "pypi.org", "github.com"];
 
 /** Swap the vault out from under a running app. The SWR cache has to go with
@@ -1340,6 +1341,15 @@ function route(path: string, method: string, body?: string, search?: URLSearchPa
   if (path === "/api/pilot/permissions" && method === "POST") {
     agentPermissions = JSON.parse(body ?? "{}");
     return json({ ...pilotWireState(false, false), permissions: agentPermissions });
+  }
+  // Settings › Desktops' machines: `?machines=off` is a computer without them, `?machines=fresh` one that hasn't downloaded the image
+  if (path === "/api/desktops/machines" || path === "/api/desktops/machines/prune") {
+    const flag = new URLSearchParams(location.search).get("machines");
+    if (method === "POST" && path.endsWith("/machines")) desktopMachines = { ...desktopMachines, ...JSON.parse(body ?? "{}") };
+    if (flag === "off") return json({ available: false, why: "Contained desktops run on Apple silicon for now; desktops on this Mac are sandboxed.", ...desktopMachines, memoryChoices: [1, 2, 3, 4, 6, 8], runningChoices: [1, 2, 3, 4, 5, 6] });
+    return json({ available: true, ...desktopMachines, memoryChoices: [1, 2, 3, 4, 6, 8], runningChoices: [1, 2, 3, 4, 5, 6],
+      image: flag === "fresh" ? { missing: 319_000_000, imageBytes: 0, diskBytes: 0, local: false } : { missing: 0, imageBytes: 905_000_000, diskBytes: 2_400_000_000, local: false },
+      ...(path.endsWith("/prune") ? { freed: 880_000_000 } : {}) });
   }
   if (path === "/api/desktops/network") {
     if (method === "POST") desktopHosts = (JSON.parse(body ?? "{}") as { hosts: string[] }).hosts;

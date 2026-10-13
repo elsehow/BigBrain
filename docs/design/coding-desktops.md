@@ -1,8 +1,16 @@
 # Desktops that work on code
 
-Status: built (packages/agents, #56–#58), and revised after first use (this
-version). The mechanisms marked *measured* were tested on real projects on
-one Mac.
+Status: built (packages/agents, #56–#58), revised after first use, and
+revised again for contained desktops
+(`docs/plans/2026-10-12-contained-desktops.md`, this version). The
+mechanisms marked *measured* were tested on real projects on one Mac.
+
+A desktop is **contained** where the computer runs machines (Apple silicon,
+with the helper): its agent works in a small Linux machine of its own, on
+copies of the person's projects. Elsewhere it is **sandboxed**: it works in
+place under macOS's sandbox, as before. A desktop's record says which, and
+it stays that way; a desktop from before machines, on a computer that runs
+them, keeps Land and Discard and does nothing new.
 
 A **desktop** in v2 (`/v2`) is one **agent**: its chat, with views tiled
 beside it. `⌘N` makes a new one. Its agent can read the vault and work on
@@ -19,6 +27,13 @@ nothing about vaults.
 **An agent sees exactly what its person sees, and anything it does
 differently is explicit and visible.**
 
+A contained desktop keeps the principle by making its difference explicit:
+its copy of a project is made when the agent asks (`open_project`), says
+what it is a copy of and how far the checkout has moved since, is refreshed
+on request (`sync_project`), and questions about the real checkout are
+answered from it (`project_state`, host git, read-only). What follows is
+why: the first design's copy was none of those things.
+
 The first design gave every desktop a hidden copy of a project, created
 implicitly the first time a command touched it. On its first real use, a
 read-only question ("do we have a worktree for…?"):
@@ -30,7 +45,7 @@ The pattern behind it is that any substitute world drifts from the real
 one, and a heuristic that decides when to substitute guesses wrong in both
 directions. So:
 
-- **Agents work in place by default.** Their working folder is the
+- **Sandboxed agents work in place by default.** Their working folder is the
   workspace; the person's projects are at `projects/<name>`, their real
   checkouts. Questions, searches and commands see the real state.
 - **Isolation is a step the agent takes, not one inferred for it.**
@@ -47,8 +62,11 @@ directions. So:
 | **Project** | A git repo at `projects/<name>`: the person's checkout. The vault records it as an entity. |
 | **Desktop** | One agent with its chat and views. |
 | **Agent** | What you talk to on a desktop: a pi session. BigBrain decides what it knows and can do; the package runs it. |
-| **Worktree** | A desktop's own `git worktree` of a project, at `desktops/<id>/<name>` on branch `desktop/<id>`, made by `start_work`. |
-| **Lease** | A desktop's claim on editing a project in place, so two don't edit one checkout at once. |
+| **Machine** | A contained desktop's own Linux machine (Virtualization.framework through `bigbrain-vm`): its disk, its processes, no network device. |
+| **Copy** | A contained desktop's clone of a project in its machine, at `/work/<name>` on branch `desktop/<id>`, made by `open_project` from a git bundle. |
+| **Review repo** | A bare repo the host owns per copy, where what Land would bring home is checked and shown. |
+| **Worktree** | A sandboxed desktop's own `git worktree` of a project, at `desktops/<id>/<name>` on branch `desktop/<id>`, made by `start_work`. |
+| **Lease** | A sandboxed desktop's claim on editing a project in place, so two don't edit one checkout at once. |
 | **Host tools** | Tools BigBrain hands an agent: vault search and read, `web_search`, `open_view`, `show_page`. |
 
 ```
@@ -59,12 +77,49 @@ directions. So:
     d-7f3a9c/
       orrery/                a worktree of projects/orrery on branch desktop/d-7f3a9c
   .agents/                   the package's state: event logs, sessions, worktree records, leases
+    d-7f3a9c/
+      vm/disk.img            a contained desktop's disk: an APFS clone of the machine image
+      copies/ review/ in/ out/   its copies' records, review repos and bundles
+~/.local/share/bigbrain/machine/   the machine image, pinned by packages/agents/machine.json
 ```
 
 Code never goes inside a vault. A vault is a code-free content repo that the
 engine commits to and backs up.
 
-## Working in place, and leases
+## Contained desktops
+
+The agent loop, the model credentials and the vault tools stay in the
+engine; everything that touches project files or runs code is in the
+machine, reached through one typed channel (`packages/agents/PROTOCOL.md`)
+that carries bytes and never a path the host resolves. The only ways out
+of the machine are Land, previews, the egress proxy and `request_host`.
+
+- **The machine** starts on the desktop's first command or file operation,
+  in about a third of a second on Apple silicon; the image downloads once,
+  on the first contained desktop (about 320 MB), checked against its pins.
+  At most three run at once (Settings), the least recently used idle one
+  stopping to make room. Archive stops it; its disk stays.
+- **Copies.** `open_project` bundles the project with host git, writes the
+  bundle into the machine and clones it on `desktop/<id>`, from the
+  person's current branch, with their git identity. Their uncommitted
+  changes stay out. `sync_project` brings in their newer commits and leaves
+  the desktop's branch alone. `project_state` answers about the checkout.
+- **Commands** run as `work` in the machine, with `sudo` for installs, an
+  environment of the machine's own (nothing of the host's), and the
+  internet through the egress proxy only. Every desktop has its own copy,
+  so there are no leases and no worktrees: two desktops meet at Land.
+- **Previews.** A job that listens gets a loopback port on the Mac,
+  forwarded to it; `show_page` with the machine's address is translated.
+- **Land.** The guest bundles the desktop's branch, less what the person
+  has; host git verifies and fetches it, every object checked, into the
+  review repo, which borrows the project's objects. The commits and diff
+  come from there, with two flags: files that run code on their own, and
+  the outside material the desktop read. Land fetches exactly the reviewed
+  commit into the person's repo as `desktop/<id>`, then opens a pull request
+  where the project is on GitHub. A commit made after the review doesn't
+  land.
+
+## Working in place, and leases (sandboxed)
 
 The agent reads, searches and runs commands in `projects/<name>` as the
 person would. Small, clear fixes can be made in place.
@@ -92,7 +147,16 @@ A desktop whose agent has taken in untrusted material is **tainted**: a
 source it was started about, a live integration read, a web search,
 `read_note` on anything but a curated note (memory and dossiers, for now),
 or a project file another tainted desktop wrote that still says the same
-(tainted desktops' writes are ledgered by content). While tainted:
+(tainted desktops' writes are ledgered by content).
+
+A tainted **contained** desktop keeps its shell and loses the network: the
+egress proxy answers it no hosts, its open connections close, and the host
+it was refused is kept. The machine is the containment; the network is how
+what it read could leave. The view says why the network is off and offers
+**Allow network**. The written-files ledger and the shell, write and file
+hooks don't apply to it.
+
+A tainted **sandboxed** desktop, while tainted:
 - its `bash` refuses without running, and the desktop keeps the refused
   command;
 - what it already runs is stopped when it turns tainted, since a server or
@@ -127,7 +191,7 @@ the desktop lends it a reader (lib/scanReader.ts): the same kind of request,
 with the PDF attached as a document and a transcription asked for. Its text
 comes back as the attachment's, fenced and tainting the same way.
 
-## Worktrees on request (*measured*)
+## Worktrees on request (sandboxed, *measured*)
 
 `start_work(project)` runs `git worktree add desktops/<id>/<name> -b
 desktop/<id>` from the project's own repo.
@@ -149,9 +213,14 @@ desktop/<id>` from the project's own repo.
 
 ## Harbor: processes and previews (*measured*)
 
-The package runs the agent's shell commands itself. Every command runs with
-`BIGBRAIN_AGENT_DESKTOP=<id>` in its own process group, in the person's login
-environment, inside the desktop's sandbox (below).
+Harbor runs the agent's commands as jobs of the desktop's guest
+(`bigbrain-guest`, `guests.ts`), each in its own process group; it spawns
+nothing itself, and the coding tools open no file themselves (the plan's
+I1, held by lint). A contained desktop's guest is its machine's; a
+sandboxed desktop's is a local one, confined by the sandbox below, started
+again when what the desktop may change changes (the old one keeps its jobs
+until they end). A sandboxed command runs with `BIGBRAIN_AGENT_DESKTOP=<id>`
+in the person's login environment:
 
 - **The environment is the person's.** Their login shell's environment
   (`$SHELL -ilc env`) is captured once, so commands see the same PATH,
@@ -159,9 +228,9 @@ environment, inside the desktop's sandbox (below).
   `BIGBRAIN_*` settings are stripped: an agent working on BigBrain itself
   must not run its code as the app, or against the host's vault.
 - **Long-running commands return on their own.** If a command is still
-  running after a few seconds and a tagged process is listening on a
-  loopback port, the tool returns with that address, and the desktop can
-  show it (`show_page`).
+  running after a few seconds and its job is listening on a port, the tool
+  returns with that address (and, in a machine, where it's shown), and the
+  desktop can show it (`show_page`).
 - **Ports are discovered, not assigned.** A fixed-port collision reports
   which desktop holds the port.
 - **Each engine only touches its own processes.** Commands also carry
@@ -184,10 +253,11 @@ environment, inside the desktop's sandbox (below).
 - **Previews embed `http://127.0.0.1:<port>`.** The engine's CSP allows
   framing loopback pages only.
 
-## The sandbox (*measured*)
+## The sandbox (sandboxed desktops, *measured*)
 
-Every command, and everything it starts, runs under macOS's `sandbox-exec`
-with a Seatbelt profile written for that command (`sandbox.ts`; its shape
+A sandboxed desktop's guest, and every command it starts, runs under macOS's
+`sandbox-exec` with a Seatbelt profile written for what the desktop may
+change (`sandbox.ts`; its shape
 follows OpenAI Codex's and Anthropic's sandbox-runtime profiles). It denies
 by default:
 - **Writes:** the desktop's own folder (its worktrees) and temp folder
@@ -211,42 +281,47 @@ by default:
   events, Launch Services, keychain, pasteboard or ssh agent. Signals reach
   only a command's own processes, so `stop_job` stops a job.
 
-No sandbox, no shell: off macOS, or when the profile won't load, `bash`
-refuses. Pushing and pull requests happen host-side, in Land, which shows
+No sandbox, no guest: off macOS, or when the profile won't load, the tools
+refuse. Pushing and pull requests happen host-side, in Land, which shows
 the commits and diff first and pushes only the commit the person reviewed.
 
 ## What this is not
 
-The sandbox limits where an agent's commands write, read and connect; it
-doesn't make an agent's work trustworthy. The allowlisted hosts take
-uploads as well as downloads, a trusted desktop writes shared toolchain
-caches, and what it commits reaches the person when they land it. Narrower
-limits need a different place to run (a container or VM per project, given
-only the credentials listed for it), which is why where commands run is
-one swappable piece of the package (`Launcher`).
+Neither mode makes an agent's work trustworthy: what it commits reaches the
+person when they land it, which is why Land shows it first, flagged. The
+sandbox limits where a sandboxed desktop's commands write, read and connect,
+by denylists; a contained desktop has a machine instead, with nothing of the
+person's in it but its copies. Both reach allowlisted hosts that take
+uploads as well as downloads; method and path rules, and taint closing only
+the hosts that take uploads, are the plan's Phase 4.
 
 ## A desktop's life
 
 | Verb | Who | What happens |
 |---|---|---|
-| **Work in place** | the agent | Reads and commands in `projects/<name>`; edits take the lease |
-| **start_work** | the agent | A worktree of the project on `desktop/<id>`; shown in the chat |
-| **Archive** | you, or after a day idle | Stops its processes, releases its leases. Files stay; reopening resumes |
-| **Land** | you | After you review its commits and diff, they come home: a pull request when the project is on GitHub, otherwise its branch, already in your repo, ready to merge |
-| **Discard** | you | Deletes the desktop's worktree and its branch |
-| **Allow shell** | you | Turns a tainted desktop's shell back on, for that desktop, writing only its own worktrees |
+| **open_project** | the agent (contained) | A copy of the project in its machine, on `desktop/<id>`; shown in the chat and the header |
+| **sync_project**, **Sync** | the agent, or you | The copy gets the person's newer commits; its own branch stays |
+| **Work in place** | the agent (sandboxed) | Reads and commands in `projects/<name>`; edits take the lease |
+| **start_work** | the agent (sandboxed) | A worktree of the project on `desktop/<id>`; shown in the chat |
+| **Archive** | you, or after a day idle | Stops its processes (and its machine), releases its leases. Files stay; reopening resumes |
+| **Land** | you | After you review its commits and diff, they come home: a pull request when the project is on GitHub, otherwise its branch in your repo, ready to merge |
+| **Discard** | you | Deletes the desktop's copy (and its review repo) or worktree and branch |
+| **Allow network** / **Allow shell** | you | Turns a tainted contained desktop's network, or sandboxed desktop's shell, back on |
+| **Retry**, **Rebuild** | you | Starts a machine that failed again; gives an out-of-date one a fresh disk (its copies are lost) |
 
 Nothing is committed automatically, and nothing is deleted on a timer.
 
 ## The interface BigBrain uses
 
 ```ts
-open(desktop, { model, tools: HostTool[], instructions, wrapStream, preface, shell, write, file, untrusted })
+open(desktop, { model, tools: HostTool[], instructions, wrapStream, preface, contained, shell, write, file, untrusted })
 send(desktop, text, { inputId }) / steer(desktop, text) / stop(desktop)
-changes(desktop)                          // per worktree: branch, commits, uncommitted files, diffstat
+changes(desktop)                          // per worktree or copy: branch, commits, uncommitted files, diffstat
 servers(desktop) / snapshot(desktop) / events(desktop, sinceSeq)
 diff(desktop, project)                    // what Land would bring home, to review first
 archive(desktop) / land(desktop, project, how, head) / discard(desktop, project)
+sync(desktop, project) / rebuild(desktop)                 // contained desktops
+machines.info(desktop) / retry / cancel / prune           // a contained desktop's machine
 ```
 
 One ordered, persisted event stream per desktop:
@@ -255,8 +330,11 @@ One ordered, persisted event stream per desktop:
 - `tool.start` and `tool.end`, each with a plain label. The UI shows the
   running step from `tool.start`, never a bare "Working…".
 - `work.started`, with its time;
-- `server.started`, `server.exited`, `project.landed`, `work.discarded`
-  and `error`.
+- `server.started` (with `hostPort` from a machine), `server.exited`,
+  `project.landed`, `work.discarded` and `error`;
+- contained desktops: `project.opened`, `project.synced`,
+  `project.discarded`, `machine.started`, `machine.stopped`,
+  `machine.failed`, and `machine.preparing` (live only).
 
 ## Tests that guard the principle
 
@@ -276,6 +354,13 @@ One ordered, persisted event stream per desktop:
   config stay untouchable, children and earlier jobs still confined, the
   engine's and others' ports refused, its own servers reachable, the proxy
   allowing only its list, and a sandbox that can't load running nothing.
+
+- **Contained desktops** (`contained.test.ts`, on a real machine when
+  asked; CI's amd64 runner boots one): copy, change, test and commit in the
+  machine, answer from the checkout, and the checkout never changes; only
+  the reviewed commit lands; a server is reached through its forward; the
+  cap on machines at once. `machine.test.ts`: no network device, no host
+  environment, the clock, egress closed by taint, crash recovery.
 
 ## Open questions
 

@@ -10,7 +10,7 @@ export { EgressProxy, allowedHost, privateAddress, type EgressOptions } from "./
 export { AgentsError, workspace, listProjects, takeLease, leaseHolder, releaseLeases, type Workspace, type Project } from "./workspace";
 export { Guest, GuestError, FrameReader, PROTOCOL, LIMITS, clean, type Hello, type Stat, type Entry, type EntryKind, type GuestJob, type GuestPort, type ExecOptions, type Execution, type Exited, type GuestErrorCode } from "./guest";
 export { unpackSparse } from "./image";
-export { Machines, vmHelper, QEMU_HELPER, type MachinesOptions, type MachineEvent } from "./machines";
+export { Machines, vmHelper, QEMU_HELPER, type MachinesOptions, type MachineEvent, type MachineInfo } from "./machines";
 export { MachineImages, readPins, machineArch, sha256File, PINS, type Pins, type PinnedFile, type Arch, type Progress } from "./images";
 export { containedTools, inMachine, type ContainedContext } from "./containedTools";
 export { openProject, syncProject, projectState, ahead, WORK, type CopyRecord, type ProjectState } from "./projects";

@@ -113,10 +113,17 @@
     /** Coding desktops: each fork's work, and the servers it runs. */
     changes?: Array<{ project: string; branch: string; commits: number; dirty: number; stat: string }>;
     servers?: Array<{ port: number; command?: string }>;
-    /** Coding desktops holding untrusted material: what it was, and the last command its shell refused. */
-    taint?: { sources: Array<{ via: string; title: string }>; refused?: { command: string } };
+    /** Coding desktops holding untrusted material: what it was, and the last command (sandboxed) or host (contained) it was refused. */
+    taint?: { sources: Array<{ via: string; title: string }>; refused?: { command?: string; host?: string } };
+    /** Where its agent works: a machine of its own (contained), or in place under the sandbox; a contained desktop's machine as it is now. */
+    machine?: { mode: "contained" | "sandboxed"; state?: MachineState; preparing?: { got: number; total: number }; failure?: { message: string; console: string }; blocked?: boolean };
+    /** A contained desktop's copies of projects: what each is a copy of, and its own work while its machine runs. */
+    copies?: Array<{ project: string; base: string; branch: string; taken: string; ahead: number; commits: number; dirty: number; stat: string; known: boolean }>;
+    /** A desktop from before machines: why it does nothing new. */
+    legacy?: string;
     /** Coding desktops: a host the agent asked its commands may reach, until the person answers. */
     hostRequest?: { host: string; reason: string; untrusted: boolean } };
+  type MachineState = "stopped" | "starting" | "running" | "stopping" | "failed" | "out-of-date";
   /** Coding desktops (lib/codingDesktops.ts) have `d-` ids and live at /api/desktops;
    * Pilot conversations keep their own routes. One switch, so the rest of the view is shared. */
   const coding = (id: string | null | undefined): boolean => !!id && id.startsWith("d-");
@@ -593,7 +600,9 @@
     try { await chatReq(openPilot, "/stop", { id: openPilot }); await loadDetail(); } catch (e) { flash(errText(e)); }
   }
   /** What Land would bring home, shown before anything is pushed: the commits and their diff. */
-  type Review = { project: string; branch: string; head: string; commits: Array<{ hash: string; subject: string }>; stat: string; patch: string; cut: boolean };
+  type Review = { project: string; branch: string; head: string; commits: Array<{ hash: string; subject: string }>; stat: string; patch: string; cut: boolean;
+    /** Contained desktops: files that run code on their own, and what it read from outside the person. */
+    flags?: { autorun: string[]; outside: string[]; allowed: boolean } };
   let review: Review | null = $state(null);
   $effect(() => { void openPilot; review = null; });
   async function reviewProject(project: string): Promise<void> {
@@ -624,6 +633,41 @@
   /** The person's word that this desktop may use its shell despite what it read; only here, never the agent's. */
   async function allowShell(): Promise<void> {
     try { await desktopReq("/allow-shell", { id: openPilot }); await loadDetail(); } catch (e) { flash(errText(e)); }
+  }
+  /** The person's word that a contained desktop's machine may reach the network again. */
+  async function allowNetwork(): Promise<void> {
+    try { await desktopReq("/allow-network", { id: openPilot }); await loadDetail(); } catch (e) { flash(errText(e)); }
+  }
+  /** Bring a copy's view of the person's branches up to date. */
+  let syncingCopy: string | null = $state(null);
+  async function syncProject(project: string): Promise<void> {
+    syncingCopy = project;
+    try {
+      const r = await desktopReq<{ from: string; to: string }>("/sync", { id: openPilot, project });
+      flash(r.from && r.from !== r.to ? `${project}'s copy now has your commits up to ${r.to.slice(0, 7)}.` : `${project}'s copy already had your latest commits.`);
+      await loadDetail();
+    } catch (e) { flash(errText(e)); }
+    finally { syncingCopy = null; }
+  }
+  async function machineVerb(verb: "retry" | "cancel" | "rebuild"): Promise<void> {
+    try { await desktopReq(`/machine/${verb}`, { id: openPilot }); await loadDetail(); } catch (e) { flash(errText(e)); }
+  }
+  let rebuilding = $state(false);
+  async function rebuildMachine(): Promise<void> {
+    if (!rebuilding) { rebuilding = true; flash("Rebuilding gives this desktop a fresh machine: its copies, and anything you haven't landed, are lost. Click Rebuild again to go ahead."); return; }
+    rebuilding = false;
+    await machineVerb("rebuild");
+  }
+  /** The machine pill's words. */
+  function machineText(m: NonNullable<PilotDetail["machine"]>): string {
+    if (m.preparing) return m.preparing.total ? `Preparing the desktop machine · ${Math.round(m.preparing.got / 1e6)} of ${Math.round(m.preparing.total / 1e6)} MB` : "Preparing the desktop machine…";
+    if (m.state === "failed" || m.blocked || (m.failure && m.state === "stopped")) return "Machine failed";
+    return ({ starting: "Starting…", running: "Running", stopping: "Stopping…", stopped: "Stopped", "out-of-date": "Out of date" } as Record<string, string>)[m.state ?? "stopped"] ?? "Stopped";
+  }
+  /** When a copy was taken, as the header says it: the time today, else the date. */
+  function takenText(at: string): string {
+    const d = new Date(at), today = new Date().toDateString() === d.toDateString();
+    return today ? d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : d.toLocaleDateString([], { month: "short", day: "numeric" });
   }
   /** The person's answer to a host the agent asked for; the engine passes it on as their message. */
   let answeringHost = $state(false);
@@ -1608,7 +1652,34 @@
           {#if desktopViews.length}<button type="button" class="find" class:lit={showDesktop} onclick={toggleDesktop} title={`Show or hide this desktop's views ${keyText("views") && `(${keyText("views")})`}`}>{desktopViews.length} {desktopViews.length === 1 ? "view" : "views"} <span class="k keyboard-hint">{keyText("views")}</span></button>{/if}
         </div>
         {#if detail.contextNodes?.length}<p class="ctx">{detail.contextNodes.map((n) => n.title ?? n.id).join(" · ")}</p>{/if}
-        {#if detail.changes?.length}
+        {#if detail.machine?.mode === "contained"}
+          <div class="machine" role="status" aria-label="This desktop's machine">
+            <span class="pill" data-state={detail.machine.preparing ? "preparing" : detail.machine.failure && detail.machine.state !== "running" ? "failed" : detail.machine.state ?? "stopped"}
+              title={detail.machine.failure?.message ?? "This desktop works in a machine of its own: what it runs can't reach your files, and it reaches the internet only through BigBrain's proxy."}>{machineText(detail.machine)}</span>
+            {#if detail.machine.preparing}<button type="button" class="find" onclick={() => void machineVerb("cancel")}>Cancel</button>{/if}
+            {#if detail.machine.failure && detail.machine.state !== "running" && !detail.machine.preparing}
+              <span class="why">{detail.machine.failure.message}</span>
+              <button type="button" class="find" onclick={() => void machineVerb("retry")} title="Try starting it again: the next message starts it">Retry</button>
+            {/if}
+            {#if detail.machine.state === "out-of-date"}<button type="button" class="find" class:lit={rebuilding} onclick={() => void rebuildMachine()} title="A fresh machine from the current image: its copies, and anything not landed, are lost">Rebuild</button>{/if}
+          </div>
+          {#if detail.machine.failure?.console && detail.machine.state !== "running"}<pre class="console" aria-label="The machine's last words">{detail.machine.failure.console}</pre>{/if}
+          {#if detail.copies?.length}
+            <div class="forks">
+              {#each detail.copies as c (c.project)}
+                <span class="fork copy"><span class="what"><b>{c.project}</b> copy at {c.base.slice(0, 7)}{c.branch ? ` (${c.branch})` : ""} · taken {takenText(c.taken)}{c.ahead ? ` · your checkout is ${c.ahead} ahead` : ""}{c.known ? ` · ${c.commits} commit${c.commits === 1 ? "" : "s"}${c.dirty ? `, ${c.dirty} uncommitted` : ""}` : ""}</span>
+                  <span class="acts"><button type="button" class="find" onclick={() => void syncProject(c.project)} disabled={syncingCopy === c.project} title="Bring your newer commits into this copy; the desktop's own branch stays where it is">Sync</button>
+                  <button type="button" class="find" onclick={() => void reviewProject(c.project)}
+                    title="Review its commits, then land them: a pull request when the project is on GitHub, otherwise a branch in your repo">Land…</button>
+                  <button type="button" class="find" class:lit={discarding === c.project} onclick={() => void discardProject(c.project)} title="Delete this desktop's copy">Discard</button></span></span>
+              {/each}
+            </div>
+          {/if}
+        {:else if detail.machine && !detail.legacy}
+          <p class="ctx sandboxed" title="This desktop runs commands on your computer under macOS's sandbox. Contained desktops work in a machine of their own.">Sandboxed, not contained</p>
+        {/if}
+        {#if detail.legacy}<p class="ctx sandboxed">{detail.legacy}</p>{/if}
+        {#if detail.changes?.length && detail.machine?.mode !== "contained"}
           <div class="forks">
             {#each detail.changes as c (c.project)}
               <span class="fork"><b>{c.project}</b> {c.commits} commit{c.commits === 1 ? "" : "s"}{c.dirty ? ` · ${c.dirty} uncommitted` : ""}
@@ -1618,12 +1689,15 @@
             {/each}
           </div>
         {/if}
-        {#if review && detail.changes?.some((c) => c.project === review?.project)}
+        {#if review && (detail.changes?.some((c) => c.project === review?.project) || detail.copies?.some((c) => c.project === review?.project))}
           <div class="review" aria-label={`Changes to land in ${review.project}`}>
             <p><b>{review.project}</b> · {review.commits.length} commit{review.commits.length === 1 ? "" : "s"} on {review.branch}</p>
+            {#if !review.commits.length}<p>Nothing committed on {review.branch} yet: there's nothing to land.</p>{/if}
+            {#if review.flags?.autorun.length}<p class="flag">Runs code on its own: {review.flags.autorun.join(", ")}</p>{/if}
+            {#if review.flags?.outside.length || review.flags?.allowed}<p class="flag">It read material from outside you{review.flags.outside.length ? `: ${review.flags.outside.join(", ")}` : ""}</p>{/if}
             <ul>{#each review.commits as c (c.hash)}<li><code>{c.hash}</code> {c.subject}</li>{/each}</ul>
             <pre>{review.patch}{review.cut ? "\n… (the rest is cut here; read it in the worktree)" : ""}</pre>
-            <span><button type="button" class="find" onclick={() => review && void landProject(review)}>Land these commits</button>
+            <span><button type="button" class="find" disabled={!review.commits.length} onclick={() => review && void landProject(review)}>Land these commits</button>
               <button type="button" class="find" onclick={() => { review = null; }}>Cancel</button></span>
           </div>
         {/if}
@@ -1637,7 +1711,14 @@
         {#if live}<div class="msg assistant live"><div class="body">{@html render(live)}</div></div>{/if}
         {#if detail.phase === "working" && !live}<p class="activity">{(coding(detail.id) && runningLabel) || detail.activity || "Working…"}</p>{/if}
         {#if detail.error}<p class="activity err">{detail.error}</p>{/if}
-        {#if detail.taint?.refused}
+        {#if detail.taint && detail.machine?.mode === "contained"}
+          <div class="ask" role="group" aria-label="The network is off for this desktop">
+            <p class="ask-head">The network is off for this desktop</p>
+            <p>It {taintText(detail.taint)}, so its commands reach no site until you allow it. Its machine keeps working on its copies; what it read can't leave it.</p>
+            {#if detail.taint.refused?.host}<p>It was refused:</p><code>{detail.taint.refused.host}</code>{/if}
+            <span><button type="button" class="allow" onclick={() => void allowNetwork()}>Allow network</button></span>
+          </div>
+        {:else if detail.taint?.refused?.command}
           <div class="ask" role="group" aria-label="The shell is off for this desktop">
             <p class="ask-head">The shell is off for this desktop</p>
             <p>It {taintText(detail.taint)}, so its commands wait for you. Allowed, they run in a sandbox: they change only its own copies of your projects and reach only allowlisted hosts.</p>
@@ -1948,6 +2029,20 @@
   .act.bad { color: color-mix(in srgb, var(--activity) 80%, var(--fg)); }
   .act.bad::before { content: "× "; }
   .forks { display: flex; flex-wrap: wrap; gap: 6px 16px; font: 400 12px/1.6 var(--font-mono); color: var(--v2-muted); }
+  .machine { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; font: 400 12px/1.6 var(--font-mono); color: var(--v2-muted); }
+  .machine .pill { padding: 1px 8px; border-radius: 999px; background: color-mix(in srgb, var(--fg) 8%, transparent); color: var(--fg); white-space: nowrap; }
+  .machine .pill[data-state="failed"] { background: color-mix(in srgb, var(--v2-red, #c33) 16%, transparent); }
+  .machine .pill[data-state="out-of-date"] { background: color-mix(in srgb, var(--v2-red, #c33) 10%, transparent); }
+  .machine .pill[data-state="stopped"] { color: var(--v2-muted); }
+  .machine .why { min-width: 0; overflow-wrap: anywhere; }
+  .machine .find { font-size: 12px; }
+  .chat .ctx.sandboxed { color: var(--v2-faint); }
+  pre.console { margin: 0; max-height: 9em; overflow: auto; padding: 8px 10px; border-radius: 8px; font: 400 11px/1.4 var(--font-mono);
+    background: color-mix(in srgb, var(--fg) 6%, transparent); color: var(--v2-muted); white-space: pre-wrap; }
+  .review .flag { color: var(--fg); }
+  .fork.copy { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; width: 100%; }
+  .fork.copy .what { flex: 1 1 22em; min-width: 0; }
+  .fork.copy .acts { display: inline-flex; gap: 8px; }
   .fork { display: inline-flex; align-items: baseline; gap: 8px; }
   .fork b { font-weight: 500; color: var(--fg); }
   .fork .find { font-size: 12px; }

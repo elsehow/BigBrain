@@ -34,6 +34,7 @@ export function codingDesktopRoutes(desktops: CodingDesktops, options: { graph?:
     get("/session", url => desktops.detail(url.searchParams.get("id"))),
     get("/diff", url => desktops.diff(url.searchParams.get("id"), url.searchParams.get("project"))),
     get("/network", () => desktops.network()),
+    get("/machines", () => desktops.machines()),
     { method: "GET", path: "/api/desktops/events", handler: ({ req, url, res }) => {
       try { desktops.stream(url.searchParams.get("id"), Number(url.searchParams.get("since")) || 0, res, fn => req.on("close", fn)); }
       catch (e) { json(res, status(e), { error: message(e) }); }
@@ -50,11 +51,17 @@ export function codingDesktopRoutes(desktops: CodingDesktops, options: { graph?:
     post("archive", b => desktops.archive(b.id)),
     post("allow-shell", b => desktops.allowShell(b.id)),
     post("allow-network", b => desktops.allowNetwork(b.id)),
+    post("sync", b => desktops.sync(b.id, b.project)),
+    post("machine/retry", b => desktops.retryMachine(b.id)),
+    post("machine/cancel", b => desktops.cancelPreparing(b.id)),
+    post("machine/rebuild", b => desktops.rebuildMachine(b.id)),
     post("answer-host", b => desktops.answerHost(b.id, b.answer)),
     post("rename", b => desktops.rename(b.id, b.title)),
     post("model", b => desktops.setModel(b.id, b.model)),
     post("land", b => desktops.land(b.id, b.project, b.how, b.head)),
     post("network", b => desktops.setNetwork(b.hosts)),
+    post("machines", b => desktops.setMachines(b)),
+    post("machines/prune", () => desktops.pruneMachines()),
     post("discard", b => desktops.discard(b.id, b.project)),
     post("view", b => desktops.view(b.id, b.action, b)),
     post("theme", b => desktops.writeTheme(b.css)),

@@ -11,6 +11,7 @@
  */
 import { Agents, DEFAULT_HOSTS, EgressProxy, Harbor, MachineImages, Machines, QEMU_HELPER, scopeOf, Seatbelt, vmHelper, workspace, type HarborOptions, type HostTool, type OpenOptions, type Workspace } from "../packages/agents/src";
 import { sandboxPolicy } from "./desktopNetwork";
+import { machineSettings } from "./desktopMachines";
 import { CREDENTIAL_ENV, desktopMachines, gitProcessEnv, machineImageOverride } from "./env";
 import { readEnvValues } from "./envFile";
 import { notePayload } from "./noteRead";
@@ -68,20 +69,22 @@ export function hostAgents(root: string, ws: Workspace = workspace(), options: H
   const hosts = (desktop?: string) => desktop && options.offline?.(desktop) ? [] : [...policy.hosts?.(desktop) ?? DEFAULT_HOSTS];
   const egress = new EgressProxy({ hosts, ask: policy.ask, refused: options.refused });
   const harbor = new Harbor({ scope: scopeOf(ws.root), launcher: new Seatbelt({ ...policy, hosts }, egress), ...options, policy, withheld });
-  return new Agents({ ...ws, env: gitProcessEnv }, harbor, machinesFor({ ...ws, env: gitProcessEnv }, egress));
+  return new Agents({ ...ws, env: gitProcessEnv }, harbor, machinesFor({ ...ws, env: gitProcessEnv }, egress, root));
 }
 
 /** Contained desktops' machines, where this computer runs them: Apple silicon
  * with the helper (Intel Macs stay sandboxed until their spike passes, the
  * plan's Q3), or QEMU when a Linux developer asks (BIGBRAIN_DESKTOP_MACHINES=qemu). */
-export function machinesFor(ws: Workspace, egress: EgressProxy): Machines | undefined {
+export function machinesFor(ws: Workspace, egress: EgressProxy, root?: string): Machines | undefined {
   const mode = desktopMachines();
   if (mode === "off") return undefined;
   const qemu = mode === "qemu";
   const helper = qemu ? QEMU_HELPER : process.platform === "darwin" && process.arch === "arm64" ? vmHelper() : undefined;
   if (!helper) return undefined;
+  // the person's settings, read at each start (Settings › Desktops)
+  const settings = () => root ? machineSettings(root) : { memoryGiB: 2, running: 3 };
   return new Machines({ ws, images: new MachineImages({ local: machineImageOverride() }), proxy: egress, backend: qemu ? "qemu" : "vz", helper,
-    tz: Intl.DateTimeFormat().resolvedOptions().timeZone });
+    memoryMiB: () => settings().memoryGiB * 1024, running: () => settings().running, tz: Intl.DateTimeFormat().resolvedOptions().timeZone });
 }
 
 type StreamFn = Parameters<NonNullable<OpenOptions["wrapStream"]>>[0];

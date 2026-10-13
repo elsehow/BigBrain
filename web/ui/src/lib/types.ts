@@ -17,6 +17,13 @@ export type {
 export { messageKind };
 
 /** Where coding desktops' commands may reach beyond this machine (lib/desktopNetwork.ts). */
+/** Settings › Desktops' machines (lib/desktopMachines.ts, packages/agents/src/machines.ts). */
+export interface DesktopMachines {
+  available: boolean; why?: string;
+  memoryGiB: number; running: number; memoryChoices: number[]; runningChoices: number[];
+  image?: { missing: number; imageBytes: number; diskBytes: number; local: boolean };
+  freed?: number;
+}
 export interface DesktopNetwork { defaults: string[]; hosts: string[] }
 
 /** One grounding source of an assertion. `band`/`from`/`via`/`source` are

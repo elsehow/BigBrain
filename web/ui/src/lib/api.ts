@@ -5,6 +5,7 @@ import type {
   ConfigInfo,
   ConfigPatch,
   ConfigResult,
+  DesktopMachines,
   DesktopNetwork,
   FoldsView,
   GraphData,
@@ -247,6 +248,10 @@ export const api = {
   /** Where coding desktops' commands may reach beyond this machine (lib/desktopNetwork.ts): the defaults, and the person's additions. */
   desktopNetwork: () => get<DesktopNetwork>("/api/desktops/network"),
   saveDesktopNetwork: (hosts: string[]) => post<DesktopNetwork>("/api/desktops/network", { hosts }),
+  /** Contained desktops' machines: whether they run here, memory and how many at once, and the image. */
+  desktopMachines: () => get<DesktopMachines>("/api/desktops/machines"),
+  saveDesktopMachines: (patch: { memoryGiB?: number; running?: number }) => post<DesktopMachines>("/api/desktops/machines", patch),
+  pruneDesktopMachines: () => post<DesktopMachines>("/api/desktops/machines/prune", {}),
   pilotKey: (key: string) => post<PilotState>("/api/pilot/key", { key }),
   pilotSecret: () => post<PilotSecret>("/api/pilot/secret", {}),
   pilotTurn: (conversation: string, turn: { id?: string; speaker: "user" | "pilot"; text: string; at: string; tools?: string[] }) =>

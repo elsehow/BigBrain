@@ -18,6 +18,7 @@ import { discardWork, landWork, listWork, workDiff, type LandHow, type Landed, t
 import { run } from "./run";
 import { Harbor, scopeOf } from "./harbor";
 import { codingTools, type AgentTool } from "./tools";
+import { syncProject } from "./projects";
 import { containedTools } from "./containedTools";
 import type { Machines } from "./machines";
 import { copyDiff, discardCopy, landCopy, listCopies, readCopy, saveCopy, type CopyDiff } from "./review";
@@ -132,6 +133,21 @@ export class Agents {
     await this.harbor.stopDesktop(checkDesktopId(id));
     await discardWork(this.ws, id, project);
     this.log(id).append({ type: "work.discarded", project });
+  }
+
+  /** Bring a contained desktop's copy's view of the person's branches up to date (the header's Sync). */
+  async sync(id: string, project: string): Promise<{ from: string; to: string }> {
+    if (!readCopy(this.ws, checkDesktopId(id), project) || !this.contained) throw new AgentsError(`Desktop ${id} hasn't opened ${project}.`);
+    const r = await syncProject(this.ws, id, await this.contained.files(id), project);
+    this.log(id).append({ type: "project.synced", project, from: r.from, to: r.to });
+    return r;
+  }
+
+  /** A contained desktop's machine rebuilt from the current image: its copies and their records go, its review repos with them. */
+  async rebuild(id: string): Promise<void> {
+    if (!this.machines) throw new AgentsError("Contained desktops aren't available here.");
+    for (const c of listCopies(this.ws, checkDesktopId(id))) await discardCopy(this.ws, id, c.project);
+    await this.machines.rebuild(id);
   }
 
   /** What Land would bring home, for the person to review first: from a contained

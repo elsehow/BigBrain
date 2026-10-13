@@ -24,5 +24,6 @@
   "sharedWorkspace",
   "sharedMembership",
   "sharedMembershipEmail",
-  "sharedFreshMember"
+  "sharedFreshMember",
+  "containedDesktop"
 ]

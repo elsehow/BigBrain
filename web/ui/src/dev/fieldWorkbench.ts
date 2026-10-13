@@ -21,6 +21,12 @@
 // content from outside you. `?claims` has no sorted feed, so the latest
 // assertions show: the gardener's named by the model its run was on, claims
 // longer than a row, one mentioning nothing in the field; click one.
+// `?machine=<state>` has a contained desktop (docs/plans/2026-10-12-contained-desktops.md)
+// whose machine is `preparing`, `starting`, `running`, `stopped`, `failed`
+// or `out-of-date`; `network-off` is a running one that read outside material;
+// `legacy` a desktop from before machines; `sandboxed` one on a computer
+// without them. Sync, Land… (with both review flags), Retry, Cancel, Rebuild
+// and Allow network answer here, changing nothing real.
 import { mount } from "svelte";
 import "../design/tokens.css";
 import "../app.css";
@@ -76,6 +82,34 @@ if (new URLSearchParams(location.search).has("churn")) {
 }
 const at = (min: number) => new Date(Date.UTC(2026, 9, 5, 9, min)).toISOString();
 const hostScene = new URLSearchParams(location.search).has("hostRequest");
+const machineScene = new URLSearchParams(location.search).get("machine");
+let machineState = machineScene;
+const MACHINE_DESK = { id: "d-0000cafe", kind: "coding", title: "Orrery fixes", titleSource: "human", model: "claude-opus-5-5", phase: "answered",
+  lifecycle: "active", created: "2026-10-05T09:00:00.000Z", updated: "2026-10-05T09:24:00.000Z", lastActivityAt: "2026-10-05T09:24:00.000Z", contextNodes: [] };
+/** The contained desktop's session, as its machine stands in this scene. */
+function machineSession() {
+  const state = machineState ?? "running";
+  const contained = !["legacy", "sandboxed"].includes(state);
+  const failed = state === "failed";
+  const machine = !contained ? (state === "sandboxed" ? { mode: "sandboxed" } : undefined)
+    : state === "preparing" ? { mode: "contained", state: "starting", preparing: { got: 118_000_000, total: 319_000_000 } }
+    : failed ? { mode: "contained", state: "failed", failure: { message: "The desktop's machine did not start: its guest never answered.", console: "[    0.412] virtio_blk virtio1: [vda] 16777216 512-byte logical blocks\n[    0.430] EXT4-fs (vda): mounted filesystem\nbigbrain-guest: can't listen on vsock 7470: Address in use" } }
+    : { mode: "contained", state: state === "network-off" ? "running" : state };
+  const running = contained && (state === "running" || state === "network-off");
+  return { ...MACHINE_DESK, seq: 6, servers: [], machine,
+    ...(state === "legacy" ? { legacy: "This desktop predates contained desktops: land or discard its work, then start a new desktop.",
+      changes: [{ project: "orrery", branch: "desktop/d-0000cafe", commits: 2, dirty: 0, stat: "2 files changed" }] } : { changes: [] }),
+    ...(contained ? { copies: [{ project: "orrery", base: "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678", branch: "main", taken: new Date(Date.now() - 42 * 60_000).toISOString(), ahead: 2,
+      commits: running ? 1 : 0, dirty: running ? 1 : 0, stat: running ? "2 files changed, 9 insertions(+), 2 deletions(-)" : "", known: running }] } : {}),
+    ...(state === "network-off" ? { taint: { sources: [{ via: "web_search", title: "the web" }], refused: { host: "registry.npmjs.org" } } } : {}),
+    messages: [
+      { id: "in-1", role: "user", text: "Fix the moon ratio in the orrery and add a test for it.", at: at(20) },
+      { id: "a2", role: "activity", text: "Copied orrery at a1b2c3d (main)", at: at(21), ok: true },
+      { id: "a3", role: "activity", text: "Edited orrery/src/ratios.ts", at: at(22), ok: true },
+      ...failed ? [{ id: "a4", role: "activity", text: "The desktop's machine did not start: its guest never answered.", at: at(23), ok: false }]
+        : [{ id: "a4", role: "activity", text: "Ran bun test", at: at(23), ok: true }, { id: "m5", role: "assistant", text: "Fixed and tested on my branch; one commit, ready to review.", at: at(24) }],
+    ] };
+}
 const hostUntrusted = new URLSearchParams(location.search).get("hostRequest") === "untrusted";
 let hostAnswer = "";
 const HOST_DESK = { id: "d-0000beef", kind: "coding", title: "Tide calculator", titleSource: "human", model: "claude-opus-5-5", phase: "answered",
@@ -213,7 +247,18 @@ const fake = window.fetch;
     { id: "claude", label: "Claude Code", ready: true, models: ["opus", "sonnet", "haiku", "fable"].map((id) => ({ id, label: id, reasoning: ["low", "medium", "high"] })) },
     { id: "codex", label: "Codex", ready: true, models: [{ id: "gpt-5.6-terra", label: "Terra" }, { id: "gpt-example", label: "Example Codex model" }] },
   ] });
-  if (url.pathname === "/api/desktops") return json({ desktops: hostScene ? [HOST_DESK] : [] });
+  if (url.pathname === "/api/desktops") return json({ desktops: hostScene ? [HOST_DESK] : machineScene ? [MACHINE_DESK] : [] });
+  if (machineScene && url.pathname === "/api/desktops/session") return json(machineSession());
+  if (machineScene && url.pathname === "/api/desktops/sync") return json({ from: "a1b2c3d4e5f6", to: "9f8e7d6c5b4a" });
+  if (machineScene && url.pathname === "/api/desktops/machine/retry") { machineState = "starting"; return json({ ok: true }); }
+  if (machineScene && url.pathname === "/api/desktops/machine/cancel") { machineState = "stopped"; return json({ ok: true }); }
+  if (machineScene && url.pathname === "/api/desktops/machine/rebuild") { machineState = "stopped"; return json({ ok: true }); }
+  if (machineScene && url.pathname === "/api/desktops/allow-network") { machineState = "running"; return json(MACHINE_DESK); }
+  if (machineScene && url.pathname === "/api/desktops/diff") return json({ project: "orrery", branch: "desktop/d-0000cafe", base: "a1b2c3d", head: "c0ffee0000000000000000000000000000000000",
+    commits: [{ hash: "c0ffee0", subject: "Moon ratio 1.5, with a test" }], stat: " src/ratios.ts | 2 +-\n package.json  | 1 +", files: ["src/ratios.ts", "package.json"], dirty: 1,
+    patch: "--- a/src/ratios.ts\n+++ b/src/ratios.ts\n-export const moon = 1.25;\n+export const moon = 1.5;\n", cut: false,
+    flags: { autorun: ["package.json"], outside: machineState === "network-off" ? ["the web"] : [], allowed: false } });
+  if (machineScene && url.pathname === "/api/desktops/land") return json({ how: "branch", branch: "desktop/d-0000cafe" });
   // `?hostRequest`: a coding desktop whose agent asks to reach a site, until you answer
   if (hostScene && url.pathname === "/api/desktops/session") return json({ ...HOST_DESK, seq: 4, changes: [], servers: [],
     messages: [

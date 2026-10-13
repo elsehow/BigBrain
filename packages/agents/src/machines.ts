@@ -18,7 +18,7 @@
  *   that desktop's (proxy.ts, serveDesktop), so the proxy knows whose a
  *   connection is from the socket it arrives on.
  */
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { dirname, join, resolve } from "node:path";
 import type { Guest } from "./guest";
@@ -35,6 +35,12 @@ export function vmHelper(): string | undefined {
     join(dirname(process.execPath), "bigbrain-vm"),
     resolve(import.meta.dir, "../../vm/.build/release/bigbrain-vm"),
   ].find((p): p is string => !!p && existsSync(p));
+}
+
+/** The rootfs a machine's disk came from, from its folder's record. */
+function readOrigin(dir: string): string | undefined {
+  try { return (JSON.parse(readFileSync(join(dir, "machine.json"), "utf8")) as { image?: string }).image || undefined; }
+  catch { return undefined; }
 }
 
 /** The Linux test harness that stands in for the helper (image/qemu.sh). */
@@ -73,13 +79,21 @@ interface Entry {
   used: number;
   starting?: Promise<void>;
   failures: number[];
+  /** While the image downloads for this desktop's first start: how far. */
+  preparing?: { got: number; total: number };
+  /** The last start that failed, until one succeeds: why, and the console's tail. */
+  failure?: { message: string; console: string };
 }
+
+/** What the person's header shows of a desktop's machine. */
+export interface MachineInfo { state: MachineState; preparing?: { got: number; total: number }; failure?: { message: string; console: string }; blocked?: boolean }
 
 const FAILURES = 3, FAILURE_WINDOW = 60 * 60 * 1000;
 
 export class Machines implements Guests {
   private entries = new Map<string, Entry>();
   private listeners = new Set<(desktop: string, event: MachineEvent) => void>();
+  private download?: AbortController;
   constructor(private o: MachinesOptions) {}
 
   /** Hear what happens to every desktop's machine. Returns the way to stop hearing. */
@@ -98,7 +112,7 @@ export class Machines implements Guests {
     if (!e) {
       const machine = new Machine({
         dir: join(stateFolder(this.o.ws, desktop), "vm"), image: { kernel: "", initramfs: "", rootfs: "" },
-        backend: this.o.backend, helper: this.o.helper, cpus: this.o.cpus, memoryMiB: this.o.memoryMiB?.(), tz: this.o.tz,
+        backend: this.o.backend, helper: this.o.helper, cpus: this.o.cpus, memoryMiB: () => this.o.memoryMiB?.() ?? 2048, tz: this.o.tz,
         egress: path => this.o.proxy.serveDesktop(desktop, path),
         onExit: why => { this.unforwardAll(desktop); this.o.proxy.unserveDesktop(desktop); this.emit(desktop, { type: "machine.failed", message: why, console: "" }); },
       });
@@ -110,6 +124,47 @@ export class Machines implements Guests {
 
   /** A desktop's machine's state, without starting it. */
   state(desktop: string): MachineState { return this.entries.get(desktop)?.machine.state ?? "stopped"; }
+
+  /** Everything the header shows of a desktop's machine, without starting it. */
+  info(desktop: string): MachineInfo {
+    const e = this.entries.get(desktop);
+    if (!e) return { state: "stopped" };
+    const recent = e.failures.filter(t => Date.now() - t < FAILURE_WINDOW).length;
+    return { state: e.starting && e.machine.state === "stopped" ? "starting" : e.machine.state,
+      ...(e.preparing ? { preparing: e.preparing } : {}), ...(e.failure ? { failure: e.failure } : {}), ...(recent >= FAILURES ? { blocked: true } : {}) };
+  }
+
+  /** The rootfs every desktop's disk came from: what pruning keeps. */
+  origins(): string[] {
+    const out: string[] = [];
+    let ids: string[] = [];
+    try { ids = readdirSync(this.o.ws.state); } catch { return out; }
+    for (const id of ids) {
+      const origin = this.entries.get(id)?.machine.origin() ?? readOrigin(join(this.o.ws.state, id, "vm"));
+      if (origin) out.push(origin);
+    }
+    return out;
+  }
+
+  /** The machine image here: how much is still to download, and what the image and the desktops' disks take. */
+  image(): { missing: number; imageBytes: number; diskBytes: number; local: boolean } {
+    const bytes = (dir: string): number => {
+      let n = 0;
+      try { for (const f of readdirSync(dir, { recursive: true }) as string[]) { try { const st = statSync(join(dir, f)); if (st.isFile()) n += st.blocks * 512; } catch { /* gone */ } } } catch { /* none */ }
+      return n;
+    };
+    let diskBytes = 0;
+    try { for (const id of readdirSync(this.o.ws.state)) { try { diskBytes += statSync(join(this.o.ws.state, id, "vm", "disk.img")).blocks * 512; } catch { /* none */ } } } catch { /* none */ }
+    let missing = 0;
+    try { missing = this.o.images.missing(); } catch { /* no image for this computer */ }
+    return { missing, imageBytes: bytes(this.o.images.dir), diskBytes, local: !!process.env.BIGBRAIN_MACHINE_IMAGE };
+  }
+
+  /** Remove every image no disk came from. Returns bytes freed. */
+  prune(): number { return this.o.images.prune(this.origins()); }
+
+  /** Stop downloading the image: every start waiting on it fails, and says so. */
+  cancel(): void { this.download?.abort(); }
 
   /** The desktop's machine, running: started (and its image fetched) if it isn't. */
   async running(desktop: string): Promise<Machine> {
@@ -126,17 +181,26 @@ export class Machines implements Guests {
     const now = Date.now();
     e.failures = e.failures.filter(t => now - t < FAILURE_WINDOW);
     if (e.failures.length >= FAILURES) throw new AgentsError("This desktop's machine failed to start three times in the last hour. Retry it from the desktop when you're ready.");
-    const image = await this.o.images.ensure((p: Progress) => this.emit(desktop, { type: "machine.preparing", got: p.got, total: p.total }));
+    this.download ??= new AbortController();
+    const image = await this.o.images.ensure((p: Progress) => {
+      e.preparing = { got: p.got, total: p.total };
+      this.emit(desktop, { type: "machine.preparing", got: p.got, total: p.total });
+    }, this.download.signal).catch(err => {
+      e.failure = { message: this.download?.signal.aborted ? "Preparing the desktop machine was cancelled." : err instanceof Error ? err.message : String(err), console: "" };
+      throw err;
+    }).finally(() => { e.preparing = undefined; if (this.download?.signal.aborted) this.download = undefined; });
     // the disk's origin stays its own; the kernel and initramfs are always the current ones
     e.machine.useImage(image);
     await this.makeRoom(desktop);
     const t0 = Date.now();
     try {
       const hello = await e.machine.start();
+      e.failure = undefined;
       this.emit(desktop, { type: "machine.started", ms: Date.now() - t0, image: hello.image });
     } catch (err) {
       e.failures.push(Date.now());
       const message = err instanceof Error ? err.message : String(err);
+      e.failure = { message, console: err instanceof MachineError ? err.console ?? "" : "" };
       this.emit(desktop, { type: "machine.failed", message, console: err instanceof MachineError ? err.console ?? "" : "" });
       throw new AgentsError(message);
     }
@@ -155,7 +219,7 @@ export class Machines implements Guests {
   drop(desktop: string): number { return this.o.proxy.drop(desktop); }
 
   /** Clear the record of failed starts, so the next command tries again. */
-  retry(desktop: string): void { this.entry(desktop).failures = []; }
+  retry(desktop: string): void { const e = this.entry(desktop); e.failures = []; e.failure = undefined; }
 
   async files(desktop: string): Promise<Guest> { return (await this.running(desktop)).guest(); }
 
@@ -248,7 +312,7 @@ export class Machines implements Guests {
     this.o.proxy.unserveDesktop(desktop);
   }
 
-  /** Rebuild an out-of-date machine: a fresh disk from the current image. Uncommitted work in it is lost. */
+  /** Rebuild a machine: a fresh disk from the current image, on the next command. Everything in it is lost, copies included. */
   async rebuild(desktop: string): Promise<void> {
     await this.delete(desktop);
   }
