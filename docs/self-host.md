@@ -287,7 +287,10 @@ The vault directory is yours and is left alone.
 - The desktop machine's image → downloaded once from `bigbrain.exe.xyz`,
   on the first contained desktop; nothing is sent.
 - A coding desktop's commands → package registries, GitHub and the hosts
-  you allow, through the engine's egress proxy only.
+  you allow, through the engine's egress proxy only. From a desktop's
+  machine they are read-only (downloads, installs, git fetches) unless you
+  mark a host "may upload" in Settings → General; the proxy checks each
+  request with a CA of this install's own, which only the machines trust.
 - `git push origin main`, if and only if you configured an origin.
 - Optional usage and performance summaries → PostHog US, only after you
   enable sharing in Settings → Diagnostics. Sharing defaults off. Reports

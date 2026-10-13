@@ -10,11 +10,17 @@
  * host (lib/codingDesktops.ts, request_host); the person's answer adds it to
  * that desktop's own hosts, kept under .spool where commands can't reach, or
  * to the saved list for every desktop.
+ *
+ * Each host has a mode for contained desktops (packages/agents/src/egressPolicy.ts):
+ * "read" (the default: reads and git fetches only), "upload" (anything), or
+ * "tunnel" (no inspection, for a service that pins its certificates). A
+ * tainted contained desktop keeps only its read hosts. Sandboxed desktops'
+ * commands get plain tunnels whatever the mode.
  */
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, sep } from "node:path";
-import { canonical, DEFAULT_HOSTS, type SandboxPolicy } from "../packages/agents/src";
+import { allowedHost, canonical, DEFAULT_HOSTS, HOST_MODES, type HostMode, type SandboxPolicy } from "../packages/agents/src";
 import { apiPort, pilotDevPort, pilotDevUiPort, sharedPort, webPort } from "./env";
 import { readEnvValues, writeEnvValues } from "./envFile";
 import { writeAtomic } from "./fsx";
@@ -22,6 +28,7 @@ import { spoolDir } from "./spool";
 import { credentialPaths } from "./workPermissions";
 
 const KEY = "BIGBRAIN_DESKTOP_HOSTS";
+const MODES_KEY = "BIGBRAIN_DESKTOP_HOST_MODES";
 const MAX_HOSTS = 64;
 const HOST = /^(?:\*\.)?(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/;
 const LOCAL = /^localhost:(\d{1,5})$/;
@@ -63,6 +70,35 @@ export function saveDesktopHosts(root: string, hosts: unknown): string[] {
   const added = [...new Set(hosts.map(hostEntry))].filter(h => !DEFAULT_HOSTS.includes(h));
   writeEnvValues(root, { [KEY]: JSON.stringify(added) });
   return added;
+}
+
+/** The modes the person gave their hosts: only "upload" and "tunnel" are kept, "read" being every host's default. */
+export function savedHostModes(root: string): Record<string, HostMode> {
+  try {
+    const raw = JSON.parse(readEnvValues(root)[MODES_KEY] ?? "{}") as Record<string, unknown>;
+    const hosts = savedDesktopHosts(root);
+    return Object.fromEntries(Object.entries(raw).filter(([h, m]) => hosts.includes(h) && (m === "upload" || m === "tunnel"))) as Record<string, HostMode>;
+  } catch { return {}; }
+}
+
+export function saveHostModes(root: string, modes: unknown): Record<string, HostMode> {
+  if (!modes || typeof modes !== "object" || Array.isArray(modes)) throw new Error("Give each host's mode.");
+  const hosts = savedDesktopHosts(root);
+  const next: Record<string, HostMode> = {};
+  for (const [h, m] of Object.entries(modes as Record<string, unknown>)) {
+    if (!(HOST_MODES as readonly unknown[]).includes(m)) throw new Error(`A host's mode is read, upload or tunnel.`);
+    if (!hosts.includes(h)) throw new Error(`${h} isn't one of your hosts: package registries and GitHub stay read-only.`);
+    if (m !== "read") next[h] = m as HostMode;
+  }
+  writeEnvValues(root, { [MODES_KEY]: JSON.stringify(next) });
+  return next;
+}
+
+/** A host's mode, by the entry that allows it: the built-in hosts and a desktop's own are read; the person's are as they marked them. */
+export function hostMode(root: string, host: string): HostMode {
+  const modes = savedHostModes(root);
+  for (const [entry, mode] of Object.entries(modes)) if (allowedHost(host, [entry])) return mode;
+  return "read";
 }
 
 /** Hosts the person allowed for one desktop only, by desktop id. */

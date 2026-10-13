@@ -149,11 +149,11 @@ source it was started about, a live integration read, a web search,
 or a project file another tainted desktop wrote that still says the same
 (tainted desktops' writes are ledgered by content).
 
-A tainted **contained** desktop keeps its shell and loses the network: the
-egress proxy answers it no hosts, its open connections close, and the host
-it was refused is kept. The machine is the containment; the network is how
-what it read could leave. The view says why the network is off and offers
-**Allow network**. The written-files ledger and the shell, write and file
+A tainted **contained** desktop keeps its shell and loses every host it
+could send to: the egress proxy answers it only its read-only hosts, its
+open connections close, and the host it was refused is kept. The machine is
+the containment; uploads are how what it read could leave. The view says why
+uploads are off and offers **Allow uploads**. The written-files ledger and the shell, write and file
 hooks don't apply to it.
 
 A tainted **sandboxed** desktop, while tainted:
@@ -291,9 +291,15 @@ Neither mode makes an agent's work trustworthy: what it commits reaches the
 person when they land it, which is why Land shows it first, flagged. The
 sandbox limits where a sandboxed desktop's commands write, read and connect,
 by denylists; a contained desktop has a machine instead, with nothing of the
-person's in it but its copies. Both reach allowlisted hosts that take
-uploads as well as downloads; method and path rules, and taint closing only
-the hosts that take uploads, are the plan's Phase 4.
+person's in it but its copies. A sandboxed desktop's allowlisted hosts take
+uploads as well as downloads. A contained desktop's don't, unless the
+person says so: the proxy terminates its TLS with this install's own CA
+(`egressPolicy.ts`; only machines trust it, its key never leaves
+`~/.config/bigbrain/machine-ca`) and lets a "read" host take reads and git
+fetches only, never a push or a publish. "May upload" hosts take anything;
+"tunnel only" ones, for services that pin their certificates, aren't
+inspected. Taint closes every host but the read ones, so a tainted desktop
+still installs and fetches.
 
 ## A desktop's life
 

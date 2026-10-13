@@ -1116,6 +1116,7 @@ let pilotBackend = { ...DEFAULT_PILOT_BACKEND };
 let agentPermissions: import("../../../../lib/workPermissions").WorkPermissions = { version: 2, folders: [{ path: "~/Projects", access: "write" }] };
 let desktopHosts: string[] = [];
 let desktopMachines = { memoryGiB: 2, running: 3 };
+let desktopHostModes: Record<string, string> = {};
 const DESKTOP_DEFAULT_HOSTS = ["registry.npmjs.org", "pypi.org", "github.com"];
 
 /** Swap the vault out from under a running app. The SWR cache has to go with
@@ -1352,8 +1353,12 @@ function route(path: string, method: string, body?: string, search?: URLSearchPa
       ...(path.endsWith("/prune") ? { freed: 880_000_000 } : {}) });
   }
   if (path === "/api/desktops/network") {
-    if (method === "POST") desktopHosts = (JSON.parse(body ?? "{}") as { hosts: string[] }).hosts;
-    return json({ defaults: DESKTOP_DEFAULT_HOSTS, hosts: desktopHosts });
+    if (method === "POST") {
+      const b = JSON.parse(body ?? "{}") as { hosts: string[]; modes?: Record<string, string> };
+      desktopHosts = b.hosts;
+      if (b.modes) desktopHostModes = Object.fromEntries(Object.entries(b.modes).filter(([, m]) => m !== "read"));
+    }
+    return json({ defaults: DESKTOP_DEFAULT_HOSTS, hosts: desktopHosts, modes: desktopHostModes });
   }
   if (path === "/api/pilot/enabled" && method === "POST") {
     const { enabled } = JSON.parse(body ?? "{}") as { enabled: boolean };

@@ -9,8 +9,8 @@
  * here: `wrapStream` attaches them to each request, so the package never
  * holds them.
  */
-import { Agents, DEFAULT_HOSTS, EgressProxy, Harbor, MachineImages, Machines, QEMU_HELPER, scopeOf, Seatbelt, vmHelper, workspace, type HarborOptions, type HostTool, type OpenOptions, type Workspace } from "../packages/agents/src";
-import { sandboxPolicy } from "./desktopNetwork";
+import { Agents, DEFAULT_HOSTS, EgressProxy, Harbor, MachineCA, MachineImages, Machines, QEMU_HELPER, scopeOf, Seatbelt, vmHelper, workspace, type HarborOptions, type HostTool, type OpenOptions, type Workspace } from "../packages/agents/src";
+import { hostMode, sandboxPolicy } from "./desktopNetwork";
 import { machineSettings } from "./desktopMachines";
 import { CREDENTIAL_ENV, desktopMachines, gitProcessEnv, machineImageOverride } from "./env";
 import { readEnvValues } from "./envFile";
@@ -66,25 +66,36 @@ export interface HostAgentsOptions extends HarborOptions {
 export function hostAgents(root: string, ws: Workspace = workspace(), options: HostAgentsOptions = {}): Agents {
   const withheld = () => [...Object.keys(readEnvValues(root)), ...CREDENTIAL_ENV];
   const policy = sandboxPolicy(root, ws.root);
-  const hosts = (desktop?: string) => desktop && options.offline?.(desktop) ? [] : [...policy.hosts?.(desktop) ?? DEFAULT_HOSTS];
-  const egress = new EgressProxy({ hosts, ask: policy.ask, refused: options.refused });
+  const all = (desktop?: string) => [...policy.hosts?.(desktop) ?? DEFAULT_HOSTS];
+  // a tainted contained desktop keeps the hosts it may only read from (egressPolicy.ts)
+  const hosts = (desktop?: string) => desktop && options.offline?.(desktop) ? all(desktop).filter(h => hostMode(root, h.replace(/^\*\./, "")) === "read") : all(desktop);
+  const machines = machinesAvailable();
+  const ca = machines ? new MachineCA() : undefined;
+  const egress = new EgressProxy({ hosts, ask: policy.ask, refused: options.refused, ca, mode: (_desktop, host) => hostMode(root, host) });
   const harbor = new Harbor({ scope: scopeOf(ws.root), launcher: new Seatbelt({ ...policy, hosts }, egress), ...options, policy, withheld });
-  return new Agents({ ...ws, env: gitProcessEnv }, harbor, machinesFor({ ...ws, env: gitProcessEnv }, egress, root));
+  return new Agents({ ...ws, env: gitProcessEnv }, harbor, machines ? machinesFor({ ...ws, env: gitProcessEnv }, egress, root, ca) : undefined);
 }
 
 /** Contained desktops' machines, where this computer runs them: Apple silicon
  * with the helper (Intel Macs stay sandboxed until their spike passes, the
  * plan's Q3), or QEMU when a Linux developer asks (BIGBRAIN_DESKTOP_MACHINES=qemu). */
-export function machinesFor(ws: Workspace, egress: EgressProxy, root?: string): Machines | undefined {
+export function machinesAvailable(): { helper: string; qemu: boolean } | undefined {
   const mode = desktopMachines();
   if (mode === "off") return undefined;
   const qemu = mode === "qemu";
   const helper = qemu ? QEMU_HELPER : process.platform === "darwin" && process.arch === "arm64" ? vmHelper() : undefined;
-  if (!helper) return undefined;
+  return helper ? { helper, qemu } : undefined;
+}
+
+export function machinesFor(ws: Workspace, egress: EgressProxy, root?: string, ca?: MachineCA): Machines | undefined {
+  const where = machinesAvailable();
+  if (!where) return undefined;
+  const { helper, qemu } = where;
   // the person's settings, read at each start (Settings › Desktops)
   const settings = () => root ? machineSettings(root) : { memoryGiB: 2, running: 3 };
   return new Machines({ ws, images: new MachineImages({ local: machineImageOverride() }), proxy: egress, backend: qemu ? "qemu" : "vz", helper,
-    memoryMiB: () => settings().memoryGiB * 1024, running: () => settings().running, tz: Intl.DateTimeFormat().resolvedOptions().timeZone });
+    memoryMiB: () => settings().memoryGiB * 1024, running: () => settings().running, tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    ...(ca ? { ca: () => ca.cert() } : {}) });
 }
 
 type StreamFn = Parameters<NonNullable<OpenOptions["wrapStream"]>>[0];

@@ -1712,11 +1712,11 @@
         {#if detail.phase === "working" && !live}<p class="activity">{(coding(detail.id) && runningLabel) || detail.activity || "Working…"}</p>{/if}
         {#if detail.error}<p class="activity err">{detail.error}</p>{/if}
         {#if detail.taint && detail.machine?.mode === "contained"}
-          <div class="ask" role="group" aria-label="The network is off for this desktop">
-            <p class="ask-head">The network is off for this desktop</p>
-            <p>It {taintText(detail.taint)}, so its commands reach no site until you allow it. Its machine keeps working on its copies; what it read can't leave it.</p>
+          <div class="ask" role="group" aria-label="Uploads are off for this desktop">
+            <p class="ask-head">Uploads are off for this desktop</p>
+            <p>It {taintText(detail.taint)}, so its commands reach only sites they can't send to, until you allow it. Installs and fetches still work; what it read can't leave its machine.</p>
             {#if detail.taint.refused?.host}<p>It was refused:</p><code>{detail.taint.refused.host}</code>{/if}
-            <span><button type="button" class="allow" onclick={() => void allowNetwork()}>Allow network</button></span>
+            <span><button type="button" class="allow" onclick={() => void allowNetwork()}>Allow uploads</button></span>
           </div>
         {:else if detail.taint?.refused?.command}
           <div class="ask" role="group" aria-label="The shell is off for this desktop">

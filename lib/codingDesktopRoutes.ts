@@ -59,7 +59,7 @@ export function codingDesktopRoutes(desktops: CodingDesktops, options: { graph?:
     post("rename", b => desktops.rename(b.id, b.title)),
     post("model", b => desktops.setModel(b.id, b.model)),
     post("land", b => desktops.land(b.id, b.project, b.how, b.head)),
-    post("network", b => desktops.setNetwork(b.hosts)),
+    post("network", b => desktops.setNetwork(b.hosts, b.modes)),
     post("machines", b => desktops.setMachines(b)),
     post("machines/prune", () => desktops.pruneMachines()),
     post("discard", b => desktops.discard(b.id, b.project)),

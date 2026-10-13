@@ -31,7 +31,7 @@ import type { ServerResponse } from "node:http";
 import { basename, isAbsolute, join, normalize, relative } from "node:path";
 import { ahead, Agents, allowedHost, DEFAULT_HOSTS, listCopies, type Desktop, type HostTool, type LandHow, type OpenOptions, type Stamped } from "../packages/agents/src";
 import { agentHost, hostAgents } from "./agentHost";
-import { allowDesktopHost, desktopHosts, hostEntry, saveDesktopHosts, savedDesktopHosts } from "./desktopNetwork";
+import { allowDesktopHost, desktopHosts, hostEntry, saveDesktopHosts, savedDesktopHosts, savedHostModes, saveHostModes } from "./desktopNetwork";
 import { machineSettings, MEMORY_GIB, RUNNING_CHOICES, saveMachineSettings } from "./desktopMachines";
 import { writeAtomic } from "./fsx";
 import { sha256hex } from "./hash";
@@ -101,7 +101,7 @@ const liveReader = (name: string): string | undefined => name === WEB_SEARCH ? "
 const TURNS_SHELL_OFF = " Calling it turns this desktop's shell off until your person allows it, so run the commands a task needs first.";
 
 /** The same, for a contained desktop: its network goes, not its shell. */
-const TURNS_NETWORK_OFF = " Calling it turns this desktop's network off until your person allows it, so install and fetch what a task needs first.";
+const TURNS_NETWORK_OFF = " Calling it closes every host this desktop could send to until your person allows it; reading and installing keep working.";
 
 /** Host tools that list sources: titles, snippets and senders are their text. */
 const LISTERS = new Set(["search_vault", "recent"]);
@@ -174,7 +174,7 @@ function aboutSection(n: number): string {
 
 const NETWORK = `\n## The network\nYour commands reach beyond this machine only through BigBrain's sandbox, to package registries, GitHub and the hosts your person allowed. When it refuses a host a task needs, ask for it with request_host and wait for their answer; never route around the refusal.`;
 
-const CONTAINED_NETWORK = `\n## The network\nYour machine reaches beyond itself only through BigBrain's proxy, to package registries, GitHub and the hosts your person allowed. When it refuses a host a task needs, ask for it with request_host and wait for their answer; never route around the refusal. Reading material from outside your person (a live integration, the web, a source note) turns your machine's network off until they allow it, so install and fetch what a task needs first.`;
+const CONTAINED_NETWORK = `\n## The network\nYour machine reaches beyond itself only through BigBrain's proxy, to package registries, GitHub and the hosts your person allowed. Most of them are read-only: downloads, installs and git fetches work; pushes, publishes and other writes are refused, and landing your work is your person's step. When the proxy refuses a host or a request a task needs, ask for the host with request_host and wait for their answer; never route around the refusal. Reading material from outside your person (a live integration, the web, a source note) closes every host you could send to until they allow it; reading and installing keep working.`;
 
 /** A desktop from before machines, on a computer that runs them: it keeps Land and Discard, and nothing new. */
 const LEGACY = "This desktop predates contained desktops: land or discard its work, then start a new desktop.";
@@ -420,10 +420,14 @@ export class CodingDesktops {
   }
 
   /** The hosts desktops' commands may reach beyond this machine: the defaults, and the person's additions (desktopNetwork.ts). */
-  network() { return { defaults: DEFAULT_HOSTS, hosts: savedDesktopHosts(this.root) }; }
+  network() { return { defaults: DEFAULT_HOSTS, hosts: savedDesktopHosts(this.root), modes: savedHostModes(this.root) }; }
 
-  setNetwork(hosts: unknown) {
-    try { saveDesktopHosts(this.root, hosts); }
+  /** The person's hosts, and (optionally) each one's mode for contained desktops: read, upload or tunnel. */
+  setNetwork(hosts: unknown, modes?: unknown) {
+    try {
+      saveDesktopHosts(this.root, hosts);
+      if (modes !== undefined) saveHostModes(this.root, modes);
+    }
     catch (e) { throw new CodingDesktopError(e instanceof Error ? e.message : "Could not save those hosts."); }
     return this.network();
   }

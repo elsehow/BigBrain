@@ -24,7 +24,7 @@ export interface DesktopMachines {
   image?: { missing: number; imageBytes: number; diskBytes: number; local: boolean };
   freed?: number;
 }
-export interface DesktopNetwork { defaults: string[]; hosts: string[] }
+export interface DesktopNetwork { defaults: string[]; hosts: string[]; modes?: Record<string, "upload" | "tunnel"> }
 
 /** One grounding source of an assertion. `band`/`from`/`via`/`source` are
  * the filed-by facet (lib/assertionEntityView.ts's ProjectedEntitySource) —

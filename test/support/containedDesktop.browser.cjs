@@ -35,23 +35,22 @@ const assert = require('node:assert/strict');
 
     // Land…: the review, with both flags, then Land
     await header().getByRole('button', { name: 'Land…', exact: true }).click();
-    const review = page.locator('.review');
+    const review = page.locator('.review', { hasText: '1 commit on desktop/d-0000cafe' });
     await review.waitFor();
-    assert.match(await review.innerText(), /1 commit on desktop\/d-0000cafe/);
     assert.match(await review.innerText(), /Runs code on its own: package\.json/);
     await review.getByRole('button', { name: 'Land these commits' }).click();
     await page.getByText('Brought desktop/d-0000cafe home to orrery.').waitFor();
 
     // network off: the panel names what it read and the host it was refused, and Allow network answers it
     await open('network-off');
-    const panel = page.getByRole('group', { name: 'The network is off for this desktop' });
+    const panel = page.getByRole('group', { name: 'Uploads are off for this desktop' });
     await panel.waitFor();
-    assert.match(await panel.innerText(), /It read the web, so its commands reach no site until you allow it/);
+    assert.match(await panel.innerText(), /It read the web, so its commands reach only sites they can't send to, until you allow it/);
     assert.equal(await panel.locator('code').innerText(), 'registry.npmjs.org');
     assert.equal(await page.getByRole('group', { name: 'The shell is off for this desktop' }).count(), 0, 'a contained desktop keeps its shell');
     await header().getByRole('button', { name: 'Land…', exact: true }).click();
-    assert.match(await page.locator('.review').innerText(), /It read material from outside you: the web/);
-    await panel.getByRole('button', { name: 'Allow network' }).click();
+    await page.locator('.review', { hasText: 'It read material from outside you: the web' }).waitFor();
+    await panel.getByRole('button', { name: 'Allow uploads' }).click();
     await panel.waitFor({ state: 'detached' });
 
     // preparing: progress, and Cancel
@@ -109,6 +108,18 @@ const assert = require('node:assert/strict');
     await page.goto(`${base}/sidebar-workbench.html?machines=off#/general`);
     await page.getByRole('region', { name: 'Desktop machines' }).getByText('Contained desktops run on Apple silicon for now; desktops on this Mac are sandboxed.').waitFor();
     assert.equal(await page.getByLabel('Memory per desktop').count(), 0);
+
+    // a host the person adds: read-only in machines unless they say otherwise
+    await page.goto(`${base}/sidebar-workbench.html?machines=on#/general`);
+    const network = page.getByRole('region', { name: 'Always reachable' });
+    await network.getByRole('button', { name: '+ Add host' }).click();
+    await network.getByLabel('Host or local port').fill('data.tides.example');
+    await network.getByRole('button', { name: 'Allow' }).click();
+    const mode = network.getByLabel('What desktops may do at data.tides.example');
+    await mode.waitFor();
+    assert.equal(await mode.inputValue(), 'read');
+    await mode.selectOption('upload');
+    await page.waitForFunction(() => document.querySelector('[aria-label="What desktops may do at data.tides.example"]')?.value === 'upload');
 
     assert.deepEqual(errors, []);
     console.log('contained desktop: ok');

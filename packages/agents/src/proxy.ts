@@ -19,10 +19,21 @@
  * a connection is. drop() closes a desktop's open connections, the moment
  * its hosts shrink (the plan's D9: a desktop that read outside material
  * loses the network).
+ *
+ * For a contained desktop's connections, with a CA (egressPolicy.ts), the
+ * proxy terminates TLS for an allowlisted host in "read" or "upload" mode,
+ * so it sees each request and applies the host's mode: a read host takes
+ * reads and git fetches, never a write or a push. "tunnel" hosts, and every
+ * sandboxed desktop's connection (whose commands don't trust this CA), get
+ * an opaque tunnel as before.
  */
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { lookup } from "node:dns/promises";
+import { lookup as lookupCb, type LookupAddress } from "node:dns";
+import { request as httpsRequest, createServer as createHttpsServer, type Server as HttpsServer } from "node:https";
+import type { IncomingMessage, ServerResponse } from "node:http";
 import { BlockList, connect, createServer, isIP, type Server, type Socket } from "node:net";
+import { permitted, type HostMode, type MachineCA } from "./egressPolicy";
 
 const HEAD_MAX = 32_768, HEAD_MS = 15_000;
 const PORTS = new Set([80, 443]);
@@ -57,6 +68,17 @@ async function dialPublic(host: string, port: number): Promise<Socket> {
   return dialed(s).then(() => { s.setTimeout(0); return s; });
 }
 
+/** DNS for terminated requests: a name that resolves to this machine or a private network is refused. */
+function publicLookup(hostname: string, options: object, callback: (err: Error | null, address: string | LookupAddress[], family?: number) => void): void {
+  lookupCb(hostname, { ...options, all: true }, (err, addresses) => {
+    if (err) return callback(err, "");
+    const list = addresses as LookupAddress[];
+    if (!list.length || list.some(a => privateAddress(a.address))) return callback(new Error(`${hostname} resolves to this machine or a private network`), "");
+    if ((options as { all?: boolean }).all) return callback(null, list);
+    callback(null, list[0]!.address, list[0]!.family);
+  });
+}
+
 const dialed = (s: Socket) => new Promise<Socket>((done, fail) => { s.once("connect", () => done(s)); s.once("error", fail); });
 
 class Refusal extends Error {}
@@ -66,8 +88,14 @@ export interface EgressOptions {
   hosts: (desktop?: string) => Iterable<string>;
   /** How to ask for a host off the list, said when one is refused. */
   ask?: string;
+  /** A host's mode for a desktop (egressPolicy.ts). Absent: every allowed host is a tunnel. */
+  mode?: (desktop: string | undefined, host: string) => HostMode;
+  /** The CA a contained desktop's machine trusts: with it, read and upload hosts are terminated and their requests checked. */
+  ca?: MachineCA;
   /** Told when a desktop's connection is refused a host off its list: the host shows it. */
   refused?: (desktop: string, host: string) => void;
+  /** Where a terminated request goes instead of the host itself, and the CA its certificate is checked against; tests stand in a local upstream. */
+  upstream?: (host: string, port: number) => { host: string; port: number; ca: string };
   /** How an allowed connection is made; tests stand in a local upstream. */
   dial?: (host: string, port: number) => Promise<Socket>;
 }
@@ -77,6 +105,10 @@ export class EgressProxy {
   private listening?: Promise<number>;
   private key = randomBytes(32);
   private desktopServers = new Map<string, Server>();
+  /** One TLS server per terminated host, on loopback, with that host's certificate. */
+  private terminators = new Map<string, Promise<{ server: HttpsServer; port: number }>>();
+  /** A terminator's inbound connection (by the connecting socket's port) → whose it is. */
+  private inbound = new Map<number, { desktop: string; host: string; port: number }>();
   /** Each desktop's open connections, client and upstream, for drop(). */
   private open = new Map<string, Set<Socket>>();
   constructor(private options: EgressOptions) {}
@@ -145,9 +177,64 @@ export class EgressProxy {
 
   close(): void {
     this.server?.close(); this.server = undefined; this.listening = undefined;
+    for (const t of this.terminators.values()) void t.then(x => x.server.close(), () => undefined);
+    this.terminators.clear();
     // a copy: unserveDesktop deletes from the map being walked
     // oxlint-disable-next-line unicorn/no-useless-spread
     for (const d of [...this.desktopServers.keys()]) this.unserveDesktop(d);
+  }
+
+  /** A connection to this host's terminator, registered as the desktop's. */
+  private async terminate(desktop: string, host: string, port: number): Promise<Socket> {
+    const t = await this.terminator(host);
+    const inner = connect({ host: "127.0.0.1", port: t.port });
+    await new Promise<void>((done, fail) => { inner.once("connect", () => done()); inner.once("error", fail); });
+    const key = inner.localPort!;
+    this.inbound.set(key, { desktop, host, port });
+    inner.once("close", () => this.inbound.delete(key));
+    return inner;
+  }
+
+  private terminator(host: string): Promise<{ server: HttpsServer; port: number }> {
+    let t = this.terminators.get(host);
+    if (!t) {
+      t = new Promise((done, fail) => {
+        const { key, cert } = this.options.ca!.leaf(host);
+        const server = createHttpsServer({ key, cert, ALPNProtocols: ["http/1.1"] }, (req, res) => this.relay(req, res));
+        server.once("error", fail);
+        server.listen(0, "127.0.0.1", () => { server.unref(); done({ server, port: (server.address() as { port: number }).port }); });
+      });
+      this.terminators.set(host, t);
+      t.catch(() => this.terminators.delete(host));
+    }
+    return t;
+  }
+
+  /** One request inside a terminated tunnel: checked against the host's mode for its desktop, then sent on, its answer streamed back. */
+  private relay(req: IncomingMessage, res: ServerResponse): void {
+    const who = this.inbound.get(req.socket.remotePort ?? -1);
+    const deny = (status: number, text: string) => { res.writeHead(status, { "content-type": "text/plain", connection: "close" }); res.end(`${text}\n`); };
+    if (!who) return deny(403, "BigBrain's sandbox refused this request: it isn't any desktop's.");
+    const { desktop, host, port } = who;
+    // what may be reached is asked again: taint may have closed it since the tunnel opened
+    if (!allowedHost(host, this.options.hosts(desktop))) return deny(403, `BigBrain's sandbox refused ${host}: it is not on this desktop's network allowlist now.`);
+    const mode = this.options.mode?.(desktop, host) ?? "tunnel";
+    const why = permitted(mode, req.method ?? "GET", req.url ?? "/");
+    if (why) {
+      this.options.refused?.(desktop, host);
+      return deny(403, `BigBrain's sandbox refused ${req.method} ${host}${(req.url ?? "").split("?")[0]}: ${why}. Your person can mark the host "may upload" in Settings.`);
+    }
+    const headers = { ...req.headers };
+    for (const h of ["proxy-connection", "proxy-authorization", "connection", "keep-alive", "upgrade"]) delete headers[h];
+    const to = this.options.upstream?.(host, port);
+    const up = httpsRequest({ host: to?.host ?? host, port: to?.port ?? port, servername: host, method: req.method, path: req.url, headers, timeout: HEAD_MS,
+      ...(to ? { ca: to.ca } : { lookup: publicLookup }) }, upRes => {
+      res.writeHead(upRes.statusCode ?? 502, upRes.statusMessage ?? "", upRes.headers);
+      upRes.pipe(res);
+    });
+    up.on("timeout", () => up.destroy(new Error("timeout")));
+    up.on("error", () => { if (!res.headersSent) deny(502, `Could not reach ${host}.`); else res.destroy(); });
+    req.pipe(up);
   }
 
   private serve(client: Socket, known?: string): void {
@@ -193,6 +280,27 @@ export class EgressProxy {
       const why = `it is not on the desktop network allowlist${this.options.ask ? `; ${this.options.ask}` : " (Settings)"}`;
       // a client that sends its credential only when asked (git) is asked, for a host its desktop may reach
       return refuse(why, auth || known ? 403 : 407);
+    }
+    const mode = this.options.mode?.(desktop, host) ?? "tunnel";
+    if (request && known) {
+      const why = permitted(mode, method, target.replace(/^[a-z]+:\/\/[^/]+/i, "") || "/");
+      if (why) return refuse(why);
+    }
+    // a contained desktop's TLS to a host it may only read or upload to: terminated here, each request checked
+    if (!request && known && this.options.ca && mode !== "tunnel" && port === 443 && !isIP(host)) {
+      let inner: Socket;
+      try { inner = await this.terminate(known, host, port); }
+      catch { return answer(client, 502, `Could not reach ${host}:${port}.`); }
+      if (client.destroyed) { inner.destroy(); return; }
+      this.track(known, client, inner);
+      inner.on("error", () => client.destroy());
+      client.on("close", () => inner.destroy());
+      inner.on("close", () => { if (!client.writableEnded) client.end(); });
+      client.write("HTTP/1.1 200 Connection Established\r\n\r\n");
+      if (rest.length) inner.write(rest);
+      client.pipe(inner); inner.pipe(client);
+      client.resume();
+      return;
     }
     let upstream: Socket;
     try { upstream = await (this.options.dial ?? dialPublic)(host, port); }

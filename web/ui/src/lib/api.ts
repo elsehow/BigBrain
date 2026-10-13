@@ -247,7 +247,7 @@ export const api = {
   pilotEnabled: (enabled: boolean) => post<PilotState>("/api/pilot/enabled", { enabled }),
   /** Where coding desktops' commands may reach beyond this machine (lib/desktopNetwork.ts): the defaults, and the person's additions. */
   desktopNetwork: () => get<DesktopNetwork>("/api/desktops/network"),
-  saveDesktopNetwork: (hosts: string[]) => post<DesktopNetwork>("/api/desktops/network", { hosts }),
+  saveDesktopNetwork: (hosts: string[], modes?: Record<string, "read" | "upload" | "tunnel">) => post<DesktopNetwork>("/api/desktops/network", { hosts, ...(modes ? { modes } : {}) }),
   /** Contained desktops' machines: whether they run here, memory and how many at once, and the image. */
   desktopMachines: () => get<DesktopMachines>("/api/desktops/machines"),
   saveDesktopMachines: (patch: { memoryGiB?: number; running?: number }) => post<DesktopMachines>("/api/desktops/machines", patch),

@@ -559,7 +559,7 @@ test("a contained desktop: reading the web turns its network off, not its shell,
   expect(desktops.networkOff(made.id)).toBe(false);
   await desktops.send(made.id, "what changed in orrery 4.2?", "in-1");
   await answered(desktops, made.id);
-  expect(offered).toContain("Calling it turns this desktop's network off until your person allows it");
+  expect(offered).toContain("Calling it closes every host this desktop could send to until your person allows it");
   expect(offered).toContain("Your machine reaches beyond itself only through BigBrain's proxy");
   expect(offered).not.toContain("turns this desktop's shell off");
   expect(desktops.get(made.id).taint?.sources.map(s => s.via)).toEqual(["web_search"]);

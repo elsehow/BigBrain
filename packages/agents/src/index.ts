@@ -15,3 +15,4 @@ export { MachineImages, readPins, machineArch, sha256File, PINS, type Pins, type
 export { containedTools, inMachine, type ContainedContext } from "./containedTools";
 export { openProject, syncProject, projectState, ahead, WORK, type CopyRecord, type ProjectState } from "./projects";
 export { copyDiff, landCopy, discardCopy, saveCopy, readCopy, listCopies, type CopyDiff } from "./review";
+export { MachineCA, permitted, HOST_MODES, type HostMode } from "./egressPolicy";

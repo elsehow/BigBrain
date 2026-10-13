@@ -12,7 +12,8 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { Agents, EgressProxy, Harbor, MachineImages, Machines, workspace, type MachineEvent } from "../src";
+import { createServer as httpsServer, type Server as HttpsServer } from "node:https";
+import { Agents, EgressProxy, Harbor, MachineCA, MachineImages, Machines, workspace, type HostMode, type MachineEvent } from "../src";
 
 const BACKEND = process.env.BIGBRAIN_VM_TESTS as "vz" | "qemu" | undefined;
 const IMAGE = process.env.BIGBRAIN_MACHINE_IMAGE ?? resolve(import.meta.dir, "../image/out");
@@ -171,6 +172,37 @@ describe.skipIf(!enabled)(`a contained desktop (${BACKEND})`, () => {
     await expect(fetch(`http://127.0.0.1:${hostPort}/`)).rejects.toThrow();
     await machines.stopAll();
   }, 120_000);
+
+  test("egress policy (Phase 4): the machine trusts this install's CA; a read host takes reads, never writes; an upload host takes writes", async () => {
+    const web = new MachineCA({ dir: join(scratch("web-ca-"), "ca") }), mine = new MachineCA({ dir: join(scratch("machine-ca-"), "ca") });
+    const modes: Record<string, HostMode> = { "registry.example": "read", "uploads.example": "upload" };
+    const servers: HttpsServer[] = [];
+    const ports: Record<string, number> = {};
+    for (const host of Object.keys(modes)) {
+      const server = httpsServer(web.leaf(host), (req, res) => { let b = ""; req.on("data", d => { b += d; }); req.on("end", () => res.end(`${req.method} ${req.url} ${b}`)); });
+      await new Promise<void>(done => server.listen(0, "127.0.0.1", done));
+      servers.push(server); ports[host] = (server.address() as { port: number }).port;
+    }
+    const policyProxy = new EgressProxy({ hosts: () => Object.keys(modes), mode: (_d, h) => modes[h] ?? "read", ca: mine,
+      upstream: host => ({ host: "127.0.0.1", port: ports[host]!, ca: web.cert() }) });
+    const { ws } = scene();
+    const machines = new Machines({ ws, images: new MachineImages({ local: IMAGE }), proxy: policyProxy, backend: BACKEND!, helper: HELPER, memoryMiB: () => 1024, cpus: 2, ca: () => mine.cert() });
+    machinesMade.push(machines);
+    const harbor = new Agents(ws, new Harbor({ env: {}, discovery: false }), machines).contained!;
+    const run = async (command: string) => { const r = await harbor.run("desk-t1", command, "/work"); return r.status === "exited" ? r.output.trim() : `still running: ${r.output}`; };
+    try {
+      expect(await run("curl -sS https://registry.example/orrery")).toBe("GET /orrery");
+      expect(await run("curl -sS -X POST -d want https://registry.example/invented/orrery.git/git-upload-pack")).toBe("POST /invented/orrery.git/git-upload-pack want");
+      expect(await run("curl -sS -o /dev/null -w '%{http_code}' -X POST -d pack https://registry.example/invented/orrery.git/git-receive-pack")).toBe("403");
+      expect(await run("curl -sS -X PUT -d '{}' https://uploads.example/orrery")).toBe("PUT /orrery {}");
+      // node's tools trust it too, through NODE_EXTRA_CA_CERTS
+      expect(await run(`bun -e "console.log(await (await fetch('https://registry.example/from-bun')).text())"`)).toBe("GET /from-bun");
+    } finally {
+      await machines.stopAll();
+      policyProxy.close();
+      servers.forEach(s => s.close());
+    }
+  }, 180_000);
 
   test("one machine at a time: starting a second stops the idle first, and says so", async () => {
     const { ws } = scene();

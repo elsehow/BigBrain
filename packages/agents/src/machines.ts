@@ -20,6 +20,7 @@
  */
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
+import { createHash } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
 import type { Guest } from "./guest";
 import type { Guests, Prepared } from "./guests";
@@ -46,6 +47,14 @@ function readOrigin(dir: string): string | undefined {
 /** The Linux test harness that stands in for the helper (image/qemu.sh). */
 export const QEMU_HELPER = resolve(import.meta.dir, "../image/qemu.sh");
 
+/** Where a machine's tools look for trusted certificates: the system bundle, which carries this install's CA (Machines.trust). */
+const BUNDLE = "/etc/ssl/certs/ca-certificates.crt";
+const TRUST_ENV: Record<string, string> = {
+  NODE_EXTRA_CA_CERTS: "/usr/local/share/ca-certificates/bigbrain-machine.crt",
+  SSL_CERT_FILE: BUNDLE, CURL_CA_BUNDLE: BUNDLE, REQUESTS_CA_BUNDLE: BUNDLE, PIP_CERT: BUNDLE, GIT_SSL_CAINFO: BUNDLE,
+  UV_NATIVE_TLS: "1", npm_config_cafile: BUNDLE,
+};
+
 export type MachineEvent =
   | { type: "machine.preparing"; got: number; total: number }
   | { type: "machine.started"; ms: number; image: string }
@@ -66,6 +75,8 @@ export interface MachinesOptions {
   cpus?: number;
   /** Values a desktop's commands get beyond the guest's base: what the host grants a project. */
   env?: (desktop: string) => Record<string, string>;
+  /** This install's CA (egressPolicy.ts), PEM: installed in each machine at its start, so the proxy's terminated TLS is trusted there. */
+  ca?: () => string;
   /** Told what happens to a desktop's machine. */
   onEvent?: (desktop: string, event: MachineEvent) => void;
   tz?: string;
@@ -195,6 +206,7 @@ export class Machines implements Guests {
     const t0 = Date.now();
     try {
       const hello = await e.machine.start();
+      await this.trust(e.machine);
       e.failure = undefined;
       this.emit(desktop, { type: "machine.started", ms: Date.now() - t0, image: hello.image });
     } catch (err) {
@@ -204,6 +216,20 @@ export class Machines implements Guests {
       this.emit(desktop, { type: "machine.failed", message, console: err instanceof MachineError ? err.console ?? "" : "" });
       throw new AgentsError(message);
     }
+  }
+
+  /** Install this install's CA in a machine's trust store, when it isn't there already. */
+  private async trust(m: Machine): Promise<void> {
+    const pem = this.o.ca?.();
+    if (!pem) return;
+    const g = m.guest();
+    const path = "/usr/local/share/ca-certificates/bigbrain-machine.crt";
+    const have = await g.stat(path, true).catch(() => undefined);
+    const want = createHash("sha256").update(pem).digest("hex");
+    if (have?.sha256 === want) return;
+    await g.write(path, pem, { parents: true, mode: 0o644 });
+    const x = await g.exec(["/usr/sbin/update-ca-certificates"], { cwd: "/", user: "root" }, () => {});
+    await x.exit;
   }
 
   /** Over the cap: stop the least recently used idle machine. */
@@ -229,7 +255,7 @@ export class Machines implements Guests {
     e.jobs++;
     let settled = false;
     return {
-      guest: m.guest(), argv: ["/bin/bash", "-lc", command], env: this.o.env?.(desktop) ?? {},
+      guest: m.guest(), argv: ["/bin/bash", "-lc", command], env: { ...(this.o.ca ? TRUST_ENV : {}), ...this.o.env?.(desktop) },
       done: () => { if (settled) return; settled = true; e.jobs--; e.used = Date.now(); },
     };
   }
