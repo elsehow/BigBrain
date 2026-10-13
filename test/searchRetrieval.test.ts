@@ -22,7 +22,7 @@ function fixture() {
   ] }); roots.push(root); return root;
 }
 function scan(root: string, q: string, filters = {}) {
-  const r = scanSurface(root, q, 20, "api", { ledger: false, filters });
+  const r = scanSurface(root, q, 20, "api", { filters });
   if (!r.ok) throw new Error(r.reason);
   return r;
 }
@@ -64,7 +64,7 @@ test("OR groups preserve conjunctions and do not leak through explicit scope fil
 test("bad alternatives return a repairable query error, never literal OR matches or a cache error", () => {
   const root = fixture();
   for (const query of ["gastro OR", "OR bonds", "gastro OR OR bonds", Array(9).fill("debt").join(" OR ")]) {
-    expect(scanSurface(root, query, 5, "api", { ledger: false })).toMatchObject({ ok: false, invalid_query: true });
+    expect(scanSurface(root, query, 5, "api", {})).toMatchObject({ ok: false, invalid_query: true });
   }
   const ctx = { root, via: "api" as const };
   for (const args of [{ queries: [] }, { query: "debt", queries: ["bonds"] }, { queries: [null] }])
@@ -84,7 +84,7 @@ test("memory edits, additions and deletions arrive through the notes door; symli
   expect(scan(root, "Example Clinic").hits[0]?.path).toBe("memory/health.md");
   writeFileSync(join(root, "memory/health.md"), "# Health\nReplacement clinic.");
   projectNotes(root, ["memory/health.md"]);
-  expect(scanSurface(root, "Example Clinic", 20, "api", { ledger: false, relax: false })).toMatchObject({ ok: true, hits: [] });
+  expect(scanSurface(root, "Example Clinic", 20, "api", { relax: false })).toMatchObject({ ok: true, hits: [] });
   expect(scan(root, "Replacement").hits[0]?.path).toBe("memory/health.md");
   mkdirSync(join(root, "memory/nested"));
   writeFileSync(join(root, "memory/nested/topic.md"), "# Nested\nFreshlyadded.");
@@ -109,7 +109,7 @@ test("original sources survive the candidate cap when many conversations match b
   const root = nativeVault({ files: { "vault.yaml": NATIVE_YAML }, insertions: [...chats,
     insertion({ id: `ins_${"f".repeat(24)}`, title: "Original research", body: "A source discussing debt markets in detail.", envelope: { source: "api", kind: "web-clip" } }),
   ] }); roots.push(root);
-  const r = scanSurface(root, "debt", 1, "api", { ledger: false });
+  const r = scanSurface(root, "debt", 1, "api", {});
   expect(r).toMatchObject({ ok: true, hits: [{ title: "Original research" }], only_agent_records: false });
   expect(scan(root, "debt", { source: "agent-chat" }).hits[0]?.title).toBe("Debt");
 });

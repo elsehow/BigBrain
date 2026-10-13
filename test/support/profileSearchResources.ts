@@ -25,7 +25,7 @@ Database.prototype.query=function(sql: string){
 const syncStart=performance.now();const counts=syncAssertionProjection(root);console.log(JSON.stringify({stage:'sync',ms:performance.now()-syncStart,counts}));
 const queries=[{q:'project'},{q:'next steps'},{q:'memory'},{q:'a'},{q:'re'},{q:'project',filters:{source:'pilot'}},{q:'project',filters:{type:'entity' as const}}];
 for(let pass=0;pass<(process.env.BB_PROFILE_MEMORY_ONLY ? 0 : 6);pass++)for(const [index,{q,filters}] of queries.entries()){
- sqlTimes.clear();const start=performance.now();const result=scanSurface(root,q,200,'web',{ledger:false,filters});if(!result.ok)throw new Error(result.reason);
+ sqlTimes.clear();const start=performance.now();const result=scanSurface(root,q,200,'web',{filters});if(!result.ok)throw new Error(result.reason);
  console.log(JSON.stringify({stage:'search',pass,query:index,ms:performance.now()-start,hits:result.ok?result.hits.length:0,digest:createHash('sha256').update(JSON.stringify(result)).digest('hex'),sql:[...sqlTimes].map(([query,v])=>({query,...v})).sort((a,b)=>b.ms-a.ms).slice(0,5)}));
 }
 Database.prototype.query=original;

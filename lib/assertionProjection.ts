@@ -1591,7 +1591,7 @@ export function sourceHeadsIn(db: Database, ids: readonly string[]): Map<string,
     `SELECT insertion_id, source_id, title, occurred_at, received_at,
         envelope_kind AS kind,
         envelope_source AS source FROM sources INDEXED BY sources_headers
-      WHERE insertion_id IN (${placeholders})`,
+      WHERE insertion_id IN (${placeholders}) AND present = 1`,
     (row) => out.set(row.insertion_id, {
       id: row.insertion_id,
       source_id: row.source_id,

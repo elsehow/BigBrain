@@ -2,7 +2,7 @@
  * journal.ts — run ids, the §4.8 model-run journal block, and the one
  * typed reader over the historical run journals (#498: what survives of
  * the editor's paper trail — `journal/queue/` and its legacy siblings are
- * frozen history that noteLog and /v1/status still read; the writers died
+ * frozen history that /v1/status still reads; the writers died
  * with the pass, and new runs journal under `journal/tend/`).
  */
 
@@ -40,8 +40,8 @@ export function modelRunJournalFields(run: ModelRunResult | AgentRunResult): Rec
 // ── reading a run journal back (#265) ───────────────────────────────────────
 // Three call sites used to JSON.parse(readFileSync(...)) this file ad hoc,
 // each casting to `Record<string, unknown>` and reaching for its own subset
-// of fields: lib/api.ts's /v1/status.last_run, lib/noteLog.ts's runRole/
-// journalModelFor/journalLogRows. One shape, one loader, next to the writer
+// of fields: lib/api.ts's /v1/status.last_run, and the note log that read
+// the editor's runs before a note's history came from the record (R6). One shape, one loader, next to the writer
 // that defines it.
 
 /** The fields runQueue's journal(extra) writes for `journal/queue/<runId>.json`,
@@ -77,9 +77,9 @@ export interface QueueJournalRecord {
 }
 
 /** One journal file, read once: the parsed record (typed, loosely) AND the
- * raw text — noteLog.ts's journalLogRows matches a note's path/id against
- * the raw JSON text for legacy records whose shape predates any indexable
- * field, so callers that don't need it can just ignore `raw`. Undefined on
+ * raw text, for a caller matching a note's path/id against the raw JSON of
+ * legacy records whose shape predates any indexable field; callers that
+ * don't need it can just ignore `raw`. Undefined on
  * ANY failure (missing file, unreadable, not valid JSON, not an object) —
  * a journal entry is disposable audit trail, never worth a throw. */
 export function readQueueJournalFile(

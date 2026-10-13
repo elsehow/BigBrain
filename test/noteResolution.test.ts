@@ -48,12 +48,14 @@ test("Markdown interpretation is shared, while each caller authorizes its own se
   expect(notePayload(root, "requests/private.md").status).toBe(403);
 });
 
-test("exact source readers and snapshot evidence keep their explicit failure policies", () => {
+test("the exact file reader fails on a damaged file; every read door serves the copy the projection validated", () => {
   const { root, sources } = fixture(), path = insertionEventRel(sources[0]!);
   const projected = { markdown: noMarkdown, source: sourceInsertionCached };
   const before = resolveNote(root, path, projected);
   writeFileSync(join(root, path), "broken JSON");
   expect(resolveNote(root, path, { markdown: noMarkdown })).toBeUndefined();
-  expect(notePayload(root, path).status).toBe(404);
+  // R6: a read never touches the disk, so a damaged file is the census's
+  // business; the reader is served what was validated when it landed
+  expect(notePayload(root, path).status).toBe(200);
   expect(resolveNote(root, path, projected)).toEqual(before);
 });

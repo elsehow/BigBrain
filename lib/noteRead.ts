@@ -20,7 +20,6 @@
 
 import type { NoteWindow } from "./noteWindow";
 export type { NoteWindow } from "./noteWindow";
-import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import {
   assertionEntityExists,
@@ -28,22 +27,23 @@ import {
   isAssertionEntityPath,
   projectedEntityMarkdown,
   projectedEntityToc,
+  sourceInsertionCached,
   sourceThreadView,
   sourceThreadMarkdown,
 } from "./assertionEntityView";
 import { isSourceThreadPath } from "./sourceThreads";
 import { insertionEventRel, sourceMoment } from "./insertionLog";
-import { otherCopies } from "./vaultReadModel";
+import { otherCopies, projectedMarkdown, projectedMarkdownContent, projectedMarkdownPaths, projectedSourcePresent, withVaultSnapshot } from "./vaultReadModel";
+import { parseVaultPath } from "./ids";
 import { parseWikilinks } from "./linkSyntax";
 import { DEFAULT_SLACK, matchBody } from "./noteMatch";
 import { withinRoot } from "./browsePaths";
-import { resolveNote, readNoteFile } from "./noteResolution";
+import { resolveNote, type NoteReadPolicy } from "./noteResolution";
 import { sessionMarkdown } from "./workSessionView";
 import {
   isSourceInsertionPath,
   sourceInsertionMarkdown,
 } from "./sourceFeed";
-import { walkMarkdown } from "./vaultRead";
 import { parseBlobRef, readBlob } from "./blobs";
 import type { PdfText } from "./pdfText";
 import type { ScanReader } from "./scanReader";
@@ -63,31 +63,21 @@ const MEMORY_TREE = "memory";
 /** Defensive ceiling on tree walks — an alpha vault is far smaller. */
 const WALK_CAP = 5_000;
 
-/** The shared walk (lib/vaultRead.ts) under the shared ceiling. */
+/** The notes the projection holds under `trees`, under the shared ceiling. */
 export function walkTrees(root: string, trees: readonly string[]): string[] {
-  return walkMarkdown(root, trees, { cap: WALK_CAP });
+  return projectedMarkdownPaths(root, trees).slice(0, WALK_CAP);
 }
 
-/** The lexical half of both jails: lib/browsePaths.ts's withinRoot over the
- * given allowlist, after this door's own hygiene checks (absolute inputs and
- * NUL bytes never reach the resolver); then, if the target exists, the same
- * containment over realpaths, so a symlink under an allowed tree cannot
- * point outside it. Existence is the caller's concern — a jailed-but-absent
- * path returns the abs path and the route answers 404, keeping 403 and 404
- * distinct. */
+/** Both jails: lib/browsePaths.ts's withinRoot over the given allowlist,
+ * after this door's own hygiene checks (absolute inputs and NUL bytes never
+ * reach the resolver). Lexical alone: what is served comes from the
+ * projection, which took in only notes whose real path is inside the vault
+ * (lib/markdownGraph.ts markdownInventory), so no read follows a symlink
+ * out. Existence is the caller's concern — a jailed-but-absent path returns
+ * the abs path and the route answers 404, keeping 403 and 404 distinct. */
 function jailUnder(root: string, rel: string, trees: readonly string[]): string | null {
   if (!rel || rel.startsWith("/") || rel.includes("\0")) return null;
-  const abs = withinRoot(root, rel, trees);
-  if (!abs) return null;
-  try {
-    const realRoot = realpathSync(root);
-    const realRel = relative(realRoot, realpathSync(abs)).split(sep).join("/");
-    if (!withinRoot(realRoot, realRel, trees)) return null;
-  } catch {
-    /* ENOENT: a path that does not exist cannot symlink out — the lexical
-     * jail already holds, and the route will 404. */
-  }
-  return abs;
+  return withinRoot(root, rel, trees);
 }
 
 /** Resolve a vault-relative request path inside the read jail, or null (→403). */
@@ -163,7 +153,7 @@ export function linkIndex(root: string): Map<string, string> {
  */
 export function resolveLink(root: string, target: string, idx: Map<string, string>): string | null {
   if (isSourceThreadPath(target)) return sourceThreadView(root, target) ? target : null;
-  if (isSourceInsertionPath(target)) return existsSync(join(root, target)) ? target : null;
+  if (isSourceInsertionPath(target)) return projectedSourcePresent(root, target.slice(target.lastIndexOf("/") + 1, -5)) ? target : null;
   if (isAssertionEntityPath(target)) return assertionEntityExists(root, target) ? target : null;
   const known = idx.get(target.toLowerCase());
   if (known) return known;
@@ -171,8 +161,8 @@ export function resolveLink(root: string, target: string, idx: Map<string, strin
   // index above, whose tree order decides which of two same-named notes wins.
   if (!target.includes("/")) return null;
   const md = target.endsWith(".md") ? target : `${target}.md`;
-  const abs = md.startsWith(`${MEMORY_TREE}/`) ? jailMemoryNotePath(root, md) : jailPath(root, md);
-  return abs && existsSync(abs) ? md : null;
+  const jailed = md.startsWith(`${MEMORY_TREE}/`) ? jailMemoryNotePath(root, md) : jailPath(root, md);
+  return jailed && projectedMarkdown(root, md) !== undefined ? md : null;
 }
 
 /** Every link in a body, resolved — the `links` array of every note this
@@ -253,10 +243,21 @@ function windowedBody(markdown: string, window: NoteWindow): Pick<NoteJson, "mar
  * use (each door owns its `via`) and serializes.
  */
 export function notePayload(root: string, relRaw: string, window: NoteWindow = {}): NotePayload {
-  const resolved = resolveNote(root, relRaw, { sessions: true, markdown: path => {
-    const abs = path.endsWith(".md") && (jailMemoryNotePath(root, path) ?? jailPath(root, path));
-    return abs ? readNoteFile(root, abs) : undefined;
-  } });
+  // One snapshot for the note, its links and its copies: the projection,
+  // never the disk (R6).
+  return withVaultSnapshot(root, () => notePayloadIn(root, relRaw, window));
+}
+/** How the agent doors read a note: from the projection, inside the jails. */
+export const projectedNotePolicy = (root: string): NoteReadPolicy => ({ sessions: true, source: sourceInsertionCached, markdown: asked => {
+  const abs = asked.endsWith(".md") ? jailMemoryNotePath(root, asked) ?? jailPath(root, asked) : null;
+  if (!abs) return undefined;
+  const path = relative(root, abs).split(sep).join("/"); // the spelling the projection holds
+  const note = projectedMarkdownContent(root, path);
+  return note && { path, raw: note.raw, mtime: new Date(note.mtimeMs).toISOString() };
+} });
+
+function notePayloadIn(root: string, relRaw: string, window: NoteWindow): NotePayload {
+  const resolved = resolveNote(root, relRaw, projectedNotePolicy(root));
   if (resolved?.kind === "session") {
     const { session } = resolved;
     const markdown = sessionMarkdown(session);
@@ -465,13 +466,12 @@ export function noteMarkdownText(note: NoteJson): string {
 /** `memory/MEMORY.md`, or one topic file, raw — the same contract as
  * `/v1/memory`: links are NOT resolved the way notes resolve them, because
  * the consumer is an agent that follows each `[[memory/slug]]` back through
- * this door and each record link through `notePayload`. */
+ * this door and each record link through `notePayload`. Read from the
+ * projection, as the memory pass's door projected it (R6): never the disk. */
 export function memoryRead(root: string, slug = ""): { status: 200; text: string } | { status: 403 | 404; error: string } {
-  const abs = jailMemoryPath(root, slug ? `${slug}.md` : "MEMORY.md");
-  if (!abs) return { status: 403, error: "forbidden path" };
-  try {
-    return { status: 200, text: readFileSync(abs, "utf8") };
-  } catch {
-    return { status: 404, error: "not found" };
-  }
+  let path: string;
+  try { path = parseVaultPath(`memory/${slug ? `${slug}.md` : "MEMORY.md"}`); }
+  catch { return { status: 403, error: "forbidden path" }; }
+  const text = projectedMarkdown(root, path);
+  return text === undefined ? { status: 404, error: "not found" } : { status: 200, text };
 }
