@@ -591,11 +591,13 @@ function identityAssertions(db: Database): AssertionEvent[] {
     AND json_extract(production_json, '$.procedure') = ? AND json_extract(production_json, '$.version') = ?
     ORDER BY created_at, id`, USER_IDENTITY_PROCEDURE, USER_IDENTITY_VERSION);
 }
+/** The owner's identity declarations, at a snapshot. */
+export function userIdentityOf({ db }: Snapshot) {
+  const rows = identityAssertions(db);
+  return userIdentityDeclarationsFromEvents(rows, sourcesFor(db, rows));
+}
 export function identityReadModel(root: string) {
-  return withVaultSnapshot(root, db => {
-    const rows = identityAssertions(db);
-    return userIdentityDeclarationsFromEvents(rows, sourcesFor(db, rows));
-  });
+  return withSnapshot(root, userIdentityOf);
 }
 const voiceWhere = "present = 1 AND envelope_kind IN (SELECT value FROM json_each(?))";
 export function voiceReadModel(root: string, keys: ReadonlySet<string>) {

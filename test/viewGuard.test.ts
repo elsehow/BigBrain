@@ -66,7 +66,6 @@ test("a view reads no clock, no randomness, no engine-rounded math", () => {
 const NOT_YET_STAGES = [
   "lib/diagnostics.ts",
   "lib/entityFolds.ts",
-  "lib/feedStage.ts",
   "lib/inclusionQueries.ts",
   // checks a Jev key when it is saved: operational
   "lib/jevSettingsApi.ts",
@@ -75,7 +74,6 @@ const NOT_YET_STAGES = [
   "lib/scanReader.ts",
   "lib/sharedRuleEvaluator.ts",
   "lib/sourceCopyJudge.ts",
-  "lib/tend.ts",
   "lib/webSearch.ts",
 ];
 /** The model runners, and the names each exports that call a model. */

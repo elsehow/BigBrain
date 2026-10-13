@@ -6,7 +6,7 @@ import { appendAndProjectAssertion, rebuildAssertionProjection, syncAssertionPro
 import { appendSourceInsertionEvent } from "../lib/insertionLog";
 import { readLensState } from "../lib/lensRecord";
 import { newLens, writeLens } from "../lib/lenses";
-import { dueIntakeIds } from "../lib/work";
+import { dueIntake } from "../lib/stages/intake";
 import { insertion, mdVault } from "./support/vault";
 
 const roots: string[] = [];
@@ -39,7 +39,7 @@ test("an inclusion never settles intake, and a rebuild reads a lens as it was", 
   writeLens(root, lens);
   appendAndProjectAssertion(root, createInclusionAssertion({ lens: lens.id, rule: "r",
     verdicts: [{ insertion_id: note.id, source_id: "minutes", input: "x", score: .9 }], author: model, ...said }));
-  expect(dueIntakeIds(root)).toEqual([note.id]);
+  expect(dueIntake(root)).toEqual([note.id]);
   const before = readLensState(root, lens).members;
   expect([...before.in]).toEqual(["minutes"]);
   rebuildAssertionProjection(root);

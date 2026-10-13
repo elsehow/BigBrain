@@ -488,7 +488,7 @@ function v2Entity({ res, url }: Ctx): void {
   feedJson(res, (snapshot) => ({ rows: readEntityFeed(snapshot, id) }));
 }
 
-// The sorted feed (lib/feedStage.ts): what needs the owner, what an agent
+// The sorted feed (lib/stages/feed.ts): what needs the owner, what an agent
 // could do, what is worth knowing. Empty without a feed: block, and the view
 // keeps showing the latest assertions. A page at a time (`limit`, newest
 // first, and `before`, the `next` of the page before): the feed only grows.
