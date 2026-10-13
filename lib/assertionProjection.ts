@@ -77,7 +77,7 @@ import { withProjectionWrite } from "./projectionWriteLock";
 //     evidence (lib/maintainedGraph.ts).
 // 29: lens verdicts, the inclusion kind (inclusion_verdicts).
 // 30: each source's content hash, body and attachments alone (body_sha256).
-const SCHEMA_VERSION = "31";
+const SCHEMA_VERSION = "32";
 
 export interface AssertionSearchHit {
   id: string;
@@ -396,6 +396,9 @@ function schema(db: Database): void {
   db.run(`CREATE TABLE IF NOT EXISTS feed_item_assertions (
     source TEXT NOT NULL, position INTEGER NOT NULL, assertion_id TEXT NOT NULL, PRIMARY KEY (source, position)
   ) WITHOUT ROWID`);
+  // Every claim a successful feed call read, placed or skipped: what the
+  // feed stage has settled (lib/stages/feed.ts).
+  db.run("CREATE TABLE IF NOT EXISTS feed_reads (assertion_id TEXT PRIMARY KEY) WITHOUT ROWID");
 }
 
 /** Keep the database inode stable: readers in WAL transactions retain the
@@ -1245,6 +1248,8 @@ function insertTendRun(db: Database, rel: string, run: Record<string, unknown>):
  * records are projected in; a skip places nothing (feedJournal.ts feedItems). */
 function insertFeedItems(db: Database, record: FeedRecord): void {
   if (record.error || !Array.isArray(record.entries) || typeof record.completed_at !== "string") return;
+  const read = db.query("INSERT OR IGNORE INTO feed_reads(assertion_id) VALUES (?)");
+  for (const id of Array.isArray(record.assertions) ? record.assertions : []) if (typeof id === "string") read.run(id);
   const item = db.query(`INSERT INTO feed_items(source, section, rank, headline, due, added, invocation_id) VALUES (?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(source) DO UPDATE SET section = excluded.section, rank = excluded.rank, headline = excluded.headline,
       due = excluded.due, added = excluded.added, invocation_id = excluded.invocation_id

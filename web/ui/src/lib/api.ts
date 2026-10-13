@@ -233,7 +233,7 @@ export const api = {
   serverGraph: (id: string) => get<GraphData>(`/api/graph/server?id=${encodeURIComponent(id)}`),
   /** The v2 view's who and what (lib/v2Feed.ts): agents and the latest assertions, and the feed's stamp. */
   v2: () => stamped<import("./v2/model").V2Feed>("/api/v2", "x-bigbrain-stamp"),
-  /** A page of the sorted feed (lib/feedStage.ts), newest first; empty when
+  /** A page of the sorted feed (lib/stages/feed.ts), newest first; empty when
    * the vault has no feed. `before` is the `next` of the page before. */
   v2Sorted: (limit: number, before?: string | null) =>
     get<import("../../../../lib/views/v2Feed").SortedPage>(`/api/v2/sorted?limit=${limit}${before ? `&before=${encodeURIComponent(before)}` : ""}`),

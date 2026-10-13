@@ -4,7 +4,8 @@ import { rmSync } from 'node:fs';
 import { gitVault, insertionSeq, testManifest } from './support/vault';
 import { appendSourceInsertionEvent } from '../lib/insertionLog';
 import { machineTools } from '../lib/run/machineTools';
-import { dueIntakeIds, nextWork, type WorkItem, type SubmitResult } from '../lib/work';
+import { nextWork, type WorkItem, type SubmitResult } from '../lib/work';
+import { dueIntake } from '../lib/stages/intake';
 import { readAssertionLog } from '../lib/assertionLog';
 import { intakeRunning } from '../lib/assertionAgent';
 import { stage } from '../lib/stageStorage';
@@ -41,7 +42,7 @@ test('concurrent sessions get distinct batches, share entity validation, and dra
   expect(result.rounds.every(r => !r.error)).toBe(true);
   expect(assigned.map(a => a.length)).toEqual([3, 3]);
   expect(new Set(assigned.flat()).size).toBe(6);
-  expect(dueIntakeIds(root)).toEqual([]);
+  expect(dueIntake(root)).toEqual([]);
   expect(new Set(readAssertionLog(root).flatMap(a => a.entities.map(e => e.id))).size).toBe(1);
   expect(intakeRunning(root)).toBe(false);
 });
@@ -79,7 +80,7 @@ test('a failed lane cannot release the lock while its sibling still runs; unfini
     return done();
   });
   expect(result.rounds[0]!.error).toContain('provider failed');
-  expect(dueIntakeIds(root)).toEqual(sources.slice(0, 3).map(s => s.id));
+  expect(dueIntake(root)).toEqual(sources.slice(0, 3).map(s => s.id));
   expect(intakeRunning(root)).toBe(false);
 });
 
@@ -99,7 +100,7 @@ test('staged admission is owned before next can expose the new insertion to anot
     return done();
   });
   expect(result.rounds.every(r => !r.error)).toBe(true);
-  expect(dueIntakeIds(root)).toEqual([]);
+  expect(dueIntake(root)).toEqual([]);
 });
 
 test('distinct assignments do not deduplicate equivalent claims grounded in different arrivals', async () => {

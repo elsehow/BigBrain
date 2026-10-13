@@ -97,7 +97,7 @@ export function feedRow({ event: row, firstAt: at, runModel: ran }: V2Assertion,
   };
 }
 
-/** One source on the sorted feed (lib/feedStage.ts), joined to the live record. */
+/** One source on the sorted feed (lib/stages/feed.ts), joined to the live record. */
 export interface V2SortedRow {
   source: string;
   section: "needs-you" | "agent" | "know";

@@ -89,7 +89,7 @@
 
   let ent: number | null = $state(null);
   let entRows: V2FeedRow[] | null = $state(null);
-  /** The sorted feed (lib/feedStage.ts), when the vault has one: the pages
+  /** The sorted feed (lib/stages/feed.ts), when the vault has one: the pages
    * loaded so far, newest first, and the key of the page before them. */
   let sorted: V2SortedRow[] = $state([]);
   let sortedNext: string | null = null, olderLoad: Promise<boolean> | null = null;

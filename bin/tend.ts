@@ -34,7 +34,7 @@ if (hasFlag(argv, "chain") && !only) {
 
 // --rounds N (#480): the interactive /bigbrain:tend and the SessionEnd
 // bounded batch cap how many `claude -p` sessions one run may spawn. The
-// runner's TEND_MAX_ROUNDS stays the scheduled tick's default.
+// runner's TEND_MAX_ROUNDS (lib/stages/intake.ts) stays the scheduled tick's default.
 let maxRounds: number | undefined;
 if (hasFlag(argv, "rounds")) {
   const n = Number(flagValue(argv, "rounds"));

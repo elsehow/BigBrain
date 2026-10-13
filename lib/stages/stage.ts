@@ -87,11 +87,12 @@ export const memoKey = (stage: Pick<Stage<unknown, unknown>, "name" | "version">
 /** The inputs a stage has not answered: for a record stage, those none of
  * its outputs settles; for a memo stage, those with no answer under its
  * version. A stage is due when this is not empty. */
-export function waiting<In, Out>(stage: RecordStage<In, Out>, snapshot: Snapshot): StageInput<In>[];
+export type RecordViews<In, Out> = Pick<RecordStage<In, Out>, "output" | "inputs" | "written" | "settles">;
+export function waiting<In, Out>(stage: RecordViews<In, Out>, snapshot: Snapshot): StageInput<In>[];
 export function waiting<In, Out>(stage: MemoStage<In, Out>, snapshot: Snapshot, memo: MemoStore<Out>): StageInput<In>[];
-export function waiting<In, Out>(stage: Stage<In, Out>, snapshot: Snapshot, memo?: MemoStore<Out>): StageInput<In>[] {
+export function waiting<In, Out>(stage: RecordViews<In, Out> | MemoStage<In, Out>, snapshot: Snapshot, memo?: MemoStore<Out>): StageInput<In>[] {
   const inputs = stage.inputs(snapshot);
-  if (stage.output === "memo") return inputs.filter((input) => memo!.get(memoKey(stage, input)) === undefined);
+  if (stage.output === "memo") return inputs.filter((input) => memo!.get(memoKey(stage as MemoStage<In, Out>, input)) === undefined);
   const settled = new Set(stage.written(snapshot).flatMap((out) => stage.settles(out)));
   return inputs.filter((input) => !settled.has(input.id));
 }

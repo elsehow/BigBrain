@@ -14,9 +14,10 @@ import type { Manifest } from "../lib/manifest";
 import type { MemoryRunResult } from "../lib/memoryRun";
 import { stagedIds } from "../lib/stage";
 import { stage } from "../lib/stageStorage";
-import { runTend, tendDue, tendHasWork, tendPrompt } from "../lib/tend";
+import { runTend, tendDue, tendHasWork } from "../lib/tend";
 import { clearCredits, creditsState } from "../lib/providerCredits";
-import { dueIntakeIds, submitWork } from "../lib/work";
+import { submitWork } from "../lib/work";
+import { dueIntake, tendPrompt } from "../lib/stages/intake";
 import { insertionSeq, nativeVault, NATIVE_YAML } from "./support/vault";
 
 const scratch: string[] = [];
@@ -64,7 +65,7 @@ const settlingModel =
   });
 
 // the same question the runner asks, through the same function (#640)
-const liveDue = (root: string) => (): string[] => dueIntakeIds(root);
+const liveDue = (root: string) => (): string[] => dueIntake(root);
 
 describe("containment", () => {
   test("the session uses an isolated cwd and role-scoped tools; auth max strips the key", async () => {
