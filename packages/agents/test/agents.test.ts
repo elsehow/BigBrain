@@ -249,21 +249,21 @@ describe("the package's own programs", () => {
   });
 });
 
-describe.if(mac)("harbor", () => {
+describe("harbor", () => {
   const h = harbor();
   const server = (port = 0, stubborn = false) =>
-    `node -e "${stubborn ? "process.on('SIGTERM',()=>{});" : ""}require('http').createServer((q,s)=>s.end('ok')).listen(${port},'127.0.0.1')"`;
+    `'${process.execPath}' -e "${stubborn ? "process.on('SIGTERM',()=>{});" : ""}require('http').createServer((q,s)=>s.end('ok')).listen(${port},'127.0.0.1')"`;
 
   test("commands carry the desktop's tag and none of the host's own BigBrain settings", async () => {
     const env = commandEnv({ PATH: "/bin", BIGBRAIN_DESKTOP: "1", BIGBRAIN_VAULT: "/somewhere/vault", HOME: "/home/x" }, "desk-env");
     expect(env).toEqual({ PATH: "/bin", HOME: "/home/x", BIGBRAIN_AGENT_DESKTOP: "desk-env" });
-    const r = await new Harbor({ env: { PATH: process.env.PATH, BIGBRAIN_DESKTOP: "1" } }).run("desk-env", "echo app=$BIGBRAIN_DESKTOP tag=$BIGBRAIN_AGENT_DESKTOP", tmpdir());
+    const r = await new Harbor({ env: { PATH: process.env.PATH, BIGBRAIN_DESKTOP: "1" }, launcher }).run("desk-env", "echo app=$BIGBRAIN_DESKTOP tag=$BIGBRAIN_AGENT_DESKTOP", tmpdir());
     expect(r.output.trim()).toBe("app= tag=desk-env");
   });
 
   test("withheld names are asked for per command", async () => {
     const withheld: string[] = [];
-    const h = new Harbor({ env: { PATH: process.env.PATH, PROVIDER_KEY: "invented" }, withheld: () => withheld });
+    const h = new Harbor({ env: { PATH: process.env.PATH, PROVIDER_KEY: "invented" }, withheld: () => withheld, launcher });
     expect((await h.run("desk-env", "echo key=$PROVIDER_KEY", tmpdir())).output.trim()).toBe("key=invented");
     withheld.push("PROVIDER_KEY");
     expect((await h.run("desk-env", "echo key=$PROVIDER_KEY", tmpdir())).output.trim()).toBe("key=");
@@ -274,25 +274,44 @@ describe.if(mac)("harbor", () => {
     expect(r.status === "exited" && r.code === 3 && r.output.includes("gears")).toBe(true);
   });
 
-  test("a server returns once it listens, is found by its desktop's tag, and a stubborn one is still stopped", async () => {
+  test("a server returns once it listens, is found as its job's, and a stubborn one is still stopped", async () => {
     const r = await h.run("desk-h", server(0, true), tmpdir());
     expect(r.status).toBe("running");
     const port = r.status === "running" ? r.ports[0]! : 0;
     expect(await (await fetch(`http://127.0.0.1:${port}/`)).text()).toBe("ok");
     expect((await h.servers("desk-h")).map(s => s.port)).toContain(port);
-    expect(await h.holder(port)).toBe("desk-h");
+    if (mac) expect(await h.holder(port)).toBe("desk-h");
     expect(await h.stopDesktop("desk-h")).toBeGreaterThan(0);
     expect((await h.servers("desk-h")).length).toBe(0);
+    await expect(fetch(`http://127.0.0.1:${port}/`)).rejects.toThrow();
   });
 
-  test("discovery works with an app's thin PATH, which lacks /usr/sbin where lsof lives", async () => {
+  test("stop_job stops a job's whole group; the guest's own job number never leaks", async () => {
+    const r = await h.run("desk-j", `sleep 60 & ${server(0)}`, tmpdir());
+    expect(r.status).toBe("running");
+    const job = h.job(r.job)!;
+    await h.stopJob(job.id);
+    expect(job.exited).toBeTruthy();
+    expect((await h.servers("desk-j")).length).toBe(0);
+  });
+
+  test("an aborted command is stopped", async () => {
+    const ac = new AbortController();
+    const running = h.run("desk-k", "echo started; sleep 60", tmpdir(), ac.signal);
+    setTimeout(() => ac.abort(), 300);
+    const r = await running;
+    expect(r.status).toBe("exited");
+    expect(r.output).toContain("started");
+  });
+
+  test.if(mac)("discovery works with an app's thin PATH, which lacks /usr/sbin where lsof lives", async () => {
     const path = process.env.PATH;
     process.env.PATH = "/usr/bin:/bin";
     try { expect(Array.isArray(await h.servers("desk-thin"))).toBe(true); }
     finally { process.env.PATH = path; }
   });
 
-  test("two engines on one machine never sweep each other's processes", async () => {
+  test.if(mac)("two engines on one machine never sweep each other's processes", async () => {
     const a = new Harbor({ env: process.env, scope: scopeOf("/workspace/a"), settleMs: 400, graceMs: 500 });
     const b = new Harbor({ env: process.env, scope: scopeOf("/workspace/b"), settleMs: 400, graceMs: 500 });
     const r = await a.run("desk-same", server(0), tmpdir());
@@ -306,7 +325,7 @@ describe.if(mac)("harbor", () => {
     expect(await a.stopAll()).toBeGreaterThan(0);
   });
 
-  test("a fixed-port collision names the desktop holding the port", async () => {
+  test.if(mac)("a fixed-port collision names the desktop holding the port", async () => {
     const { ws } = scene();
     const first = await h.run("desk-a", server(0), tmpdir());
     const port = first.status === "running" ? first.ports[0]! : 0;

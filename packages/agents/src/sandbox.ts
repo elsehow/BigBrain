@@ -69,10 +69,14 @@ export interface Confinement {
 export interface Launch { file: string; args: string[]; env: NodeJS.ProcessEnv }
 
 /** Runs a desktop's command confined, or refuses it with an AgentsError.
- * Harbor's is Seatbelt; it is the swappable piece, for a sandbox elsewhere.
+ * The command is a desktop's local guest (guests.ts), which runs the
+ * desktop's files and commands under the same confinement. Seatbelt is the
+ * one in use; it is the swappable piece, for a sandbox elsewhere.
  * `busy`: loopback ports something outside the desktop listens on. */
 export interface Launcher {
   launch(job: { command: string; env: NodeJS.ProcessEnv; confine: Confinement; busy: number[] }): Promise<Launch>;
+  /** A folder of the desktop's that its confined commands may write: where its guest's socket goes. */
+  tmp?(desktop: string): string;
 }
 
 /** Package registries, and the hosts dependency fetches come from. */

@@ -6,12 +6,14 @@
  * desktops/<id>/<name>. Nothing is redirected and no command is classified:
  * the agent works where it says it works. Editing a project in place takes
  * its lease; start_work gives the desktop its own worktree (worktree.ts).
- * Commands run in Harbor (harbor.ts), each in a sandbox that lets it change
- * only what the desktop may (sandbox.ts). Every result carries a
- * plain-language label for the desktop's activity line.
+ * Files and commands go through the desktop's guest (guests.ts, guest.ts):
+ * this module opens no file and runs no program itself (the plan's I1,
+ * held by .oxlintrc.json). The guest runs under what the desktop may change
+ * (sandbox.ts). Every result carries a plain-language label for the
+ * desktop's activity line.
  */
-import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
-import { dirname, join, relative, resolve, sep } from "node:path";
+import { join, relative, resolve, sep } from "node:path";
+import { GuestError, type Guest } from "./guest";
 import type { Harbor } from "./harbor";
 import { confinement } from "./sandbox";
 import { startWork, type WorkRecord } from "./worktree";
@@ -57,17 +59,28 @@ function locate(ctx: ToolContext, path: string): { abs: string; rel: string; inP
   return { abs, rel, ...(first && listProjects(ctx.ws).some(p => p.name === first) ? { inPlace: first } : {}) };
 }
 
-/** Where a write lands, links followed: the file's real path. Never inside a
- * repository's .git (its hooks and config run code), however the path is spelled or linked. */
-function landing(abs: string, rel: string): string {
-  let at = abs;
-  while (!existsSync(at) && dirname(at) !== at) at = dirname(at);
-  // a broken link would be followed to wherever it names
-  if (at !== abs && lstatSync(abs, { throwIfNoEntry: false })?.isSymbolicLink()) throw new AgentsError(`${rel} is a broken link; the file tools don't write through it.`);
-  const real = join(realpathSync(at), relative(at, abs));
-  if ([rel, real].some(p => p.split(sep).some(s => s.toLowerCase() === ".git"))) throw new AgentsError(`${rel} is inside a .git folder; the file tools don't write there.`);
-  return real;
+/** A path the file tools never write: inside a repository's .git (its hooks and config run code), however spelled. */
+function notGit(rel: string): void {
+  if (rel.split(/[\\/]/).some(seg => seg.toLowerCase() === ".git")) throw new AgentsError(`${rel} is inside a .git folder; the file tools don't write there.`);
 }
+
+/** The host's own path for a file, where the guest's files are the host's: what its hooks are told. */
+function real(ctx: ToolContext, abs: string, rel: string): string {
+  return ctx.harbor.guests.real?.(abs, rel) ?? abs;
+}
+
+/** The guest's word on a file, in the agent's terms. */
+function said(e: unknown, rel: string): never {
+  if (!(e instanceof GuestError)) throw e;
+  if (e.code === "not-found") throw new AgentsError(`${rel} doesn't exist.`);
+  if (e.code === "is-directory") throw new AgentsError(`${rel} is a folder; use ls.`);
+  if (e.code === "not-directory") throw new AgentsError(`${rel} is not a folder.`);
+  if (e.code === "conflict") throw new AgentsError(`${rel} changed since you read it. Read it again.`);
+  if (e.code === "too-large") throw new AgentsError(`${rel} is too large for the file tools; use bash.`);
+  throw new AgentsError(`${rel}: ${e.message}`);
+}
+
+const guestOf = (ctx: ToolContext): Promise<Guest> => ctx.harbor.files(ctx.desktop, confinement(ctx.ws, ctx.desktop, ctx.untrusted?.() ?? false));
 
 /** The host's word on a write, before it lands. */
 function mayWrite(ctx: ToolContext, real: string): void {
@@ -91,10 +104,11 @@ export function codingTools(ctx: ToolContext): AgentTool[] {
       label: a => `Reading ${labelPath(a)}`,
       async run(a) {
         const { abs, rel } = locate(ctx, str(a.path, "a path"));
-        if (!existsSync(abs)) throw new AgentsError(`${rel} doesn't exist.`);
-        if (statSync(abs).isDirectory()) throw new AgentsError(`${rel} is a folder; use ls.`);
-        const body = readFileSync(abs, "utf8");
-        await ctx.file?.("read", realpathSync(abs), body);
+        const g = await guestOf(ctx);
+        const got = await g.read(abs).catch(e => said(e, rel));
+        if (got.data.length < got.size) throw new AgentsError(`${rel} is too large for the file tools (${got.size} bytes); use bash.`);
+        const body = got.data.toString("utf8");
+        if (ctx.file) await ctx.file("read", real(ctx, abs, rel), body);
         const lines = body.split("\n");
         const from = Math.max(1, Number(a.offset) || 1), count = Math.min(READ_LINES, Number(a.limit) || READ_LINES);
         let text = lines.slice(from - 1, from - 1 + count).map((l, i) => `${from + i}\t${l}`).join("\n");
@@ -109,9 +123,11 @@ export function codingTools(ctx: ToolContext): AgentTool[] {
       label: a => `Listing ${typeof a.path === "string" && a.path ? a.path : "projects"}`,
       async run(a) {
         const { abs, rel } = locate(ctx, typeof a.path === "string" && a.path ? a.path : "projects");
-        const names = readdirSync(abs, { withFileTypes: true }).filter(e => e.name !== ".git")
-          .map(e => e.isDirectory() || e.isSymbolicLink() ? `${e.name}/` : e.name).sort();
-        return { text: names.join("\n") || "(empty)", label: `Listed ${rel}`, ok: true };
+        const g = await guestOf(ctx);
+        const listed = await g.list(abs).catch(e => said(e, rel));
+        const names = listed.entries.filter(e => e.name !== ".git").map(e => e.kind === "dir" || e.kind === "link" ? `${e.name}/` : e.name).sort();
+        const more = listed.truncated ? "\n… (more entries; use bash to list them)" : "";
+        return { text: (names.join("\n") || "(empty)") + more, label: `Listed ${rel}`, ok: true };
       },
     },
     {
@@ -121,12 +137,13 @@ export function codingTools(ctx: ToolContext): AgentTool[] {
       async run(a) {
         const where = locate(ctx, str(a.path, "a path"));
         if (typeof a.content !== "string") throw new AgentsError("Give the file's content.");
-        const real = landing(where.abs, where.rel);
-        mayWrite(ctx, real);
+        notGit(where.rel);
+        const host = real(ctx, where.abs, where.rel);
+        mayWrite(ctx, host);
         lease(ctx, where.inPlace);
-        mkdirSync(dirname(where.abs), { recursive: true });
-        writeFileSync(where.abs, a.content);
-        await ctx.file?.("wrote", real, a.content);
+        const g = await guestOf(ctx);
+        await g.write(where.abs, a.content, { parents: true }).catch(e => said(e, where.rel));
+        if (ctx.file) await ctx.file("wrote", host, a.content);
         return { text: `Wrote ${where.rel} (${a.content.length} characters).`, label: `Wrote ${where.rel}`, ok: true };
       },
     },
@@ -138,18 +155,22 @@ export function codingTools(ctx: ToolContext): AgentTool[] {
         const where = locate(ctx, str(a.path, "a path"));
         const oldText = str(a.old, "the exact text to replace");
         if (typeof a.new !== "string") throw new AgentsError("Give the replacement text.");
-        if (!existsSync(where.abs)) throw new AgentsError(`${where.rel} doesn't exist.`);
-        const real = landing(where.abs, where.rel);
-        const body = readFileSync(where.abs, "utf8");
-        await ctx.file?.("read", real, body);
-        mayWrite(ctx, real);
+        notGit(where.rel);
+        const g = await guestOf(ctx);
+        const was = await g.read(where.abs).catch(e => said(e, where.rel));
+        if (was.data.length < was.size) throw new AgentsError(`${where.rel} is too large for the file tools (${was.size} bytes); use bash.`);
+        const host = real(ctx, where.abs, where.rel);
+        const body = was.data.toString("utf8");
+        if (ctx.file) await ctx.file("read", host, body);
+        mayWrite(ctx, host);
         lease(ctx, where.inPlace);
         const count = body.split(oldText).length - 1;
         if (!count) throw new AgentsError(`That text isn't in ${where.rel}. Read the file again; it may have changed.`);
         if (count > 1 && a.all !== true) throw new AgentsError(`That text appears ${count} times in ${where.rel}; include more context, or set all.`);
         const next = a.all === true ? body.split(oldText).join(a.new) : body.replace(oldText, () => a.new as string);
-        writeFileSync(where.abs, next);
-        await ctx.file?.("wrote", real, next);
+        // only over what was read: a change made since is the agent's to see first
+        await g.write(where.abs, next, { ifMatch: was.sha256 ?? null }).catch(e => said(e, where.rel));
+        if (ctx.file) await ctx.file("wrote", host, next);
         const n = a.all === true ? count : 1;
         return { text: `Edited ${where.rel} (${n} replacement${n === 1 ? "" : "s"}).`, label: `Edited ${where.rel}`, ok: true };
       },

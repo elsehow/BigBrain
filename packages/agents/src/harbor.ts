@@ -1,58 +1,25 @@
 /**
  * harbor.ts — the shell a desktop's agent runs commands in.
  *
- * Every command runs under `/bin/bash -c` inside the desktop's sandbox
- * (sandbox.ts), in its own process group, with `BIGBRAIN_AGENT_DESKTOP=<id>`
- * in its environment. The sandbox and that tag are inherited by everything
- * the command starts and survive daemonizing, so this module can find a
- * desktop's processes without the agent's help:
+ * Every command runs in the desktop's guest (guests.ts), under
+ * `/bin/bash -c`, in a process group of its own, which is its job. Harbor
+ * keeps the job table and the settle loop:
  *
  * - a command that is still running after a short settle and owns a
- *   listening loopback port returns early, as a job with that port: the
- *   agent just types `npm run dev`, there is no special tool for servers;
+ *   listening port returns early, as a job with that port: the agent just
+ *   types `npm run dev`, there is no special tool for servers;
  * - stopping is by process group, SIGTERM then SIGKILL after a grace,
  *   because some dev servers outlive a SIGTERM to their own pid;
- * - a port another desktop holds is reported by name.
+ * - a port another desktop holds is reported by name, where the guests know.
  *
- * Discovery reads `lsof` (who listens where) and `ps -E` (whose environment
- * carries the tag); both are macOS/BSD tools.
+ * Harbor spawns nothing and opens no file itself: the guest does both
+ * (the plan's I1, held by .oxlintrc.json).
  */
-import { spawn, type ChildProcess } from "node:child_process";
-import { createHash } from "node:crypto";
-import { existsSync } from "node:fs";
-import { EgressProxy } from "./proxy";
-import { run } from "./run";
-import { DEFAULT_HOSTS, Seatbelt, type Confinement, type Launcher, type SandboxPolicy } from "./sandbox";
+import type { Execution, Guest } from "./guest";
+import { LocalGuests, type Guests, type LocalGuestsOptions, type Prepared } from "./guests";
+import type { Confinement } from "./sandbox";
 
-/** Not BIGBRAIN_DESKTOP: the engine reads that as "running inside the app" (lib/env.ts). */
-export const TAG = "BIGBRAIN_AGENT_DESKTOP";
-
-/** The system tools discovery needs, by absolute path where they live: an app
- * started from Finder runs with a PATH that may lack /usr/sbin, where lsof is. */
-const tool = (name: string, ...dirs: string[]) => dirs.map(d => `${d}/${name}`).find(p => existsSync(p)) ?? name;
-const LSOF = tool("lsof", "/usr/sbin", "/usr/bin");
-const PS = tool("ps", "/bin", "/usr/bin");
-/** What discovery and an identity-only shell start with. */
-const SYSTEM_PATH = "/usr/bin:/bin:/usr/sbin:/sbin";
-
-/** Which engine's agents a process belongs to: a short hash of its workspace,
- * so two engines on one machine (the app, and a developer's scratch engine)
- * never sweep or stop each other's processes. */
-export const SCOPE = "BIGBRAIN_AGENT_SCOPE";
-export const scopeOf = (workspaceRoot: string): string => createHash("sha256").update(workspaceRoot).digest("hex").slice(0, 12);
-
-/** A command's environment: the base, minus the host's own BIGBRAIN_* settings
- * (the app's mode, the vault, ports) and any name the host withholds (its
- * credentials), plus the desktop's tag. An agent working on BigBrain itself
- * must not run its code as the host's app, on the host's vault. */
-export function commandEnv(base: NodeJS.ProcessEnv, desktop: string, scope?: string, withheld: Iterable<string> = []): NodeJS.ProcessEnv {
-  const deny = new Set(withheld);
-  const env: NodeJS.ProcessEnv = {};
-  for (const [k, v] of Object.entries(base)) if (!k.startsWith("BIGBRAIN_") && !deny.has(k)) env[k] = v;
-  env[TAG] = desktop;
-  if (scope) env[SCOPE] = scope;
-  return env;
-}
+export { TAG, SCOPE, scopeOf, commandEnv, loginEnv, type Listener } from "./guests";
 
 const OUTPUT_CAP = 200_000;
 
@@ -63,99 +30,59 @@ export interface Job {
   ports: number[];
   output(): string;
 }
-type JobState = Job & { child: ChildProcess; done: Promise<void> };
+interface JobState extends Job { guest: Guest; guestJob: number; execution: Execution; done: Promise<void> }
 export type RunResult =
   | { status: "exited"; code: number | null; signal: string | null; output: string; job: number }
   | { status: "running"; job: number; ports: number[]; output: string; note: string };
-export interface Listener { pid: number; port: number; address: string; desktop?: string }
 
-export interface HarborOptions {
-  /** The workspace whose agents this Harbor runs (scopeOf): it only finds and stops those. */
-  scope?: string;
+export interface HarborOptions extends LocalGuestsOptions {
   settleMs?: number;              // how long before a still-running command may return as a job
   waitMs?: number;                // the longest a command holds a turn before returning as a job
   graceMs?: number;               // SIGTERM → SIGKILL
-  /** The base environment for commands. Default: the person's login shell's (loginEnv). */
-  env?: NodeJS.ProcessEnv | (() => Promise<NodeJS.ProcessEnv>);
-  /** Names never passed to a command, whatever the base holds: the host's
-   * credentials. Asked per command, so a key saved since is withheld too. */
-  withheld?: () => Iterable<string>;
-  /** What the sandbox keeps from commands: paths, the host's ports, the hosts they may reach. */
-  policy?: SandboxPolicy;
-  /** What confines commands. Default: Seatbelt, which refuses them off macOS. */
-  launcher?: Launcher;
-}
-
-let snapshot: Promise<NodeJS.ProcessEnv> | undefined;
-/** The person's login shell's environment, taken once: their PATH, version
- * managers and exports, so an agent's commands behave like their terminal.
- * An app started from Finder gets a thinner environment than a shell. The
- * shell starts from an identity-only seed so this process's own variables
- * don't leak in; anything that fails falls back to that seed, never to this
- * process's env. No ssh agent: the sandbox drops one the shell names, too. */
-export function loginEnv(): Promise<NodeJS.ProcessEnv> {
-  return snapshot ??= (async () => {
-    const shell = process.env.SHELL || "/bin/zsh";
-    const seed: NodeJS.ProcessEnv = { PATH: SYSTEM_PATH, TERM: "dumb" };
-    for (const k of ["HOME", "USER", "LOGNAME", "SHELL", "LANG", "TMPDIR"]) if (process.env[k]) seed[k] = process.env[k];
-    const out = await new Promise<string | null>(done => {
-      const child = spawn(shell, ["-ilc", "env -0"], { env: seed, stdio: ["ignore", "pipe", "ignore"] });
-      const chunks: Buffer[] = [];
-      const timer = setTimeout(() => { child.kill("SIGKILL"); done(null); }, 10_000);
-      child.stdout!.on("data", d => chunks.push(d));
-      child.on("error", () => { clearTimeout(timer); done(null); });
-      child.on("close", code => { clearTimeout(timer); done(code === 0 ? Buffer.concat(chunks).toString() : null); });
-    });
-    if (!out) return { ...seed };
-    const env: NodeJS.ProcessEnv = {};
-    for (const pair of out.split("\0")) { const i = pair.indexOf("="); if (i > 0) env[pair.slice(0, i)] = pair.slice(i + 1); }
-    return env.PATH ? env : { ...seed };
-  })();
+  /** Where commands run. Default: LocalGuests over the options above. */
+  guests?: Guests;
 }
 
 export class Harbor {
   private jobs = new Map<number, JobState>();
   private next = 1;
-  private launcher: Launcher;
+  readonly guests: Guests;
   constructor(private options: HarborOptions = {}) {
-    const policy = options.policy ?? {};
-    // where commands reach the internet: started on the first command
-    this.launcher = options.launcher ?? new Seatbelt(policy, new EgressProxy({ hosts: desktop => policy.hosts?.(desktop) ?? DEFAULT_HOSTS, ask: policy.ask }));
+    this.guests = options.guests ?? new LocalGuests(options);
   }
 
-  private base(): Promise<NodeJS.ProcessEnv> {
-    const env = this.options.env;
-    return typeof env === "function" ? env() : env ? Promise.resolve(env) : loginEnv();
+  /** The guest a desktop's file tools use, under `confine`. */
+  files(desktop: string, confine?: Confinement): Promise<Guest> {
+    return this.guests.files(desktop, confine ?? bare(desktop));
   }
 
-  /** Run a command in its desktop's sandbox. `confine` says what it may
+  /** Run a command in its desktop's guest. `confine` says what it may
    * change (sandbox.ts, confinement); without it, only its temp folder.
    * Throws AgentsError, having run nothing, when it can't be confined. */
   async run(desktop: string, command: string, cwd: string, signal?: AbortSignal, confine?: Confinement): Promise<RunResult> {
     const settleMs = this.options.settleMs ?? 3000, waitMs = this.options.waitMs ?? 120_000;
-    // every port something else listens on now: the person's services, other desktops' servers
-    const busy = (await this.listeners().catch(() => [])).filter(l => l.desktop !== desktop).map(l => l.port);
-    const launch = await this.launcher.launch({ command, busy, confine: confine ?? { desktop, write: [], worktrees: [], untrusted: false },
-      env: commandEnv(await this.base(), desktop, this.options.scope, this.options.withheld?.()) });
-    const child = spawn(launch.file, launch.args, { cwd, detached: true, stdio: ["ignore", "pipe", "pipe"], env: launch.env });
-    const id = this.next++;
+    const p: Prepared = await this.guests.command(desktop, command, confine ?? bare(desktop));
     const buf: string[] = [];
     let size = 0;
-    const job: JobState = {
-      id, desktop, command, cwd, pid: child.pid ?? -1, started: new Date().toISOString(), ports: [],
-      child, done: Promise.resolve(), output: () => buf.join(""),
-    };
-    const take = (d: Buffer) => {
+    const take = (_kind: string, d: Buffer) => {
       buf.push(d.toString());
       size += d.length;
       while (size > OUTPUT_CAP && buf.length > 1) size -= Buffer.byteLength(buf.shift()!);
     };
-    child.stdout!.on("data", take);
-    child.stderr!.on("data", take);
+    let execution: Execution;
+    try { execution = await p.guest.exec(p.argv, { cwd, env: p.env, grace: this.options.graceMs ?? 3000 }, take); }
+    catch (e) { p.done(); throw e; }
+    const id = this.next++;
+    const job: JobState = {
+      id, desktop, command, cwd, pid: execution.pid, started: new Date().toISOString(), ports: [],
+      guest: p.guest, guestJob: execution.job, execution, done: Promise.resolve(), output: () => buf.join(""),
+    };
     this.jobs.set(id, job);
-    const exited = new Promise<void>(done => child.on("close", (code, sig) => { job.exited = { code, signal: sig }; done(); }));
-    job.done = exited;
-    child.on("error", error => { take(Buffer.from(String(error))); });
+    job.done = execution.exit.then(
+      x => { job.exited = x; },
+      // the guest went away mid-job: the job is gone with it
+      () => { job.exited = { code: null, signal: "SIGKILL" }; },
+    ).finally(() => p.done());
     const onAbort = () => { void this.stopJob(id); };
     signal?.addEventListener("abort", onAbort, { once: true });
 
@@ -163,11 +90,11 @@ export class Harbor {
     try {
       for (;;) {
         const tick = Math.min(500, Math.max(50, settleMs / 4));
-        const finished = await Promise.race([exited.then(() => true), sleep(tick).then(() => false)]);
+        const finished = await Promise.race([job.done.then(() => true), sleep(tick).then(() => false)]);
         if (finished) return { status: "exited", code: job.exited!.code, signal: job.exited!.signal, output: job.output(), job: id };
         const elapsed = Date.now() - t0;
         if (elapsed >= settleMs) {
-          const ports = (await this.listeners()).filter(l => l.desktop === desktop && this.inGroup(l.pid, job.pid)).map(l => l.port);
+          const ports = (await p.guest.ports().catch(() => [])).filter(l => l.job === job.guestJob).map(l => l.port);
           if (ports.length) {
             job.ports = [...new Set(ports)].sort((a, b) => a - b);
             return { status: "running", job: id, ports: job.ports, output: job.output(),
@@ -182,51 +109,9 @@ export class Harbor {
     }
   }
 
-  /** Whether `pid` is the job's leader or in its process group. */
-  private groups = new Map<number, number>();
-  private inGroup(pid: number, leader: number): boolean {
-    if (pid === leader) return true;
-    const pg = this.groups.get(pid);
-    return pg === leader;
-  }
-
-  /** Every listening TCP socket, with the desktop whose tag its process carries. */
-  async listeners(): Promise<Listener[]> {
-    const lsof = await run(LSOF, ["-nP", "-iTCP", "-sTCP:LISTEN", "-Fpn"], undefined, { PATH: SYSTEM_PATH });
-    const out: Listener[] = [];
-    let pid = 0;
-    for (const line of lsof.out.split("\n")) {
-      if (line.startsWith("p")) pid = Number(line.slice(1));
-      else if (line.startsWith("n")) {
-        const m = /^(.*):(\d+)$/.exec(line.slice(1));
-        if (m && pid) out.push({ pid, port: Number(m[2]), address: m[1]! });
-      }
-    }
-    const tags = await this.tags([...new Set(out.map(l => l.pid))]);
-    for (const l of out) { const t = tags.get(l.pid); if (t) { l.desktop = t.desktop; this.groups.set(l.pid, t.pgid); } }
-    return out;
-  }
-
-  /** pid → its desktop tag and process group, for this Harbor's scope only, for the given pids (or every process). */
-  private async tags(pids?: number[]): Promise<Map<number, { desktop: string; pgid: number }>> {
-    const map = new Map<number, { desktop: string; pgid: number }>();
-    if (pids && !pids.length) return map;
-    const args = ["-E", "-ww", "-o", "pid=,pgid=,command=", ...(pids ? ["-p", pids.join(",")] : ["-ax"])];
-    const ps = await run(PS, args, undefined, { PATH: SYSTEM_PATH });
-    const pattern = new RegExp(`(?:^|\\s)${TAG}=([a-z0-9-]+)(?:\\s|$)`);
-    const scoped = new RegExp(`(?:^|\\s)${SCOPE}=([a-f0-9]+)(?:\\s|$)`);
-    for (const line of ps.out.split("\n")) {
-      const m = /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(line);
-      const tag = m && pattern.exec(m[3]!);
-      if (!m || !tag || scoped.exec(m[3]!)?.[1] !== this.options.scope) continue;
-      map.set(Number(m[1]), { desktop: tag[1]!, pgid: Number(m[2]) });
-    }
-    return map;
-  }
-
   /** The desktop that holds a port, if any desktop does. */
-  async holder(port: number): Promise<string | undefined> {
-    return (await this.listeners()).find(l => l.port === port)?.desktop;
+  holder(port: number): Promise<string | undefined> {
+    return this.guests.holder?.(port) ?? Promise.resolve(undefined);
   }
 
   /** Resolves when a job's command has exited. */
@@ -238,45 +123,40 @@ export class Harbor {
   jobsFor(desktop: string): Job[] { return [...this.jobs.values()].filter(j => j.desktop === desktop); }
   job(id: number): Job | undefined { return this.jobs.get(id); }
 
-  /** The servers a desktop is running now: tagged listeners, matched to jobs where possible. */
+  /** The servers a desktop is running now: its live jobs' listening ports. */
   async servers(desktop: string): Promise<Array<{ port: number; pid: number; job?: number; command?: string }>> {
-    const ls = (await this.listeners()).filter(l => l.desktop === desktop);
+    const live = this.jobsFor(desktop).filter(j => !j.exited) as JobState[];
+    const guests = [...new Set(live.map(j => j.guest))];
+    const found = (await Promise.all(guests.map(g => g.ports().then(ps => ps.map(p => ({ ...p, guest: g }))).catch(() => [])))).flat();
     const seen = new Set<number>();
-    return ls.filter(l => !seen.has(l.port) && seen.add(l.port)).map(l => {
-      const job = [...this.jobs.values()].find(j => j.desktop === desktop && !j.exited && (j.pid === l.pid || this.inGroup(l.pid, j.pid)));
-      return { port: l.port, pid: l.pid, ...(job ? { job: job.id, command: job.command } : {}) };
-    }).sort((a, b) => a.port - b.port);
+    const out: Array<{ port: number; pid: number; job?: number; command?: string }> = [];
+    for (const l of found) {
+      const job = live.find(j => j.guest === l.guest && j.guestJob === l.job);
+      if (!job || seen.has(l.port)) continue;
+      seen.add(l.port);
+      out.push({ port: l.port, pid: l.pid, job: job.id, command: job.command });
+    }
+    return out.sort((a, b) => a.port - b.port);
   }
 
   async stopJob(id: number): Promise<void> {
     const job = this.jobs.get(id);
-    if (job && !job.exited) await this.stopGroups([job.pid]);
+    if (!job || job.exited) return;
+    await job.guest.stopJob(job.guestJob, this.options.graceMs ?? 3000).catch(() => job.execution.close());
+    await Promise.race([job.done, sleep(2000)]);
   }
 
-  /** Stop every desktop's processes in this Harbor's scope: after a restart no agent is running, so they're left over. */
-  async stopAll(): Promise<number> {
-    const groups = new Set([...(await this.tags()).values()].map(t => t.pgid));
-    await this.stopGroups([...groups]);
-    return groups.size;
-  }
+  /** Stop every desktop's processes in this engine's scope: after a restart no agent is running, so they're left over. */
+  stopAll(): Promise<number> { return this.guests.stopAll(); }
 
-  /** Stop everything carrying a desktop's tag, by process group. Returns how many groups. */
+  /** Stop everything a desktop runs. Returns how many guests or groups. */
   async stopDesktop(desktop: string): Promise<number> {
-    const tagged = await this.tags();
-    const groups = new Set<number>();
-    for (const [, t] of tagged) if (t.desktop === desktop) groups.add(t.pgid);
-    for (const j of this.jobsFor(desktop)) if (!j.exited) groups.add(j.pid);
-    await this.stopGroups([...groups]);
-    return groups.size;
-  }
-
-  private async stopGroups(groups: number[]): Promise<void> {
-    const alive = (g: number) => { try { process.kill(-g, 0); return true; } catch { return false; } };
-    for (const g of groups) { try { process.kill(-g, "SIGTERM"); } catch { /* gone */ } }
-    const deadline = Date.now() + (this.options.graceMs ?? 3000);
-    while (groups.some(alive) && Date.now() < deadline) await sleep(100);
-    for (const g of groups.filter(alive)) { try { process.kill(-g, "SIGKILL"); } catch { /* gone */ } }
+    const live = this.jobsFor(desktop).filter(j => !j.exited);
+    await Promise.all(live.map(j => this.stopJob(j.id)));
+    return live.length + await this.guests.stopDesktop(desktop);
   }
 }
 
+/** No confinement given: the desktop changes nothing but its temp folder. */
+const bare = (desktop: string): Confinement => ({ desktop, write: [], worktrees: [], untrusted: false });
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));

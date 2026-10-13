@@ -36,6 +36,52 @@
           }
         ]
       }
+    },
+    {
+      "files": [
+        "packages/agents/src/tools.ts",
+        "packages/agents/src/harbor.ts"
+      ],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "paths": [
+              {
+                "name": "node:fs",
+                "message": "The engine never opens a path the agent names: the guest does (docs/plans/2026-10-12-contained-desktops.md, I1)."
+              },
+              {
+                "name": "fs",
+                "message": "The engine never opens a path the agent names: the guest does (docs/plans/2026-10-12-contained-desktops.md, I1)."
+              },
+              {
+                "name": "node:fs/promises",
+                "message": "The engine never opens a path the agent names: the guest does (I1)."
+              },
+              {
+                "name": "node:child_process",
+                "message": "Commands run in the desktop's guest, never spawned here (I1)."
+              },
+              {
+                "name": "child_process",
+                "message": "Commands run in the desktop's guest, never spawned here (I1)."
+              }
+            ],
+            "patterns": [
+              {
+                "group": [
+                  "**/lib/**",
+                  "**/bin/**",
+                  "**/web/**",
+                  "**/integrations/**"
+                ],
+                "message": "packages/agents imports nothing from BigBrain: the host passes what it needs through open() (docs/design/coding-desktops.md)."
+              }
+            ]
+          }
+        ]
+      }
     }
   ]
 }
