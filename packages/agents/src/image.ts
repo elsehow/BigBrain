@@ -18,7 +18,7 @@ export async function unpackSparse(gz: string, out: string): Promise<{ size: num
   rmSync(tmp, { force: true });
   const fd = openSync(tmp, "w", 0o644);
   let at = 0;
-  let pending = Buffer.alloc(0);
+  let pending: Buffer = Buffer.alloc(0);
   const flush = (block: Buffer) => {
     if (!zero(block)) writeSync(fd, block, 0, block.length, at);
     at += block.length;
