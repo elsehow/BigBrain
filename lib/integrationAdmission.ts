@@ -16,7 +16,8 @@ import {integrationActive,integrationAccounts,MANAGED_INTEGRATIONS} from './inte
 import type {InclusionSource} from './inclusionPolicy';
 import {connectionStorePath} from './sharedConnections';
 import {loadManifest} from './manifest';
-import {gateDecide,gated,recordGateDecision} from './worthGate';
+import {GATE_JOURNAL_DIR,gateDecide,gated,recordGateDecision} from './worthGate';
+import {commitRunRecords} from './runRecords';
 
 /** A staged item as the gate reads it: the whole arrival. */
 export function stagedSource(s:StagedItem):InclusionSource {
@@ -55,5 +56,9 @@ export async function tickIntegrationAdmission(root:string,store=connectionStore
     }catch{retryAfter.set(key,Date.now()+15*60000);}
    }
   }
- }finally{running.delete(root);}
+ }finally{
+  // The gate's decisions are record: what it passed never reached the gardener.
+  if(loadManifest(root).gate)commitRunRecords(root,{dir:GATE_JOURNAL_DIR,role:'gate',summary:'gate: decisions',appended:true});
+  running.delete(root);
+ }
 }

@@ -25,6 +25,9 @@ export interface VaultToolContext {
   clientName?: string;
   /** Host-selected provenance; never accepted from tool arguments. */
   source?: "mcp" | "pilot";
+  /** Host-selected: the model a background job runs (lib/run/sessionJob.ts),
+   * which what it writes names. Never accepted from tool arguments. */
+  model?: string;
   /** Host-lent: reads a scanned PDF attachment with the host's model (lib/scanReader.ts). */
   readScan?: ScanReader;
 }
@@ -182,10 +185,11 @@ function submitTool(ctx: VaultToolContext, args: Record<string, unknown>): unkno
       // A STABLE invocation id, not a per-call one: the event's identity
       // hash covers author and produced_by, and a retried submission must
       // converge on the prior event (#520's idempotency story). The log
-      // requires model authors to carry one, so it names the door; run
-      // attribution is the journal's job (#514), not the event's.
+      // requires model authors to carry one, so it names the door. The
+      // model that made it is the event's, when the host knows it (R2):
+      // a run's journal is not the only place that says.
       author: { kind: "model", id: ctx.clientName || "mcp-client", invocation_id: "mcp" },
-      produced_by: { procedure: "bigbrain-mcp", version: "v1" },
+      produced_by: { procedure: "bigbrain-mcp", version: "v1", ...(ctx.model ? { model: ctx.model } : {}) },
     });
   } catch (error) {
     throw new VaultToolError(error instanceof Error ? error.message : String(error));

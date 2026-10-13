@@ -30,7 +30,7 @@ async function runJob(opts: ModelRunRequest, loaders: { pi?: () => Promise<PiSDK
   const noTools = profile.tools === "none", role = profile.tools === "gardener" ? "tend" : opts.role;
   const started = performance.now();
   const controller = new AbortController();
-  const tools = observeTools(machineTools(opts.root, role, noTools, "pi", opts.memoryEdits), opts.onTool);
+  const tools = observeTools(machineTools(opts.root, role, noTools, "pi", opts.memoryEdits, target.model), opts.onTool);
   const setup = { root: opts.root,
     config: target,
     role: profile.role,

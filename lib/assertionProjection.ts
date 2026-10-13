@@ -541,10 +541,12 @@ const GARDENER_CLIENTS = ["pi", "claude"];
 const GARDENER_ROW = `author_kind = 'model' AND author_id IN (${GARDENER_CLIENTS.map((c) => `'${c}'`).join(", ")})
   AND json_extract(production_json, '$.procedure') = 'bigbrain-mcp'`;
 
-/** The model of the run a gardener row was written during: the last run
- * started at or before it, if the row came before that run ended. The tend
- * lock keeps runs from overlapping, so that run is the one. */
+/** The model of the run a gardener row was written during. A row written
+ * since R2 names it (`produced_by.model`); an older one is matched to the
+ * last run started at or before it, if the row came before that run ended.
+ * The tend lock keeps runs from overlapping, so that run is the one. */
 function gardenerRunModel(db: Database, event: AssertionEvent): string | null {
+  if (event.produced_by.model) return event.produced_by.model;
   if (event.author.kind !== "model" || !GARDENER_CLIENTS.includes(event.author.id) || event.produced_by.procedure !== "bigbrain-mcp") return null;
   const run = db.query("SELECT model, completed_at FROM tend_runs WHERE started_at <= ? ORDER BY started_at DESC, rel DESC LIMIT 1")
     .get(event.created_at) as { model: string; completed_at: string } | null;
@@ -1205,7 +1207,7 @@ function insertTendRun(db: Database, rel: string, run: Record<string, unknown>):
   if (typeof model !== "string" || !model || typeof start !== "string" || typeof end !== "string") return;
   db.query("INSERT INTO tend_runs(rel, started_at, completed_at, model) VALUES (?, ?, ?, ?)").run(rel, start, end, model);
   db.query(`UPDATE assertions SET run_model = CASE WHEN created_at <= ? THEN ? END
-    WHERE ${GARDENER_ROW} AND created_at >= ?
+    WHERE ${GARDENER_ROW} AND json_extract(production_json, '$.model') IS NULL AND created_at >= ?
       AND NOT EXISTS (SELECT 1 FROM tend_runs r WHERE r.started_at > ? AND r.started_at <= assertions.created_at)`)
     .run(end, model, start, start);
 }
