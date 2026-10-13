@@ -2,7 +2,6 @@
 import { withVaultSnapshot } from "./vaultReadModel";
 import type { MarkdownDocument } from "./markdownGraph";
 import { basename } from "node:path";
-import { jailMemoryNotePath } from "./noteRead";
 import { stripMemoryProvenance } from "./memoryProvenance";
 import { searchAlternatives, searchTerms, exactSearchTerms } from "./searchQuery";
 import type { RankedHit, SearchFilters } from "./searchCore";
@@ -13,7 +12,7 @@ export function searchMemory(root: string, query: string, filters: SearchFilters
   if (filters.source || filters.type || filters.after || filters.before) return [];
   const groups = searchAlternatives(query);
   const exact = exactSearchTerms(query);
-  if (!groups.length || !jailMemoryNotePath(root, "memory/")) return [];
+  if (!groups.length) return [];
   return withVaultSnapshot(root, db => {
     const hits: RankedHit[] = [];
     const documents = db.query("SELECT document_json FROM markdown_bodies WHERE path LIKE 'memory/%' ORDER BY path").all() as { document_json: string }[];
@@ -21,7 +20,6 @@ export function searchMemory(root: string, query: string, filters: SearchFilters
       const { path, body: raw } = JSON.parse(row.document_json) as MarkdownDocument;
       // a claim's source stamp (lib/memoryProvenance.ts) is the runner's, not the memory's words
       const body = stripMemoryProvenance(raw);
-      if (!jailMemoryNotePath(root, path)) continue;
       const title = body.match(/^#\s+(.+)$/m)?.[1] ?? basename(path, ".md");
       const doc = { title, body, words: new Set(searchTerms(`${title}\n${body}`)) };
       const includes = (term: string) => exact.has(term) ? doc.words.has(term) : [...doc.words].some(word => word.startsWith(term));

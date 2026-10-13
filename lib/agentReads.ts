@@ -14,8 +14,9 @@ import { normalize } from "node:path";
 import { projectedSourceMetadata } from "./assertionProjection";
 import { screenCredentials, signInMail, type Screened } from "./credentialScreen";
 import { memoryForAgents, memoryHasOutside } from "./memoryProvenance";
-import { jailMemoryNotePath, jailPath } from "./noteRead";
-import { readNoteFile, resolveNote } from "./noteResolution";
+import { projectedNotePolicy } from "./noteRead";
+import { resolveNote } from "./noteResolution";
+import { withVaultSnapshot } from "./vaultReadModel";
 import { fenceAbout, fenceUntrusted, sender, sourceProvenance, sourceTrusted, originOf, type OriginKind, type Provenance } from "./provenance";
 import { isSourceInsertionPath } from "./sourceFeed";
 import type { SourceMetadata } from "./insertionLog";
@@ -32,10 +33,7 @@ const where = (kind: OriginKind): string => kind === "email" ? "open in Mail" : 
 /** A path's provenance, decided from the record (the trust rule is lib/provenance.ts's). */
 export function provenanceOf(root: string, path: string): Provenance {
   const p = normalize(path);
-  const r = resolveNote(root, p, { sessions: true, markdown: rel => {
-    const abs = rel.endsWith(".md") && (jailMemoryNotePath(root, rel) ?? jailPath(root, rel));
-    return abs ? readNoteFile(root, abs) : undefined;
-  } });
+  const r = withVaultSnapshot(root, () => resolveNote(root, p, projectedNotePolicy(root)));
   if (!r) return { kind: p.startsWith("memory/") ? "memory" : /^(?:projection\/)?entities\//u.test(p) ? "entity" : isSourceInsertionPath(p) ? "source" : "note", trusted: false, path: p };
   if (r.kind === "source") return sourceProvenance(r.source, r.path);
   if (r.kind === "thread") {

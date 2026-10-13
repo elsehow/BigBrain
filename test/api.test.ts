@@ -1,3 +1,4 @@
+import { projectNotes, recoverAssertionProjection } from "../lib/assertionProjection";
 import { afterEach, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -506,12 +507,15 @@ describe("GET /v1/memory (#105)", () => {
     }
   });
 
-  test("a symlink under memory/ that escapes it → 403 (realpath re-check)", async () => {
+  test("a symlink under memory/ that escapes it is never served: the projection never took it in", async () => {
     const { handler, token, root } = memoryVault();
     const secret = mkdtempSync(join(tmpdir(), "bb-secret-"));
     writeFileSync(join(secret, "passwd.md"), "root:x:0:0");
     symlinkSync(join(secret, "passwd.md"), join(root, "memory", "escape.md"));
-    expect((await handler(get("/v1/memory?path=escape", token))).status).toBe(403);
+    projectNotes(root, ["memory"]);
+    const res = await handler(get("/v1/memory?path=escape", token));
+    expect(res.status).toBe(404);
+    expect(await res.text()).not.toContain("root:x");
   });
 
   test("an absent slug → 404, not 403 (existence stays distinct)", async () => {
@@ -843,6 +847,7 @@ describe("the product shell's read route (#42): /v1/note", () => {
       const path = insertionEventRel(source);
       expect((await handler(get(`/v1/note?path=${encodeURIComponent(path)}`, token))).status).toBe(200);
       rmSync(join(root, path));
+      recoverAssertionProjection(root); // the census, as the watcher runs it on a change in log/
       const gone = await handler(get(`/v1/note?path=${encodeURIComponent(path)}`, token));
       expect(gone.status).toBe(404);
       expect(((await gone.json()) as { error: string }).error).toContain("not in the log");
@@ -922,6 +927,7 @@ describe("the product shell's read route (#42): /v1/note", () => {
         "---\ntitle: Long\n---\n\n" +
           Array.from({ length: 50 }, (_, i) => (i === 25 ? "the needle paragraph" : `filler ${i}`)).join("\n\n")
       );
+      projectNotes(root, ["references/long.md"]); // through the notes door, as the watcher passes it
       const md = (await (
         await handler(get("/v1/note?path=references/long.md&q=needle&slack=1", token))
       ).json()) as { blocks_shown: number; markdown: string; links: unknown[] };

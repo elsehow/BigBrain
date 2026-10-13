@@ -27,7 +27,7 @@ import {
   type SourceHead,
 } from "./assertionProjection";
 import { assertionEntityPath } from "./assertionEntityView";
-import { insertionEventOnDisk, insertionEventRel, sourceMoment } from "./insertionLog";
+import { insertionEventRel, sourceMoment } from "./insertionLog";
 import { isVoiceKind } from "./voiceFacts";
 import { searchAlternatives, SearchQueryError } from "./searchQuery";
 import { searchMemory } from "./searchMemory";
@@ -90,7 +90,9 @@ export function clampLimit(raw: string | null, fallback: number, cap = SEARCH_CA
 }
 
 export type ScanResult =
-  | { ok: true; hits: SearchHit[]; relaxation: Relaxation | null; applied_filters: SearchFilters; only_agent_records: boolean }
+  | { ok: true; hits: SearchHit[]; relaxation: Relaxation | null; applied_filters: SearchFilters; only_agent_records: boolean;
+      /** What the retrieval ledger keeps of it (`recordScan`). */
+      ranked: { path: string; tier: 0 | 1 | 2 }[] }
   | { ok: false; reason: string; invalid_query?: boolean };
 
 const queryTerms = (value: string): string[] => searchAlternatives(value).flat();
@@ -170,16 +172,10 @@ function assertionRanked(
     for (const row of sourceHits) wanted.add(row.insertion_id);
     for (const refs of assertionRefs.values()) for (const ref of refs) wanted.add(ref.insertion_id);
     for (const [, rows] of entityRows) for (const row of rows) for (const ref of row.refs) wanted.add(ref.insertion_id);
+    // A hit whose event has left the log is not a hit: the projection's
+    // census marks it absent (`present = 0`), and the heads read only what
+    // is present, so search never names a path the note door refuses.
     const byInsertion = projectedSourceHeads(root, [...wanted], db);
-    // A hit whose event has left the log is not a hit. The projection is
-    // append-only sync — it adds every new event file and prunes nothing —
-    // so a retraction commit (the vault's own `record: retract 9 agent-chat
-    // captures…`) leaves the row, its FTS text and its title behind, and
-    // search answered with a path `/v1/note` could not open. One stat per
-    // unique insertion in the pool keeps the promise the doors owe each
-    // other: search never names a path the note door refuses.
-    for (const [id, source] of byInsertion)
-      if (!insertionEventOnDisk(root, source)) byInsertion.delete(id);
 
     // `insertion` only on body candidates (kind 3): the row whose window the
     // snippet is cut from, once the hit has actually made the response.
@@ -334,23 +330,26 @@ function assertionRanked(
   });
 }
 
+/** The retrieval door (lib/retrieval.ts): a search a person or an agent
+ * asked, written to the ledger by the door that served it. The scan writes
+ * nothing. A machine pass searching to decide where to file is the
+ * machinery working, not someone looking for something, and its door does
+ * not call this: the bench must not learn it as demand. */
+export function recordScan(root: string, q: string, r: Extract<ScanResult, { ok: true }>, via: RetrievalVia, now?: Date): void {
+  recordSearch(root, q, r.ranked, via, now, r.relaxation ?? undefined);
+}
+
 /** The per-door knobs the shared scan takes beside its four-argument core
  * (root, query, limit, door). Every one of them is a default a door may
  * decline to state, so they ride in one bag rather than as a positional
  * tail — the CLI used to pass `undefined` through two slots to reach the
- * last one. `ledger: false` is the CLI's machine-pass door (BIGBRAIN_ROLE
- * set): a pass searching to decide where to file is the machinery working,
- * not a person looking for something, and lib/retrieval.ts's bench must not
- * learn it as demand. */
+ * last one. */
 export interface ScanOptions {
-  /** Read clock — the ledger's timestamp. Defaults to now at record time. */
-  now?: Date;
   /** Date/type narrowing the door parsed from its query string. */
   filters?: SearchFilters;
   /** Fall back to the any-term rung when every term together finds
    * nothing (#361). On by default; the machine pass turns it off. */
   relax?: boolean;
-  ledger?: boolean;
   includeMemory?: boolean;
 }
 
@@ -365,7 +364,7 @@ export function scanSurface(
   via: RetrievalVia,
   opts: ScanOptions = {}
 ): ScanResult {
-  const { now, filters = {}, relax = true, ledger = true, includeMemory = via !== "gardener" } = opts;
+  const { filters = {}, relax = true, includeMemory = via !== "gardener" } = opts;
   try {
     searchAlternatives(q); // validate before touching the projection
     // Notes are current as their door projected them (projectNotes).
@@ -391,7 +390,6 @@ export function scanSurface(
         hits = ranked("any");
         if (hits.length) relaxation = "any-term";
       }
-      if (ledger) recordSearch(root, q, hits, via, now, relaxation ?? undefined);
       return {
         ok: true,
         hits: hits.map(({ path, title, snippet, score, date, assertions, alias, source, evidence }) => ({
@@ -401,6 +399,7 @@ export function scanSurface(
           ...(evidence ? { evidence } : {}),
         })),
         relaxation,
+        ranked: hits.map(({ path, tier }) => ({ path, tier })),
         applied_filters: { ...filters },
         only_agent_records: hits.length > 0 && hits.every(h => h.evidence === "agent-conversation" || h.evidence === "agent-answer"),
       };

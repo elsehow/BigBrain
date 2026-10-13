@@ -5,7 +5,7 @@ import { landDrop } from "./landItem";
 import { attachmentPayload, memoryRead, notePayload, type AttachmentPayload, type NotePayload } from "./noteRead";
 import { recordUse, type RetrievalVia } from "./retrieval";
 import type { ScanReader } from "./scanReader";
-import { clampLimit, scanSurface, type SearchFilters } from "./searchCore";
+import { clampLimit, recordScan, scanSurface, type SearchFilters } from "./searchCore";
 import { fmBody, fmRaw, fmSerialize } from "./wire";
 import { openStaged } from "./stage";
 import { nextWork, submitWire, WORK_BATCH_LIMIT, WORK_KINDS, type WorkKind } from "./work";
@@ -68,8 +68,9 @@ function searchTool(ctx: VaultToolContext, args: Record<string, unknown>): unkno
     throw new VaultToolError(`bad type "${type}" — use reference or entity`);
   if (type) filters.type = type as "reference" | "entity";
   const n = clampLimit(args["n"] === undefined ? null : String(args["n"]), 20);
-  const r = scanSurface(ctx.root, q, n, ctx.via, { now: new Date(), filters });
+  const r = scanSurface(ctx.root, q, n, ctx.via, { filters });
   if (!r.ok) throw new VaultToolError(r.reason);
+  recordScan(ctx.root, q, r, ctx.via);
   // The gardener reads the record raw; every other reader is an agent (lib/agentReads.ts).
   const hits = ctx.via === "gardener" ? r.hits : rowsForAgent(ctx.root, r.hits);
   return { hits, relaxation: r.relaxation, applied_filters: r.applied_filters, only_agent_records: r.only_agent_records };

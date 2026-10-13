@@ -43,7 +43,7 @@ for(const {label,node} of samples){
 }
 const queries=[{label:"common-term",q:"project"},{label:"phrase",q:"next steps"},{label:"entity-name",q:entities[0]!.title}];
 for(const {label,q} of queries)for(let run=0;run<5;run++){
- begin=performance.now();const result=scanSurface(root,q,200,"web",{ledger:false});
+ begin=performance.now();const result=scanSurface(root,q,200,"web",{});
  console.log(JSON.stringify({stage:"search-core",label,run,ms:performance.now()-begin,ok:result.ok,hits:result.ok?result.hits.length:0}));
 }
 console.log(JSON.stringify({stage:"memory",rssBytes:process.memoryUsage().rss}));

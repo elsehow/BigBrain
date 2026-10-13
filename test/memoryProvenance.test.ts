@@ -10,7 +10,7 @@ import { readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { appendAssertionEvent, assertionEntityId, createAssertionEvent, type AssertionEvent } from "../lib/assertionLog";
-import { syncAssertionProjection } from "../lib/assertionProjection";
+import { projectNotes, syncAssertionProjection } from "../lib/assertionProjection";
 import { appendSourceInsertionEvent, insertionEventRel, type SourceInsertion } from "../lib/insertionLog";
 import { handleMcpTool } from "../lib/mcp";
 import { memoryForAgents, stampMemoryProvenance, stripMemoryProvenance } from "../lib/memoryProvenance";
@@ -111,7 +111,8 @@ describe("stamping", () => {
 });
 
 describe("reading", () => {
-  const stamped = (root: string) => { events(root); syncAssertionProjection(root); stampMemoryProvenance(root, ["MEMORY.md"]); };
+  // the memory pass stamps, then projects what it wrote through the notes door
+  const stamped = (root: string) => { events(root); syncAssertionProjection(root); stampMemoryProvenance(root, ["MEMORY.md"]); projectNotes(root, ["memory"]); };
 
   test("load_memory fences each outside claim as quoted data with its source; the person's lines read as written", () => {
     const root = nativeVault({ files: { "memory/MEMORY.md": TREE } }); roots.push(root);

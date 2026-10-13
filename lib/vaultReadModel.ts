@@ -485,6 +485,28 @@ export function projectedSource(root: string, id: string): SourceInsertion | und
   return withVaultSnapshot(root, db => decoded<SourceInsertion>(db, "SELECT event_json FROM sources JOIN source_documents USING (insertion_id) WHERE present = 1 AND insertion_id = ?", id)[0]);
 }
 
+/** A note as the notes door projected it, with when it last changed there
+ * (its stamp's mtime): what a read serves instead of the file. */
+export function projectedMarkdownContent(root: string, path: string): { raw: string; mtimeMs: number } | undefined {
+  return withVaultSnapshot(root, db => {
+    const row = db.query("SELECT b.document_json, d.stamp FROM markdown_bodies b JOIN markdown_documents d USING (path) WHERE b.path = ?")
+      .get(path) as { document_json: string; stamp: string } | null;
+    if (!row) return undefined;
+    const mtimeNs = Number(row.stamp.split(":").at(-2));
+    return { raw: (JSON.parse(row.document_json) as MarkdownDocument).body, mtimeMs: Number.isFinite(mtimeNs) ? mtimeNs / 1e6 : 0 };
+  });
+}
+
+/** The notes the projection holds under these trees, by path. */
+export function projectedMarkdownPaths(root: string, trees: readonly string[]): string[] {
+  return withVaultSnapshot(root, db => (db.query(`SELECT path FROM markdown_documents
+    WHERE ${trees.map(() => "path LIKE ? || '/%'").join(" OR ") || "0"} ORDER BY path`).all(...trees) as { path: string }[]).map((r) => r.path));
+}
+
+/** Whether a landing is in the log as the projection last saw it. */
+export const projectedSourcePresent = (root: string, id: string): boolean =>
+  withVaultSnapshot(root, db => !!db.query("SELECT 1 FROM sources WHERE insertion_id = ? AND present = 1").get(id));
+
 export function projectedMarkdown(root: string, path: string): string | undefined {
   return withVaultSnapshot(root, db => {
     const row = db.query("SELECT document_json FROM markdown_bodies WHERE path = ?").get(path) as { document_json: string } | null;

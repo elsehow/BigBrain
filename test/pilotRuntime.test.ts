@@ -1,3 +1,4 @@
+import { projectNotes } from "../lib/assertionProjection";
 import { afterEach, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
 import { join } from "node:path";
@@ -49,6 +50,7 @@ test("Pilot prewarms on create, sends only new messages, refreshes changed memor
   expect(inputs()[1]).not.toContain('"content":"First question"'); expect(inputs()[1]).not.toContain("Retained answer");
   expect(inputs()[1]).toContain("Second question"); expect(inputs()[1]).toContain("memory is unchanged");
   writeAtomic(join(f.root, "memory", "MEMORY.md"), "Memory version two");
+  projectNotes(f.root, ["memory"]); // through the notes door, as the watcher passes it
   const id = readConversation(f.root, s.id).runtimeId;
   chats.close(); expect(f.live()).toBe(0);
   const restarted = f.create(); restarted.send(s.id, "Third question"); await restarted.settled(s.id);
