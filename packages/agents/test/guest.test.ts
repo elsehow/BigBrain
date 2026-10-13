@@ -245,7 +245,7 @@ describe.skipIf(!BIN || !unix)("bigbrain-guest --serve", () => {
     held.forEach(s => s.destroy());
     await until(async () => { try { await g.hello(); return true; } catch { return false; } });
     expect((await g.hello()).protocol).toBe(1);
-  });
+  }, 20_000);
 });
 
 describe("the client refuses a guest that breaks the protocol", () => {

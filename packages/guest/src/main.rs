@@ -233,7 +233,13 @@ fn serve(g: Arc<Guest>, mut accept: impl FnMut() -> std::io::Result<UnixStream>)
         };
         if g.connections.fetch_add(1, Ordering::SeqCst) >= CONNECTIONS_MAX {
             g.connections.fetch_sub(1, Ordering::SeqCst);
-            answer(&mut conn, Err(err("limit", format!("{CONNECTIONS_MAX} connections are already open"))));
+            // take the request first, briefly: a client that sees the answer
+            // and the close before it has sent anything may not see the answer
+            std::thread::spawn(move || {
+                let _ = conn.set_read_timeout(Some(std::time::Duration::from_secs(2)));
+                let _ = frame::read(&mut conn);
+                answer(&mut conn, Err(err("limit", format!("{CONNECTIONS_MAX} connections are already open"))));
+            });
             continue;
         }
         let g = g.clone();
