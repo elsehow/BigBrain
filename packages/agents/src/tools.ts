@@ -77,6 +77,8 @@ function said(e: unknown, rel: string): never {
   if (e.code === "not-directory") throw new AgentsError(`${rel} is not a folder.`);
   if (e.code === "conflict") throw new AgentsError(`${rel} changed since you read it. Read it again.`);
   if (e.code === "too-large") throw new AgentsError(`${rel} is too large for the file tools; use bash.`);
+  if (/Operation not permitted|Permission denied/i.test(e.message))
+    throw new AgentsError(`The sandbox refused ${rel}. Your file tools write only what your commands may: your own folder, and projects you may edit in place (none once you have read untrusted material). Call start_work to work in your own worktree.`);
   throw new AgentsError(`${rel}: ${e.message}`);
 }
 
