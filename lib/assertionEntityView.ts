@@ -218,7 +218,7 @@ export function sourceThreadView(root: string, path: string): (SourceThread & { 
     if (!thread) return undefined;
     const model = sourceAssertionReadModel(root, thread.members.map(s => s.id));
     const { rows, sources } = model;
-    const originals = new Map(rows.map(a => [a.id, a]));
+    const originals = new Map<string, (typeof rows)[number]>(rows.map(a => [a.id, a]));
     return { ...thread, assertions: sourceAssertions(model).map(a => ({ ...a,
       sources: assertionSourceReferences(originals.get(a.id)!).flatMap(ref => {
         const source = sources.get(ref.insertion_id);

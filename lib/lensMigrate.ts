@@ -68,11 +68,11 @@ export const legacyLenses = (root: string, store: string): LegacyLens[] => {
 /** What each lens would become, and how its members would read. Writes nothing. */
 export function planLensMigration(root: string, store: string): LensPlan[] {
   const notes = lensNotes(root), claims = noteClaims(root);
-  const held = new Map(notes.map((n) => [n.source_id, n]));
-  const insertions = new Set(notes.map((n) => n.insertion.id));
+  const held = new Map<string, (typeof notes)[number]>(notes.map((n) => [n.source_id, n]));
+  const insertions = new Set<string>(notes.map((n) => n.insertion.id));
   return legacyLenses(root, store).map((lens) => {
     const scores = cachedScores(root, store, lens, notes, claims);
-    const ratings = new Map(lens.labels.flatMap((l) => {
+    const ratings = new Map<string, boolean>(lens.labels.flatMap((l) => {
       const note = notes.find((n) => n.insertion.id === l.source.id);
       return note ? [[note.source_id, l.include] as const] : [];
     }));

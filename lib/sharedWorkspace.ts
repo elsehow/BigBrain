@@ -29,7 +29,7 @@ function serverIdentity(sources: readonly SharedSource[], identities: readonly I
     if (e.identity.says !== 'copy' && e.identity.says !== 'not-copy') continue;
     const [a, b] = e.sources.map(r => r.insertion_id).sort(); latest.set(`${a}|${b}`, e);
   }
-  const at = new Map(sources.map(s => [s.id, (s.received_at ?? s.occurred_at ?? '') + '\u0000' + s.id]));
+  const at = new Map<string, string>(sources.map(s => [s.id, (s.received_at ?? s.occurred_at ?? '') + '\u0000' + s.id]));
   const parent = new Map<string, string>(), find = (x: string): string => { const p = parent.get(x) ?? x; if (p === x) return x; const r = find(p); parent.set(x, r); return r; };
   for (const [key, e] of latest) {
     const same = e.identity.says === 'copy' && (e.identity.score === undefined || e.identity.score >= DEFAULT_CUTOFF);

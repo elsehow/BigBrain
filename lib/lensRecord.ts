@@ -65,7 +65,7 @@ export function sayOnLens(root: string, lens: Pick<Lens, "id" | "name">,
   want: { pins: readonly string[]; exclusions: readonly string[]; ratings: readonly { insertion_id: string; include: boolean }[] },
   w: LensWrite = {}): string[] {
   const { hands, notes } = readLensState(root, { id: lens.id, calibration: { identity: "", model: "", threshold: 1 } });
-  const latest = new Map(notes.map((n) => [n.source_id, n]));
+  const latest = new Map<string, (typeof notes)[number]>(notes.map((n) => [n.source_id, n]));
   const events: RecordedAssertion[] = [];
   const word = (verdict: InclusionVerdict) =>
     events.push(createInclusionAssertion({ lens: lens.id, verdicts: [verdict], author: OWNER, ...said("lens-edit", w) }));
@@ -77,18 +77,18 @@ export function sayOnLens(root: string, lens: Pick<Lens, "id" | "name">,
     for (const id of had) if (!now.includes(id)) takeBack(id, how);
     for (const id of now) {
       const note = latest.get(id);
-      if (note && !had.includes(id)) word({ insertion_id: note.insertion_id, source_id: id, include: how === "pin", how });
+      if (note && !had.includes(id)) word({ insertion_id: note.insertion_id, source_id: note.source_id, include: how === "pin", how });
     }
   };
   place("pin", hands.pins, want.pins);
   place("exclusion", hands.exclusions, want.exclusions);
-  const rated = new Map(hands.ratings.map((r) => [r.insertion_id, r]));
+  const rated = new Map<string, (typeof hands.ratings)[number]>(hands.ratings.map((r) => [r.insertion_id, r]));
   const wanted = new Map(want.ratings.map((r) => [r.insertion_id, r]));
   for (const r of hands.ratings) if (wanted.get(r.insertion_id)?.include !== r.include) takeBack(r.source_id, "rating");
   for (const r of want.ratings) {
     if (rated.get(r.insertion_id)?.include === r.include) continue;
     const source = projectedSource(root, r.insertion_id);
-    if (source) word({ insertion_id: r.insertion_id, source_id: source.source_id, include: r.include, how: "rating" });
+    if (source) word({ insertion_id: source.id, source_id: source.source_id, include: r.include, how: "rating" });
   }
   return land(root, events, `lens: ${lens.name} — the owner's word on ${events.length} note(s)`, w);
 }

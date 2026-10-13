@@ -47,7 +47,7 @@ export function readMemoryInputs(root: string) {
   }
   const { inss, asserted, voice, revocations, aliases } = events;
   const revoked = new Set(revocations.map((e) => e.retracts));
-  const held = new Set(inss.map((e) => e.id));
+  const held = new Set<string>(inss.map((e) => e.id));
   const superseded = supersededInsertionIds(inss);
   const asts = asserted.filter((e) => !revoked.has(e.id) && !assertionSuperseded(
     assertionSourceReferences(e).map((r) => r.insertion_id), superseded, (id) => held.has(id)

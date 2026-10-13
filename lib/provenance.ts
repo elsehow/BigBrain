@@ -101,7 +101,7 @@ export function originOf(envelope: Record<string, unknown>): OriginKind {
 export const sender = (v: unknown): string | undefined => word(v)?.replace(/\s+/gu, " ").slice(0, 120);
 
 /** A source insertion's provenance. */
-export function sourceProvenance(s: SourceMetadata, path = insertionEventRel(s)): Provenance {
+export function sourceProvenance(s: SourceMetadata, path: string = insertionEventRel(s)): Provenance {
   const from = sender(s.envelope["from"]), received = sourceMoment(s);
   return { kind: originOf(s.envelope), trusted: sourceTrusted(s.envelope), ...(from ? { from } : {}), ...(received ? { received } : {}), path };
 }

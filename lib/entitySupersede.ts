@@ -19,7 +19,7 @@
  * event ids.
  */
 
-import { ENT_ID, ENTITY_ID_LINK } from "./ids";
+import { ENT_ID, ENTITY_ID_LINK, parseEntityId, type EntityId } from "./ids";
 import {
   assertionEntityId, assertionSourceReferences, commitAssertionEvents, createAssertionEvent, createRetraction,
   type AssertionEntity, type AssertionEvent,
@@ -70,7 +70,7 @@ export interface SupersedeResult {
   appended: number;
 }
 
-const idOf = (ref: string): string => (ENT_ID.test(ref) ? ref : assertionEntityId(ref));
+const idOf = (ref: string): EntityId => (ENT_ID.test(ref) ? parseEntityId(ref) : assertionEntityId(ref));
 
 /** The corrected copy of one assertion: every link to `from` now links
  * `into`, display words untouched; entities deduplicated when the claim

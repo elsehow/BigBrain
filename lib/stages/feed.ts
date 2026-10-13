@@ -234,7 +234,7 @@ export function feedStage(opts: { root: string; manifest: Manifest; cfg: FeedCon
       });
       if (!pending.length) return;
       const live = new Map(conversations.flatMap((c) => c.messages.map((m) => [m.id, c.key] as const)));
-      const standing = new Set(conversations.flatMap((c) => claimsOf(c).map((a) => a.id)));
+      const standing = new Set<string>(conversations.flatMap((c) => claimsOf(c).map((a) => a.id)));
       const conversationOf = (source: string) => live.get(source) ?? journaled(source);
       const instructions = render(template(), { OWNER: ownerLabelsFor(root)[0] ?? "the owner" });
       const memory = memoryRead(root);

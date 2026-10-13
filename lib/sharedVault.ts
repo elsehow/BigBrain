@@ -68,7 +68,7 @@ import { appendSharedIdentity, listSharedIdentityFiles, sharedIdentityRel, valid
 import { parseEventFile, type EventFile } from "./eventLog";
 import { ensureDir, writeAtomic } from "./fsx";
 import { sha256hex } from "./hash";
-import { AST_ID, ENTITY_LINK, ENT_ID, INS_ID, norm } from "./ids";
+import { AST_ID, ENTITY_LINK, ENT_ID, INS_ID, norm, parseEnvelopeId, parseInsertionId, type EntityId } from "./ids";
 import {
   appendSourceInsertionEvent,
   insertionEventRel,
@@ -602,8 +602,8 @@ export class SharedVault {
     const contentSha256 = sha256hex(`${JSON.stringify(envelope)}\n${body}`);
     const event: SourceInsertion = {
       event: "source.inserted",
-      id: `ins_${sha256hex(`${sourceId}\u0000${contentSha256}`).slice(0, 24)}`,
-      source_id: sourceId,
+      id: parseInsertionId(`ins_${sha256hex(`${sourceId}\u0000${contentSha256}`).slice(0, 24)}`),
+      source_id: parseEnvelopeId(sourceId),
       author: actorAuthor(actor),
       title,
       body,
@@ -704,7 +704,7 @@ export class SharedVault {
     const canonical = text.replace(ENTITY_LINK, (_whole, rawTarget: string, rawDisplay?: string) => {
       const target = rawTarget.trim();
       const display = (rawDisplay ?? "").trim();
-      let id: string;
+      let id: EntityId;
       let label: string;
       if (ENT_ID.test(target)) {
         if (!display) throw new SharedVaultError(400, `link [[${target}]] names an id without a label — write [[Label]]`);
@@ -845,7 +845,7 @@ export class SharedVault {
 
   private view(event: AssertionEvent, revoked: ReadonlyMap<string, RevocationEvent>): AssertionView {
     const seen = new Set<string>();
-    let at = event.id;
+    let at: string = event.id;
     while (!seen.has(at)) {
       seen.add(at);
       const next = revoked.get(at)?.superseded_by;

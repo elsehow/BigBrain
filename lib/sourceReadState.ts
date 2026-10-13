@@ -50,7 +50,7 @@ export function createSourceReadStateService(adapters: SourceReadStateAdapter[],
     return { unread: null, provider: a.provider, status: "unknown", writable: false, ...(held?.checkedAt ? { checkedAt: held.checkedAt } : {}) };
   }
   function rows(root: string, { sources: all, threads } = catalog(root)): SourceReadStateRow[] {
-    const result = all.map(s => ({ path: insertionEventRel(s), title: s.title, readState: state(root, s) }));
+    const result: SourceReadStateRow[] = all.map(s => ({ path: insertionEventRel(s), title: s.title, readState: state(root, s) }));
     const byId = new Map(all.map(s => [s.id, state(root, s)]));
     for (const thread of threads) result.push({ path: thread.path, title: thread.title,
       readState: aggregateReadState(thread.members.map(s => byId.get(s.id)!)) });

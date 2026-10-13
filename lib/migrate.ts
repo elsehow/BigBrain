@@ -33,6 +33,7 @@
  * commit can give them back.
  */
 
+import { parseEntityId } from "./ids";
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, unlinkSync } from "node:fs";
 import { dirname, join } from "node:path";
 import {
@@ -90,7 +91,7 @@ const said = (e: Said) => ({ author: e.author, created_at: e.created_at, produce
 
 /** A source map for the create functions from references already resolved. */
 const resolved = (refs: readonly AssertionSourceReference[]): Map<string, SourceInsertion> =>
-  new Map(refs.map((ref) => [ref.insertion_id, { source_id: ref.source_id } as SourceInsertion]));
+  new Map(refs.map((ref) => [ref.insertion_id, { id: ref.insertion_id, source_id: ref.source_id } as SourceInsertion]));
 
 /** The insertions named by id, read from the log (bindings and copies name
  * them by insertion alone). */
@@ -123,7 +124,7 @@ export function convertRetired(retired: Retired, insertions: ReadonlyMap<string,
   const sourceOf = (id: string): AssertionSourceReference => {
     const source = insertions.get(id);
     if (!source) throw new Error(`migrate: ${id} is not in log/insertions/`);
-    return { insertion_id: id, source_id: source.source_id };
+    return { insertion_id: source.id, source_id: source.source_id };
   };
 
   /** Latest-wins as retractions: each key's standing assertion is retracted
@@ -147,7 +148,7 @@ export function convertRetired(retired: Retired, insertions: ReadonlyMap<string,
   each("log/entity-aliases", retired.aliases, (a) => isRetraction(a)
     ? replace(`alias:${a.alias_id}`, a, "migrated: the label was made its own entity")
     : replace(`alias:${a.alias_id}`, a, "migrated: the label was declared again", createIdentityAssertion({
-      identity: { says: "same", alias: { id: a.alias_id, label: a.alias }, entity: a.entity }, ...said(a),
+      identity: { says: "same", alias: { id: parseEntityId(a.alias_id), label: a.alias }, entity: a.entity }, ...said(a),
     })));
   each("log/entity-sources", retired.bindings, (b) => {
     const key = `binding:${bindingKey(b.entity.id, b.insertion_id)}`;
@@ -257,7 +258,7 @@ export interface TreeImport {
  * already has repeats it, and lands nothing. A dossier is not an arrival. */
 export function importTrees(base: string, insertions: readonly SourceInsertion[]): TreeImport {
   const paths = new Set(insertions.flatMap((i) => i.imported_path ? [i.imported_path] : []));
-  const ids = new Set(insertions.map((i) => i.source_id));
+  const ids = new Set<string>(insertions.map((i) => i.source_id));
   const contents = new Set(insertions.map((i) => contentKey(i.body, i.envelope)));
   const out: TreeImport = { trees: {}, imports: [] };
   for (const tree of RETIRED_TREES) {

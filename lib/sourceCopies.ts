@@ -89,7 +89,7 @@ export function sourceCopies<T extends SourceMetadata>(
     stub: (source: T) => boolean;
   },
 ): Map<string, SourceCopies<T>> {
-  const byId = new Map(sources.map((source) => [source.id, source]));
+  const byId = new Map<string, T>(sources.map((source) => [source.id, source]));
   const byKey = new Map<string, string[]>();
   for (const source of sources) for (const key of [...copyKeys(source), ...(joins.get(source.id) ?? [])]) {
     const ids = byKey.get(key);

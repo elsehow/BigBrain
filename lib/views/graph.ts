@@ -6,6 +6,7 @@
  * briefing's evidence (lib/maintainedGraph.ts). */
 import { createHash } from "node:crypto";
 import { assertionSourceReferences, type AssertionEvent } from "../assertionLog";
+import { parseEntityId } from "../ids";
 import type { Graph, GraphEdge, GraphNode } from "../graph";
 import { insertionEventRel, sourceMoment, type SourceMetadata } from "../insertionLog";
 import { assertionSuperseded } from "../sourceSupersede";
@@ -174,7 +175,7 @@ export function drawGraph(record: VaultRecord, scope: Drawable, observe?: Observ
       group: doc.path.startsWith("memory/") ? "memory" : "note", degree: 0 });
   }
   const linkResolver = noteLinkResolver(nodes.values(), aliases);
-  const byAssertion = new Map(rows.map(a => [a.id, a]));
+  const byAssertion = new Map<string, AssertionEvent>(rows.map(a => [a.id, a]));
   const sourceIds = new Set(events.map(s => sourceKey(s.id)));
   const memoryTargets = new Map<string, Set<string>>();
   const linked = (key: string) => ({ key, parsed: record.documentLinks.get(key)! });
@@ -208,7 +209,7 @@ export function drawGraph(record: VaultRecord, scope: Drawable, observe?: Observ
   // match. Historical declarations are all hidden so a rename cannot bring
   // an obsolete self node back.
   const declarations = userIdentityDeclarationsFromEvents(rows, sourceByInsertion);
-  const self = new Set(declarations.map((row) => resolve({ id: row.entity_id, label: row.name }).id));
+  const self = new Set<string>(declarations.map((row) => resolve({ id: parseEntityId(row.entity_id), label: row.name }).id));
   // Share the same identity with the note reader: self mentions stay prose,
   // including historical names and entity aliases, rather than dead ends
   // in its graph-backed link walk. This does not alter the layout hash.
@@ -319,7 +320,7 @@ function sourceNode(source: SourceMetadata, degree: number): GraphNode {
  * assertion that draws it, a document's link with the document, and a note
  * last, beside what it links. */
 export function fieldOf(record: VaultRecord, scope: Drawable, observe?: ObserveConnection): Graph {
-  const added = new Map(record.rows.map((row) => [row.id, row.created_at]));
+  const added = new Map<string, string>(record.rows.map((row) => [row.id, row.created_at]));
   const arrivals = new Map<string, string>();
   const arrive = (key: string, at: string) => { const was = arrivals.get(key); if (was === undefined || at < was) arrivals.set(key, at); };
   const LAST = "\uffff";

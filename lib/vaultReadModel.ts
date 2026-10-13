@@ -2,6 +2,7 @@
  * consumers borrow a complete SQLite snapshot and reuse its decoded records.
  * Nothing here checks the filesystem: every engine write projects itself, and
  * notes come in through their door (assertionProjection.projectNotes). */
+import type { AssertionId, EntityId, InsertionId } from "./ids";
 import type { SourceSummary } from "./sourceSummary";
 import { USER_IDENTITY_PROCEDURE, USER_IDENTITY_VERSION, userIdentityDeclarationsFromEvents } from "./userIdentityPolicy";
 import type { ConnectionEvidence, DocumentLinkTargets, MarkdownDocument, MarkdownIdentity } from "./markdownGraph";
@@ -326,7 +327,7 @@ export function copyProposals(root: string, insertionId: string): CopyProposal[]
     const group = copyGroupsIn(db, [insertionId], links).get(insertionId);
     const self = group ? undefined : db.query(GROUPED_SOURCE).get(insertionId) as SummaryRow | null;
     const members = group?.members ?? (self ? [summaryOf(self)] : []);
-    const ours = new Set(members.map((m) => m.id));
+    const ours = new Set<string>(members.map((m) => m.id));
     const mates = db.query(`SELECT ${SUMMARY} FROM source_title_keys t JOIN sources s ON s.insertion_id = t.insertion_id
       WHERE t.bucket = ? AND ${GROUPED}`);
     const forms = new Map<string, TitleForms | undefined>();
@@ -342,7 +343,7 @@ export function copyProposals(root: string, insertionId: string): CopyProposal[]
         if (met.length < 2 || met.length > CROWD) continue;
         for (const other of met) {
           if (other.id === member.id || !sameTitle(mine!, formsOf(other)!)) continue;
-          const pair = [member.id, other.id].sort() as [string, string];
+          const pair: [string, string] = member.id < other.id ? [member.id, other.id] : [other.id, member.id];
           candidates.set(copyPairKey(...pair), pair);
         }
       }
@@ -437,14 +438,14 @@ function aliasesIn(db: Database): EntityAliasResolution {
 /** Every retraction, oldest first. */
 function retractionsIn(db: Database): Retraction[] {
   return (db.query("SELECT id, retracts, superseded_by, reason, created_at FROM retractions ORDER BY created_at, id").all() as
-    { id: string; retracts: string; superseded_by: string | null; reason: string; created_at: string }[])
+    { id: AssertionId; retracts: AssertionId; superseded_by: AssertionId | null; reason: string; created_at: string }[])
     .map(({ superseded_by, ...r }) => ({ ...r, ...(superseded_by ? { superseded_by } : {}) }));
 }
 /** The is-source identities, oldest first; `standing` passes over the retracted. */
 function bindingsIn(db: Database, standing: boolean): Binding[] {
   return (db.query(`SELECT id, entity_id, entity_label, a AS insertion_id, created_at FROM identities
     WHERE says = 'is-source'${standing ? " AND retracted_by IS NULL" : ""} ORDER BY created_at, id`).all() as
-    { id: string; entity_id: string; entity_label: string; insertion_id: string; created_at: string }[])
+    { id: AssertionId; entity_id: EntityId; entity_label: string; insertion_id: InsertionId; created_at: string }[])
     .map((r) => ({ id: r.id, entity: { id: r.entity_id, label: r.entity_label }, insertion_id: r.insertion_id, created_at: r.created_at }));
 }
 /** Each entity's standing bindings, one per pair: the latest. */

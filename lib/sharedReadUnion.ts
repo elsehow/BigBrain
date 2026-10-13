@@ -20,7 +20,7 @@ import {sourceInsertionMarkdown} from './sourceFeed';
 import {sha256hex} from './hash';
 import {existsSync,readFileSync} from 'node:fs';
 import {join} from 'node:path';
-import {SHARED_AST_CITE} from './ids';
+import {SHARED_AST_CITE,parseEntityId} from './ids';
 import {memoryTreeFiles} from './memoryTree';
 import type {RecentEntry} from './viewTypes';
 import {entityAliasResolver} from './assertionKinds';
@@ -95,7 +95,7 @@ export async function unionGraph(root:string,graph:Graph,filter:string[] = []):P
  const ids=new Map<string,string>();
  for(const n of view.graph.nodes){const source=view.sources.find(s=>'source:'+s.id===n.id),personal=source?local.get(source.source_id):undefined,existing=personal?paths.get(insertionEventRel(personal)):undefined;
  if(existing){ids.set(n.id,existing.id);byId.get(existing.id)!.vaults.push(c.id);continue;}
- const entityId=n.entity?resolveEntity({id:n.id,label:n.title}).id:undefined,same=entityId?entityAt.get(entityId):undefined;
+ const entityId=n.entity?resolveEntity({id:parseEntityId(n.id),label:n.title}).id:undefined,same=entityId?entityAt.get(entityId):undefined;
  if(same){ids.set(n.id,same.id);if(!same.vaults.includes(c.id))same.vaults.push(c.id);continue;}
  const id=`shared:${c.id}:${n.id}`;ids.set(n.id,id);madeBy.set(id,c.id);
  const localNode=personal?localPaths.get(insertionEventRel(personal)):undefined;
