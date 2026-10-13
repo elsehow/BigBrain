@@ -22,7 +22,8 @@
       "app"
     ],
     "externalBin": [
-      "binaries/bun"
+      "binaries/bun",
+      "binaries/bigbrain-guest"
     ],
     "resources": [
       "resources/engine"

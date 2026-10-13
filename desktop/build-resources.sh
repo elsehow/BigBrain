@@ -3,6 +3,10 @@
 #
 #   src-tauri/binaries/bun-<target-triple>   the sidecar: bun itself, the
 #                                            runtime that runs the engine
+#   src-tauri/binaries/bigbrain-guest-<triple>  the guest agent (packages/guest):
+#                                            each desktop's files and commands
+#                                            run through it (guests.ts finds it
+#                                            beside bun)
 #   src-tauri/resources/engine/              the engine tree the sidecar runs
 #                                            (bin/ lib/ integrations/ prompts/
 #                                            deploy/ clients/ packages/ web/ui/dist/
@@ -30,6 +34,10 @@ cp "$bun" "$here/src-tauri/binaries/bun-$triple"
 # 755, not just +x: bun ships itself read-only, and the bundler's signing
 # step (`xattr -cr` on the bundle, then codesign) needs to write it
 chmod 755 "$here/src-tauri/binaries/bun-$triple"
+# the guest, built for the app's own target
+cargo build --release --target "$triple" --manifest-path "$engine/packages/guest/Cargo.toml"
+cp "$engine/packages/guest/target/$triple/release/bigbrain-guest" "$here/src-tauri/binaries/bigbrain-guest-$triple"
+chmod 755 "$here/src-tauri/binaries/bigbrain-guest-$triple"
 
 dest="$here/src-tauri/resources/engine"
 if [ "${1:-}" = "--bun-only" ]; then

@@ -229,8 +229,10 @@ the shipped endpoint is https, and either way nothing installs without the
 minisign signature checking out, so an insecure feed cannot serve a fake.
 
 `beforeBuildCommand` runs `build-resources.sh`, which copies bun to
-`src-tauri/binaries/bun-<triple>` and assembles `src-tauri/resources/engine`
-(`bun install --production` inside it). Both are gitignored; `BUNDLE` in the
+`src-tauri/binaries/bun-<triple>`, builds the guest agent (`packages/guest`,
+so cargo is needed) into `src-tauri/binaries/bigbrain-guest-<triple>`, and
+assembles `src-tauri/resources/engine` (`bun install --production` inside
+it). Both are gitignored; `BUNDLE` in the
 engine copy records the commit it came from.
 
 ## Try it beside a running engine
