@@ -277,8 +277,9 @@ export class LocalGuests implements Guests {
     // "" says "no guest", as a test of the refusal does
     const bin = this.o.guest === "" ? undefined : this.o.guest ?? guestBinary();
     if (!bin) throw new AgentsError(NO_GUEST);
-    const dir = this.launcher.tmp?.(desktop) ?? mkdtempSync(join(tmpdir(), "bigbrain-guest-"));
-    const sock = join(dir, `guest-${process.pid}-${++this.n}.sock`);
+    const dir = this.launcher.sockets?.(desktop) ?? this.launcher.tmp?.(desktop) ?? mkdtempSync(join(tmpdir(), "bigbrain-guest-"));
+    const sock = join(dir, `g${process.pid}-${++this.n}.sock`);
+    if (Buffer.byteLength(sock) > 103) throw new AgentsError(`This desktop's guest can't listen at ${sock}: the path is too long for a socket.`);
     rmSync(sock, { force: true });
     const env = commandEnv(await this.base(), desktop, this.o.scope, this.o.withheld?.());
     const launch = await this.launcher.launch({ command: `exec ${shq(bin)} --serve --unix ${shq(sock)}`, env, confine, busy });

@@ -190,9 +190,11 @@ export function codingTools(ctx: ToolContext): AgentTool[] {
         if (result.status === "exited") {
           const ok = result.code === 0;
           // A fixed-port server that collides names who holds the port.
-          const busy = /EADDRINUSE[^\n]*?:(\d+)/.exec(result.output);
-          const holder = busy ? await ctx.harbor.holder(Number(busy[1])) : undefined;
-          const note = busy ? `\n[Port ${busy[1]} is in use${holder ? holder === ctx.desktop ? " by another of your own commands" : ` by desktop ${holder}` : " by a process outside any desktop"}.]`
+          // node's words, and bun's
+          const busy = /EADDRINUSE[^\n]*?:(\d+)|Is port (\d+) in use/.exec(result.output);
+          const busyPort = busy ? busy[1] ?? busy[2] : undefined;
+          const holder = busyPort ? await ctx.harbor.holder(Number(busyPort)) : undefined;
+          const note = busyPort ? `\n[Port ${busyPort} is in use${holder ? holder === ctx.desktop ? " by another of your own commands" : ` by desktop ${holder}` : " by a process outside any desktop"}.]`
             : !ok && /Operation not permitted|403 Forbidden/.test(result.output) ? `\n[The sandbox may have refused that. Commands write only ${untrusted ? `your own folder (desktops/${ctx.desktop}/…)` : "your own folder and projects no other desktop is editing"} and your temp folder, reach the internet only through a proxy to allowlisted hosts, and can't reach your person's credentials or other programs.]` : "";
           return { text: `${tail(result.output) || "(no output)"}\n[exit ${result.code ?? result.signal}]${note}`, label: `Ran ${short(command)}${ok ? "" : ` (exit ${result.code ?? result.signal})`}`, ok };
         }

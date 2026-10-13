@@ -26,6 +26,7 @@
  * No sandbox, no shell: elsewhere than macOS, or when sandbox-exec is missing
  * or refuses the profile, a command is refused, never run unconfined.
  */
+import { createHash } from "node:crypto";
 import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
@@ -77,6 +78,9 @@ export interface Launcher {
   launch(job: { command: string; env: NodeJS.ProcessEnv; confine: Confinement; busy: number[] }): Promise<Launch>;
   /** A folder of the desktop's that its confined commands may write: where its guest's socket goes. */
   tmp?(desktop: string): string;
+  /** A short folder of the desktop's, writable when confined, for its guest's socket: a Unix
+   * socket's path is at most 104 bytes on macOS, and a temp folder there is longer than that allows. */
+  sockets?(desktop: string): string;
 }
 
 /** Package registries, and the hosts dependency fetches come from. */
@@ -240,11 +244,11 @@ export function profile(p: ProfileInput): string {
 /** The parts of one command's profile: what it writes, the .git files it must
  * not touch, and what it must not read. A folder that would expose the denied
  * (one holding the home folder or a credential store) is never writable. */
-export function profileInput(c: Confinement, o: { deny: string[]; tmp: string; caches: string[]; ports: number[] }): ProfileInput {
+export function profileInput(c: Confinement, o: { deny: string[]; tmp: string; caches: string[]; ports: number[]; sockets?: string }): ProfileInput {
   const deny = [...new Set([...o.deny, ...(c.ws ? [c.ws.state] : [])].map(canonical))];
   const home = canonical(homedir());
   const safe = (d: string) => d !== "/" && !inside(d, home) && !deny.some(x => inside(d, x) || inside(x, d));
-  const write = [...new Set([...c.write, o.tmp, ...o.caches].map(canonical))].filter(safe);
+  const write = [...new Set([...c.write, o.tmp, ...o.sockets ? [o.sockets] : [], ...o.caches].map(canonical))].filter(safe);
   const writable = (path: string) => write.some(d => inside(d, path));
   const writeRegex: string[] = [], protect: string[] = [], pin: string[] = [], pinRegex: string[] = [];
   const guard = (common: string) => {
@@ -303,6 +307,13 @@ export class Seatbelt implements Launcher {
     return canonical(dir);
   }
 
+  /** A desktop's socket folder: /tmp/bigbrain-<uid>/<hash of its temp folder>, short whatever TMPDIR is. */
+  sockets(desktop: string): string {
+    const dir = join("/tmp", `bigbrain-${process.getuid?.() ?? 0}`, createHash("sha256").update(this.tmp(desktop)).digest("hex").slice(0, 12));
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    return canonical(dir);
+  }
+
   async launch(job: { command: string; env: NodeJS.ProcessEnv; confine: Confinement; busy: number[] }): Promise<Launch> {
     const refused = this.unavailable();
     if (refused) throw new AgentsError(refused);
@@ -312,7 +323,7 @@ export class Seatbelt implements Launcher {
     const ports = [...new Set([...[...job.busy, ...DEBUGGER_PORTS].filter(p => p !== proxy && !local.has(p)), ...this.policy.ports?.() ?? []])];
     const home = canonical(homedir());
     const caches = c.untrusted ? [] : (this.policy.caches ?? CACHES).map(p => isAbsolute(p) ? p : join(home, p));
-    const text = profile(profileInput(c, { deny: [...this.policy.deny?.() ?? []], tmp, caches, ports }));
+    const text = profile(profileInput(c, { deny: [...this.policy.deny?.() ?? []], tmp, caches, ports, sockets: this.sockets(c.desktop) }));
     // a profile that doesn't load runs nothing: say so, rather than a bare exit code
     const check = await run(this.exec, ["-p", text, "/usr/bin/true"], undefined, {}).catch((e: Error) => ({ code: 1, out: "", err: e.message }));
     if (check.code !== 0) throw new AgentsError(`The sandbox could not start (${(check.err.trim() || `exit ${check.code}`).slice(0, 300)}), so this command did not run.`);
