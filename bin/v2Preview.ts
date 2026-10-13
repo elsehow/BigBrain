@@ -14,6 +14,7 @@
 import { Database } from "bun:sqlite";
 import { join } from "node:path";
 import { readEntityFeed, readV2Feed } from "../lib/views/v2Read";
+import type { CacheKey } from "../lib/views/view";
 
 const [vault, entity] = process.argv.slice(2);
 if (!vault) {
@@ -21,7 +22,7 @@ if (!vault) {
   process.exit(2);
 }
 const db = new Database(join(vault, ".state", "assertions.db"), { readonly: true });
-const snapshot = { db, revision: "preview" };
+const snapshot = { db, revision: "preview", cache: vault as CacheKey };
 try {
   process.stdout.write(JSON.stringify(entity ? { rows: readEntityFeed(snapshot, entity) } : readV2Feed(snapshot)));
 } finally {

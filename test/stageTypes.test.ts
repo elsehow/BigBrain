@@ -4,7 +4,7 @@ import {
   parseAssertionId, parseEntityId, parseEnvelopeId, parseInsertionId, parseVaultPath, type EntityId, type InsertionId,
 } from "../lib/ids";
 import { memoKey, waiting, type MemoStage, type RecordStage, type StageInput } from "../lib/stages/stage";
-import type { Snapshot } from "../lib/views/view";
+import type { CacheKey, Snapshot } from "../lib/views/view";
 
 test("a branded id is made only by its parser, which refuses anything else", () => {
   const ins: InsertionId = parseInsertionId(`ins_${"a".repeat(24)}`);
@@ -31,7 +31,7 @@ const snapshot = (): Snapshot => {
   db.run("CREATE TABLE verdicts (note TEXT, ok INTEGER)");
   for (const [id, body] of [["n1", "alpha"], ["n2", "beta"], ["n3", "alpha"]] as const) db.run("INSERT INTO notes VALUES (?, ?)", [id, body]);
   db.run("INSERT INTO verdicts VALUES ('n2', 1)");
-  return { db, revision: "r1" };
+  return { db, revision: "r1", cache: "toy" as CacheKey };
 };
 const notes = ({ db }: Snapshot): StageInput<string>[] =>
   (db.query("SELECT id, body FROM notes ORDER BY id").all() as { id: string; body: string }[]).map((n) => ({ id: n.id, hash: n.body, item: n.body }));

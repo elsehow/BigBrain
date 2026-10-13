@@ -17,7 +17,13 @@ export interface Snapshot {
   readonly db: Database;
   /** The projection's coordinate: a view's cache key is (view, scope, revision). */
   readonly revision: string;
+  /** Which vault's caches a decode at this revision may share: an identity,
+   * never a path to read. */
+  readonly cache: CacheKey;
 }
+
+declare const cacheKey: unique symbol;
+export type CacheKey = string & { readonly [cacheKey]: true };
 
 /** A pure function of a snapshot and its arguments. */
 export type View<T, Args extends readonly unknown[] = []> = (snapshot: Snapshot, ...args: Args) => T;

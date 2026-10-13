@@ -115,7 +115,7 @@ test("stopping the watcher suppresses a ping from an outstanding async warm", as
   expect(writes).toEqual([]);
 });
 
-test("a request serves the last view at once and starts the build; no watcher needed", async () => {
+test("a request is served only the current view, and builds it when none is; no watcher needed", async () => {
   const { projectSourceInsertion, appendAndProjectAssertion } = await import("../lib/assertionProjection");
   const { createDeclineAssertion } = await import("../lib/assertionLog");
   const root = fresh(), item = source("1");
@@ -124,8 +124,8 @@ test("a request serves the last view at once and starts the build; no watcher ne
   appendAndProjectAssertion(root, createDeclineAssertion({ sources: [item.id], reason: "Boilerplate",
     author: { kind: "model", id: "gardener", invocation_id: "test" }, produced_by: { procedure: "intake", version: "v1" },
     created_at: "2026-09-20T00:00:00.000Z" }, new Map([[item.id, item]])));
-  expect((await currentGraph(root)).nodes[0]?.pending).toBe(true); // the last view, at once
-  await maintainGraphView(root); // the build the request started
+  // the view held is behind the decline: the request waits for the build, never serves it
+  expect((await currentGraph(root)).nodes[0]?.pending).toBeUndefined();
   expect(savedGraph(root)!.nodes[0]?.pending).toBeUndefined();
 });
 

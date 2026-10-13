@@ -12,9 +12,9 @@
 import {existsSync,readFileSync} from 'node:fs';
 import {writeAtomic} from './fsx';
 import {ENTITY_LINK,ENT_ID,norm} from './ids';
-import {assertionSourceReferences,type AssertionEvent} from './assertionLog';
-import {projectedSource} from './vaultReadModel';
-import {readMemoryInputs} from './memoryInputs';
+import {assertionSourceReferences,type AssertionEvent,type AssertionSourceReference} from './assertionLog';
+import {projectedSource,vaultRecord} from './vaultReadModel';
+import {liveOf,publishableTo,type Publishable} from './views/scope';
 import {readConnections,sharedRequest,updateConnection,SharedConnectionError,type SharedConnection} from './sharedConnections';
 import {contributions,sourceKey,type Contribution} from './sharedRules';
 
@@ -45,21 +45,26 @@ export function publishableText(a:Pick<AssertionEvent,'text'|'entities'>,sourceT
   return text.includes('\n')||text.length<12||text.length>2000?null:text;
 }
 
-/** Where each cited revision went, or null when any of them is not an active
- * contribution of that exact revision. */
-function sharedSources(c:SharedConnection,a:AssertionEvent,active:Map<string,string>,sent:Record<string,{shared_insertion_id?:string}>):string[]|null {
-  const refs=assertionSourceReferences(a);
-  const ids=refs.map(ref=>{const shared=active.get('origin:'+sourceKey(ref));return shared&&sent[`${c.id}:${ref.insertion_id}`]?.shared_insertion_id===shared?shared:null;});
-  const unique=[...new Set(ids)].sort();
-  return ids.length&&!ids.includes(null)&&unique.length<=MAX_SOURCES?unique as string[]:null;
-}
+/** Where a cited revision went on the server, or null when it is not an
+ * active contribution of that exact revision. */
+const sharedAs=(c:SharedConnection,active:Map<string,string>,sent:Record<string,{shared_insertion_id?:string}>)=>(ref:AssertionSourceReference):string|null=>{
+  const shared=active.get('origin:'+sourceKey(ref));
+  return shared&&sent[`${c.id}:${ref.insertion_id}`]?.shared_insertion_id===shared?shared:null;
+};
 
-function publishable(root:string,c:SharedConnection,a:AssertionEvent,active:Map<string,string>,sent:Record<string,{shared_insertion_id?:string}>):Body|null {
-  const sources=sharedSources(c,a,active,sent);if(!sources)return null;
-  const cited=assertionSourceReferences(a).map(ref=>projectedSource(root,ref.insertion_id));
-  if(cited.some(s=>!s))return null;
-  const text=publishableText(a,cited.map(s=>`${s!.title}\n${s!.body}`).join('\n'));
-  return text?{text,sources,confidence:a.confidence}:null;
+/** The claims as the door takes them. Only Publishable ones: every source
+ * each cites is shared there (lib/views/scope.ts publishableTo). */
+function bodiesOf<S extends string>(root:string,claims:Publishable<S>,sharedId:(ref:AssertionSourceReference)=>string|null):Map<string,Body> {
+  const out=new Map<string,Body>();
+  for(const a of claims){
+    const sources=[...new Set(assertionSourceReferences(a).map(ref=>sharedId(ref)!))].sort();
+    if(sources.length>MAX_SOURCES)continue;
+    const cited=assertionSourceReferences(a).map(ref=>projectedSource(root,ref.insertion_id));
+    if(cited.some(s=>!s))continue;
+    const text=publishableText(a,cited.map(s=>`${s!.title}\n${s!.body}`).join('\n'));
+    if(text)out.set(a.id,{text,sources,confidence:a.confidence});
+  }
+  return out;
 }
 
 const unsupported=new Map<string,number>();
@@ -85,8 +90,8 @@ export async function publishAssertions(root:string,store:string,c:SharedConnect
   if(!contributed.length&&published.length)return done;
   const active=new Map(contributed.filter(x=>x.status==='active').map(x=>[x.source_id,x.insertion_id]));
   const sent=readJson<Record<string,{shared_insertion_id?:string}>>(store+'.receipts.json');
-  const wanted=new Map<string,Body>();
-  if(active.size)for(const a of readMemoryInputs(root).asts){const body=publishable(root,c,a,active,sent);if(body)wanted.set(a.id,body);}
+  const shared=sharedAs(c,active,sent);
+  const wanted=active.size?bodiesOf(root,publishableTo(liveOf(vaultRecord(root)),c.id,ref=>shared(ref)!==null),shared):new Map<string,Body>();
   const stale=published.filter(([,p])=>!wanted.has(p.personal_assertion_id));
   const fresh=[...wanted].filter(([id])=>!record[`${c.id}:${id}`]);
   if(!stale.length&&!fresh.length)return done;
