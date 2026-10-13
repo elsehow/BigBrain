@@ -507,10 +507,10 @@ function v2Sorted({ res, url }: Ctx): void {
   });
 }
 
-// Serve the graph as a FINISHED PICTURE: structure plus settled positions,
-// computed once per structure by lib/graphLayout.ts and cached in .state.
+// Serve the graph as a FINISHED PICTURE: structure plus seated positions
+// (lib/views/layout.ts), kept by the maintainer (lib/maintainedGraph.ts).
 // The client used to receive only the structure and simulate it itself on
-// every load — see lib/graphLayout.ts for why that was the wrong side.
+// every load, which was the wrong side.
 //
 // There is one main graph, never a viewer switch. Once a vault contains an
 // assertion, the graph is the ontology-free projection over assertions and
