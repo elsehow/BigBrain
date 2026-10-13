@@ -1,5 +1,6 @@
 // Field on the base (web/ui/field-workbench.html, a fabricated vault): the
-// feed walks with j/k and opens a source; settings open as a panel over the
+// feed walks with j/k and opens a source to read; nothing starts an agent;
+// lenses stand as cubes and a click opens one; the gear lists vaults only; settings open as a panel over the
 // field and give the keys back; Settings offers no Classic; a new vault says
 // what to do. Search finds sources by title, not only entities by name. A
 // long feed comes a page at a time.
@@ -22,43 +23,30 @@ const assert = require('node:assert/strict');
     assert.match(await page.locator('.feed.sorted .row.at').innerText(), /orrery repair estimate/);
     await page.keyboard.press('k');
     assert.match(await page.locator('.feed.sorted .row.at').innerText(), /Atlas survey/);
-    // Enter opens the source as a draft desktop: the source beside an empty chat
+    // Enter opens the source to read: the source alone, no message box
     await page.keyboard.press('Enter');
-    const draft = page.getByText('Not kept until you send');
-    await draft.waitFor();
+    const reader = page.locator('aside.side.reader');
+    await reader.waitFor();
+    assert.equal(await page.getByRole('textbox', { name: 'Message' }).count(), 0, 'reading a source starts no conversation');
     // ⌘O hands the source's origin to the OS: a page goes to the browser (a new tab here).
     // The hint is keyText()'s, so it reads Ctrl+O off a Mac, as the key is pressed.
-    assert.match(await draft.innerText(), process.platform === 'darwin' ? /⌘O Open original/ : /Ctrl\+O Open original/);
+    assert.match(await reader.innerText(), process.platform === 'darwin' ? /⌘O Open original/ : /Ctrl\+O Open original/);
     const [popup] = await Promise.all([page.waitForEvent('popup'), page.keyboard.press('ControlOrMeta+o')]);
     await popup.waitForEvent('domcontentloaded').catch(() => {});
     assert.equal(popup.url(), 'https://example.com/ins_b');
     await popup.close();
-    await draft.waitFor();
-    // @ in the composer lists recently added items; typing searches the vault
-    const editor = page.getByRole('textbox', { name: 'Message' });
-    await editor.click();
-    await page.keyboard.type('see @');
-    const menu = page.locator('.mention-menu');
-    await menu.waitFor();
-    assert.match(await menu.locator('.menu-label').first().innerText(), /recent/i);
-    await menu.locator('[role=option]').first().waitFor();
-    await page.keyboard.press('Enter');
-    await menu.waitFor({ state: 'detached' });
-    assert.equal(await editor.locator('.mention-chip').count(), 1);
-    await page.keyboard.type(' @atlas');
-    await menu.waitFor();
-    await page.waitForFunction(() => /search results/i.test(document.querySelector('.mention-menu .menu-label')?.textContent ?? ''));
+    await reader.waitFor();
+    // Esc goes back to the feed, on the same row
     await page.keyboard.press('Escape');
-    await menu.waitFor({ state: 'detached' });
-    await page.keyboard.press('ControlOrMeta+a');
-    await page.keyboard.press('Backspace');
-    // Esc before a first message goes back to the feed, on the same row
-    await page.keyboard.press('Escape');
-    await draft.waitFor({ state: 'detached' });
+    await reader.waitFor({ state: 'detached' });
+    assert.match(await page.locator('.feed.sorted .row.at').innerText(), /Atlas survey/);
 
-    // ⌘N starts a new desktop (the workbench counts it rather than starting one)
+    // nothing here starts an agent: Shift+Enter and ⌘N are no one's, and the bar has no +
+    await page.keyboard.press('Shift+Enter');
     await page.keyboard.press('ControlOrMeta+n');
-    await page.waitForFunction(() => window.desktopsCreated === 1);
+    await page.keyboard.press('n');
+    assert.equal(await page.evaluate(() => window.desktopsCreated ?? 0), 0);
+    assert.equal(await page.locator('.strip .new').count(), 0);
 
     // settings: a panel over the field; Esc closes it and the field has its keys again
     await page.keyboard.press('ControlOrMeta+,');
@@ -94,9 +82,9 @@ const assert = require('node:assert/strict');
     await find.fill('invoice');
     await results.filter({ hasText: 'Quill press invoice' }).waitFor();
     await page.keyboard.press('Enter');
-    await draft.waitFor();
+    await reader.waitFor();
     await page.keyboard.press('Escape');
-    await draft.waitFor({ state: 'detached' });
+    await reader.waitFor({ state: 'detached' });
 
     // a new vault
     await page.goto(`${base}/field-workbench.html?view=field&empty`);
@@ -128,6 +116,44 @@ const assert = require('node:assert/strict');
     await page.getByRole('button', { name: 'Retry', exact: true }).click();
     await page.locator('.credits').waitFor({ state: 'detached' });
 
+    // lenses stand in the field as cubes; the gear lists vaults only
+    await page.goto(`${base}/field-workbench.html?view=field&servers`);
+    const cubes = page.locator('.v2-lens');
+    await page.waitForFunction(() => document.querySelectorAll('.v2-lens').length === 3);
+    assert.deepEqual((await cubes.allInnerTexts()).sort(), ['Garden logistics', 'Reading', 'Seed library']);
+    await page.locator('.gear').hover();
+    const vaults = page.getByRole('group', { name: 'Vaults' });
+    await vaults.waitFor();
+    assert.deepEqual(await vaults.getByRole('button').allInnerTexts(), ['Personal', 'Garden club']);
+    assert.equal(await vaults.getByRole('button', { name: 'Personal' }).getAttribute('aria-pressed'), 'true');
+    await page.mouse.move(700, 600);
+    // a cube's name clicked: the lens is on, its panel says what it holds
+    await page.locator('.v2-lens', { hasText: 'Garden logistics' }).click();
+    const panel = page.getByRole('region', { name: 'Lens: Garden logistics' });
+    await panel.waitFor();
+    assert.match(await panel.innerText(), /Plans, rotas and repairs for the community garden\./);
+    assert.match(await panel.innerText(), /paused until you review/i);
+    assert.equal(await panel.getByRole('list', { name: 'In this lens' }).getByRole('button').count(), 9);
+    assert.equal(await page.locator('.v2-lens.on').innerText(), 'Garden logistics');
+    // the panel sits clear of the feed beneath it
+    const [pb, fb] = await Promise.all([panel.boundingBox(), page.locator('.feed.sorted').boundingBox()]);
+    assert.ok(pb.y + pb.height <= fb.y + 1, `the lens panel (bottom ${pb.y + pb.height}) stays above the feed (top ${fb.y})`);
+    // a note in it opens to read; Esc comes back to the lens, and Esc again lets it go
+    await panel.getByRole('button', { name: /Seed swap sign-up/ }).click();
+    await reader.waitFor();
+    await page.keyboard.press('Escape');
+    await panel.waitFor();
+    await page.keyboard.press('Escape');
+    await panel.waitFor({ state: 'detached' });
+    assert.equal(await page.locator('.v2-lens.on').count(), 0);
+    // a server's field is its own: no lenses drawn over it (yet)
+    await page.locator('.gear').hover();
+    await vaults.getByRole('button', { name: 'Garden club' }).click();
+    await page.waitForFunction(() => document.querySelectorAll('.v2-lens').length === 0);
+    await page.locator('.gear').hover();
+    await vaults.getByRole('button', { name: 'Personal' }).click();
+    await page.waitForFunction(() => document.querySelectorAll('.v2-lens').length === 3);
+
     // a long feed comes a page at a time: walking up past the oldest row
     // loaded brings the page before in and steps onto it
     await page.goto(`${base}/field-workbench.html?view=field&longFeed`);
@@ -155,6 +181,6 @@ const assert = require('node:assert/strict');
     assert.equal(await rows.count(), 200);
 
     assert.deepEqual(errors, []);
-    console.log('PASS: Field walks and opens the feed, ⌘O opens the original, settings sit over it and return its keys, Settings offers no Classic, search finds sources by title, a new vault says what to do, an assertion clicked is selected and titled, running out of credits is said once, and a long feed loads the page before, by key or by scroll, without moving what is read.');
+    console.log('PASS: Field walks and opens the feed, a source opens to read and starts nothing, ⌘O opens the original, lenses stand as cubes that filter the field and open what they hold, the gear lists vaults only, settings sit over it and return its keys, Settings offers no Classic, search finds sources by title, a new vault says what to do, an assertion clicked is selected and titled, running out of credits is said once, and a long feed loads the page before, by key or by scroll, without moving what is read.');
   } finally { await browser.close(); }
 })().catch(e => { console.error(e); process.exit(1); });

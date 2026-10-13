@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { buildAssertionGraph } from "../lib/assertionGraph";
 import { vaultRecord } from "../lib/vaultReadModel";
+import { listLenses } from "../lib/lenses";
+import { readLensState } from "../lib/lensRecord";
 import { syntheticVault } from "./support/syntheticVault";
 
 const dirs: string[] = [];
@@ -51,4 +53,22 @@ test("it holds every shape a refactor can get wrong", () => {
 
 test("it refuses to write over anything", () => {
   expect(() => syntheticVault(a)).toThrow("is not empty");
+});
+
+test("lenses are added last: the rest of the vault is the same, and each lens reads as the engine reads it", () => {
+  const d = fresh();
+  expect(syntheticVault(d, { sources: 400, seed: 7, lenses: 3 }).lenses).toBe(3);
+  const without = new Map(files(a)), withLenses = new Map(files(d));
+  for (const [path, text] of without) if (!path.startsWith("log/assertions/")) expect(withLenses.get(path)).toBe(text);
+  const lenses = listLenses(d);
+  expect(lenses.map((l) => l.id)).toEqual(["lens_000000000001", "lens_000000000002", "lens_000000000003"]);
+  const states = lenses.map((l) => readLensState(d, l));
+  for (const s of states) {
+    expect(s.members.in.size).toBeGreaterThan(0);
+    expect(s.hands.pins.length).toBeGreaterThan(0);
+    expect(s.hands.exclusions.length).toBe(1);
+  }
+  // the last is still being scored: some notes wait
+  expect(states.at(-1)!.members.pending.size).toBeGreaterThan(0);
+  expect(states[0]!.members.pending.size).toBe(0);
 });

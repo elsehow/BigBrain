@@ -2,7 +2,7 @@
  * same seed, byte for byte. What a refactor is proven on from a machine
  * with no real vault: `bun run field:digest` before and after.
  *
- *   bun test/support/syntheticVault.ts <empty dir> [--sources 2000] [--seed 1]
+ *   bun test/support/syntheticVault.ts <empty dir> [--sources 2000] [--seed 1] [--lenses 0]
  *
  * Every name, address and sentence is generated from the word lists below
  * (docs/development-data.md); none is drawn from a vault. It writes through
@@ -19,6 +19,10 @@
  * - aliases (some chained, some retracted), entities kept distinct,
  *   entity–source bindings, a model's copy scores and the owner's verdicts;
  * - a feed journal, and memory topics citing assertions and linking entities;
+ * - with `--lenses N`, N lenses: each a rule about one thing, scored by a
+ *   model over every note (the notes whose claims name it in), the owner's
+ *   pins and an exclusion, and the last one still waiting on some notes. Off
+ *   by default, so the default vault stays the same, byte for byte;
  * - one git commit of all of it, at a fixed time, as the engine would have made.
  *
  * The logs the engine no longer reads (lib/retiredLogs.ts) are not written:
@@ -28,17 +32,22 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  appendAssertionEvent, assertionEntityId, createAssertionEvent, createDeclineAssertion, createIdentityAssertion,
+  appendAssertionEvent, assertionEntityId, createAssertionEvent, createDeclineAssertion, createIdentityAssertion, createInclusionAssertion,
   createRetraction, sameAs, type AssertionEntity, type AssertionEvent, type AssertionProduction, type RecordedAssertion,
 } from "../../lib/assertionLog";
 import { syncAssertionProjection } from "../../lib/assertionProjection";
 import type { FeedRecord } from "../../lib/feedJournal";
 import { appendSourceInsertionEvent, sourceInsertion, type EventAuthor, type SourceInsertion } from "../../lib/insertionLog";
+import { sourceDigest } from "../../lib/inclusionPolicy";
+import { writeLens } from "../../lib/lenses";
+import { verdictInput } from "../../lib/stages/inclusion";
 
 export interface SyntheticVaultOpts {
   /** How many arrivals; everything else scales from it. */
   sources?: number;
   seed?: number;
+  /** How many lenses (none by default). */
+  lenses?: number;
 }
 
 export interface SyntheticVaultCounts {
@@ -47,6 +56,7 @@ export interface SyntheticVaultCounts {
   entities: number;
   memory: number;
   journals: number;
+  lenses?: number;
 }
 
 const FIRST = ["Ada", "Basil", "Clio", "Dorian", "Edda", "Fenn", "Greer", "Hollis", "Ines", "Jory", "Kestrel", "Linnea",
@@ -246,6 +256,28 @@ export function syntheticVault(root: string, opts: SyntheticVaultOpts = {}): Syn
     writeFileSync(join(root, "memory", `${topic}.md`), `# ${topic.replace(/-\d+$/, "").replace(/-/g, " ")}\n\n${lines.join("\n")}\n`);
   }
 
+  // Lenses, last, so their draws leave everything above as it was.
+  const lensCount = Math.max(0, Math.trunc(opts.lenses ?? 0));
+  const latest = [...new Map(sources.map((s) => [s.source_id, s])).values()];
+  for (let k = 0; k < lensCount; k++) {
+    const thing = things[k % things.length]!, id = `lens_${(k + 1).toString(16).padStart(12, "0")}`, made = at(clock += 10);
+    const rule = `Everything about the ${thing.label}.`, identity = `synthetic-${k}`;
+    writeLens(root, { id, name: thing.label, text: rule, calibration: { identity, model: "model-a", threshold: 0.6 }, servers: [],
+      version: `00000000-0000-4000-8000-${id.slice(5)}`, created: made, updated: made }, false);
+    const named = new Set(prose.filter((p) => p.entities?.some((e) => e.id === thing.id)).flatMap((p) => p.sources?.map((c) => c.insertion_id) ?? []));
+    const inside = (s: SourceInsertion) => named.has(s.id) || sources.some((o) => o.source_id === s.source_id && named.has(o.id));
+    // the last lens has not reached every note yet: its cube turns
+    const scored = k === lensCount - 1 ? latest.filter(() => !chance(0.05)) : latest;
+    write(assertions, createInclusionAssertion({ lens: id, rule: identity, author: { kind: "model", id: "model-a", invocation_id: `lens-${k}` },
+      verdicts: scored.map((s) => ({ insertion_id: s.id, source_id: s.source_id, input: verdictInput(sourceDigest(s)), score: inside(s) ? 0.8 + int(20) / 100 : int(40) / 100 })),
+      created_at: at(clock += 2), produced_by: by("lens-scoring") }));
+    for (const [how, include] of [["pin", true], ["pin", true], ["exclusion", false]] as const) {
+      const s = pick(latest);
+      write(assertions, createInclusionAssertion({ lens: id, author: owner, verdicts: [{ insertion_id: s.id, source_id: s.source_id, include, how }],
+        created_at: at(clock += 2), produced_by: by("lens-edit") }));
+    }
+  }
+
   // One commit of everything, at a fixed time by a fixed author: the engine commits what it writes.
   const date = at(clock), env = { ...process.env, GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date };
   for (const args of [["init", "-q"], ["config", "user.name", "synthetic"], ["config", "user.email", "synthetic@example.invalid"],
@@ -254,7 +286,8 @@ export function syntheticVault(root: string, opts: SyntheticVaultOpts = {}): Syn
     if (git.status !== 0) throw new Error(`syntheticVault: git ${args[0]}: ${git.stderr}`);
   }
   syncAssertionProjection(root);
-  return { sources: sources.length, assertions: assertions.length, entities: entities.length, memory: topics.length, journals: runs.length };
+  return { sources: sources.length, assertions: assertions.length, entities: entities.length, memory: topics.length, journals: runs.length,
+    ...(lensCount ? { lenses: lensCount } : {}) };
 }
 
 function entity(label: string): AssertionEntity {
@@ -264,11 +297,11 @@ function entity(label: string): AssertionEntity {
 if (import.meta.main) {
   const args = process.argv.slice(2);
   const flag = (name: string) => { const i = args.indexOf(`--${name}`); return i >= 0 ? Number(args.splice(i, 2)[1]) : undefined; };
-  const sources = flag("sources"), seed = flag("seed");
+  const sources = flag("sources"), seed = flag("seed"), lenses = flag("lenses");
   const [dir] = args;
-  if (!dir || [sources, seed].some((n) => n !== undefined && !Number.isFinite(n))) {
-    console.error("usage: bun test/support/syntheticVault.ts <empty dir> [--sources 2000] [--seed 1]");
+  if (!dir || [sources, seed, lenses].some((n) => n !== undefined && !Number.isFinite(n))) {
+    console.error("usage: bun test/support/syntheticVault.ts <empty dir> [--sources 2000] [--seed 1] [--lenses 0]");
     process.exit(2);
   }
-  console.log(JSON.stringify(syntheticVault(dir, { sources, seed })));
+  console.log(JSON.stringify(syntheticVault(dir, { sources, seed, lenses })));
 }

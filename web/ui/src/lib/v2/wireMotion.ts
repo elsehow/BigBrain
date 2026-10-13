@@ -1,5 +1,5 @@
-// A Desktop's motion, and its cube drawn flat: what the field's glass cube
-// (wireCube.ts) and the strip's tokens (DesktopCube.svelte) share. No three.js
+// A lens's motion, and its cube drawn flat: what the field's glass cube
+// (wireCube.ts) and the chrome's (LensCube.svelte) share. No three.js
 // here, so the strip draws without loading the field's renderer.
 
 export const TURN_MS = 780, HOLD_MS = 340;
@@ -22,9 +22,9 @@ export function wirePose(t: number): { move: number; settled: boolean; angle: nu
 
 type V3 = [number, number, number];
 
-/** Where a Desktop's motion is now: each on its own clock, so Desktops
- * working at once never turn in step, and the same in the field and the
- * strip, so a token's cube turns with its cube in the field. */
+/** Where a lens's motion is now: each on its own clock, so lenses
+ * scored at once never turn in step, and the same in the field and the
+ * chrome, so a panel's cube turns with its cube in the field. */
 const CYCLE = MOVES.length * (TURN_MS + HOLD_MS);
 export const wireClock = (id: string) => performance.now() + ([...id].reduce((acc, c) => (acc * 31 + c.charCodeAt(0)) >>> 0, 7) % CYCLE);
 

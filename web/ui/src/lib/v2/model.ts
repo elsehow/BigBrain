@@ -29,7 +29,7 @@ export interface FieldNode {
   opens?: string[];
 }
 /** A source: the graph's own source node, on the entities' floor plan. Kept
- * apart from `nodes`, so ties, folds and Desktops read entities alone; the
+ * apart from `nodes`, so ties, folds and lenses read entities alone; the
  * search finds it by title after the names (`searchFound`). */
 export interface FieldSource {
   id: string;
@@ -287,12 +287,13 @@ export interface PilotSummary {
   /** A source among them carries the entities its claims mention (lib/contextSources.ts). */
   contextNodes?: Array<{ id: string; path?: string; title?: string; group?: string; entities?: string[] }>;
 }
-export interface FieldPilot {
+/** A lens as the field draws it: a cube among its members. */
+export interface FieldLens {
   id: string;
   title: string;
-  model: string;
-  phase: PilotSummary["phase"];
-  /** Field nodes in its context: what it's about. */
+  /** Its scoring is under way: notes wait for a verdict. The cube turns. */
+  working: boolean;
+  /** Field nodes its members' claims name: what it's about. */
   ctx: number[];
   p: [number, number, number];
 }
@@ -310,27 +311,17 @@ export function barPilots(sessions: readonly PilotSummary[], keep: string | null
   return open && !seats.includes(open) ? [...seats, open] : seats;
 }
 
-/** A Desktop stands among what it concerns: the set of entities it has
- * read or been given, directly or through a source that mentions them (the
- * `entities` the engine serves on a source's context node). Each counts
- * once, however it came and however often; reading order makes no
- * difference. It stands at their average, in the nodes' own height band,
- * nudged off any dot it would cover. One with nothing placeable waits above
- * the middle; then they're pushed apart so none sits inside another. The
- * field never moves for them. */
-export function placePilots(field: Field, sessions: readonly PilotSummary[]): FieldPilot[] {
-  const byPath = new Map(field.nodes.map((n) => [n.path, n.i]));
-  const out: FieldPilot[] = sessions.map((s, k) => {
-    const sources = new Map<string, string[]>();
-    for (const n of s.contextNodes ?? []) if (n.entities) for (const ref of [n.id, n.path]) if (ref) sources.set(ref, n.entities);
-    const resolve = (ref: string): number[] => {
-      const i = field.byId.get(ref) ?? byPath.get(ref);
-      if (i != null) return [i];
-      return (sources.get(ref) ?? []).map((id) => field.byId.get(id)).filter((x): x is number => x != null);
-    };
-    const refs = [...(s.context ?? []), ...(s.contextNodes ?? []).map((n) => n.path ?? n.id)];
-    const ctx = [...new Set(refs.flatMap(resolve))].sort((a, b) => a - b);
-    if (!ctx.length) return { id: s.id, title: s.title, model: s.model, phase: s.phase, ctx, p: [(k - (sessions.length - 1) / 2) * 3, 6.2, -1.2] };
+/** A lens stands among what it holds: the entities its members' claims
+ * name (`/api/lenses/entities`), each once, in no order. It stands at their
+ * average, just above the nodes' own height band, nudged off any dot it
+ * would cover. One with nothing placeable waits above the middle; then
+ * they're pushed apart so none sits inside another. The field never moves
+ * for them. */
+export function placeLenses(field: Field, lenses: readonly { id: string; name: string; working?: boolean; entities: readonly string[] }[]): FieldLens[] {
+  const out: FieldLens[] = lenses.map((l, k) => {
+    const ctx = [...new Set(l.entities.map((id) => field.byId.get(id)).filter((x): x is number => x != null))].sort((a, b) => a - b);
+    const base = { id: l.id, title: l.name, working: !!l.working, ctx };
+    if (!ctx.length) return { ...base, p: [(k - (lenses.length - 1) / 2) * 3, 6.2, -1.2] };
     const x: [number, number, number] = [0, 0, 0];
     for (const i of ctx) for (let d = 0; d < 3; d++) x[d] += field.nodes[i]!.p[d]! / ctx.length;
     // just above the dots it concerns, then off any dot near enough to cover
@@ -339,13 +330,16 @@ export function placePilots(field: Field, sessions: readonly PilotSummary[]): Fi
       const dx = x[0] - n.p[0], dz = x[2] - n.p[2], d = Math.hypot(dx, dz) || 0.01;
       if (d < 0.8 && Math.abs(x[1] - n.p[1]) < 1) { x[0] += dx / d * (0.8 - d); x[2] += dz / d * (0.8 - d); }
     }
-    return { id: s.id, title: s.title, model: s.model, phase: s.phase, ctx, p: x };
+    return { ...base, p: x };
   });
-  for (let pass = 0; pass < 40; pass++) for (const a of out) for (const b of out) {
-    if (a === b) continue;
-    const dx = a.p[0] - b.p[0], dz = a.p[2] - b.p[2], d = Math.hypot(dx, dz) || 0.01;
+  // two over the same entities stand on one spot: they part along a
+  // direction their order fixes, so the same lenses always part the same way
+  for (let pass = 0; pass < 40; pass++) out.forEach((a, k) => out.forEach((b, j) => {
+    if (a === b) return;
+    let dx = a.p[0] - b.p[0], dz = a.p[2] - b.p[2], d = Math.hypot(dx, dz);
+    if (d < 1e-6) { const t = Math.min(k, j) * 2.4 + (k < j ? 0 : Math.PI); dx = Math.cos(t) * 0.01; dz = Math.sin(t) * 0.01; d = 0.01; }
     if (d < 2.4) { const push = (2.4 - d) / 2 / d; a.p[0] += dx * push; a.p[2] += dz * push; }
-  }
+  }));
   return out;
 }
 

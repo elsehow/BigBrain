@@ -6,14 +6,14 @@
 //
 // Look (settled in the prototype, 2026-10-02): a long lens and no lens
 // effects — a plan, not a cutscene; points not balls; hairline edges; glass
-// only for memory and Desktops; labels appear where attention is and give
+// only for memory and lenses; labels appear where attention is and give
 // way to chrome.
 
 import * as THREE from "three";
 import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 import { LineSegments2 } from "three/examples/jsm/lines/LineSegments2.js";
 import { LineSegmentsGeometry } from "three/examples/jsm/lines/LineSegmentsGeometry.js";
-import { hubOrder, type Field, type FieldPilot } from "./model";
+import { hubOrder, type Field, type FieldLens } from "./model";
 import { createWireCube, type WireCube } from "./wireCube";
 import { wireClock } from "./wireMotion";
 import { look } from "./look";
@@ -23,8 +23,8 @@ export interface SceneHooks {
   blockers(): DOMRect[];
   /** A click: the node under it (a point, a memory topic, a label), or null for empty space. */
   onPick(i: number | null): void;
-  /** A click on a pilot's glass or its name. */
-  onPickPilot(id: string): void;
+  /** A click on a lens's cube or its name. */
+  onPickLens(id: string): void;
   /** The node under the pointer (a point, a memory topic, a label) changed. */
   onHover?(i: number | null): void;
   /** A click on a source drawn at rest (an index into field.sources). */
@@ -42,10 +42,11 @@ export interface V2Camera { rig: Rig; vel: Rig; goal: View; shift: number }
 export interface V2Scene {
   /** Back to the whole field. */
   overview(): void;
-  /** The pilots to draw (real sessions, placed over their context). */
-  setPilots(pilots: FieldPilot[]): void;
-  /** Focus one pilot: it fills in, its context comes forward. Null lets go. */
-  focusPilot(id: string | null): void;
+  /** The lenses to draw, each a cube among what it holds. */
+  setLenses(lenses: FieldLens[]): void;
+  /** The lens that is on: its cube stands larger and its entities come
+   * forward, until it is let go (null). Opening something keeps it on. */
+  focusLens(id: string | null): void;
   /** Open an entity: it and its ties come forward. `text` sits beside it,
    * under `caption` when one says what it is; "" is text still being
    * written, shown as a spinner beside the name. */
@@ -87,7 +88,7 @@ export interface V2Scene {
 /** Memory glass is a little see-through even at rest. */
 const GLASS_OPACITY = 0.95;
 // The field's weight (tuned live on a real vault, 2026-10-06): dots a little
-// larger than first drawn, edges finer. Desktops' cubes keep their own hairline.
+// larger than first drawn, edges finer. Lenses' cubes keep their own hairline.
 const EDGE_PX = 0.5;
 const NODE_SCALE = 1.45;
 /** A source at rest: about an unnamed entity's dot, the field's dust. */
@@ -351,10 +352,10 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
     scene.add(mesh);
     return { mesh, mat, vis: 1 };
   };
-  // ── Desktops: the Wire mark, in glass, over what they're working on ────
+  // ── lenses: the Wire mark, in glass, over what they hold ──────────────
   // Prism glass (it bends the field behind it and splits it into colour), a
-  // hairline outline, and the logo's turning while the agent works. A fixed
-  // DESK_PX on screen at any zoom: a Desktop in world units grew past the
+  // hairline outline, and the logo's turning while its notes are scored. A
+  // fixed DESK_PX on screen at any zoom: a cube in world units grew past the
   // names around it as the camera came in.
   const prism = new THREE.MeshPhysicalMaterial({ color: 0xffffff, metalness: 0, roughness: 0, transmission: 1,
     thickness: 2.4, ior: 1.6, dispersion: 12, clearcoat: 0.8, clearcoatRoughness: 0.02, specularIntensity: 0.8, envMapIntensity: 0.6,
@@ -362,20 +363,20 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
   // hairlines are drawn in device pixels, so each knows the canvas's size
   const fit = (m: LineMaterial) => m.resolution.set(W * renderer.getPixelRatio(), H * renderer.getPixelRatio());
   const hairline = () => { const m = new LineMaterial({ linewidth: 1, transparent: true }); fit(m); lineMats.add(m); return m; };
-  interface Pilot { d: FieldPilot; cube: WireCube; line: LineMaterial; seam: LineMaterial; label: HTMLDivElement & { w?: number; h?: number; op?: number }; scale: number; vis: number; at: THREE.Vector3 }
-  const pilots = new Map<string, Pilot>();
-  let focus: string | null = null, underPilot: string | null = null;
-  const makePilot = (d: FieldPilot): Pilot => {
+  interface Lens { d: FieldLens; cube: WireCube; line: LineMaterial; seam: LineMaterial; label: HTMLDivElement & { w?: number; h?: number; op?: number }; scale: number; vis: number; at: THREE.Vector3 }
+  const lenses = new Map<string, Lens>();
+  let focus: string | null = null, underLens: string | null = null;
+  const makeLens = (d: FieldLens): Lens => {
     const line = hairline(), seam = hairline(), cube = createWireCube(prism, line, seam);
     scene.add(cube.root);
-    const label = document.createElement("div") as Pilot["label"];
-    label.className = "v2-lab v2-pilot";
-    label.dataset["pilot"] = d.id;
+    const label = document.createElement("div") as Lens["label"];
+    label.className = "v2-lab v2-lens";
+    label.dataset["lens"] = d.id;
     labelLayer.append(label);
     line.color.copy(col.fg);
     return { d, cube, line, seam, label, scale: 0, vis: 1, at: new THREE.Vector3(...d.p) };
   };
-  const nameOf = (d: FieldPilot) => (d.title.length > 34 ? d.title.slice(0, 33).trimEnd() + "…" : d.title);
+  const nameOf = (d: FieldLens) => (d.title.length > 34 ? d.title.slice(0, 33).trimEnd() + "…" : d.title);
 
   const memory = field.nodes.filter((n) => n.memory).map((n) => {
     const g = glass(octa);
@@ -398,7 +399,7 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
     for (const g of memory) g.mesh.scale.setScalar(core);
     for (const m of lineMats) fit(m);
   };
-  // a Desktop's width on screen, about a line of its 12px name
+  // a lens cube's width on screen, about a line of its 12px name
   const DESK_PX = 13;
   // world units across one CSS pixel at a point, on this lens
   const perPx = (p: THREE.Vector3) => 2 * camera.position.distanceTo(p) * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) / H;
@@ -546,14 +547,14 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
     const r = canvas.getBoundingClientRect(), x = clientX - r.left, y = clientY - r.top;
     ndc.set((x / r.width) * 2 - 1, -(y / r.height) * 2 + 1);
     ray.setFromCamera(ndc, camera);
-    // a Desktop is small on screen: within a few pixels of its cube is on it
+    // a cube is small on screen: within a few pixels of it is on it
     let near: string | null = null, nearD = Infinity;
-    for (const pl of pilots.values()) {
+    for (const pl of lenses.values()) {
       toScreen(pl.cube.root.position, sp);
       const d = (sp.x - x) ** 2 + (sp.y - y) ** 2, reach = Math.max(12, DESK_PX * pl.scale * 0.8);
       if (sp.ok && d < reach * reach && d < nearD) { nearD = d; near = pl.d.id; }
     }
-    if (near) return `pilot:${near}`;
+    if (near) return `lens:${near}`;
     const glassHit = ray.intersectObjects(memory.filter((g) => g.vis > 0.5).map((g) => g.mesh), false)[0];
     if (glassHit) return memory.find((g) => g.mesh === glassHit.object)?.i ?? null;
     const sizes = aSize.array as Float32Array, sSizes = sSize.array as Float32Array;
@@ -581,7 +582,7 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
       const hit = pickAt(e.clientX, e.clientY);
       canvas.style.cursor = hit == null ? "" : "pointer";
       hoverAt(typeof hit === "number" ? hit : null);
-      underPilot = typeof hit === "string" && hit.startsWith("pilot:") ? hit.slice(6) : null;
+      underLens = typeof hit === "string" && hit.startsWith("lens:") ? hit.slice(5) : null;
       underSrc = srcHit(hit);
       return;
     }
@@ -594,7 +595,7 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
       const hit = pickAt(e.clientX, e.clientY);
       const k = srcHit(hit);
       if (k != null) hooks.onPickSource?.(k);
-      else if (typeof hit === "string") hooks.onPickPilot(hit.slice(6)); else hooks.onPick(hit);
+      else if (typeof hit === "string") hooks.onPickLens(hit.slice(5)); else hooks.onPick(hit);
     }
     const ended = drag != null;
     drag = null;
@@ -602,8 +603,8 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
   };
   // labels are clickable too: they name the thing
   const onLabel = (e: MouseEvent) => {
-    const pl = (e.target as HTMLElement).closest<HTMLElement>(".v2-pilot");
-    if (pl?.dataset["pilot"]) { hooks.onPickPilot(pl.dataset["pilot"]); return; }
+    const pl = (e.target as HTMLElement).closest<HTMLElement>(".v2-lens");
+    if (pl?.dataset["lens"]) { hooks.onPickLens(pl.dataset["lens"]); return; }
     const sl = (e.target as HTMLElement).closest<HTMLElement>("[data-src]");
     if (sl?.dataset["src"]) { hooks.onPickSource?.(Number(sl.dataset["src"])); return; }
     const L = (e.target as HTMLElement).closest<HTMLElement>(".v2-node");
@@ -611,13 +612,13 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
   };
   labelLayer.addEventListener("click", onLabel);
   const onLabelOver = (e: PointerEvent) => {
-    underPilot = (e.target as HTMLElement).closest<HTMLElement>(".v2-pilot")?.dataset["pilot"] ?? null;
+    underLens = (e.target as HTMLElement).closest<HTMLElement>(".v2-lens")?.dataset["lens"] ?? null;
     const sl = (e.target as HTMLElement).closest<HTMLElement>("[data-src]")?.dataset["src"];
     underSrc = sl ? Number(sl) : null;
     const L = (e.target as HTMLElement).closest<HTMLElement>(".v2-node");
     hoverAt(L?.dataset["i"] ? Number(L.dataset["i"]) : null);
   };
-  const onLeave = () => { if (!drag) { hoverAt(null); underPilot = null; underSrc = null; } };
+  const onLeave = () => { if (!drag) { hoverAt(null); underLens = null; underSrc = null; } };
   labelLayer.addEventListener("pointerover", onLabelOver);
   canvas.addEventListener("pointerleave", onLeave);
   const onWheel = (e: WheelEvent) => { e.preventDefault(); goal.dist = THREE.MathUtils.clamp(goal.dist * Math.exp(e.deltaY * 0.0012), 4, 40); };
@@ -663,7 +664,7 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
     scene.environment?.dispose();
     scene.environment = pmrem.fromScene(room, 0.04).texture;
     panel.geometry.dispose(); (panel.material as THREE.Material).dispose();
-    for (const pl of pilots.values()) pl.line.color.copy(col.fg);
+    for (const pl of lenses.values()) pl.line.color.copy(col.fg);
     strong.material.color.copy(col.fg);
     restTies?.material.color.copy(col.fg);
     onlyStrong?.material.color.copy(col.fg);
@@ -710,7 +711,7 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
     uPx.value = renderer.getPixelRatio();
 
     // what is in play
-    const fp = focus ? pilots.get(focus) : undefined;
+    const fp = focus ? lenses.get(focus) : undefined;
     const os = sources.find((s) => s.want && s.open);
     const inPlay: Set<number> | null = srch ? null : ent ? new Set([ent.i, ...ent.ties]) : fp ? new Set(fp.d.ctx) : os ? new Set(os.ties) : null;
     const k = ease(9);
@@ -785,20 +786,21 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
       g.mat.opacity = GLASS_OPACITY * g.vis;
     }
 
-    // Desktops: glide to their place, slowly (one taking in many notes at
-    // once must not wander); a working one turns as the logo does; the
-    // focused or pointed-at one stands a quarter larger
-    for (const pl of pilots.values()) {
-      const on = focus === pl.d.id, near = on || underPilot === pl.d.id;
+    // lenses: glide to their place, slowly (one taking in many notes at
+    // once must not wander); one being scored turns as the logo does; the
+    // one on, or pointed at, stands a quarter larger
+    for (const pl of lenses.values()) {
+      const on = focus === pl.d.id, near = on || underLens === pl.d.id;
       pl.cube.root.position.lerp(pl.at, ease(1.6));
       pl.scale += ((near ? 1.25 : focus ? 0.8 : 1) - pl.scale) * ease(10);
       pl.cube.root.scale.setScalar(DESK_PX / 2 * perPx(pl.cube.root.position) * pl.scale);
-      pl.cube.tick(pl.d.phase === "working" && !reduced ? wireClock(pl.d.id) : 0);
+      pl.cube.tick(pl.d.working && !reduced ? wireClock(pl.d.id) : 0);
       pl.vis += ((srch ? THREE.MathUtils.lerp(0.35, 1, searchDim) : focus && !on ? 0.6 : 1) - pl.vis) * k;
       pl.line.opacity = pl.vis;
     }
 
-    // the ties of an opened entity; each pilot's lines to what it's working on
+    // the ties of an opened entity; a lens's lines to what it holds, while
+    // it is on (and nothing else is open) or pointed at
     ties.begin();
     const tieAll = (from: THREE.Vector3, to: number[], v = 1) => { for (const j of to) ties.add(from, P[j]!, c1.copy(col.bg).lerp(col.fg, 0.55 * v), c2.copy(col.bg).lerp(col.fg, 0.4 * v)); };
     for (const s of sources) if (s.vis > 0.01) tieAll(s.at, s.ties, s.vis);
@@ -807,10 +809,10 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
     for (const [a, b] of srch?.ties ?? []) ties.add(P[a]!, P[b]!, c1.copy(col.bg).lerp(col.fg, 0.5 * Math.min(match[a]!, match[b]!)), c1);
     const named = namedVis();
     if (named > 0.01) tieAll(SP[srcNamed!]!, field.sources[srcNamed!]!.ties, named);
-    for (const pl of pilots.values()) {
-      const on = focus === pl.d.id, tint = pl.d.phase === "working" ? col.act : col.fg;
-      const a = on ? 0.7 : focus ? 0.08 : 0.22;
-      for (const j of pl.d.ctx) ties.add(pl.cube.root.position, P[j]!, c1.copy(col.bg).lerp(tint, a), c2.copy(col.bg).lerp(tint, a * 0.6));
+    for (const pl of lenses.values()) {
+      const tint = pl.d.working ? col.act : col.fg;
+      const a = focus === pl.d.id && !ent && !srch ? 0.5 : underLens === pl.d.id ? 0.3 : 0;
+      if (a) for (const j of pl.d.ctx) ties.add(pl.cube.root.position, P[j]!, c1.copy(col.bg).lerp(tint, a), c2.copy(col.bg).lerp(tint, a * 0.6));
     }
     ties.end();
 
@@ -824,15 +826,16 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
     placed.length = 0;
     // the blockers are the window's; labels sit on the canvas
     for (const r of hooks.blockers()) placed.push([r.left - at.left - 8, r.top - at.top - 8, r.right - at.left + 16, r.bottom - at.top + 8]);
-    // pilot names first: they're the cast; a focused one's solid keeps labels off it
-    for (const pl of pilots.values()) {
+    // lens names first: they're the cast; the one on keeps labels off its cube
+    for (const pl of lenses.values()) {
       const on = focus === pl.d.id;
       // above the cube, clear of its top face as the field's tilt shows it
       toScreen(pl.cube.root.position, s1);
       s1.y -= DESK_PX / 2 * pl.scale * 1.7 + 5;
       if (pl.label.textContent !== nameOf(pl.d)) { pl.label.textContent = nameOf(pl.d); pl.label.w = undefined; }
-      pl.label.classList.toggle("working", pl.d.phase === "working");
-      const op = !s1.ok || on ? 0 : (focus ? 0.45 : 1) * THREE.MathUtils.lerp(0.4, 1, searchDim);
+      pl.label.classList.toggle("working", pl.d.working);
+      pl.label.classList.toggle("on", on);
+      const op = !s1.ok ? 0 : (focus && !on ? 0.45 : 1) * THREE.MathUtils.lerp(0.4, 1, searchDim);
       pl.label.style.transform = `translate3d(${s1.x.toFixed(1)}px,${s1.y.toFixed(1)}px,0) translate(-50%,-100%)`;
       const o = Math.round(op * 40) / 40;
       if (o !== pl.label.op) { pl.label.style.opacity = String(o); pl.label.style.visibility = o <= 0 ? "hidden" : "visible"; pl.label.op = o; }
@@ -925,31 +928,30 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
   void document.fonts?.ready.then(() => { for (const L of labels.values()) L.w = undefined; });
 
   return {
-    overview() { ent = null; focus = null; unrelate(); setGoal({ ...OVERVIEW, az: rig.az }); },
-    setPilots(list) {
+    overview() { ent = null; unrelate(); setGoal({ ...OVERVIEW, az: rig.az }); },
+    setLenses(list) {
       const keep = new Set(list.map((d) => d.id));
-      for (const [id, pl] of pilots) {
+      for (const [id, pl] of lenses) {
         if (keep.has(id)) continue;
-        scene.remove(pl.cube.root); pl.label.remove(); pilots.delete(id);
+        scene.remove(pl.cube.root); pl.label.remove(); lenses.delete(id);
         for (const m of [pl.line, pl.seam]) { m.dispose(); lineMats.delete(m); }
       }
       for (const d of list) {
-        const pl = pilots.get(d.id);
+        const pl = lenses.get(d.id);
         // re-aim only when its place has really moved, not at every read
         if (pl) { pl.d = d; if (pl.at.distanceTo(tA.set(...d.p)) > 0.6) pl.at.copy(tA); }
-        else { const made = makePilot(d); made.cube.root.position.set(...d.p); pilots.set(d.id, made); }
+        else { const made = makeLens(d); made.cube.root.position.set(...d.p); lenses.set(d.id, made); }
       }
     },
-    focusPilot(id) {
+    focusLens(id) {
       focus = id;
       if (id == null) return;
       ent = null;
-      const pl = pilots.get(id);
+      const pl = lenses.get(id);
       if (pl) frameAround([new THREE.Vector3(...pl.d.p), ...pl.d.ctx.map((j) => P[j]!)], 0.5, 2.6, 16, 24);
     },
     openEntity(i, tiesTo = [], text, caption) {
       if (i == null) { ent = null; unrelate(); return; }
-      focus = null;
       const same = ent?.i === i;
       if (!same) unrelate();
       ent = { i, ties: tiesTo, text, caption };
