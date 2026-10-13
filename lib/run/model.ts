@@ -51,13 +51,20 @@ export interface RunModelOpts {
   noTools?: boolean;
 }
 
-export async function runModel(opts: RunModelOpts, loadPi?: () => Promise<PiSDK>): Promise<ModelRunResult> {
-  const run = await runAgent({
-    root: opts.root, role: opts.role, auth: opts.auth, prompt: opts.prompt,
-    target: opts.target, memoryEdits: opts.memoryEdits,
-    capabilities: opts.noTools ? "none" : "memory",
-    output: { requireText: true },
-  }, loadPi);
+/** A text run as a session job asks for it: memory's tools, or none. */
+export const modelRequest = (opts: RunModelOpts): import("./request").ModelRunRequest => ({
+  root: opts.root, role: opts.role, auth: opts.auth, prompt: opts.prompt,
+  target: opts.target, memoryEdits: opts.memoryEdits,
+  capabilities: opts.noTools ? "none" : "memory",
+  output: { requireText: true },
+});
+
+/** A session job's result with the engine and sampling it ran under named. */
+export function asModelRun(run: AgentRunResult): ModelRunResult {
   const fields = executionJournalFields(run.execution!);
   return { ...run, engine: fields.engine as QueueEngine, sampling: fields.sampling as string };
+}
+
+export async function runModel(opts: RunModelOpts, loadPi?: () => Promise<PiSDK>): Promise<ModelRunResult> {
+  return asModelRun(await runAgent(modelRequest(opts), loadPi));
 }

@@ -229,7 +229,7 @@ re-extract historical assertions.
 
 The memory pass captures its inputs once through
 [`memoryInputs.ts`](../lib/memoryInputs.ts), prepares context, and runs with
-memory-specific tools. [`memoryRun.ts`](../lib/memoryRun.ts) validates writes,
+memory-specific tools. [`memoryRun.ts`](../lib/stages/memory.ts) validates writes,
 scope and budget, handles rollback/quarantine, journals the outcome, and commits
 only its owned paths. Successful journals retain the IDs actually observed;
 backdated events and arrivals during a run remain eligible for a later sweep.

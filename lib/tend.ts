@@ -1,5 +1,5 @@
 /** The classic chain (#51): intake, then the memory pass, then the feed
- * (lib/stages/intake.ts, lib/memoryRun.ts, lib/stages/feed.ts), one after the
+ * (lib/stages/intake.ts, lib/stages/memory.ts, lib/stages/feed.ts), one after the
  * other under the gardener's lock, each handed the model runner. */
 import type { PiSDK } from "./run/piSession";
 type PiLoader = () => Promise<PiSDK>;
@@ -10,7 +10,7 @@ import { ENGINE_ROOT } from "./engine";
 import { loadManifest, type Manifest } from "./manifest";
 import { memoryDue, readMemoryStamp, writeMemoryStamp } from "./memory";
 import { feedDue, runFeed, type FeedRunResult } from "./stages/feed";
-import { runMemory, type MemoryRunOpts, type MemoryRunResult } from "./memoryRun";
+import { runMemory, type MemoryRunOpts, type MemoryRunResult } from "./stages/memory";
 import { stagedIds } from "./stage";
 import { creditsPaused } from "./providerCredits";
 import { runJournalFiles, TEND_JOURNAL_DIR } from "./runJournal";
@@ -108,8 +108,10 @@ export async function runTend(opts: TendOpts): Promise<TendResult> {
         error: `engine dependencies missing — run \`bun install\` in ${ENGINE_ROOT} (the MCP server cannot boot)`,
       };
     }
+    // one runner, handed to each stage in turn
+    const model = modelRunner(loadPi);
     const intake = intakeStage({ root, manifest, maxRounds: opts.maxRounds, now });
-    await intake.run({ model: modelRunner(loadPi), write: { append() { /* the gardener's tools write */ } } }, []);
+    await intake.run({ model, write: { append() { /* the gardener's tools write */ } } }, []);
     const rounds = intake.rounds;
     // Memory AFTER intake, so a sweep folds the assertions this run just
     // landed. runMemory declines on its own (lock, due-check) — the pre-check
@@ -128,13 +130,14 @@ export async function runTend(opts: TendOpts): Promise<TendResult> {
         root, manifest,
         ...(opts.force ? { force: true } : {}),
         ...(opts.loadPi ? { loadPi: opts.loadPi } : {}),
+        model,
       });
     }
     // Feed AFTER memory, so it sorts what this run filed against the working
     // set this run kept. Off unless vault.yaml has a feed: block.
     let feed: FeedRunResult | undefined;
     if (feedDue(root, manifest.feed, { now: now() }).due)
-      feed = await (opts.feedRunner ?? runFeed)({ root, manifest, now });
+      feed = await (opts.feedRunner ?? runFeed)({ root, manifest, now, runner: model });
     return { ran: true, rounds, ...(memory ? { memory } : {}), ...(feed ? { feed } : {}) };
   } finally {
     lock.release();

@@ -1,6 +1,6 @@
 /**
  * memory.ts — the memory pass's CLI shell. The run body lives in
- * lib/memoryRun.ts (extracted 2026-08-07 so the pass is testable: a
+ * lib/stages/memory.ts (extracted 2026-08-07 so the pass is testable: a
  * top-level body meant importing anything from here executed a sweep).
  * This file resolves the vault, reads argv, and maps the result to an
  * exit code. Nothing else.
@@ -16,7 +16,7 @@
 
 import { loadManifest } from "../lib/manifest";
 import { VAULT_ROOT } from "../lib/vaultRoot";
-import { runMemory } from "../lib/memoryRun";
+import { runMemory } from "../lib/stages/memory";
 import { refreshSharedMemory } from "../lib/sharedMemory";
 
 // The joined shared vaults, read once so the run sees what the gate sees.

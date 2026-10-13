@@ -116,7 +116,7 @@ export interface DiagnosticsFacts {
   auth: { mode: Auth | null; keyPresent: boolean };
   /** The memory pass's standing: when it last folded, when it may next,
    * and the newest journaled run when that run FAILED. A failed run takes
-   * the interval's slot silently (lib/memoryRun.ts, 2026-09-03) — this is
+   * the interval's slot silently (lib/stages/memory.ts, 2026-09-03) — this is
    * where it shows. All null on a vault not yet on the clock (the first
    * run is `bigbrain tend --force`). */
   memory: MemoryStanding;

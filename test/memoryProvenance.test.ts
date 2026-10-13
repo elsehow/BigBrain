@@ -15,7 +15,7 @@ import { appendSourceInsertionEvent, insertionEventRel, type SourceInsertion } f
 import { handleMcpTool } from "../lib/mcp";
 import { memoryForAgents, stampMemoryProvenance, stripMemoryProvenance } from "../lib/memoryProvenance";
 import { writeMemoryStamp, MEMORY_PROTOCOL_VERSION } from "../lib/memory";
-import { runMemory } from "../lib/memoryRun";
+import { runMemory } from "../lib/stages/memory";
 import { measureTree } from "../lib/memoryTree";
 import { handleVaultTool } from "../lib/vaultTools";
 import { fakeMemoryPi } from "./support/memoryPi";

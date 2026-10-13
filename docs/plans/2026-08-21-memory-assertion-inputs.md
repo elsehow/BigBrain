@@ -6,7 +6,7 @@ the shape from the 2026-08-20 session discussion; implementation is #459.
 
 ## The problem
 
-The memory pass (lib/memoryRun.ts) is cursor + delta + fold-in: current
+The memory pass (lib/stages/memory.ts) is cursor + delta + fold-in: current
 tree, observations spool, and the queue ledger's done-messages since
 `MemoryStamp.doneCursor`. That delta stream is an indirection over what
 the EDITOR did to reference files. On an assertion-native vault the

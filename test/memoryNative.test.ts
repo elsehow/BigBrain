@@ -32,7 +32,7 @@ import {
   appendAndProjectAssertion,
   projectSourceInsertion,
 } from "../lib/assertionProjection";
-import { runMemory, type MemoryRunResult } from "../lib/memoryRun";
+import { runMemory, type MemoryRunResult } from "../lib/stages/memory";
 import { MEMORY_MAX_ASSERTIONS_INLINE, readMemorySnapshot } from "../lib/memoryContext";
 import { memoryStanding, memoryLine } from "../lib/diagnostics";
 import { readMemoryInputs } from "../lib/memoryInputs";

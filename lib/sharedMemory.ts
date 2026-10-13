@@ -4,7 +4,7 @@
  * on disk. The shared ones answer over HTTP, so one async refresh per tend
  * tick writes `.state/shared-memory.json`, and everything that must agree
  * reads that one file synchronously: the due check and the queue view
- * (lib/memory.ts), the run's context and citation gate (lib/memoryRun.ts),
+ * (lib/memory.ts), the run's context and citation gate (lib/stages/memory.ts),
  * and its tools (lib/run/machineTools.ts). A cache like the rest of .state:
  * delete it and the next tick fetches it again.
  *
