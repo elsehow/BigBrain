@@ -12,7 +12,7 @@ import { requireVaultRoot } from "../lib/engine";
 import { hasFlag } from "../lib/cliflags";
 import { loadManifest } from "../lib/manifest";
 import { MANAGED_INTEGRATIONS } from "../lib/integrationAccess";
-import { currentGate, gateDecisions, gated } from "../lib/worthGate";
+import { currentGate, gateDecisions, gated } from "../lib/stages/worthGate";
 
 const root = requireVaultRoot();
 const cfg = loadManifest(root).gate;

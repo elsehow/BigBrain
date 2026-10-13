@@ -9,9 +9,10 @@ import { projectNotes } from "../lib/assertionProjection";
 import { assertionEntityId, createAssertionEvent, appendAssertionEvent } from "../lib/assertionLog";
 import { assertionEntityPath } from "../lib/assertionEntityView";
 import { appendSourceInsertionEvent, insertionEventRel } from "../lib/insertionLog";
-import { claimsOnly, createNoteBriefingService, noteBriefingInput, parseNoteBriefing, type NoteBriefingInput } from "../lib/noteBriefing";
-import { readLensClaims } from "../lib/v2Read";
-import { withVaultSnapshot } from "../lib/vaultReadModel";
+import { claimsOnly, noteBriefingInput, parseNoteBriefing, type NoteBriefingInput } from "../lib/noteBriefing";
+import { createNoteBriefingService } from "../lib/stages/briefing";
+import { readLensClaims } from "../lib/views/v2Read";
+import { withSnapshot } from "../lib/vaultReadModel";
 import { explicitNoteLinks, noteLinkResolver, readMarkdownNote } from "../lib/markdownGraph";
 import { declareOwner } from "./support/identity";
 import { insertion, mdVault, gitVault } from "./support/vault";
@@ -453,20 +454,36 @@ test("with a lens on, a briefing reads only the claims its notes alone support",
   expect(whole.items[0]!.text).toContain("waters");
   expect(whole.links.map(l => l.id)).toEqual(expect.arrayContaining([garden.id, "memory/project.md"]));
   // a lens holding only the meeting: its claim, its entities, its note; no memory, no other note
-  const lens = noteBriefingInput(root, path, undefined, claimsOnly(withVaultSnapshot(root, (db) => readLensClaims(db, [meeting.source_id]))));
+  const lens = noteBriefingInput(root, path, undefined, claimsOnly(withSnapshot(root, (snapshot) => readLensClaims(snapshot, [meeting.source_id]))));
   expect(lens.items[0]!.text).toContain("manages");
   expect(lens.items[0]!.text).not.toContain("waters");
   expect(lens.links.map(l => l.id).sort()).toEqual([atlas.id, `source:${meeting.id}`].sort());
   expect(lens.memories).toEqual([]);
 });
 
-test("a scoped briefing keeps its own cache beside the whole vault's", async () => {
+test("a briefing is a memo of its input: the same input answers from it however it was reached, another input asks again", async () => {
   const root = vault(); let calls = 0;
+  // a scope that reads fewer claims is a different input (claimsOnly, above)
+  const scoped = { ...input, links: input.links.slice(0, 1) };
   const generate = createNoteBriefingService(async (_root, prompt) => {
     calls++;
     return { model: "test", text: JSON.stringify({ summary: "A date needs choosing.", links: JSON.parse(prompt).links.map((l: any) => ({ id: l.id, description: "documents the decision", evidence: [1] })) }) };
-  }, () => input);
+  }, (_root, request) => typeof request !== "string" && request.scope ? scoped : input);
   const selection = { selected: [input.items[0]!.id], excluded: [] };
   for (let round = 0; round < 2; round++) { await generate(root, selection); await generate(root, { ...selection, scope: { lens: "lens_00000000000a" } }); }
   expect(calls).toBe(2);
+  // the same scope reached by another selection spelling, or the whole vault's input under a scope, answers from the memo
+  await generate(root, { selected: [input.items[0]!.id], excluded: [], scope: { server: "a-server" } });
+  expect(calls).toBe(2);
+});
+
+test("an unread briefing's day is its input, given by the door: the stage reads no clock, and a new day asks again", async () => {
+  const root = vault(); const days: string[] = [];
+  const generate = createNoteBriefingService(async (_root, prompt, _preview, system) => {
+    days.push(/Today is (\d{4}-\d{2}-\d{2})/.exec(system ?? "")?.[1] ?? "");
+    return { model: "test", text: JSON.stringify({ summary: "Two asks.", links: JSON.parse(prompt).links.map((l: any) => ({ id: l.id, description: "asks", evidence: [1] })) }) };
+  }, () => input);
+  const unread = (today: string) => ({ selected: [input.items[0]!.id], excluded: [], purpose: "unread" as const, today });
+  await generate(root, unread("2026-09-01")); await generate(root, unread("2026-09-01")); await generate(root, unread("2026-09-02"));
+  expect(days).toEqual(["2026-09-01", "2026-09-02"]);
 });

@@ -8,7 +8,7 @@ import {join} from 'node:path';
 import {appendAssertionEvent,assertionEntityId,createAssertionEvent} from '../lib/assertionLog';
 import {appendSourceInsertionEvent,sourceInsertion} from '../lib/insertionLog';
 import {saveJevKey} from '../lib/jevSettings';
-import {lensNotes,scorePass} from '../lib/lensScoring';
+import {lensNotes,scorePass} from '../lib/stages/inclusion';
 import {CLAIMS_GUIDANCE} from '../lib/sharedJev';
 
 const realFetch=globalThis.fetch;

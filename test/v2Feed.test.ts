@@ -8,9 +8,9 @@ import {
 } from "../lib/assertionProjection";
 import type { FeedRecord } from "../lib/feedJournal";
 import { appendSourceInsertionEvent, insertionEventRel, type SourceInsertion } from "../lib/insertionLog";
-import { authorName, authorOf, newestFirst, pageSortedFeed, plainText, refreshSortedPages, type V2SortedRow } from "../lib/v2Feed";
-import { readEntitiesCiting, readEntityFeed, readLensClaims, readSortedPage, readV2Feed } from "../lib/v2Read";
-import { withVaultSnapshot } from "../lib/vaultReadModel";
+import { authorName, authorOf, newestFirst, pageSortedFeed, plainText, refreshSortedPages, type V2SortedRow } from "../lib/views/v2Feed";
+import { readEntitiesCiting, readEntityFeed, readLensClaims, readSortedPage, readV2Feed } from "../lib/views/v2Read";
+import { withSnapshot } from "../lib/vaultReadModel";
 import { alias as declareAlias, retract } from "./support/said";
 import { insertion, mdVault } from "./support/vault";
 
@@ -31,18 +31,18 @@ function vault(...more: SourceInsertion[]): string {
   return root;
 }
 let n = 0;
-type Over = { text?: string; supersedes?: string; project?: boolean; cites?: SourceInsertion[] };
+type Over = { text?: string; supersedes?: string; project?: boolean; cites?: SourceInsertion[]; model?: string };
 function claim(root: string, author: AssertionEvent["author"], procedure: string, entities: Array<{ id: string; label: string }>, at: string,
   over: Over = {}): AssertionEvent {
   const event = createAssertionEvent({
     text: over.text ?? `${entities.map((e) => `[[${e.id}|${e.label}]]`).join(" and ")} came up, ${++n}.`, entities, sources: (over.cites ?? [src]).map((s) => s.id),
-    author, confidence: "direct", created_at: at, produced_by: { procedure, version: "v1" }, ...(over.supersedes ? { supersedes: over.supersedes } : {}),
+    author, confidence: "direct", created_at: at, produced_by: { procedure, version: "v1", ...(over.model ? { model: over.model } : {}) }, ...(over.supersedes ? { supersedes: over.supersedes } : {}),
   }, new Map([src, agenda].map((s) => [s.id, s])));
   if (over.project !== false) appendAndProjectAssertion(root, event);
   return event;
 }
-const feed = (root: string) => withVaultSnapshot(root, (db) => readV2Feed(db));
-const entityFeed = (root: string, id: string) => withVaultSnapshot(root, (db) => readEntityFeed(db, id));
+const feed = (root: string) => withSnapshot(root, readV2Feed);
+const entityFeed = (root: string, id: string) => withSnapshot(root, (snapshot) => readEntityFeed(snapshot, id));
 function journal(root: string, dir: "tend" | "feed", id: string, record: object, project = true): void {
   const rel = `journal/${dir}/2026-08/${id}.json`;
   mkdirSync(join(root, "journal", dir, "2026-08"), { recursive: true });
@@ -91,7 +91,7 @@ describe("v2 feed", () => {
     claim(root, pi, "bigbrain-mcp", [short, atlas], day(1));
     claim(root, pi, "bigbrain-mcp", [ada], day(2));
     claim(root, pi, "bigbrain-mcp", [orrery], day(3), { cites: [agenda] });
-    const citing = (ids: string[]) => withVaultSnapshot(root, (db) => readEntitiesCiting(db, ids)).toSorted();
+    const citing = (ids: string[]) => withSnapshot(root, (snapshot) => readEntitiesCiting(snapshot, ids)).toSorted();
     expect(citing(["minutes"])).toEqual([ada.id, atlas.id].toSorted());
     expect(citing([])).toEqual([]);
   });
@@ -102,7 +102,7 @@ describe("v2 feed", () => {
     const both = claim(root, pi, "bigbrain-mcp", [atlas], day(2), { cites: [src, agenda] });
     const gone = claim(root, pi, "bigbrain-mcp", [orrery], day(3));
     retract(root, gone.id, { reason: "wrong", author: pi, created_at: day(4), produced_by: { procedure: "fix", version: "v1" } });
-    const claims = (members: string[]) => withVaultSnapshot(root, (db) => readLensClaims(db, members));
+    const claims = (members: string[]) => withSnapshot(root, (snapshot) => readLensClaims(snapshot, members));
     expect(claims(["minutes"])).toEqual(new Set([minutes.id]));
     expect(claims(["minutes", "agenda"])).toEqual(new Set([minutes.id, both.id]));
     expect(claims([])).toEqual(new Set());
@@ -151,6 +151,17 @@ describe("v2 feed", () => {
     expect(named()).toEqual(expected);
   });
 
+  test("a gardener row that names its model keeps it, whatever run it falls in", () => {
+    const root = vault();
+    const named = claim(root, pi, "bigbrain-mcp", [ada], "2026-08-02T10:30:00.000Z", { model: "model-z" });
+    const unnamed = claim(root, pi, "bigbrain-mcp", [ada], "2026-08-02T10:40:00.000Z");
+    tendRun(root, "run-a", "model-a", day(2, 10), day(2, 11));
+    const by = () => Object.fromEntries(feed(root).feed.map((r) => [r.id, r.by]));
+    expect(by()).toEqual({ [named.id]: "model-z", [unnamed.id]: "model-a" });
+    rebuildAssertionProjection(root);
+    expect(by()).toEqual({ [named.id]: "model-z", [unnamed.id]: "model-a" });
+  });
+
   test("a rewrite keeps the date its claim was first recorded, whichever of them is projected first", () => {
     const root = vault();
     // newest first, as a rebuild may read them: it reads a month by id, not by date
@@ -197,7 +208,7 @@ describe("sorted feed", () => {
     ({ source, section, headline: `About ${source}`, due, assertions });
   const call = (root: string, id: string, completed_at: string, entries: object[], over: Partial<FeedRecord> = {}, project = true) =>
     journal(root, "feed", id, { format: "bigbrain-feed-run/v1", assertions: [], entries, prompt_version: "v", started_at: completed_at, completed_at, ...over }, project);
-  const page = (root: string, limit = 100, before?: string) => withVaultSnapshot(root, (db) => readSortedPage(root, db, limit, before));
+  const page = (root: string, limit = 100, before?: string) => withSnapshot(root, (snapshot) => readSortedPage(snapshot, limit, before));
   function fixture() {
     const root = vault();
     const [a, b, c, d] = [[ada], [atlas], [orrery], [ada, orrery]].map((e, i) => claim(root, gardener, "intake-assertion-agent", e, day(3 + i)));

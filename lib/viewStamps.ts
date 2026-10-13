@@ -7,19 +7,21 @@
  * the coordinate of the last commit the v2 feed reads, the stamp /api/v2
  * reports in `x-bigbrain-stamp`; `folds` is the same for the fold proposals
  * (/api/entity/folds). `joined` names
- * the shared vaults the Field's graph merges in: joining or leaving one moves
- * it (their own records are read per request, #230). `files` moves
+ * the shared vaults the Field's graph merges in: joining or leaving one, or
+ * its follower landing a new head (lib/serverStore.ts), moves it. `files` moves
  * when a watched file outside the projection changes (vault.yaml, the queue,
  * a journal): the views that have no stamp of their own re-read on it, and
  * on `revision`. */
 import type { Database } from "bun:sqlite";
 import type { ServerResponse } from "node:http";
-import { lastChangeExcept, openAssertionProjectionReadonly, type ChangeKind } from "./assertionProjection";
+import { lastChangeExcept, type ChangeKind } from "./assertionProjection";
 import { json } from "./httpx";
 import { graphStamp } from "./maintainedGraph";
 import { connectionStorePath, readConnections } from "./sharedConnections";
+import { readServer } from "./serverStore";
 import { sha256hex } from "./hash";
-import { withVaultSnapshot } from "./vaultReadModel";
+import { withSnapshot } from "./vaultReadModel";
+import type { Snapshot } from "./views/view";
 
 export interface ViewStamps {
   generation: string;
@@ -31,8 +33,8 @@ export interface ViewStamps {
 export const STAMP_HEADER = "x-bigbrain-stamp";
 
 /** What each view does not read: a commit of only these leaves its stamp. */
-const FEED_IGNORES: readonly ChangeKind[] = ["markdown", "fold_reject", "folds"];
-const FOLDS_IGNORES: readonly ChangeKind[] = ["markdown", "journal", "decline", "entity_source", "copy"];
+const FEED_IGNORES: readonly ChangeKind[] = ["markdown", "fold_reject", "folds", "inclusion"];
+const FOLDS_IGNORES: readonly ChangeKind[] = ["markdown", "journal", "decline", "entity_source", "copy", "inclusion"];
 
 const stampOf = (ignores: readonly ChangeKind[]) => (root: string, db?: Database): string => {
   try { return lastChangeExcept(root, ignores, db)?.last ?? ""; } catch { return ""; }
@@ -44,11 +46,11 @@ export const foldsStamp = stampOf(FOLDS_IGNORES);
 
 /** A read model from one snapshot, with the stamp it was read at. */
 export function serveStamped<T>(res: ServerResponse, root: string, stamp: (root: string, db: Database) => string,
-  read: (db: Database, stamp: string) => T): void {
+  read: (snapshot: Snapshot, stamp: string) => T): void {
   try {
-    const [at, value] = withVaultSnapshot(root, (db) => {
-      const at = stamp(root, db);
-      return [at, read(db, at)] as const;
+    const [at, value] = withSnapshot(root, (snapshot) => {
+      const at = stamp(root, snapshot.db);
+      return [at, read(snapshot, at)] as const;
     });
     res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store", [STAMP_HEADER]: at });
     res.end(JSON.stringify(value));
@@ -57,19 +59,22 @@ export function serveStamped<T>(res: ServerResponse, root: string, stamp: (root:
   }
 }
 
+/** Each view's stamp: the projection's from one snapshot, so no two can
+ * straddle a commit; the graph's as the maintainer holds it; the joined
+ * servers' as this computer holds them; `files` as the watcher chained it. */
 export function viewStamps(root: string, files: string): ViewStamps {
   let log: ReturnType<typeof lastChangeExcept>, folds = "";
   try {
-    const db = openAssertionProjectionReadonly(root);
-    try { log = lastChangeExcept(root, FEED_IGNORES, db); folds = foldsStamp(root, db); }
-    finally { db.close(); }
+    [log, folds] = withSnapshot(root, ({ db }) => [lastChangeExcept(root, FEED_IGNORES, db), foldsStamp(root, db)] as const);
   } catch { /* no projection yet */ }
   const [generation = "", revision = ""] = log?.at.split(":") ?? [];
   let graph = "", joined = "";
   try { graph = graphStamp(root); } catch { /* no view yet */ }
   try {
-    const ids = readConnections(connectionStorePath()).map((c) => c.id).sort();
-    if (ids.length) joined = sha256hex(ids.join(",")).slice(0, 16);
+    // which servers are joined, and how far this computer's copy of each has come
+    const store = connectionStorePath();
+    const held = readConnections(store).map((c) => c.id).sort().map((id) => { const { snapshot, status } = readServer(store, id); return `${id}:${snapshot?.head ?? ""}:${status.error?.at ?? ""}`; });
+    if (held.length) joined = sha256hex(held.join(",")).slice(0, 16);
   } catch { /* an unreadable store joins nothing */ }
   return { generation, revision, views: { graph, joined, feed: log?.last ?? "", folds, files } };
 }

@@ -1,3 +1,4 @@
+import { projectNotes } from "../lib/assertionProjection";
 import { afterAll, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import type { ServerResponse } from "node:http";
@@ -82,6 +83,7 @@ test("a coding desktop: its agent shows a local page, the transcript reads back,
   // the person following a citation: a note that reads opens beside the chat
   mkdirSync(join(root, "memory"), { recursive: true });
   writeFileSync(join(root, "memory", "gears.md"), "# Gears\n\nThe orrery's gear train.\n");
+  projectNotes(root, ["memory"]); // through the notes door, as the watcher passes it
   expect((await desktops.view(made.id, "open", { path: "memory/gears.md" })).desktop?.views.map(v => [v.kind, v.path, v.title])).toEqual([["note", "memory/gears.md", "Gears"]]);
   await expect(desktops.view(made.id, "open", { path: "memory/missing.md" })).rejects.toThrow(/could not be read/);
 
@@ -299,12 +301,12 @@ test("the person's allowance covers what was read, not where: new mail and a rew
     { name: "inbox_list", description: "List the inbox.", parameters: { type: "object", properties: {} }, execute: async () => ({ messages: [mailbox] }) },
   ];
   const call = (name: string, args: Record<string, unknown>) => fauxAssistantMessage([fauxToolCall(name, args)], { stopReason: "toolUse" });
-  const drop = "journal/drop.md";
+  const drop = "memory/drop.md";
   const root = nativeVault({ files: { [drop]: "# A drop\n\nPlease review.\n" } }); roots.push(root);
   const { ws, host } = await fakeHost([
     call("read_note", { path: drop }), call("inbox_list", {}), fauxAssistantMessage("Read them."),
     call("read_note", { path: drop }), call("inbox_list", {}), call("bash", { command: "echo still" }),
-    () => { writeFileSync(join(root, drop), "# A drop\n\nRewritten.\n"); mailbox = "Tomorrow's mail."; return call("read_note", { path: drop }); },
+    () => { writeFileSync(join(root, drop), "# A drop\n\nRewritten.\n"); projectNotes(root, [drop]); mailbox = "Tomorrow's mail."; return call("read_note", { path: drop }); },
     call("inbox_list", {}), call("bash", { command: "echo off" }), fauxAssistantMessage("Off again."),
   ], tools);
   const desktops = new CodingDesktops(root, { agents: new Agents(workspace(ws), quickHarbor()), host });

@@ -1,3 +1,4 @@
+import { projectNotes, recoverAssertionProjection } from "../lib/assertionProjection";
 import { afterEach, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -505,12 +506,15 @@ describe("GET /v1/memory (#105)", () => {
     }
   });
 
-  test("a symlink under memory/ that escapes it → 403 (realpath re-check)", async () => {
+  test("a symlink under memory/ that escapes it is never served: the projection never took it in", async () => {
     const { handler, token, root } = memoryVault();
     const secret = mkdtempSync(join(tmpdir(), "bb-secret-"));
     writeFileSync(join(secret, "passwd.md"), "root:x:0:0");
     symlinkSync(join(secret, "passwd.md"), join(root, "memory", "escape.md"));
-    expect((await handler(get("/v1/memory?path=escape", token))).status).toBe(403);
+    projectNotes(root, ["memory"]);
+    const res = await handler(get("/v1/memory?path=escape", token));
+    expect(res.status).toBe(404);
+    expect(await res.text()).not.toContain("root:x");
   });
 
   test("an absent slug → 404, not 403 (existence stays distinct)", async () => {
@@ -596,18 +600,18 @@ describe("the product shell's read route (#42): /v1/note", () => {
     };
     appendSourceInsertionEvent(s.root, imported);
     write(
-      "journal/clip-one.md",
+      "memory/clip-one.md",
       "---\ntitle: A Clipped Page\ncategory: article\n---\n# Heading to skip\nProse about [[2026-07-01-bigbrain]] and [[nowhere]].\n",
       10
     );
-    write("journal/INDEX.md", "No frontmatter here, just *prose*.\n", 20);
+    write("memory/INDEX.md", "No frontmatter here, just *prose*.\n", 20);
     return { ...s, write };
   }
 
   describe("GET /v1/note", () => {
     test("returns the parsed note with resolved links", async () => {
       const { handler, token } = vaultFixture();
-      const res = await handler(get("/v1/note?path=journal/clip-one.md", token));
+      const res = await handler(get("/v1/note?path=memory/clip-one.md", token));
       expect(res.status).toBe(200);
       const j = (await res.json()) as {
         title: string;
@@ -625,25 +629,25 @@ describe("the product shell's read route (#42): /v1/note", () => {
       // source imported from it, a servable note's path to itself.
       const { handler, token, write } = vaultFixture();
       write(
-        "journal/qualified.md",
-        "---\ntitle: Q\n---\nSee [[references/2026-07-01-bigbrain|the product]] and [[journal/clip-one]].\n",
+        "memory/qualified.md",
+        "---\ntitle: Q\n---\nSee [[references/2026-07-01-bigbrain|the product]] and [[memory/clip-one]].\n",
         5
       );
       const j = (await (
-        await handler(get("/v1/note?path=journal/qualified.md", token))
+        await handler(get("/v1/note?path=memory/qualified.md", token))
       ).json()) as {
         links: { name: string; path: string | null }[];
       };
       expect(j.links).toEqual([
         { name: "references/2026-07-01-bigbrain", path: importedRel },
-        { name: "journal/clip-one", path: "journal/clip-one.md" },
+        { name: "memory/clip-one", path: "memory/clip-one.md" },
       ]);
     });
 
     test("a bare link still resolves, and a qualified miss is still null", async () => {
       const { handler, token, write } = vaultFixture();
-      write("journal/mixed.md", "---\ntitle: M\n---\n[[2026-07-01-bigbrain]] · [[references/nowhere]]\n", 5);
-      const j = (await (await handler(get("/v1/note?path=journal/mixed.md", token))).json()) as {
+      write("memory/mixed.md", "---\ntitle: M\n---\n[[2026-07-01-bigbrain]] · [[references/nowhere]]\n", 5);
+      const j = (await (await handler(get("/v1/note?path=memory/mixed.md", token))).json()) as {
         links: { name: string; path: string | null }[];
       };
       expect(j.links).toEqual([
@@ -658,12 +662,12 @@ describe("the product shell's read route (#42): /v1/note", () => {
       // came back null — the live bug this issue tracks.
       const { handler, token, write } = vaultFixture();
       write(
-        "journal/anchored.md",
+        "memory/anchored.md",
         "---\ntitle: A\n---\nSee [[references/2026-07-01-bigbrain#Some Heading]] and [[2026-07-01-bigbrain^block-id|the block]].\n",
         5
       );
       const j = (await (
-        await handler(get("/v1/note?path=journal/anchored.md", token))
+        await handler(get("/v1/note?path=memory/anchored.md", token))
       ).json()) as {
         links: { name: string; path: string | null }[];
       };
@@ -846,6 +850,7 @@ describe("the product shell's read route (#42): /v1/note", () => {
       const path = insertionEventRel(source);
       expect((await handler(get(`/v1/note?path=${encodeURIComponent(path)}`, token))).status).toBe(200);
       rmSync(join(root, path));
+      recoverAssertionProjection(root); // the census, as the watcher runs it on a change in log/
       const gone = await handler(get(`/v1/note?path=${encodeURIComponent(path)}`, token));
       expect(gone.status).toBe(404);
       expect(((await gone.json()) as { error: string }).error).toContain("not in the log");
@@ -919,14 +924,15 @@ describe("the product shell's read route (#42): /v1/note", () => {
       expect((await read("&q=pricing+tokens&slack=99")).error).toContain("0 to 20");
 
       // A markdown note takes the same window — one implementation, not two.
-      mkdirSync(join(root, "journal"), { recursive: true });
+      mkdirSync(join(root, "memory"), { recursive: true });
       writeFileSync(
-        join(root, "journal", "long.md"),
+        join(root, "memory", "long.md"),
         "---\ntitle: Long\n---\n\n" +
           Array.from({ length: 50 }, (_, i) => (i === 25 ? "the needle paragraph" : `filler ${i}`)).join("\n\n")
       );
+      projectNotes(root, ["memory/long.md"]); // through the notes door, as the watcher passes it
       const md = (await (
-        await handler(get("/v1/note?path=journal/long.md&q=needle&slack=1", token))
+        await handler(get("/v1/note?path=memory/long.md&q=needle&slack=1", token))
       ).json()) as { blocks_shown: number; markdown: string; links: unknown[] };
       expect(md.blocks_shown).toBe(3);
       expect(md.markdown).toContain("the needle paragraph");
@@ -983,16 +989,16 @@ describe("the product shell's read route (#42): /v1/note", () => {
 
     test("format=markdown is the same note as text, newlines intact, links at the end", async () => {
       const { root, handler, token } = setup(["vault:read"]);
-      mkdirSync(join(root, "journal"), { recursive: true });
+      mkdirSync(join(root, "memory"), { recursive: true });
       writeFileSync(
-        join(root, "journal", "plain.md"),
+        join(root, "memory", "plain.md"),
         "---\ntitle: Plain\n---\n\nLine one.\nLine two cites [[ada-lovelace]].\n"
       );
-      const res = await handler(get("/v1/note?path=journal/plain.md&format=markdown", token));
+      const res = await handler(get("/v1/note?path=memory/plain.md&format=markdown", token));
       expect(res.status).toBe(200);
       expect(res.headers.get("content-type")).toContain("text/markdown");
       const text = await res.text();
-      expect(text).toContain("<!-- journal/plain.md -->");
+      expect(text).toContain("<!-- memory/plain.md -->");
       expect(text).toContain("Line one.\nLine two cites");
       expect(text).toContain("## Links");
       expect(text.split("\n").length).toBeGreaterThan(5);
@@ -1334,7 +1340,7 @@ describe("the route table (#264)", () => {
     const root = mkdtempSync(join(tmpdir(), "bb-api-vault-"));
     mkdirSync(join(root, "journal"), { recursive: true });
     mkdirSync(join(root, "memory"), { recursive: true });
-    writeFileSync(join(root, "journal", "probe.md"), "---\ntitle: probe\n---\nbody");
+    writeFileSync(join(root, "memory", "probe.md"), "---\ntitle: probe\n---\nbody");
     writeFileSync(join(root, "memory", "MEMORY.md"), "probe");
     writeFileSync(join(root, "vault.yaml"), NATIVE_YAML); // #495: search is projection-only
     execFileSync("git", ["init", "-q"], { cwd: root });
@@ -1364,7 +1370,7 @@ describe("the route table (#264)", () => {
       { method: "POST", path: "/v1/enqueue", body: '{"guidance":"probe"}', reachable: [200] },
       { method: "POST", path: "/v1/observe", body: "{}", reachable: [400] }, // empty observation
       { method: "GET", path: "/v1/status", reachable: [200] },
-      { method: "GET", path: "/v1/note?path=journal/probe.md", reachable: [200] },
+      { method: "GET", path: "/v1/note?path=memory/probe.md", reachable: [200] },
       { method: "GET", path: "/v1/search?q=probe", reachable: [200] },
       { method: "GET", path: "/v1/memory", reachable: [200] },
       { method: "GET", path: "/v1/gardener/next", reachable: [200] },

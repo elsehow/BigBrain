@@ -1,9 +1,9 @@
 import {readAssertionLog,assertionSourceReferences} from './assertionLog';
 import {entityAliasResolution} from './entityAliasLog';
-import {aliasEvents} from './assertionKinds';
+import {standingAliases} from './assertionKinds';
 import {parseMentions,type MentionItem} from './pilotMentions';
 import type {SourceInsertion} from './insertionLog';
-import {plainText} from './v2Feed';
+import {plainText} from './views/v2Feed';
 export interface RuleEntity extends MentionItem {aliases:string[];sourceIds:Set<string>;context:string[]}
 /** What the gardener read in one note revision: its claims, and the entities they name by their canonical labels. */
 export interface NoteClaims {claims:string[];claim_entities:string[]}
@@ -13,7 +13,7 @@ const cache=new Map<string,{at:number;entities:Map<string,RuleEntity>;notes:Map<
 /** One read of the claim log: the entities a rule can @mention, and each note revision's claims by insertion id. */
 function readClaims(root:string) {
  const cached=cache.get(root);if(cached&&Date.now()-cached.at<30000)return cached;
- const aliases=entityAliasResolution(aliasEvents(root,{strict:true})),items=new Map<string,RuleEntity>(),notes=new Map<string,NoteClaims>(),room=new Map<string,number>();
+ const aliases=entityAliasResolution(standingAliases(root,{strict:true})),items=new Map<string,RuleEntity>(),notes=new Map<string,NoteClaims>(),room=new Map<string,number>();
  for(const a of readAssertionLog(root,{strict:true})){
   const refs=assertionSourceReferences(a),text=plainText(a.text),labels:string[]=[];
   for(const e of a.entities){const canonical=aliases.canonical.get(e.id)??e,path=`projection/entities/${canonical.id}.md`;labels.push(canonical.label);let item=items.get(path);if(!item){item={id:path,title:canonical.label,tag:'ENTITY',aliases:aliases.labels.get(canonical.id)??[],sourceIds:new Set(),context:[]};items.set(path,item);}for(const ref of refs)item.sourceIds.add(ref.insertion_id);if(item.context.length<25)item.context.push(a.text.slice(0,1600));}

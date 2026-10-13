@@ -27,7 +27,7 @@
 import { role as envRole } from "../lib/env";
 import { rebuildAssertionProjection } from "../lib/assertionProjection";
 import { requireVaultRoot } from "../lib/engine";
-import { scanSurface } from "../lib/searchCore";
+import { recordScan, scanSurface } from "../lib/searchCore";
 import { flagValue, hasFlag, positionals } from "../lib/cliflags";
 
 const argv = process.argv.slice(2);
@@ -101,8 +101,9 @@ const filters = {
 // for something. The USE half arrives through the scaffold's Read hook
 // where one is installed.
 const r = scanSurface(root, query, limit, "cli", {
-  filters, relax: !role, ledger: !role, includeMemory: !role || role === "memory",
+  filters, relax: !role, includeMemory: !role || role === "memory",
 });
+if (r.ok && !role) recordScan(root, query, r, "cli");
 if (!r.ok) {
   if (r.invalid_query) { console.error(`search: ${r.reason}`); process.exit(2); }
   // The projection/index is a rebuildable cache; its loss is the vault's

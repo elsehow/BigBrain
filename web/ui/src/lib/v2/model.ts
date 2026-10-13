@@ -2,7 +2,7 @@
 // field, and the name search. Pure — the scene (scene.ts) draws it, the view
 // (V2View.svelte) reads it, and neither reshapes it.
 
-import type { V2Feed, V2FeedRow } from "../../../../../lib/v2Feed";
+import type { V2Feed, V2FeedRow } from "../../../../../lib/views/v2Feed";
 import type { MentionItem } from "../../../../../lib/pilotMentions";
 import type { GraphData, GraphNode } from "../types";
 

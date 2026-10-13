@@ -6,8 +6,8 @@
   import LensWarning from "./LensWarning.svelte";
   import { app, gotoLens } from "../lib/store.svelte";
   import { lensOpening, lensRequest, type LensSummary } from "../lib/lenses.svelte";
-  let lenses = $state<LensSummary[] | null>(null), problem = $state(""), busy = $state("");
-  $effect(() => { app.rev; void lensRequest<{ lenses: LensSummary[] }>("").then((r) => { lenses = r.lenses; }).catch((e) => { problem = e.message; }); });
+  let lenses = $state<LensSummary[] | null>(null), problem = $state(""), busy = $state(""), unmigrated = $state(0);
+  $effect(() => { app.rev; void lensRequest<{ lenses: LensSummary[]; unmigrated?: number }>("").then((r) => { lenses = r.lenses; unmigrated = r.unmigrated ?? 0; }).catch((e) => { problem = e.message; }); });
   const shared = $derived(lenses?.filter((l) => l.servers.length).length ?? 0);
   const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
   function open(id: string, panel: "changes" | "rule") { lensOpening.panel = panel; gotoLens(id); }
@@ -19,7 +19,8 @@
   }
 </script>
 
-<SettingsPage active="lenses" title="LENSES" count={lenses ? `${plural(lenses.length, "lens", "lenses")} · ${shared} shared` : undefined} notice={problem ? { ok: false, text: problem } : null}>
+<SettingsPage active="lenses" title="LENSES" count={lenses ? `${plural(lenses.length, "lens", "lenses")} · ${shared} shared` : undefined} notice={problem ? { ok: false, text: problem }
+  : unmigrated ? { ok: false, text: `${plural(unmigrated, "lens", "lenses")} from before lenses moved into the vault ${unmigrated === 1 ? "waits" : "wait"} for bigbrain migrate. Until then, the servers they share to are left as they are.` } : null}>
   <div class="head"><button class="settings-add" onclick={() => gotoLens("new")}>New lens +</button></div>
   {#each lenses ?? [] as lens (lens.id)}
     <section class="settings-card" aria-label={lens.name}>
@@ -30,7 +31,7 @@
         <div class="settings-card-main">
           <h2 class="settings-card-name">{lens.name}</h2>
           <p class="settings-card-about"><RuleText text={lens.text} /></p>
-          <small>{plural(lens.members, "note", "notes")} · <span class:shared={lens.servers.length}>{lens.servers.length ? `Shared with ${lens.servers.map((s) => s.name).join(", ")}` : "Just you"}</span></small>
+          <small>{plural(lens.members, "note", "notes")}{lens.pending ? ` · ${lens.pending} waiting to be scored` : ""} · <span class:shared={lens.servers.length}>{lens.servers.length ? `Shared with ${lens.servers.map((s) => s.name).join(", ")}` : "Just you"}</span></small>
         </div>
         <button class="settings-add" aria-label={`Edit ${lens.name}`} onclick={() => gotoLens(lens.id)}>Edit</button>
       </div>

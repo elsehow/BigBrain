@@ -79,4 +79,7 @@ export interface Graph {
   projection?: "assertions";
   /** Trusted owner identity, omitted from graph nodes and inline navigation. */
   userNote?: { ids: string[]; names: string[] };
+  /** The joined servers merged in, each as this computer last synced it
+   * (lib/serverStore.ts): one that stopped answering is shown, not dropped. */
+  servers?: { id: string; name: string; syncedAt?: string; head?: number; error?: { message: string; at: string } }[];
 }

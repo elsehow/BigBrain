@@ -1,11 +1,11 @@
 import { afterEach, expect, test } from "bun:test";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { join } from "node:path";
 import { assertionEntityId, createAssertionEvent, appendAssertionEvent } from "../lib/assertionLog";
 import { assertionEntityPath } from "../lib/assertionEntityView";
 import { appendSourceInsertionEvent } from "../lib/insertionLog";
-import { briefingCacheFile } from "../lib/noteBriefing";
-import { createNoteRelationService, noteRelationInput, noteRelationPrompt, parseNoteRelation, type NoteRelationInput } from "../lib/noteRelation";
+import { createNoteRelationService } from "../lib/stages/relation";
+import { noteRelationInput, noteRelationPrompt, parseNoteRelation, type NoteRelationInput } from "../lib/noteRelation";
 import { insertion, mdVault } from "./support/vault";
 
 const roots: string[] = [];
@@ -51,14 +51,13 @@ test("without a direct link the relation is told what the two share, never a dir
   expect(JSON.stringify(prompt)).not.toContain("[[");
 });
 
-test("the open note's cached briefing lends its description of the link as a headline", () => {
+test("a relation's input is the record alone: a briefing's memo never lends it anything", () => {
   const root = vault();
-  expect(noteRelationInput(root, ada.id, atlas.id).headline).toBeUndefined();
-  const file = briefingCacheFile(root, [ada.id], []);
-  mkdirSync(dirname(file), { recursive: true });
-  writeFileSync(file, JSON.stringify({ links: [{ id: atlas.id, description: "is the project she manages" }] }));
-  expect(noteRelationInput(root, ada.id, atlas.id).headline).toBe("is the project she manages");
-  expect(JSON.parse(noteRelationPrompt(noteRelationInput(root, ada.id, atlas.id))).headline).toBe("is the project she manages");
+  const before = noteRelationInput(root, ada.id, atlas.id);
+  mkdirSync(join(root, ".state", "note-briefings"), { recursive: true });
+  writeFileSync(join(root, ".state", "note-briefings", "anything.json"), JSON.stringify({ links: [{ id: atlas.id, description: "is the project she manages" }] }));
+  expect(noteRelationInput(root, ada.id, atlas.id)).toEqual(before);
+  expect(noteRelationPrompt(before)).not.toContain("headline");
 });
 
 test("one call serves concurrent hovers, is cached, and is redone when the evidence changes", async () => {

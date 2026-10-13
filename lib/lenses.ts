@@ -1,33 +1,34 @@
 /**
- * lenses.ts — a lens is a named rule over this vault, plus the notes added or
- * removed by hand (docs/plans/lenses-and-servers.md). Lenses are yours: each
- * is one file beside the connection credentials, never in a vault and never
- * on a server, and its rule never leaves this computer. A lens can be shared
- * with servers; each server gets the union of the members of the lenses
- * shared with it (lib/lensSync.ts).
+ * lenses.ts — a lens is a named rule over this vault (docs/plans/lenses-and-servers.md).
+ * It lives in the vault (decided 2026-10-12,
+ * docs/plans/2026-10-12-stages-and-views-refactor.md): `lenses/<id>.json`
+ * holds its name, its rule, its cut-off, the servers it is shared with and
+ * any review a change nobody made opened, committed as the lens changes.
+ * Moving the vault keeps its lenses; losing this computer's settings loses
+ * nothing. Server members never see a rule.
  *
- * Membership is exact. A note's place in a lens is decided, in order, by a
- * hand edit (a removal, then an addition), by a rating given while reviewing
- * the rule, and otherwise by its score against the lens's cut-off. Hand edits
- * decide their own notes and teach the evaluator nothing; ratings do both.
- * A note that could not be scored keeps whatever place it had.
+ * What is in it is not kept here. The owner's pins, exclusions and ratings,
+ * and every scoring pass, are inclusion assertions in the record
+ * (lib/assertionLog.ts), and a lens's members are a view over them
+ * (lib/views/lens.ts). Each server gets the union of the members of the
+ * lenses shared with it (lib/lensSync.ts).
  */
 import {existsSync,mkdirSync,readdirSync,readFileSync,rmSync} from 'node:fs';
 import {dirname,join} from 'node:path';
 import {randomBytes,randomUUID} from 'node:crypto';
-import {writeAtomic} from './fsx';
+import {commitPathsOnly,gitOut} from './git';
+import {ensureDir,writeAtomic} from './fsx';
 import {sha256hex} from './hash';
+import {LENS_ID,type EnvelopeId} from './ids';
 import {sourceDigest,type InclusionLabel} from './inclusionPolicy';
 
-/** A change nobody made to the lens that would add notes to it (decision D3). */
+/** A change nobody made to a shared lens that would add notes to it (decision D3). */
 export interface LensReview {
- /** A model upgrade, a change in the vault's entities, or this app's move from server rules to lenses. */
+ /** A model upgrade, a change in the vault's entities, or a BigBrain update. */
  reason:'model'|'vault'|'update';
- /** Hold additions until someone looks: Conservative mode, and always after the update. */
+ /** Hold additions until someone looks: Conservative mode, and always after an update. */
  hold:boolean;
- /** Personal source ids the change adds, and those it took out. */
- joins:string[];
- leaves:string[];
+ /** When it opened; empty while a migrated lens waits for its first pass to say whether anything would join. */
  at:string;
 }
 
@@ -36,22 +37,13 @@ export interface Lens {
  name:string;
  /** The rule. */
  text:string;
- /** Ratings from reviewing the rule: they teach the evaluator and decide their own notes. */
- labels:InclusionLabel[];
- /** Personal source ids added or removed by hand. */
- pins:string[];
- exclusions:string[];
- /** What the members were scored with: the evaluator's full identity, its model part, the cut-off, and the evaluator version (lib/inclusionEvaluation.ts), which lenses scored before version 3 lack. */
+ /** What the owner last saw the lens scored with: the evaluator's full identity, its model part, the cut-off,
+  * and the evaluator version (lib/inclusionEvaluation.ts). A scoring pass under another identity is a change
+  * nobody made. */
  calibration:{identity:string;model:string;threshold:number;version?:number};
  /** Connection ids this lens is shared with. */
  servers:string[];
- /** The membership last applied, by personal source id. */
- members:string[];
- /** Members judged from a summary, the note being too big to read whole (decision D8). */
- summarized:string[];
  review?:LensReview;
- /** The last pass's trouble, in the provider's words; cleared by a clean pass. */
- error?:string;
  version:string;
  created:string;
  updated:string;
@@ -59,27 +51,39 @@ export interface Lens {
 
 /** The rule review's scope for a lens (lib/inclusionReview.ts keeps a review's ratings there until the lens is saved). */
 export const lensScope=(id:string)=>JSON.stringify(['lens',id]);
-/** Where a vault's lenses live: beside the connection store, per vault. */
-export const lensDir=(root:string,store:string)=>join(dirname(store),'lenses',sha256hex(root));
-const lensPath=(root:string,store:string,id:string)=>{if(!/^lens_[a-f0-9]{12}$/.test(id))throw Error('Unknown lens.');return join(lensDir(root,store),id+'.json');};
+export const LENS_DIR='lenses';
+const lensRel=(id:string)=>{if(!LENS_ID.test(id))throw Error('Unknown lens.');return `${LENS_DIR}/${id}.json`;};
 
-export function listLenses(root:string,store:string):Lens[]{
- const dir=lensDir(root,store);if(!existsSync(dir))return [];
+export function listLenses(root:string):Lens[]{
+ const dir=join(root,LENS_DIR);if(!existsSync(dir))return [];
  return readdirSync(dir).filter(f=>/^lens_[a-f0-9]{12}\.json$/.test(f)).map(f=>JSON.parse(readFileSync(join(dir,f),'utf8')) as Lens).sort((a,b)=>a.created.localeCompare(b.created)||a.id.localeCompare(b.id));
 }
-export function readLens(root:string,store:string,id:string):Lens|undefined{const path=lensPath(root,store,id);return existsSync(path)?JSON.parse(readFileSync(path,'utf8')):undefined;}
-export function writeLens(root:string,store:string,lens:Lens){const path=lensPath(root,store,lens.id);mkdirSync(dirname(path),{recursive:true,mode:0o700});writeAtomic(path,JSON.stringify(lens),0o600);}
-export function removeLens(root:string,store:string,id:string){rmSync(lensPath(root,store,id),{force:true});}
+export function readLens(root:string,id:string):Lens|undefined{const path=join(root,lensRel(id));return existsSync(path)?JSON.parse(readFileSync(path,'utf8')):undefined;}
+
+/** Commit a lens's file as the owner changed it. Fail-soft, as every machine commit is: the file is safe on disk. */
+function commitLens(root:string,rel:string,message:string){
+ if(!gitOut(root,['rev-parse','--git-dir']))return;
+ try{commitPathsOnly(root,'lens',message,[rel]);}catch(e){console.error(`lens: commit failed (${rel} is safe on disk): ${e}`);}
+}
+/** Write a lens's file, and commit it unless `message` is false (the caller commits). The path written. */
+export function writeLens(root:string,lens:Lens,message:string|false=`lens: ${lens.name}`):string{
+ const rel=lensRel(lens.id);mkdirSync(join(root,LENS_DIR),{recursive:true});writeAtomic(join(root,rel),JSON.stringify(lens,null,1)+'\n');
+ if(message!==false)commitLens(root,rel,message);
+ return rel;
+}
+export function removeLens(root:string,id:string){
+ const rel=lensRel(id),lens=readLens(root,id);rmSync(join(root,rel),{force:true});if(lens)commitLens(root,rel,`lens: ${lens.name} — deleted`);
+}
 
 /** Change one lens and stamp it, so a pass that read the old version can tell. */
-export function updateLens(root:string,store:string,id:string,change:(lens:Lens)=>void):Lens{
- const lens=readLens(root,store,id);if(!lens)throw Error('This lens no longer exists.');
- change(lens);lens.version=randomUUID();lens.updated=new Date().toISOString();writeLens(root,store,lens);return lens;
+export function updateLens(root:string,id:string,change:(lens:Lens)=>void,message?:string):Lens{
+ const lens=readLens(root,id);if(!lens)throw Error('This lens no longer exists.');
+ change(lens);lens.version=randomUUID();lens.updated=new Date().toISOString();writeLens(root,lens,message);return lens;
 }
 
 export function newLens(fields:Pick<Lens,'name'|'text'>&Partial<Lens>):Lens{
  const now=new Date().toISOString();
- return {id:'lens_'+randomBytes(6).toString('hex'),labels:[],pins:[],exclusions:[],calibration:{identity:'',model:'',threshold:DEFAULT_THRESHOLD},servers:[],members:[],summarized:[],version:randomUUID(),created:now,updated:now,...fields};
+ return {id:'lens_'+randomBytes(6).toString('hex'),calibration:{identity:'',model:'',threshold:DEFAULT_THRESHOLD},servers:[],version:randomUUID(),created:now,updated:now,...fields};
 }
 
 /** Jev's scores sit lower than the old fixed 0.8 assumed: 0.6 agreed with most ratings in E1. */
@@ -101,24 +105,33 @@ export function fitThreshold(rated:{include:boolean;score:number}[]):number{
  * ratings) keeps its own: a migrated lens's came from its server rule, and
  * refitting it from the ratings alone would show notes joining that never
  * will. A new rule or new ratings fit afresh. */
-export function previewThreshold(lens:Pick<Lens,'text'|'labels'|'calibration'>|undefined,text:string,labels:InclusionLabel[],fit:()=>number):number{
+export function previewThreshold(lens:Pick<Lens,'text'|'calibration'>&{labels:InclusionLabel[]}|undefined,text:string,labels:InclusionLabel[],fit:()=>number):number{
  const key=(ls:InclusionLabel[])=>JSON.stringify(ls.map(l=>[sourceDigest(l.source),l.include]));
  return lens&&lens.text===text&&key(lens.labels)===key(labels)?lens.calibration.threshold:fit();
 }
 
-/** A personal note as lenses see it: its latest text and that text's digest (`sourceDigest`). */
-export interface LensNote {source_id:string;digest:string;title:string;body:string}
-/** The lens's members for these notes. `scores` has a score for each note that could be scored. */
-export function membership(lens:Pick<Lens,'labels'|'pins'|'exclusions'|'members'|'calibration'>,notes:LensNote[],scores:ReadonlyMap<string,number>):Set<string>{
- const pins=new Set(lens.pins),exclusions=new Set(lens.exclusions),was=new Set(lens.members);
- const rated=new Map(lens.labels.map(l=>[sourceDigest(l.source),l.include]));
- const out=new Set<string>();
+/** A personal note as scoring sees it: its latest text and that text's digest (`sourceDigest`). */
+export interface LensNote {source_id:EnvelopeId;digest:string;title:string;body:string}
+
+/** The rule's own answer for each note, before pins and exclusions: a
+ * rating, else its score against the cut-off; a note with neither is
+ * pending, in neither set. What a preview shows. */
+export function ruled(ratings:ReadonlyMap<string,boolean>,threshold:number,notes:readonly {source_id:string}[],scores:ReadonlyMap<string,number>):{in:Set<string>;out:Set<string>}{
+ const out={in:new Set<string>(),out:new Set<string>()};
  for(const n of notes){
-  const label=rated.get(n.digest),score=scores.get(n.source_id);
-  const inside=exclusions.has(n.source_id)?false:pins.has(n.source_id)?true:label!==undefined?label:score!==undefined?score>=lens.calibration.threshold:was.has(n.source_id);
-  if(inside)out.add(n.source_id);
+  const rating=ratings.get(n.source_id),score=scores.get(n.source_id);
+  const inside=rating!==undefined?rating:score!==undefined?score>=threshold:undefined;
+  if(inside!==undefined)(inside?out.in:out.out).add(n.source_id);
  }
  return out;
+}
+
+/** The last pass's trouble, in the provider's words: this machine's, kept in `.state/`. */
+const errorPath=(root:string,id:string)=>join(root,'.state','lenses',id+'.error');
+export function lensError(root:string,id:string):string|undefined{try{return readFileSync(errorPath(root,id),'utf8')||undefined;}catch{return undefined;}}
+export function setLensError(root:string,id:string,error:string|undefined){
+ if(!error){rmSync(errorPath(root,id),{force:true});return;}
+ ensureDir(join(root,'.state','lenses'));writeAtomic(errorPath(root,id),error);
 }
 
 /** Sharing mode (decision D3): what a change nobody made does when it would add notes to a shared lens. */
@@ -131,3 +144,8 @@ export function setSharingMode(store:string,mode:unknown){
  if(mode!=='conservative'&&mode!=='yeehaw')throw Error('Choose Conservative or Yee-haw.');
  mkdirSync(dirname(settingsPath(store)),{recursive:true,mode:0o700});writeAtomic(settingsPath(store),JSON.stringify({mode}),0o600);return mode;
 }
+
+/** Where lenses lived before they moved into the vault: beside the
+ * connection store, one directory per vault. `bigbrain migrate` moves them
+ * in (lib/lensMigrate.ts); until then the engine leaves them be. */
+export const legacyLensDir=(root:string,store:string)=>join(dirname(store),'lenses',sha256hex(root));

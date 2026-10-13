@@ -7,7 +7,7 @@ const words=(text:string,keep=false)=>new Set((text.toLowerCase().match(/[\p{L}]
 export interface CandidateEntity {title:string;aliases:string[];sourceIds:Set<string>}
 /** Orders review candidates by lexical fit to the rule so paid scoring starts with plausible matches.
  * Sources linked to a mentioned entity lead; the rest keep their incoming (recency) order.
- * `phrases` (lib/inclusionQueries.ts) are search terms a model derived from the rule: their words
+ * `phrases` (lib/stages/ruleQueries.ts) are search terms a model derived from the rule: their words
  * count even when the rule's grammar list would drop them ("will"), and a whole phrase scores more. */
 export function rankCandidates(sources:InclusionSource[],rule:string,entities:CandidateEntity[]=[],phrases:string[]=[]):InclusionSource[]{
  const terms=new Set([...words(parseMentions(rule).map(p=>'text' in p?p.text:'').join(' ')),...phrases.flatMap(p=>[...words(p,true)])]);

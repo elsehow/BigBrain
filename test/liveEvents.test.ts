@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { createLive, recoverInBackground, type LiveClient, type LiveWatchFn, WATCHED } from "../lib/liveEvents";
@@ -401,6 +401,28 @@ describe("recoverInBackground", () => {
       expect(await recoverInBackground(root)).toBe(true);
       expect(synced(root).sources).toBe(2);
       expect(await recoverInBackground(root)).toBe(false); // nothing left to heal
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  test("the files stamp is what the watched files hold, not the process: a restart after no edit holds it, an edit moves it", async () => {
+    const root = mkdtempSync(join(tmpdir(), "bb-files-stamp-"));
+    try {
+      writeFileSync(join(root, "vault.yaml"), "integrations: {}\n");
+      const opened = () => {
+        const seen: string[] = [];
+        const live = createLive({ root, watch: () => ({ close() {} }), refresh: () => {}, warmLayout: () => {}, recover: async () => false, debounceMs: 1,
+          stamps: (_root, files) => { seen.push(files); return { generation: "g", revision: "1", views: { graph: "", joined: "", feed: "", folds: "", files } }; } });
+        live.addClient(fakeClient());
+        return { live, seen };
+      };
+      const first = opened(), again = opened();
+      expect(again.seen[0]).toBe(first.seen[0]);
+      writeFileSync(join(root, "vault.yaml"), "integrations: {}\nname: Orchard\n");
+      first.live.handleChange("vault.yaml");
+      await sleep(10);
+      expect(first.seen.at(-1)).not.toBe(first.seen[0]);
+      expect(opened().seen[0]).not.toBe(first.seen[0]); // a restart after the edit reads as a move
+      first.live.stop(); again.live.stop();
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 });

@@ -4,7 +4,7 @@
  *
  * Two kinds of event, one pair each (insertion ids, ascending):
  *  - `source.copies-judged`: a model's score, 0–1, that the two are the same
- *    work (lib/sourceCopyJudge.ts). Kept because a judgment costs a call;
+ *    work (lib/stages/copyJudge.ts). Kept because a judgment costs a call;
  *    the cut-off is applied on read, so moving it re-judges nothing.
  *  - `source.copies-declared`: a person's word, `same` or not. It beats
  *    every judgment of the pair and every exact key the two share.
@@ -20,11 +20,10 @@
 import type { AssertionProduction } from "./assertionLog";
 import { eventLog, type AppendResult } from "./eventLog";
 import { sha256hex } from "./hash";
+import { INS_ID } from "./ids";
 import { validEventAuthor, type EventAuthor } from "./insertionLog";
 
 export const SOURCE_COPY_LOG_DIR = "log/source-copies";
-
-const INSERTION = /^ins_[a-f0-9]{24}$/u;
 
 interface PairEvent {
   id: string;
@@ -43,7 +42,7 @@ export type SourceCopyAppendResult = AppendResult<SourceCopyEvent>;
 export function validateSourceCopyEvent(event: SourceCopyEvent): void {
   if (!/^scp_[a-f0-9]{24}$/u.test(event.id)) throw new Error("source-copy-log: invalid event identity");
   const [a, b] = event.pair ?? [];
-  if (!INSERTION.test(a ?? "") || !INSERTION.test(b ?? "") || a! >= b!)
+  if (!INS_ID.test(a ?? "") || !INS_ID.test(b ?? "") || a! >= b!)
     throw new Error("source-copy-log: pair must be two insertion ids, ascending");
   if (event.event === "source.copies-judged") {
     if (event.author?.kind !== "model" || typeof event.score !== "number" || !(event.score >= 0 && event.score <= 1))

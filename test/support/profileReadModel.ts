@@ -56,7 +56,7 @@ try {
   measure("viewerFeed", () => viewerFeed(root, 0, 20));
   measure("pilotFeed", () => recentSourcePage(root, 0, 20));
   measure("entity", () => assertionEntityView(root, assertionEntityPath(entities[0].id)));
-  measure("search", () => scanSurface(root, "Project 12", 20, "api", { ledger: false }));
+  measure("search", () => scanSurface(root, "Project 12", 20, "api", {}));
   measure("graph", () => { const evidence: unknown[] = []; const graph = buildAssertionGraph(root, (...args: unknown[]) => evidence.push(args)); return { graph, evidence }; });
   appendSourceInsertionEvent(root, insertion({ id: `ins_${"f".repeat(24)}`, source_id: "late", title: "Later source", received_at: "2026-09-20T00:00:00Z" }));
   invalidateAssertionRecord(root);

@@ -213,7 +213,10 @@ export function insertionStatus(
  * spinning point (lib/assertionGraph.ts) and the row's mark cannot
  * disagree. Superseded landings are the caller's to drop, as the feed
  * does; a voice arrival is the graph's to leave out. */
-export function pendingInsertionIds(root: string, events: readonly SourceSummary[], settlement: Pick<SourceRecord, "cited" | "declined"> = sourceRecord(root)): Set<string> {
+export const pendingInsertionIds = (root: string, events: readonly SourceSummary[], settlement: Pick<SourceRecord, "cited" | "declined"> = sourceRecord(root)): Set<string> =>
+  pendingAmong(events, settlement);
+/** The same, from a settlement already read (lib/views/graph.ts). */
+export function pendingAmong(events: readonly SourceSummary[], settlement: Pick<SourceRecord, "cited" | "declined">): Set<string> {
   const { cited, declined } = settlement;
   const out = new Set<string>();
   for (const source of events)

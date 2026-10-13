@@ -137,10 +137,11 @@ read (`docs/plans/2026-10-10-change-log.md`). Run journals the viewer reads
 The graph is a view kept by its maintainer
 ([`maintainedGraph.ts`](../lib/maintainedGraph.ts)): rebuilt in a worker when
 a kind it reads is committed, saved with its revision, and served as bytes
-whose hash is the response's ETag. Its layout places a change rather than
-re-settling the graph ([`graphLayout.ts`](../lib/graphLayout.ts)): only the
-nodes whose connections changed move, among nodes held still, and the whole
-graph settles again once a tenth of it has moved. The viewer's live stream pushes each view's
+whose hash is the response's ETag. Its layout seats each node by when it
+arrived ([`views/layout.ts`](../lib/views/layout.ts)): a seat depends only on
+the seats before it, so a change adds seats and never moves one, and the same
+record draws the same picture on any machine. Your field with joined servers
+beside it keeps your seats and seats the servers' nodes around them. The viewer's live stream pushes each view's
 stamp ([`viewStamps.ts`](../lib/viewStamps.ts), `event: views`) when a change
 settles and when a view lands; a tab fetches only a view whose stamp moved, and
 never polls. The viewer hears commits from any process through `PRAGMA
@@ -229,7 +230,7 @@ re-extract historical assertions.
 
 The memory pass captures its inputs once through
 [`memoryInputs.ts`](../lib/memoryInputs.ts), prepares context, and runs with
-memory-specific tools. [`memoryRun.ts`](../lib/memoryRun.ts) validates writes,
+memory-specific tools. [`memoryRun.ts`](../lib/stages/memory.ts) validates writes,
 scope and budget, handles rollback/quarantine, journals the outcome, and commits
 only its owned paths. Successful journals retain the IDs actually observed;
 backdated events and arrivals during a run remain eligible for a later sweep.

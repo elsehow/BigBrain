@@ -2,26 +2,27 @@
  * consumers borrow a complete SQLite snapshot and reuse its decoded records.
  * Nothing here checks the filesystem: every engine write projects itself, and
  * notes come in through their door (assertionProjection.projectNotes). */
+import type { AssertionId, EntityId, InsertionId } from "./ids";
 import type { SourceSummary } from "./sourceSummary";
 import { USER_IDENTITY_PROCEDURE, USER_IDENTITY_VERSION, userIdentityDeclarationsFromEvents } from "./userIdentityPolicy";
 import type { ConnectionEvidence, DocumentLinkTargets, MarkdownDocument, MarkdownIdentity } from "./markdownGraph";
-import { assertionDbPath, openAssertionProjectionReadonly, projectionRecovered, projectionRevision, syncAssertionProjection } from "./assertionProjection";
-import { entityAliasResolution, type EntityAliasEvent, type EntityAliasResolution } from "./entityAliasLog";
+import { aliasDeclarationsIn, assertionDbPath, openAssertionProjectionReadonly, projectionRecovered, projectionRevision, syncAssertionProjection } from "./assertionProjection";
+import { entityAliasResolution, type AliasDeclaration, type EntityAliasResolution } from "./entityAliasLog";
+import type { Binding, Retraction } from "./assertionKinds";
 import { assertionSourceReferences, type AssertionEvent } from "./assertionLog";
-import { latestEntitySourceDeclarations, type EntitySourceEvent } from "./entitySourceLog";
 import { insertionEventRel, sourceMoment, type SourceInsertion, type SourceMetadata } from "./insertionLog";
-import type { RevocationEvent } from "./revocationLog";
 import { withProjectionWrite } from "./projectionWriteLock";
 import type { RecentEntry } from "./viewTypes";
 import { threadsByInsertion, type SourceThread } from "./sourceThreads";
 import { supersededInsertionIds, liveAssertionSql, liveSourceSql } from "./sourceSupersede";
 import {
-  copyCandidates, copyCutoff, CROWD, foldCopyEvents, PROPOSE_FLOOR, sameTitle, sourceCopies, titleBuckets, titleForms,
+  copyCandidates, copyCutoff, CROWD, foldCopies, PROPOSE_FLOOR, sameTitle, sourceCopies, titleBuckets, titleForms,
   type CopyRecord, type CopyWhy, type SourceCopies, type TitleForms,
 } from "./sourceCopies";
-import { copyPairKey, type SourceCopyEvent } from "./sourceCopyLog";
+import { copyPairKey } from "./sourceCopyLog";
 import { STUB_CHARS } from "./text";
 import { aboutIds, VOICE_KINDS } from "./voiceFacts";
+import type { CacheKey, Snapshot } from "./views/view";
 import { Database } from "bun:sqlite";
 
 /** Source summaries and settlement shared by feed and graph construction. */
@@ -42,10 +43,10 @@ export interface VaultRecord extends SourceRecord {
   aliases: EntityAliasResolution;
   /** The latest entity↔source declaration per pair (lib/entitySourceLog.ts),
    * oldest first; `bound: false` ones are unbindings. */
-  entitySources: EntitySourceEvent[];
+  entitySources: Binding[];
   /** Copies of one document (lib/sourceCopies.ts), by insertion id. */
   copies: Map<string, SourceCopies<SourceSummary>>;
-  revoked: Map<string, RevocationEvent>;
+  revoked: Map<string, Retraction>;
 }
 interface DecodedRevision {
   revision: string;
@@ -55,7 +56,7 @@ interface DecodedRevision {
   copyLinks?: CopyLinks;
   catalog?: { sources: SourceMetadata[]; threads: SourceThread<SourceMetadata>[] };
   memory?: { inss: SourceMetadata[]; asserted: AssertionEvent[]; voice: SourceInsertion[];
-    revocations: RevocationEvent[]; aliases: EntityAliasEvent[] };
+    revocations: Retraction[]; aliases: AliasDeclaration[] };
 }
 const records = new Map<string, DecodedRevision>();
 function decodedRevision(root: string, revision: string): DecodedRevision {
@@ -110,49 +111,53 @@ export function importedSourcePaths(root: string): Map<string, string> {
   return withVaultSnapshot(root, (db) => {
     const rows = db.query(`SELECT json_extract(header_json, '$.imported_path') AS path, insertion_id AS id, occurred_at, received_at
       FROM sources WHERE present = 1 AND path IS NOT NULL ORDER BY path`).all() as
-      { path: string; id: string; occurred_at: string | undefined; received_at: string | undefined }[];
+      { path: string; id: InsertionId; occurred_at: string | undefined; received_at: string | undefined }[];
     return new Map(rows.map((row) => [row.path, insertionEventRel(row)]));
   });
 }
 
+/** One snapshot, handed to a view (lib/views/view.ts). Its decodes are
+ * cached per vault and revision, as the root-taking reads' are. */
+export const withSnapshot = <T>(root: string, view: (snapshot: Snapshot) => T): T =>
+  withVaultSnapshot(root, (db, revision) => view({ db, revision, cache: root as CacheKey }));
+
 /** A feed miss needs neither assertion prose nor Markdown/link evidence.
  * The graph reuses these same objects when it needs the rest of the corpus. */
-export function sourceRecord(root: string): SourceRecord {
-  return withVaultSnapshot(root, (db, revision) => {
-    const held = decodedRevision(root, revision);
-    if (held.sources) return held.sources;
-    const sources = summariesById(db.query(`SELECT ${SUMMARY} FROM sources s WHERE s.present = 1
-      ORDER BY coalesce(s.received_at, s.occurred_at, ''), s.insertion_id`).all() as SummaryRow[]);
-    const ids = (sql: string) => new Set((db.query(sql).all() as { insertion_id: string }[]).map(row => row.insertion_id));
-    const declined = ids("SELECT DISTINCT insertion_id FROM declines WHERE retracted_by IS NULL");
-    // Withdrawal alone never makes an arrival pending again. A decline wins
-    // only when no live assertion cites that arrival (sourceSettlement tests).
-    const cited = ids(`SELECT DISTINCT x.insertion_id FROM assertion_sources x
-      JOIN assertions a ON a.id = x.assertion_id
-      WHERE a.revoked_by IS NULL OR NOT EXISTS (SELECT 1 FROM declines d WHERE d.insertion_id = x.insertion_id AND d.retracted_by IS NULL)`);
-    const grouped = threadsIn(db, sources);
-    return held.sources = { revision, sources, cited, declined, superseded: supersededInsertionIds(sources.values()),
-      threads: new Map(grouped.flatMap(t => [t.path, ...t.aliases].map(path => [path, t] as const))),
-      threadByInsertion: threadsByInsertion(grouped) };
-  });
+export const sourceRecord = (root: string): SourceRecord => withSnapshot(root, sourceRecordOf);
+export function sourceRecordOf({ db, revision, cache }: Snapshot): SourceRecord {
+  const held = decodedRevision(cache, revision);
+  if (held.sources) return held.sources;
+  const sources = summariesById(db.query(`SELECT ${SUMMARY} FROM sources s WHERE s.present = 1
+    ORDER BY coalesce(s.received_at, s.occurred_at, ''), s.insertion_id`).all() as SummaryRow[]);
+  const ids = (sql: string) => new Set((db.query(sql).all() as { insertion_id: string }[]).map(row => row.insertion_id));
+  const declined = ids("SELECT DISTINCT insertion_id FROM declines WHERE retracted_by IS NULL");
+  // Withdrawal alone never makes an arrival pending again. A decline wins
+  // only when no live assertion cites that arrival (sourceSettlement tests).
+  const cited = ids(`SELECT DISTINCT x.insertion_id FROM assertion_sources x
+    JOIN assertions a ON a.id = x.assertion_id
+    WHERE a.revoked_by IS NULL OR NOT EXISTS (SELECT 1 FROM declines d WHERE d.insertion_id = x.insertion_id AND d.retracted_by IS NULL)`);
+  const grouped = threadsIn(db, sources);
+  return held.sources = { revision, sources, cited, declined, superseded: supersededInsertionIds(sources.values()),
+    threads: new Map(grouped.flatMap(t => [t.path, ...t.aliases].map(path => [path, t] as const))),
+    threadByInsertion: threadsByInsertion(grouped) };
 }
 
-export function vaultRecord(root: string): VaultRecord {
-  return withVaultSnapshot(root, (db, revision) => {
-    const held = decodedRevision(root, revision);
-    if (held.record) return held.record;
-    const sources = sourceRecord(root);
-    const rows = decoded<AssertionEvent>(db, "SELECT event_json FROM assertions WHERE revoked_by IS NULL ORDER BY created_at, id");
-    const revoked = new Map<string, RevocationEvent>();
-    for (const event of decoded<RevocationEvent>(db, "SELECT event_json FROM revocations ORDER BY created_at, id"))
-      if (!revoked.has(event.assertion_id)) revoked.set(event.assertion_id, event);
-    const aliases = aliasesIn(db);
-    const entitySources = entitySourcesIn(db);
-    const documents = (db.query("SELECT header_json AS document_json FROM markdown_documents ORDER BY path").all() as { document_json: string }[]).map(r => JSON.parse(r.document_json) as MarkdownIdentity);
-    const documentLinks = new Map((db.query("SELECT path, links_json, citations_json FROM document_links").all() as { path: string; links_json: string; citations_json: string }[])
-      .map(r => [r.path, { links: JSON.parse(r.links_json), citations: JSON.parse(r.citations_json) } as DocumentLinkTargets]));
-    return held.record = { ...sources, documents, documentLinks, rows, aliases, entitySources, copies: sourceCopiesRecord(root), revoked };
-  });
+export const vaultRecord = (root: string): VaultRecord => withSnapshot(root, vaultRecordOf);
+/** Everything the graph draws from, at one snapshot. */
+export function vaultRecordOf(snapshot: Snapshot): VaultRecord {
+  const { db, revision, cache } = snapshot;
+  const held = decodedRevision(cache, revision);
+  if (held.record) return held.record;
+  const sources = sourceRecordOf(snapshot);
+  const rows = decoded<AssertionEvent>(db, "SELECT event_json FROM assertions WHERE revoked_by IS NULL ORDER BY created_at, id");
+  const revoked = new Map<string, Retraction>();
+  for (const retraction of retractionsIn(db)) if (!revoked.has(retraction.retracts)) revoked.set(retraction.retracts, retraction);
+  const aliases = aliasesIn(db);
+  const entitySources = entitySourcesIn(db);
+  const documents = (db.query("SELECT header_json AS document_json FROM markdown_documents ORDER BY path").all() as { document_json: string }[]).map(r => JSON.parse(r.document_json) as MarkdownIdentity);
+  const documentLinks = new Map((db.query("SELECT path, links_json, citations_json FROM document_links").all() as { path: string; links_json: string; citations_json: string }[])
+    .map(r => [r.path, { links: JSON.parse(r.links_json), citations: JSON.parse(r.citations_json) } as DocumentLinkTargets]));
+  return held.record = { ...sources, documents, documentLinks, rows, aliases, entitySources, copies: copiesRecordOf(snapshot).groups, revoked };
 }
 
 /** The graph view's connections touching `ids`, each with its evidence, in
@@ -205,11 +210,15 @@ function copyLinks(db: Database, landing: (insertionId: string) => string | unde
   const canonical = db.query("SELECT entity_id FROM entity_aliases WHERE alias_id = ?");
   const joins = new Map<string, string[]>();
   for (const binding of entitySourcesIn(db)) {
-    const id = binding.bound ? landing(binding.insertion_id) : undefined;
+    const id = landing(binding.insertion_id);
     const entity = (canonical.get(binding.entity.id) as { entity_id: string } | null)?.entity_id ?? binding.entity.id;
     if (id) joins.set(id, [...(joins.get(id) ?? []), `entity:${entity}`]);
   }
-  const said = foldCopyEvents(decoded<SourceCopyEvent>(db, "SELECT event_json FROM source_copy_events WHERE retracted_by IS NULL"));
+  const said = foldCopies((db.query(`SELECT id, says, a, b, score, author_id, created_at FROM identities
+    WHERE says IN ('copy', 'not-copy') AND retracted_by IS NULL`).all() as
+    { id: string; says: string; a: string; b: string; score: number | null; author_id: string; created_at: string }[])
+    .map((r) => ({ id: r.id, pair: [r.a, r.b] as const, created_at: r.created_at,
+      ...(r.score === null ? { same: r.says === "copy" } : { score: r.score, model: r.author_id }) })));
   const cutoff = copyCutoff(said);
   const pair = (key: string): [string, string] => key.split("|") as [string, string];
   const pairs: [string, string, CopyWhy][] = [];
@@ -228,41 +237,41 @@ function stubIn(db: Database): (source: SourceSummary) => boolean {
  * to its live one, as the graph does), a person's "same" and a judgment at or
  * above the cut-off link a pair; a person's "not the same" cuts it. The whole
  * record, for the graph and the judging pass; a note asks copyGroups. */
-function copiesRecord(root: string): CopiesRecord {
-  return withVaultSnapshot(root, (db, revision) => {
-    const held = decodedRevision(root, revision);
-    if (held.copies) return held.copies;
-    const { sources, superseded, threadByInsertion } = sourceRecord(root);
-    const live = new Map<string, string>();
-    for (const source of sources.values()) if (!superseded.has(source.id)) live.set(source.source_id, source.id);
-    const links = copyLinks(db, (id) => {
-      const landed = sources.get(id);
-      return landed && (superseded.has(landed.id) ? live.get(landed.source_id) : landed.id);
-    });
-    const { said } = links;
-    const works = [...sources.values()].filter((s) => !superseded.has(s.id) && !threadByInsertion.has(s.id));
-    const groups = sourceCopies(works, { ...links, stub: stubIn(db) });
-    const proposals = new Map<string, CopyProposal[]>(), unjudged: [string, string][] = [];
-    const members = (id: string): string[] => groups.get(id)?.members.map((m) => m.id) ?? [id];
-    for (const [a, b] of copyCandidates(works)) {
-      const key = copyPairKey(a, b), group = groups.get(a), judged = said.judged.get(key);
-      if (said.declared.has(key) || (group && group === groups.get(b))) continue;
-      if (!judged) unjudged.push([a, b]);
-      else if (judged.score < PROPOSE_FLOOR) continue;
-      const proposal: CopyProposal = { a, b, ...(judged ? { score: judged.score } : {}) };
-      for (const id of [...members(a), ...members(b)]) {
-        const held = proposals.get(id);
-        if (held) held.push(proposal); else proposals.set(id, [proposal]);
-      }
-    }
-    return held.copies = { groups, proposals, unjudged };
+const copiesRecord = (root: string): CopiesRecord => withSnapshot(root, copiesRecordOf);
+function copiesRecordOf(snapshot: Snapshot): CopiesRecord {
+  const { db, revision, cache } = snapshot;
+  const held = decodedRevision(cache, revision);
+  if (held.copies) return held.copies;
+  const { sources, superseded, threadByInsertion } = sourceRecordOf(snapshot);
+  const live = new Map<string, string>();
+  for (const source of sources.values()) if (!superseded.has(source.id)) live.set(source.source_id, source.id);
+  const links = copyLinks(db, (id) => {
+    const landed = sources.get(id);
+    return landed && (superseded.has(landed.id) ? live.get(landed.source_id) : landed.id);
   });
+  const { said } = links;
+  const works = [...sources.values()].filter((s) => !superseded.has(s.id) && !threadByInsertion.has(s.id));
+  const groups = sourceCopies(works, { ...links, stub: stubIn(db) });
+  const proposals = new Map<string, CopyProposal[]>(), unjudged: [string, string][] = [];
+  const members = (id: string): string[] => groups.get(id)?.members.map((m) => m.id) ?? [id];
+  for (const [a, b] of copyCandidates(works)) {
+    const key = copyPairKey(a, b), group = groups.get(a), judged = said.judged.get(key);
+    if (said.declared.has(key) || (group && group === groups.get(b))) continue;
+    if (!judged) unjudged.push([a, b]);
+    else if (judged.score < PROPOSE_FLOOR) continue;
+    const proposal: CopyProposal = { a, b, ...(judged ? { score: judged.score } : {}) };
+    for (const id of [...members(a), ...members(b)]) {
+      const held = proposals.get(id);
+      if (held) held.push(proposal); else proposals.set(id, [proposal]);
+    }
+  }
+  return held.copies = { groups, proposals, unjudged };
 }
 
 /** Copies of one document (lib/sourceCopies.ts), by insertion id. */
 export const sourceCopiesRecord = (root: string): Map<string, SourceCopies<SourceSummary>> => copiesRecord(root).groups;
 
-/** Candidates for the judging pass (lib/sourceCopyJudge.ts). */
+/** Candidates for the judging pass (lib/stages/copyJudge.ts). */
 export const unjudgedCopies = (root: string): [string, string][] => copiesRecord(root).unjudged;
 
 const SUMMARY = "s.header_json, s.excerpt, s.intake_priority, s.transcript_model";
@@ -330,7 +339,7 @@ export function copyProposals(root: string, insertionId: string): CopyProposal[]
     const group = copyGroupsIn(db, [insertionId], links).get(insertionId);
     const self = group ? undefined : db.query(GROUPED_SOURCE).get(insertionId) as SummaryRow | null;
     const members = group?.members ?? (self ? [summaryOf(self)] : []);
-    const ours = new Set(members.map((m) => m.id));
+    const ours = new Set<string>(members.map((m) => m.id));
     const mates = db.query(`SELECT ${SUMMARY} FROM source_title_keys t JOIN sources s ON s.insertion_id = t.insertion_id
       WHERE t.bucket = ? AND ${GROUPED}`);
     const forms = new Map<string, TitleForms | undefined>();
@@ -346,7 +355,7 @@ export function copyProposals(root: string, insertionId: string): CopyProposal[]
         if (met.length < 2 || met.length > CROWD) continue;
         for (const other of met) {
           if (other.id === member.id || !sameTitle(mine!, formsOf(other)!)) continue;
-          const pair = [member.id, other.id].sort() as [string, string];
+          const pair: [string, string] = member.id < other.id ? [member.id, other.id] : [other.id, member.id];
           candidates.set(copyPairKey(...pair), pair);
         }
       }
@@ -436,15 +445,31 @@ function decoded<T>(db: Database, sql: string, ...params: string[]): T[] {
   return (db.query(sql).all(...params) as { event_json: string }[]).map(r => JSON.parse(r.event_json));
 }
 function aliasesIn(db: Database): EntityAliasResolution {
-  return entityAliasResolution(decoded<EntityAliasEvent>(db, "SELECT event_json FROM entity_alias_events WHERE retracted_by IS NULL"));
+  return entityAliasResolution(aliasDeclarationsIn(db));
 }
-function entitySourcesIn(db: Database): EntitySourceEvent[] {
-  return latestEntitySourceDeclarations(decoded<EntitySourceEvent>(db, "SELECT event_json FROM entity_source_events WHERE retracted_by IS NULL"));
+/** Every retraction, oldest first. */
+function retractionsIn(db: Database): Retraction[] {
+  return (db.query("SELECT id, retracts, superseded_by, reason, created_at FROM retractions ORDER BY created_at, id").all() as
+    { id: AssertionId; retracts: AssertionId; superseded_by: AssertionId | null; reason: string; created_at: string }[])
+    .map(({ superseded_by, ...r }) => ({ ...r, ...(superseded_by ? { superseded_by } : {}) }));
+}
+/** The is-source identities, oldest first; `standing` passes over the retracted. */
+function bindingsIn(db: Database, standing: boolean): Binding[] {
+  return (db.query(`SELECT id, entity_id, entity_label, a AS insertion_id, created_at FROM identities
+    WHERE says = 'is-source'${standing ? " AND retracted_by IS NULL" : ""} ORDER BY created_at, id`).all() as
+    { id: AssertionId; entity_id: EntityId; entity_label: string; insertion_id: InsertionId; created_at: string }[])
+    .map((r) => ({ id: r.id, entity: { id: r.entity_id, label: r.entity_label }, insertion_id: r.insertion_id, created_at: r.created_at }));
+}
+/** Each entity's standing bindings, one per pair: the latest. */
+function entitySourcesIn(db: Database): Binding[] {
+  const latest = new Map<string, Binding>();
+  for (const binding of bindingsIn(db, true)) { const key = `${binding.entity.id}\u0000${binding.insertion_id}`; latest.delete(key); latest.set(key, binding); }
+  return [...latest.values()];
 }
 /** Every binding ever declared, retracted ones too: a pair the bulk pass
  * never decides again (lib/entitySourceSeed.ts). */
-export function declaredEntitySources(root: string): EntitySourceEvent[] {
-  return withVaultSnapshot(root, (db) => decoded<EntitySourceEvent>(db, "SELECT event_json FROM entity_source_events"));
+export function declaredEntitySources(root: string): Binding[] {
+  return withVaultSnapshot(root, (db) => bindingsIn(db, false));
 }
 function sourcesFor(db: Database, rows: readonly AssertionEvent[]): Map<string, SourceMetadata> {
   const ids = [...new Set(rows.flatMap(row => assertionSourceReferences(row).map(ref => ref.insertion_id)))];
@@ -471,7 +496,7 @@ export function entityReadModel(root: string, asked: string) {
  * ids, newest first, as the graph's `opens` orders them. A binding to a
  * superseded landing follows its source's live one. */
 function boundSources(db: Database, ids: readonly string[]): SourceMetadata[] {
-  const bound = entitySourcesIn(db).filter(event => event.bound && ids.includes(event.entity.id)).map(event => event.insertion_id);
+  const bound = entitySourcesIn(db).filter(event => ids.includes(event.entity.id)).map(event => event.insertion_id);
   if (!bound.length) return [];
   return decoded<SourceMetadata>(db, `SELECT DISTINCT s.header_json AS event_json FROM sources b
     JOIN sources s ON s.present = 1 AND s.source_id = b.source_id
@@ -490,6 +515,28 @@ export function sourceAssertionReadModel(root: string, ids: readonly string[]) {
 export function projectedSource(root: string, id: string): SourceInsertion | undefined {
   return withVaultSnapshot(root, db => decoded<SourceInsertion>(db, "SELECT event_json FROM sources JOIN source_documents USING (insertion_id) WHERE present = 1 AND insertion_id = ?", id)[0]);
 }
+
+/** A note as the notes door projected it, with when it last changed there
+ * (its stamp's mtime): what a read serves instead of the file. */
+export function projectedMarkdownContent(root: string, path: string): { raw: string; mtimeMs: number } | undefined {
+  return withVaultSnapshot(root, db => {
+    const row = db.query("SELECT b.document_json, d.stamp FROM markdown_bodies b JOIN markdown_documents d USING (path) WHERE b.path = ?")
+      .get(path) as { document_json: string; stamp: string } | null;
+    if (!row) return undefined;
+    const mtimeNs = Number(row.stamp.split(":").at(-2));
+    return { raw: (JSON.parse(row.document_json) as MarkdownDocument).body, mtimeMs: Number.isFinite(mtimeNs) ? mtimeNs / 1e6 : 0 };
+  });
+}
+
+/** The notes the projection holds under these trees, by path. */
+export function projectedMarkdownPaths(root: string, trees: readonly string[]): string[] {
+  return withVaultSnapshot(root, db => (db.query(`SELECT path FROM markdown_documents
+    WHERE ${trees.map(() => "path LIKE ? || '/%'").join(" OR ") || "0"} ORDER BY path`).all(...trees) as { path: string }[]).map((r) => r.path));
+}
+
+/** Whether a landing is in the log as the projection last saw it. */
+export const projectedSourcePresent = (root: string, id: string): boolean =>
+  withVaultSnapshot(root, db => !!db.query("SELECT 1 FROM sources WHERE insertion_id = ? AND present = 1").get(id));
 
 export function projectedMarkdown(root: string, path: string): string | undefined {
   return withVaultSnapshot(root, db => {
@@ -557,11 +604,13 @@ function identityAssertions(db: Database): AssertionEvent[] {
     AND json_extract(production_json, '$.procedure') = ? AND json_extract(production_json, '$.version') = ?
     ORDER BY created_at, id`, USER_IDENTITY_PROCEDURE, USER_IDENTITY_VERSION);
 }
+/** The owner's identity declarations, at a snapshot. */
+export function userIdentityOf({ db }: Snapshot) {
+  const rows = identityAssertions(db);
+  return userIdentityDeclarationsFromEvents(rows, sourcesFor(db, rows));
+}
 export function identityReadModel(root: string) {
-  return withVaultSnapshot(root, db => {
-    const rows = identityAssertions(db);
-    return userIdentityDeclarationsFromEvents(rows, sourcesFor(db, rows));
-  });
+  return withSnapshot(root, userIdentityOf);
 }
 const voiceWhere = "present = 1 AND envelope_kind IN (SELECT value FROM json_each(?))";
 export function voiceReadModel(root: string, keys: ReadonlySet<string>) {
@@ -587,8 +636,8 @@ export function memoryReadModel(root: string) {
       inss: decoded<SourceMetadata>(db, "SELECT header_json AS event_json FROM sources WHERE present = 1 ORDER BY coalesce(received_at, occurred_at, ''), insertion_id"),
       asserted: decoded<AssertionEvent>(db, "SELECT event_json FROM assertions ORDER BY created_at, id"),
       voice: decoded<SourceInsertion>(db, `SELECT event_json FROM sources JOIN source_documents USING (insertion_id) WHERE ${voiceWhere} ORDER BY coalesce(received_at, occurred_at, ''), insertion_id`, JSON.stringify(VOICE_KINDS)),
-      revocations: decoded<RevocationEvent>(db, "SELECT event_json FROM revocations ORDER BY created_at, id"),
-      aliases: decoded<EntityAliasEvent>(db, "SELECT event_json FROM entity_alias_events WHERE retracted_by IS NULL ORDER BY json_extract(event_json, '$.created_at'), id"),
+      revocations: retractionsIn(db),
+      aliases: aliasDeclarationsIn(db),
     };
   });
 }

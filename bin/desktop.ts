@@ -63,7 +63,7 @@ import { existsSync, openSync, readFileSync, statSync } from "node:fs";
 import { createServer } from "node:http";
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
-import { cadence, Scheduler, durationLabel, wokeAfter } from "../lib/desktopSchedule";
+import { cadence, CHAIN_JOBS, Scheduler, durationLabel, wokeAfter } from "../lib/desktopSchedule";
 import { configDir, discoverVaultRoot, ENGINE_ROOT, engineIdentity, vaultPointer } from "../lib/engine";
 import { envPath } from "../lib/envFile";
 import { setupRoutes, setupState } from "../lib/firstRun";
@@ -85,6 +85,8 @@ interface Job {
   /** Run once at start, rather than one interval in. */
   atStart: boolean;
   env?: Record<string, string>;
+  /** Arguments after the script. */
+  args?: string[];
 }
 
 const dryRun = process.argv.includes("--dry-run");
@@ -245,7 +247,11 @@ async function run(root: string): Promise<Run> {
       { name: "api", script: "bin/api.ts", interval: null, atStart: true, env: { PORT: apiPort } },
       { name: "web", script: "web/server.ts", interval: null, atStart: true, env: { PORT: webPort } },
     ];
-    for (const name of ["tend", "publish", "arrivals", "copies"])
+    // Every chain is a job of its own (lib/chains.ts): the one scheduler of
+    // every stage that calls a model, each on its cadence, none waiting on another.
+    for (const job of CHAIN_JOBS)
+      jobs.push({ name: job, script: "bin/tend.ts", args: ["--chain", job], interval: cadence(job), atStart: false });
+    for (const name of ["publish", "arrivals", "servers"])
       jobs.push({ name, script: `bin/${name}.ts`, interval: cadence(name), atStart: false });
     // daily, and at launch: an app restarted more often than that would otherwise never prune
     jobs.push({ name: "prune", script: "bin/prune.ts", interval: cadence("prune"), atStart: true });
@@ -264,7 +270,7 @@ async function run(root: string): Promise<Run> {
   if (dryRun) {
     console.log(`desktop: vault ${root}\ndesktop: engine ${ENGINE_ROOT}\ndesktop: bun ${process.execPath}`);
     for (const j of jobs)
-      console.log(`  ${j.name.padEnd(11)} ${j.interval === null ? "always" : `every ${j.interval}s`}${j.atStart ? " (+at start)" : ""}  ${j.script}`);
+      console.log(`  ${j.name.padEnd(11)} ${j.interval === null ? "always" : `every ${j.interval}s`}${j.atStart ? " (+at start)" : ""}  ${[j.script, ...(j.args ?? [])].join(" ")}`);
     process.exit(0);
   }
 
@@ -282,7 +288,7 @@ async function run(root: string): Promise<Run> {
 
   function start(job: Job): ChildProcess {
     const fd = openSync(join(logDir, `${job.name}.log`), "a", 0o600);
-    const args = [join(ENGINE_ROOT, job.script)];
+    const args = [join(ENGINE_ROOT, job.script), ...(job.args ?? [])];
     // The dev loop (desktop/dev.sh): a long-lived job restarts itself when a
     // file it imports changes, so an edit to the api or the viewer's server
     // is live. Scheduled jobs start fresh every fire anyway.

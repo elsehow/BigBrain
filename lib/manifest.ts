@@ -77,7 +77,7 @@ export interface Manifest {
   /** A disposable, read-only orientation sentence for an entity node. */
   quick: RoleConfig;
   modelPreferences: Record<"gardener" | "memory" | "quick", ModelPreference>;
-  /** The classic chain's feed stage (lib/feedStage.ts). Absent is off. */
+  /** The classic chain's feed stage (lib/stages/feed.ts). Absent is off. */
   feed?: FeedConfig;
   /** The worth gate (lib/worthGate.ts). Absent is off. */
   gate?: GateConfig;
@@ -101,7 +101,7 @@ export interface GateConfig {
 
 /** `feed:` — the classic chain's third stage: it sorts what the gardener
  * filed into what needs the owner, what an agent could do, and what is worth
- * knowing, each with a one-line headline (lib/feedStage.ts). */
+ * knowing, each with a one-line headline (lib/stages/feed.ts). */
 export interface FeedConfig {
   /** Assertions written before this date (YYYY-MM-DD) are never sorted, so
    * turning the stage on never bills the whole history. */

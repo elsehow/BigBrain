@@ -8,6 +8,8 @@ Status: plan, 2026-10-09. Mockups: the "BigBrain Lenses" design canvas
 - **Lenses are yours.** A lens is a named rule over your vault, plus the notes
   you added or removed by hand. It is always exact: editing the rule both adds
   and removes, and you see which before saving. Lenses live on your computer.
+  (Superseded 2026-10-12: a lens lives in the vault;
+  `2026-10-12-stages-and-views-refactor.md`.)
 - **Servers collect lenses.** A server (today's "shared vault") holds the notes
   that members' lenses send it. Its admin invites people with read or
   read-and-write access. Anyone can read every server they belong to; with write

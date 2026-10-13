@@ -1,11 +1,12 @@
 import { afterAll, describe, expect, spyOn, test } from "bun:test";
+import { spawnSync } from "node:child_process";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createAssertionEvent, type AssertionEvent } from "../lib/assertionLog";
-import { appendAndProjectAssertion, projectSourceInsertion } from "../lib/assertionProjection";
+import { appendAndProjectAssertion, projectSourceInsertion, rebuildAssertionProjection } from "../lib/assertionProjection";
 import { chainHasWork } from "../lib/chain";
 import { dueOf, feedItems, feedRecords, sortedAssertions } from "../lib/feedJournal";
-import { FEED_PROMPT_VERSION, feedDue, feedLockFile, feedWork, runFeed } from "../lib/feedStage";
+import { FEED_PROMPT_VERSION, feedDue, feedLockFile, feedWork, runFeed } from "../lib/stages/feed";
 import { appendSourceInsertionEvent, type SourceInsertion } from "../lib/insertionLog";
 import { loadManifest } from "../lib/manifest";
 import type { ModelRunRequest } from "../lib/run/request";
@@ -118,6 +119,17 @@ describe("the feed stage", () => {
     expect(records[0]!.model).toBe("claude-sonnet-5-5");
     expect(sortedAssertions(records).size).toBe(4);
     expect(feedWork(root, loadManifest(root).feed!)).toEqual([]);
+  });
+
+  test("each call's record is committed with it, as the feed", async () => {
+    const a = insertion({ title: "alpha" });
+    const root = vault(FEED_YAML(""), a);
+    claim(root, a, "Briar asked for the budget by Friday.");
+    const git = (...args: string[]) => spawnSync("git", args, { cwd: root, encoding: "utf8" }).stdout.trim();
+    for (const args of [["init", "-q"], ["config", "user.email", "t@t"], ["config", "user.name", "t"], ["add", "-A"], ["commit", "-qm", "init"]]) git(...args);
+    await runFeed({ root, manifest: loadManifest(root), runner: scripted().runner, now });
+    expect(git("log", "-1", "--format=%an")).toBe("feed");
+    expect(git("status", "--porcelain", "--", "journal")).toBe("");
   });
 
   test("the feed is every source placed in a section: a skip adds nothing, and a date passing takes nothing away", async () => {
@@ -288,6 +300,19 @@ describe("the feed stage", () => {
     expect(feedWork(root, cfg)).toHaveLength(1);
     expect(feedDue(root, cfg, { now: new Date("2026-08-25T00:30:00.000Z") })).toMatchObject({ due: false });
     expect(feedDue(root, cfg, { now: new Date("2026-08-25T01:00:01.000Z") })).toMatchObject({ due: true });
+  });
+
+  test("what the feed has read is the record's, not this process's: a projection rebuilt from the journals holds it", async () => {
+    const [a, b] = [insertion({ title: "read" }), insertion({ title: "unread" })];
+    const root = vault(FEED_YAML(), a, b);
+    claim(root, a, "Briar booked the venue.");
+    await runFeed({ root, manifest: loadManifest(root), runner: scripted().runner, now });
+    claim(root, b, "Kit needs the slides tonight.");
+    const cfg = loadManifest(root).feed!;
+    const unread = feedWork(root, cfg).map((c) => c.key);
+    expect(unread).toHaveLength(1);
+    rebuildAssertionProjection(root);
+    expect(feedWork(root, cfg).map((c) => c.key)).toEqual(unread);
   });
 
   test("after a call that succeeded, the next claim filed is due at once", async () => {

@@ -92,7 +92,7 @@ describe("diagnosticsReport + renderBundle", () => {
   });
 
   // A failed memory run takes the interval's slot without a word anywhere
-  // else (lib/memoryRun.ts, 2026-09-03): this line is where it shows.
+  // else (lib/stages/memory.ts, 2026-09-03): this line is where it shows.
   test("the memory line: last fold, next sweep, and the last attempt when it failed", () => {
     const failedRun = "2026-09-03T10-30-00-000Z-bbbb";
     const root = nativeVault({

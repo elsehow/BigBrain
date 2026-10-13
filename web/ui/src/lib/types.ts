@@ -167,7 +167,7 @@ export interface GraphNode {
    * by nothing yet (lib/graph.ts). Edgeless, and drawn as a point that
    * turns (LinkGraph's spinner) until the round that files it. */
   pending?: true;
-  x?: number; // settled position from the server's layout (lib/graphLayout.ts)
+  x?: number; // seated position from the server's layout (lib/views/layout.ts)
   y?: number;
   // Additive (phase 3): present only on `kind: entity` notes.
   entity?: true;

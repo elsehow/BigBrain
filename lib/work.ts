@@ -43,7 +43,7 @@ import {
   projectedSourcesById,
   syncAssertionProjection,
 } from "./assertionProjection";
-import { liveSourceSql, supersedesOf } from "./sourceSupersede";
+import { supersedesOf } from "./sourceSupersede";
 import {
   admitStaged,
   passStaged,
@@ -64,6 +64,8 @@ export const WORK_BATCH_LIMIT = ASSERTION_AGENT_MAX_BATCH;
 
 export { classifyIntake, type IntakeClass, type IntakeEnvelopeFacts } from "./intakeClass";
 import { classifyIntake, type IntakeClass } from "./intakeClass";
+import { dueIntake, waitingIntake } from "./stages/intakeDue";
+import { withSnapshot } from "./vaultReadModel";
 
 // ── the view ────────────────────────────────────────────────────────────────
 
@@ -107,18 +109,6 @@ export interface DueWorkOpts {
   now?: Date;
 }
 
-const DUE_INTAKE_FROM = `FROM sources s
-  WHERE s.intake_priority IS NOT NULL AND ${liveSourceSql("s")}
-    AND NOT EXISTS (SELECT 1 FROM assertion_sources a WHERE a.insertion_id = s.insertion_id)
-    AND NOT EXISTS (SELECT 1 FROM declines d WHERE d.insertion_id = s.insertion_id AND d.retracted_by IS NULL)`;
-
-function dueIntakeJobs(db: Database, limit = -1): IntakeJob[] {
-  const rows = db.query(`SELECT s.insertion_id, s.source_id, s.title,
-      s.intake_at AS at, s.intake_class AS class
-    ${DUE_INTAKE_FROM}
-    ORDER BY s.intake_priority, s.intake_at, s.insertion_id LIMIT ?`).all(limit) as Omit<IntakeJob, "kind">[];
-  return rows.map((row) => ({ kind: "intake", ...row }));
-}
 
 function dueMemoryJob(root: string, opts: DueWorkOpts): MemoryJob | undefined {
   const due = memoryDue(root, opts.now ? { now: opts.now } : {});
@@ -144,10 +134,7 @@ export function dueWork(root: string, opts: DueWorkOpts = {}): WorkJob[] {
   const jobs: WorkJob[] = [];
   if (kinds.has("intake")) {
     syncAssertionProjection(root);
-    const db = openAssertionProjectionReadonly(root);
-    try {
-      jobs.push(...dueIntakeJobs(db, limit));
-    } finally { db.close(); }
+    jobs.push(...withSnapshot(root, (snapshot) => waitingIntake(snapshot).slice(0, limit)).map((item) => ({ kind: "intake" as const, ...item })));
   }
   if (kinds.has("staged"))
     for (const h of stagedHeads(root, STAGE_BATCH_LIMIT)) jobs.push({ kind: "staged", ...h });
@@ -158,30 +145,11 @@ export function dueWork(root: string, opts: DueWorkOpts = {}): WorkJob[] {
   return jobs;
 }
 
-/** Every due intake id, UNCAPPED — what a tend round diffs (before against
- * after) to learn which insertions it settled, and how many are left.
- *
- * `dueWork`'s limit is a BATCH size, not a page: it is what the gardener is
- * handed to work on. tend used to spell this itself as `dueWork(…, {limit:
- * 500})`, which made `remaining` saturate at 500 on a longer backlog and
- * report a queue shorter than it was (#640). */
-export function dueIntakeIds(root: string): string[] {
-  syncAssertionProjection(root);
-  const db = openAssertionProjectionReadonly(root);
-  try {
-    return dueIntakeJobs(db).map((j) => j.insertion_id);
-  } finally { db.close(); }
-}
-
 /** The viewer's "N items waiting for your agent" (#494) — the same query as
  * `dueWork`, counted instead of listed, so the screen and the gardener can
  * never disagree. */
 export function dueIntakeCount(root: string): number {
-  syncAssertionProjection(root);
-  const db = openAssertionProjectionReadonly(root);
-  try {
-    return (db.query(`SELECT count(*) AS n ${DUE_INTAKE_FROM}`).get() as { n: number }).n;
-  } finally { db.close(); }
+  return dueIntake(root).length;
 }
 
 // ── context packs ───────────────────────────────────────────────────────────

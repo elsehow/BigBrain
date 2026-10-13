@@ -8,8 +8,9 @@ import { runAgent } from '../../lib/run/agent';
 import type { AgentRunResult } from '../../lib/run/model';
 import type { ModelRunRequest } from '../../lib/run/request';
 import type { Manifest } from '../../lib/manifest';
-import { tendPrompt, type TendResult } from '../../lib/tend';
-import { dueIntakeIds, nextWork, WORK_BATCH_LIMIT, type SubmitResult, type WorkItem } from '../../lib/work';
+import type { TendResult } from '../../lib/tend';
+import { nextWork, WORK_BATCH_LIMIT, type SubmitResult, type WorkItem } from '../../lib/work';
+import { dueIntake, tendPrompt } from '../../lib/stages/intake';
 import { stagedIds } from '../../lib/stage';
 import { instrumentVaultTools } from './profileVaultTools';
 
@@ -84,7 +85,7 @@ export async function runConcurrentGardener(root: string, manifest: Manifest,
   if (!lock) throw new Error('Another gardener holds the lock');
   let restore: (() => void) | undefined;
   try {
-    const before = dueIntakeIds(root), stages = stagedIds(root);
+    const before = dueIntake(root), stages = stagedIds(root);
     const items = nextWork(root, { kinds: ['intake', 'staged'], limit: WORK_BATCH_LIMIT });
     if (before.length + stages.length > WORK_BATCH_LIMIT || items.length !== before.length + stages.length) throw new Error('Experiment cohort exceeds one host batch');
     const assignment = new GardenerAssignments(items);
@@ -113,7 +114,7 @@ export async function runConcurrentGardener(root: string, manifest: Manifest,
       target: manifest.gardener,
       timeoutMs: ASSERTION_AGENT_TIMEOUT_MS,
     }))));
-    const remaining = new Set([...dueIntakeIds(root), ...stagedIds(root)]);
+    const remaining = new Set([...dueIntake(root), ...stagedIds(root)]);
     return { ran: true, rounds: outcomes.map((outcome, lane) => ({
       runId: `benchmark-lane-${lane}`, settled: [...before, ...stages].filter(id => assignment.owned(id, lane) && !remaining.has(id)).length,
       remaining: [...remaining].filter(id => assignment.owned(id, lane)).length,

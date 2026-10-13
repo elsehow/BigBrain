@@ -4,14 +4,14 @@ import {randomUUID} from 'node:crypto';
 import {readInclusionPolicy,writeInclusionPolicy,sourceDigest,type InclusionLabel,type InclusionPolicy,type InclusionSource} from './inclusionPolicy';
 import {inclusionEvaluator} from './inclusionEvaluation';
 import {rankCandidates,type CandidateEntity} from './inclusionCandidates';
-import type {RuleQueries} from './inclusionQueries';
+import type {RuleQueries} from './stages/ruleQueries';
 import {resolveRuleMentions} from './sharedRuleMentions';
 import {OutOfCredits} from './sharedJev';
 const NO_CREDITS='Out of usage credits. (You need credits to calibrate your inclusion rule.)';
 export interface ReviewContext {root:string;store:string;scope:string;text:string;sources:InclusionSource[];
  /** Ratings to start from when this scope has none of its own: a saved lens's. */
  labels?:InclusionLabel[];select?:(text:string)=>InclusionSource[];check:()=>void;save:(text:string)=>void;
- /** Search phrases and subject mentions for a rule (lib/inclusionQueries.ts); absent, the rule's own words rank. */
+ /** Search phrases and subject mentions for a rule (lib/stages/ruleQueries.ts); absent, the rule's own words rank. */
  queries?:(text:string,entities:CandidateEntity[])=>Promise<RuleQueries|undefined>}
 type Evaluator=ReturnType<typeof inclusionEvaluator>;
 interface Session {factory:typeof inclusionEvaluator;id:string;context:ReviewContext;policy:InclusionPolicy;evaluator:Evaluator;pool:InclusionSource[];scores:Map<string,number>;failed:Map<string,string>;cards:InclusionSource[];busy:boolean;revision:number;error?:string;at:number;

@@ -56,15 +56,19 @@ import {
   assertionEntityId,
   assertionEventRel,
   createAssertionEvent,
+  createIdentityAssertion,
   listAssertionEventFiles,
   validateAssertionEvent,
   type AssertionEntity,
   type AssertionEvent,
+  type Identity,
+  type IdentityAssertion,
 } from "./assertionLog";
+import { appendSharedIdentity, listSharedIdentityFiles, sharedIdentityRel, validateSharedIdentity } from "./sharedIdentityLog";
 import { parseEventFile, type EventFile } from "./eventLog";
 import { ensureDir, writeAtomic } from "./fsx";
 import { sha256hex } from "./hash";
-import { AST_ID, ENTITY_LINK, ENT_ID, norm } from "./ids";
+import { AST_ID, ENTITY_LINK, ENT_ID, INS_ID, norm, parseEnvelopeId, parseInsertionId, type EntityId } from "./ids";
 import {
   appendSourceInsertionEvent,
   insertionEventRel,
@@ -103,7 +107,6 @@ export const SEARCH_CAP = 50;
 export const MAX_EVIDENCE_BYTES = 16 * 1024 * 1024;
 export const MAX_SOURCES_PER_ASSERTION = 20;
 
-const INS_ID = /^ins_[a-f0-9]{24}$/u;
 
 /** A refusal with the HTTP status it deserves; the message says what would
  * work. The door maps it 1:1. */
@@ -134,6 +137,7 @@ export type FeedEntry = {
   | { kind: "contribution"; id: string; contribution_id: string; status: "active" | "withdrawn" }
   | { kind: "evidence"; id: string; source_id: string }
   | { kind: "assertion"; id: string; supersedes?: string }
+  | { kind: "identity"; id: string }
   | { kind: "revocation"; id: string; assertion_id: string; superseded_by?: string; mode: "correction" | "retraction" | "moderation" }
 );
 
@@ -410,7 +414,7 @@ class EventIndex<T extends { id: string }> {
 
 // ── the vault ───────────────────────────────────────────────────────────────
 
-type PendingWrite = { event: SourceInsertion | AssertionEvent | RevocationEvent | ContributionTransition; feed: FeedInput };
+type PendingWrite = { event: SourceInsertion | AssertionEvent | IdentityAssertion | RevocationEvent | ContributionTransition; feed: FeedInput };
 
 export interface SharedVaultOpts {
   now?: () => Date;
@@ -422,6 +426,7 @@ export class SharedVault {
   private readonly insertions: EventIndex<SourceInsertion>;
   private readonly assertions: EventIndex<AssertionEvent>;
   private readonly revocations: EventIndex<RevocationEvent>;
+  private readonly identities: EventIndex<IdentityAssertion>;
 
   constructor(
     public readonly root: string,
@@ -432,6 +437,7 @@ export class SharedVault {
     this.insertions = new EventIndex<SourceInsertion>(root, listSourceInsertionEventFiles, validateSourceInsertion);
     this.assertions = new EventIndex<AssertionEvent>(root, listAssertionEventFiles, validateAssertionEvent);
     this.revocations = new EventIndex<RevocationEvent>(root, listRevocationEventFiles, validateRevocationEvent);
+    this.identities = new EventIndex<IdentityAssertion>(root, listSharedIdentityFiles, validateSharedIdentity);
   }
 
   /** Called by the single writer while holding the server lock. A prepared
@@ -454,6 +460,13 @@ export class SharedVault {
         validateSourceInsertion(e);
         const result = appendSourceInsertionEvent(this.root, e, { wake: false });
         this.insertions.note(e, result.path);
+      } else if (feed.kind === "identity") {
+        const e = event as IdentityAssertion;
+        validateSharedIdentity(e);
+        if (!this.identities.has(e.id)) {
+          const result = appendSharedIdentity(this.root, e);
+          this.identities.note(e, result.path);
+        }
       } else if (feed.kind === "assertion") {
         const e = event as AssertionEvent;
         validateAssertionEvent(e);
@@ -494,8 +507,8 @@ export class SharedVault {
    * An operator's drift check (`bigbrain shared inspect`). */
   missingFromFeed(): string[] {
     const out: string[] = [];
-    for (const index of [this.insertions, this.assertions, this.revocations])
-      for (const event of index.all()) if (this.feedLog.seqOf(event.id) === undefined) out.push(event.id);
+    for (const ids of [this.insertions, this.assertions, this.revocations, this.identities].map((index) => index.all().map((e) => e.id)))
+      for (const id of ids) if (this.feedLog.seqOf(id) === undefined) out.push(id);
     return out;
   }
 
@@ -589,8 +602,8 @@ export class SharedVault {
     const contentSha256 = sha256hex(`${JSON.stringify(envelope)}\n${body}`);
     const event: SourceInsertion = {
       event: "source.inserted",
-      id: `ins_${sha256hex(`${sourceId}\u0000${contentSha256}`).slice(0, 24)}`,
-      source_id: sourceId,
+      id: parseInsertionId(`ins_${sha256hex(`${sourceId}\u0000${contentSha256}`).slice(0, 24)}`),
+      source_id: parseEnvelopeId(sourceId),
       author: actorAuthor(actor),
       title,
       body,
@@ -691,7 +704,7 @@ export class SharedVault {
     const canonical = text.replace(ENTITY_LINK, (_whole, rawTarget: string, rawDisplay?: string) => {
       const target = rawTarget.trim();
       const display = (rawDisplay ?? "").trim();
-      let id: string;
+      let id: EntityId;
       let label: string;
       if (ENT_ID.test(target)) {
         if (!display) throw new SharedVaultError(400, `link [[${target}]] names an id without a label — write [[Label]]`);
@@ -774,6 +787,53 @@ export class SharedVault {
     return { assertion: event, ...this.landAssertion(actor, event) };
   }
 
+  /** Say that two landings are one work, or are not, or that an entity is
+   * one landing: `{identity: {says: "copy"|"not-copy"}, sources: [a, b]}` or
+   * `{identity: {says: "is-source", entity: {label}}, sources: [one]}`. A
+   * member's word, so no score (a score is a model's). What cites nothing
+   * (an alias) a server does not hold. */
+  identify(actor: SharedActor, raw: unknown): { identity: IdentityAssertion; deduped: boolean; seq: number } {
+    if (!isPlainObject(raw)) throw new SharedVaultError(400, "an identity is a JSON object {identity, sources}");
+    refuseForgedKeys(raw);
+    for (const key of Object.keys(raw))
+      if (!["identity", "sources"].includes(key)) throw new SharedVaultError(400, `unknown identity field "${key}" — use identity, sources`);
+    const said = raw["identity"], ids = raw["sources"];
+    if (!isPlainObject(said) || !Array.isArray(ids) || !ids.every((id) => typeof id === "string" && INS_ID.test(id)))
+      throw new SharedVaultError(400, "identity must be {says, …} and sources a list of evidence ids");
+    let identity: Identity;
+    if (said["says"] === "copy" || said["says"] === "not-copy") {
+      if (ids.length !== 2 || ids[0] === ids[1]) throw new SharedVaultError(400, "a copy names two different pieces of evidence");
+      identity = { says: said["says"] };
+    } else if (said["says"] === "is-source") {
+      const entity = said["entity"];
+      const label = isPlainObject(entity) && typeof entity["label"] === "string" ? entity["label"].trim().replace(/\s+/gu, " ") : "";
+      if (!label || ids.length !== 1) throw new SharedVaultError(400, "is-source names an entity {label} and one piece of evidence");
+      identity = { says: "is-source", entity: { id: assertionEntityId(label), label } };
+    } else throw new SharedVaultError(400, "a server holds copy, not-copy and is-source identity: what cites nothing stays at home");
+    // the same word again, by the same member, while it stands: a retry, not a new fact
+    const author = actorAuthor(actor), revoked = this.revokedMap(), cited = JSON.stringify([...ids].sort());
+    const standing = this.identities.all().find((e) => !revoked.has(e.id) && e.author.id === author.id && e.author.kind === author.kind
+      && JSON.stringify(e.identity) === JSON.stringify(identity) && JSON.stringify(e.sources.map((r) => r.insertion_id).sort()) === cited);
+    if (standing) return { identity: standing, deduped: true, seq: this.feedLog.seqOf(standing.id) ?? this.head() };
+    let event: IdentityAssertion;
+    try {
+      event = createIdentityAssertion({ identity, sources: ids as string[], author: actorAuthor(actor),
+        created_at: this.now().toISOString(), produced_by: { procedure: "shared-vault", version: "1" } }, this.citedSources(ids as string[]));
+    } catch (error) {
+      throw new SharedVaultError(400, error instanceof Error ? error.message : String(error));
+    }
+    if (this.identities.has(event.id)) return { identity: event, deduped: true, seq: this.feedLog.seqOf(event.id) ?? this.head() };
+    return { identity: event, ...this.commit([{ event, feed: { at: this.now().toISOString(), kind: "identity", id: event.id,
+      path: sharedIdentityRel(event), actor: feedActor(actor) } }]) };
+  }
+
+  /** The identities that stand, oldest first: one page, all of them (a server holds few). */
+  listIdentities(): Page<IdentityAssertion> {
+    const revoked = this.revokedMap();
+    return { items: this.identities.all().filter((e) => !revoked.has(e.id))
+      .sort((a, b) => cmp(a.created_at, b.created_at) || cmp(a.id, b.id)), next_cursor: null };
+  }
+
   /** The revoked set, assertion id → its FIRST revocation by (created_at, id)
    * — the engine's rule when several name one assertion. */
   private revokedMap(): Map<string, RevocationEvent> {
@@ -785,7 +845,7 @@ export class SharedVault {
 
   private view(event: AssertionEvent, revoked: ReadonlyMap<string, RevocationEvent>): AssertionView {
     const seen = new Set<string>();
-    let at = event.id;
+    let at: string = event.id;
     while (!seen.has(at)) {
       seen.add(at);
       const next = revoked.get(at)?.superseded_by;
@@ -863,6 +923,16 @@ export class SharedVault {
     if (!isPlainObject(raw)) throw new SharedVaultError(400, "a retraction is a JSON object {reason}");
     refuseForgedKeys(raw);
     const reason = oneLine("reason", raw["reason"], 1, 2000);
+    const identity = this.identities.get(id);
+    if (identity) {
+      if (identity.author.id !== actor.handle)
+        throw new SharedVaultError(403, `only its author (${identity.author.id}) can retract ${id}; the owner may moderate it instead`);
+      const standing = this.revokedMap().get(id);
+      if (standing) return { revocation: standing, ...this.landRevocation(actor, standing, "retraction") };
+      const revocation = createRevocationEvent({ assertion_id: id, reason, author: actorAuthor(actor),
+        created_at: this.now().toISOString(), produced_by: { procedure: "shared-vault/retraction", version: "1" } });
+      return { revocation, ...this.landRevocation(actor, revocation, "retraction") };
+    }
     const previous = this.assertion(id);
     if (previous?.assertion.author.id === actor.handle && previous.revocation?.reason === reason && previous.revocation.author.kind === actorAuthor(actor).kind && previous.revocation.produced_by.procedure === "shared-vault/retraction") {
       return { revocation: previous.revocation, ...this.landRevocation(actor, previous.revocation, "retraction") };

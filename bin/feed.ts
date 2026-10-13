@@ -1,5 +1,5 @@
 /**
- * bigbrain feed — the classic chain's feed stage (lib/feedStage.ts), read
+ * bigbrain feed — the classic chain's feed stage (lib/stages/feed.ts), read
  * from its journal: what needs you, what an agent could do, and what is worth
  * knowing, every item it has added, oldest first.
  *
@@ -14,7 +14,7 @@
 import { requireVaultRoot } from "../lib/engine";
 import { hasFlag } from "../lib/cliflags";
 import { dueOf, feedItems, feedRecords, type FeedEntry } from "../lib/feedJournal";
-import { feedDue, runFeed } from "../lib/feedStage";
+import { feedDue, runFeed } from "../lib/stages/feed";
 import { loadManifest } from "../lib/manifest";
 
 const argv = process.argv.slice(2);

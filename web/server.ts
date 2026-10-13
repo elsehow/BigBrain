@@ -5,19 +5,20 @@ import {logIntegrationCalls} from '../lib/readLog';
 import {inclusionReviewApi} from '../lib/inclusionReviewApi';
 import {lensApi} from '../lib/lensApi';
 import {readLens} from '../lib/lenses';
-import {tickIntegrationAdmission} from '../lib/integrationAdmission';
+import { lensMembersOf } from '../lib/views/lens';
 import { unionGraph, unionRecent, unionSearch, unionNote, vaultFilter, includesPersonal, personalOnly, serverBriefingRecord, serverGraph, sharedEntityClaims } from '../lib/sharedReadUnion';
 import { jevSettingsApi } from '../lib/jevSettingsApi';
 import { optionalJevKey } from '../lib/jevSettings';
 import { sharedSettingsApi } from '../lib/sharedSettingsApi';
-import { feedLensEvents, lensEventHeadline, tickLenses } from '../lib/lensSync';
-import { tickPublishing } from '../lib/sharedAssertionPublish';
+import { feedLensEvents, lensEventHeadline } from '../lib/lensSync';
 import { connectionStorePath } from '../lib/sharedConnections';
+import { watchServers } from '../lib/serverStore';
 import { sharedWorkspace } from "../lib/sharedWorkspace";
 import { allowVaultRequest, vaultIdentity } from "../lib/vaultBoundary";
 import { ApplicationChanges } from "../lib/applicationChanges";
 import { ApplicationActions } from "../lib/applicationActions";
-import { resolveNote, readNoteFile } from "../lib/noteResolution";
+import { resolveNote, type ResolvedNote } from "../lib/noteResolution";
+import { sourceInsertionCached } from "../lib/assertionEntityView";
 import { telemetry, type Operation } from "../lib/telemetry";
 /**
  * web/server.ts — a read-only window onto the vault, stolen (in spirit and CSS)
@@ -45,12 +46,12 @@ import { dieWithSupervisor } from "../lib/parentWatch";
 import { configSave, integrationsInfo } from "../lib/configWrite";
 import { allowLoopbackRequest, armor, dispatch, json, readBody, send, type Ctx, type Route } from "../lib/httpx";
 import { dropErrorStatus, Queued } from "../lib/door";
-import { firewallKey } from "../lib/firewall";
+import { firewallKey } from "../lib/stages/firewall";
 import { landDirective, landDrop } from "../lib/landItem";
 import { voiceMessagesFor } from "../lib/voice";
 import { createLive } from "../lib/liveEvents";
 import { recordUse } from "../lib/retrieval";
-import { clampLimit, scanSurface, SEARCH_CAP } from "../lib/searchCore";
+import { clampLimit, recordScan, scanSurface, SEARCH_CAP } from "../lib/searchCore";
 import { rankNavigationSearch } from "../lib/navigationSearch";
 import { envelopeOrSniff, type Envelope } from "../lib/envelope";
 import { envelopeWhen, parseNoteDate } from "../lib/noteMeta";
@@ -58,24 +59,25 @@ import { withinRoot } from "../lib/browsePaths";
 import { serveStatic } from "../lib/staticServe";
 import { parseBlobRef, readBlob } from "../lib/blobs";
 import { recentSourcePageAsync } from "../lib/sourceFeed";
-import { currentGraph, currentGraphView, maintainGraphView } from "../lib/maintainedGraph";
+import { currentGraph, currentGraphView, graphDeltaSince, maintainGraphView } from "../lib/maintainedGraph";
 import { feedStamp, serveStamped } from "../lib/viewStamps";
-import type { Database } from "bun:sqlite";
+import type { Snapshot } from "../lib/views/view";
 import type { ProjectionView } from "../lib/assertionProjection";
-import { SORTED_PAGE, withRows, type V2Feed, type V2SortedRow } from "../lib/v2Feed";
-import { readEntitiesCiting, readEntityFeed, readLensClaims, readSortedPage, readV2Feed } from "../lib/v2Read";
-import { otherCopies, withVaultSnapshot } from "../lib/vaultReadModel";
+import { SORTED_PAGE, withRows, type V2Feed, type V2SortedRow } from "../lib/views/v2Feed";
+import { readEntitiesCiting, readEntityFeed, readLensClaims, readSortedPage, readV2Feed } from "../lib/views/v2Read";
+import { otherCopies, projectedMarkdownContent, sourceRecordOf, withSnapshot } from "../lib/vaultReadModel";
 import { frozenMessagesForRefs, sortFrozenDesc } from "../lib/frozenQueue";
-import { noteLog } from "../lib/noteLog";
+import { noteHistoryOf } from "../lib/views/noteHistory";
 import { errText } from "../lib/errText";
 import { hasAssertionEvents } from "../lib/assertionLog";
 import { syncAssertionProjection } from "../lib/assertionProjection";
 import { agentWritten, insertionFiler, sourceInsertionMarkdown } from "../lib/sourceFeed";
-import { assertionsFromSource, projectedEntityMarkdown, truncatedEntityView, sourceThreadForInsertion, sourceInsertionCached } from "../lib/assertionEntityView";
+import { assertionsFromSource, projectedEntityMarkdown, truncatedEntityView } from "../lib/assertionEntityView";
 import { insertionEventRel, sourceMoment } from "../lib/insertionLog";
 import { foldsRoutes } from "../lib/entityFolds";
 import { copyReview, sourceCopyRoutes } from "../lib/sourceCopyReview";
-import { briefingInput, claimsOnly, createNoteBriefingService, noteBriefingRoutes, readNoteBriefingInput, type NoteBriefingInput, type NoteBriefingRequest } from "../lib/noteBriefing";
+import { briefingInput, claimsOnly, noteBriefingRoutes, readNoteBriefingInput, type NoteBriefingInput, type NoteBriefingRequest } from "../lib/noteBriefing";
+import { createNoteBriefingService } from "../lib/stages/briefing";
 import { noteRelationRoutes } from "../lib/noteRelation";
 import { sourceReadStateRoutes } from "../lib/sourceReadStateApi";
 import { sourceOrigin, sourceOrigins, type SourceOrigin } from "../lib/sourceOrigin";
@@ -116,14 +118,14 @@ export function within(rel: string): string | null {
 // parse yields nothing), so a well-formed note pays nothing for them.
 const HEAD_KEYS = ["date", "created", "filed", "updated"];
 
-/** A note's frontmatter head, parsed once. `undefined` when the file could
- * not be read — the caller falls back to what the filename and the stat
+/** A note's frontmatter head, parsed once. `undefined` when it cannot be
+ * parsed — the caller falls back to what the filename and the stamp
  * already told it. */
-function noteHead(abs: string): Envelope | undefined {
+function noteHead(raw: string): Envelope | undefined {
   try {
     // envelopeOrSniff, not parseEnvelope: one malformed frontmatter line
     // must not blind the well-formed keys around it.
-    return envelopeOrSniff(readFileSync(abs, "utf8").slice(0, 4096), HEAD_KEYS);
+    return envelopeOrSniff(raw.slice(0, 4096), HEAD_KEYS);
   } catch {
     return undefined;
   }
@@ -137,8 +139,8 @@ function noteHead(abs: string): Envelope | undefined {
 // YYYY-MM-DD prefix (the vault's own naming contract) arbitrates: a key
 // timestamp on the same day keeps its time-of-day; a different day means
 // the prefix wins at date precision.
-function noteWhen(abs: string, base: string, mtimeMs: number): number {
-  const envelope = noteHead(abs);
+function noteWhen(raw: string, base: string, mtimeMs: number): number {
+  const envelope = noteHead(raw);
   const fn = /^(\d{4}-\d{2}-\d{2})\b/.exec(base);
   const fnMs = fn ? parseNoteDate(fn[1]!) : NaN;
   const t = envelope === undefined ? undefined : envelopeWhen(envelope, fnMs);
@@ -172,13 +174,6 @@ async function handleConfigSave(req: IncomingMessage, res: ServerResponse): Prom
 
 // ── helpers ────────────────────────────────────────────────────────────────────
 
-/** A note this door will read: under a browse root, `.md`, and a file that
- * is there. Three routes asked this question in one four-clause condition
- * each, and a fourth asked half of it. */
-function noteFile(rel: string): string | null {
-  const real = within(rel);
-  return real && rel.endsWith(".md") && existsSync(real) && statSync(real).isFile() ? real : null;
-}
 
 /** The POST-with-a-JSON-body shape every write route here has: collect the
  * body under a cap, parse it, run the handler — and answer 400 with the
@@ -244,95 +239,99 @@ function vaultIndex({ res }: Ctx): void {
 async function noteRead({ req, res, url }: Ctx): Promise<void> {
   const rel = url.searchParams.get("path") ?? "";
   if(rel.startsWith('shared/')){try{const note=await unionNote(rel);json(res,note?200:404,note??{error:'Shared source unavailable'});}catch{json(res,404,{error:'Shared source unavailable'});}return;}
-  const resolved = resolveNote(ROOT, rel, { markdown: path => {
-    const file = noteFile(path);
-    return file ? readNoteFile(ROOT, file) : undefined;
-  } });
-  if (resolved?.kind === "thread") {
-    const { thread } = resolved;
-    recordUse(ROOT, rel, "web");
-    return json(res, 200, { path: rel, content: `---\ntype: source\ncategory: thread\n---\n# ${thread.title}\n`,
-      sourceAssertions: thread.assertions,
-      sourceThread: { title: thread.title, messages: thread.members.map(s => ({
-        path: insertionEventRel(s), title: s.title, from: insertionFiler(s).from,
-        at: sourceMoment(s),
-      })) },
-      origin: sourceOrigin(thread.members[0]!.envelope, thread.members[0]!),
-    });
-  }
-  if (resolved?.kind === "entity") {
-    // the joined vaults' claims about it read alongside your own, each marked with its vault
-    const filter = req.headers?.["x-bigbrain-vault-filter"];
-    const shared = filter === "personal" ? [] : (await sharedEntityClaims(ROOT, [resolved.entity.id], vaultFilter(filter))).get(resolved.entity.id) ?? [];
-    const projectedEntity = shared.length ? { ...resolved.entity, assertions: [...resolved.entity.assertions, ...shared]
-      .sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id)) } : resolved.entity;
-    recordUse(ROOT, rel, "web");
-    // `assertions=N` — the viewer's progressive read: the LATEST N
-    // assertions plus the true total, and a header-only markdown stub
-    // (the client renders the structured view; the full markdown twin
-    // was half of a 1.2MB payload on a 1,444-assertion entity). Absent
-    // the param, the full both-forms response, unchanged — curl, older
-    // bundles, and the markdown compatibility path keep their contract.
-    const n = Number(url.searchParams.get("assertions") ?? "");
-    if (Number.isInteger(n) && n > 0)
-      return json(res, 200, {
-        path: rel,
-        content: projectedEntityMarkdown({ ...projectedEntity, assertions: [] }),
-        projectedEntity: truncatedEntityView(projectedEntity, n),
-      });
-    return json(res, 200, {
-      path: rel,
-      content: projectedEntityMarkdown(projectedEntity),
-      projectedEntity,
-    });
-  }
-  if (resolved?.kind === "source") {
-    const { source } = resolved;
-    recordUse(ROOT, rel, "web");
-    // The rail above the body: what the record made of this source
-    // (lib/assertionEntityView.ts's assertionsFromSource). The markdown
-    // stays the body alone — curl, the reader doors and older bundles keep
-    // their contract; only the viewer reads the structured rows.
-    // `origin` is the OPEN target: an external original, or a Markdown
-    // copy of the stored body for text-only drops (lib/sourceOrigin.ts).
-    // `byAgent`: the viewer holds an agent's remote images for a click.
-    // Copies of one document (lib/sourceCopies.ts) pool their claims, and
-    // `origins` is every copy's originals, this one's first, each with the
-    // copy that opens it.
-    const pooled = [source, ...otherCopies(ROOT, source.id)];
-    const origins = new Map<string, SourceOrigin & { path: string }>();
-    for (const copy of pooled) for (const origin of sourceOrigins(copy.envelope)) {
-      const key = origin.kind === "url" ? origin.url : origin.kind === "file" ? origin.sha256 : origin.name;
-      if (!origins.has(key)) origins.set(key, { ...origin, path: insertionEventRel(copy) });
+  // One snapshot answers the note and everything said about it (R6): the
+  // projection, never the disk. Only an entity's joined-vault claims are
+  // asked for after it, over the network.
+  type Read = { use: string; body: object } | { entity: Extract<ResolvedNote, { kind: "entity" }>["entity"] };
+  const read = withSnapshot(ROOT, (): Read | undefined => {
+    const resolved = resolveNote(ROOT, rel, { source: sourceInsertionCached, markdown: (asked) => {
+      const abs = within(asked);
+      if (!abs || !asked.endsWith(".md")) return undefined;
+      const path = relative(ROOT, abs).split(sep).join("/"); // the spelling the projection holds
+      const note = projectedMarkdownContent(ROOT, path);
+      return note && { path, raw: note.raw, mtime: new Date(note.mtimeMs).toISOString() };
+    } });
+    if (resolved?.kind === "thread") {
+      const { thread } = resolved;
+      return { use: rel, body: { path: rel, content: `---\ntype: source\ncategory: thread\n---\n# ${thread.title}\n`,
+        sourceAssertions: thread.assertions,
+        sourceThread: { title: thread.title, messages: thread.members.map(s => ({
+          path: insertionEventRel(s), title: s.title, from: insertionFiler(s).from,
+          at: sourceMoment(s),
+        })) },
+        origin: sourceOrigin(thread.members[0]!.envelope, thread.members[0]!),
+      } };
     }
+    if (resolved?.kind === "entity") return { entity: resolved.entity };
+    if (resolved?.kind === "source") {
+      const { source } = resolved;
+      // The rail above the body: what the record made of this source
+      // (lib/assertionEntityView.ts's assertionsFromSource). The markdown
+      // stays the body alone — curl, the reader doors and older bundles keep
+      // their contract; only the viewer reads the structured rows.
+      // `origin` is the OPEN target: an external original, or a Markdown
+      // copy of the stored body for text-only drops (lib/sourceOrigin.ts).
+      // `byAgent`: the viewer holds an agent's remote images for a click.
+      // Copies of one document (lib/sourceCopies.ts) pool their claims, and
+      // `origins` is every copy's originals, this one's first, each with the
+      // copy that opens it.
+      const pooled = [source, ...otherCopies(ROOT, source.id)];
+      const origins = new Map<string, SourceOrigin & { path: string }>();
+      for (const copy of pooled) for (const origin of sourceOrigins(copy.envelope)) {
+        const key = origin.kind === "url" ? origin.url : origin.kind === "file" ? origin.sha256 : origin.name;
+        if (!origins.has(key)) origins.set(key, { ...origin, path: insertionEventRel(copy) });
+      }
+      return { use: rel, body: {
+        path: rel,
+        content: sourceInsertionMarkdown(source),
+        sourceAssertions: assertionsFromSource(ROOT, pooled.map((copy) => copy.id)),
+        origin: sourceOrigin(source.envelope, source),
+        origins: [...origins.values()],
+        // the document's other copies and what it might also be (lib/sourceCopyReview.ts)
+        ...copyReview(ROOT, source.id),
+        byAgent: agentWritten(source),
+      } };
+    }
+    if (resolved?.kind !== "markdown") return undefined;
+    const { markdown } = resolved;
+    // Record the normalized spelling, not the client's (#333): `./x.md` and
+    // `x.md` must be one ledger row — heat keys on these strings. The note's
+    // own date is the one timestamp under its title: its frontmatter, else
+    // its filename, else when the projection saw it change.
+    return { use: markdown.path, body: {
+      path: rel,
+      content: markdown.raw,
+      modified: noteWhen(markdown.raw, rel.split("/").at(-1)!, Date.parse(markdown.mtime ?? "") || 0),
+    } };
+  });
+  if (!read) return send(res, 404, "no such note", "text/plain");
+  if ("use" in read) {
+    recordUse(ROOT, read.use, "web"); // the retrieval door, called by the route
+    return json(res, 200, read.body);
+  }
+  // the joined vaults' claims about it read alongside your own, each marked with its vault
+  const filter = req.headers?.["x-bigbrain-vault-filter"];
+  const shared = filter === "personal" ? [] : (await sharedEntityClaims(ROOT, [read.entity.id], vaultFilter(filter))).get(read.entity.id) ?? [];
+  const projectedEntity = shared.length ? { ...read.entity, assertions: [...read.entity.assertions, ...shared]
+    .sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id)) } : read.entity;
+  recordUse(ROOT, rel, "web");
+  // `assertions=N` — the viewer's progressive read: the LATEST N
+  // assertions plus the true total, and a header-only markdown stub
+  // (the client renders the structured view; the full markdown twin
+  // was half of a 1.2MB payload on a 1,444-assertion entity). Absent
+  // the param, the full both-forms response, unchanged — curl, older
+  // bundles, and the markdown compatibility path keep their contract.
+  const n = Number(url.searchParams.get("assertions") ?? "");
+  if (Number.isInteger(n) && n > 0)
     return json(res, 200, {
       path: rel,
-      content: sourceInsertionMarkdown(source),
-      sourceAssertions: assertionsFromSource(ROOT, pooled.map((copy) => copy.id)),
-      origin: sourceOrigin(source.envelope, source),
-      origins: [...origins.values()],
-      // the document's other copies and what it might also be (lib/sourceCopyReview.ts)
-      ...copyReview(ROOT, source.id),
-      byAgent: agentWritten(source),
+      content: projectedEntityMarkdown({ ...projectedEntity, assertions: [] }),
+      projectedEntity: truncatedEntityView(projectedEntity, n),
     });
-  }
-  if (resolved?.kind !== "markdown") return send(res, 404, "no such note", "text/plain");
-  const real = resolved.markdown.file!;
-  // Record the normalized spelling, not the client's (#333): `./x.md` and
-  // `x.md` must be one ledger row — heat keys on these strings. Same idiom
-  // as the api door's call site.
-  recordUse(ROOT, relative(ROOT, real).split(sep).join("/"), "web");
-  // The note's own date, for the one timestamp under its title. The viewer
-  // used to get it by listing the whole CONTAINING DIRECTORY (#639) — a
-  // three-level walk plus a frontmatter read per note, 932 of them in
-  // references/, to find one row and read one field off it. The route that
-  // already has the file open answers it. Only this arm: a projected
-  // entity and a source insertion have no file, and the viewer never
-  // showed a timestamp for either.
-  json(res, 200, {
+  return json(res, 200, {
     path: rel,
-    content: resolved.markdown.raw,
-    modified: noteWhen(real, rel.split("/").at(-1)!, statSync(real).mtimeMs),
+    content: projectedEntityMarkdown(projectedEntity),
+    projectedEntity,
   });
 }
 
@@ -403,7 +402,13 @@ function search({ req, res, url }: Ctx): void {
     try {
       const graph = await currentGraph(ROOT);
       if (req.destroyed) return;
-      const r = scanSurface(ROOT, q, SEARCH_CAP, "web");
+      // One snapshot: the scan and every hit's facets read the same revision,
+      // and nothing here touches the disk (R6).
+      const scanned = withSnapshot(ROOT, (snapshot) => {
+        const r = scanSurface(ROOT, q, SEARCH_CAP, "web");
+        return r.ok ? { r, record: sourceRecordOf(snapshot) } : { r };
+      });
+      const r = scanned.r;
       if (!r.ok) {
         // Same failure posture as the API door: the projection is a rebuildable
         // cache, its loss is the server's fault — answer 500 instead of
@@ -411,33 +416,25 @@ function search({ req, res, url }: Ctx): void {
         console.error(`search index unavailable: ${r.reason}`);
         return json(res, 500, { error: "search unavailable" });
       }
+      recordScan(ROOT, q, r, "web");
+      const record = scanned.record!;
       const hits = r.hits.map((h) => {
         const base = h.path.split("/").at(-1)!;
-        const abs = join(ROOT, h.path);
-        let modified = 0;
-        let size = 0;
-        try {
-          const st = statSync(abs);
-          // an insertion event's file time is when it landed; the hit knows when it is from
-          modified = (h.at && Date.parse(h.at)) || noteWhen(abs, base, st.mtimeMs);
-          size = st.size;
-        } catch {
-          // No file behind the path: vanished since indexing, or a virtual hit
-          // (a projected entity) that never had one. Its search-date still
-          // gives the row a timestamp — for an entity, its newest evidence.
-          modified = h.date ? Date.parse(h.date) || 0 : 0;
-        }
+        // When it is from: a source's moment, else the hit's date (an
+        // entity's newest evidence); a memory topic has none.
+        const modified = (h.at && Date.parse(h.at)) || (h.date ? Date.parse(h.date) || 0 : 0);
         // The FILED BY facet, on hits that ARE one source's insertion — the
         // same fields the recent feed stamps (insertionFiler), so a surface
         // governed by the settings → vault Filter (the recent palette) can
         // hold search results to the same choices. Entity hits carry none:
         // an entity has many filers and always shows.
-        const source = sourceInsertionCached(ROOT, h.path);
-        const thread = source ? sourceThreadForInsertion(ROOT, source.id) : undefined;
-        const filer = source ? insertionFiler(source, ROOT) : undefined;
+        const id = /(ins_[a-f0-9]{24})\.json$/u.exec(h.path)?.[1];
+        const source = id ? record.sources.get(id) : undefined;
+        const thread = source ? record.threadByInsertion.get(source.id) : undefined;
+        const filer = source ? insertionFiler(source) : undefined;
         return {
           dir: h.evidence === "memory" ? "memory" : h.path.split("/").slice(0, 2).join("/"),
-          note: { name: h.path.split("/").slice(2).join("/") || base, path: thread?.path ?? h.path, modified, size },
+          note: { name: h.path.split("/").slice(2).join("/") || base, path: thread?.path ?? h.path, modified, size: 0 },
           title: thread?.title ?? h.title,
           ...(filer?.from === "pilot" && typeof source?.envelope.key === "string" ? { sessionId: source.envelope.key } : {}),
           ...(thread ? { threadCount: thread.members.length } : {}),
@@ -469,18 +466,18 @@ function search({ req, res, url }: Ctx): void {
   });
 }
 
-// The v2 view's reads (lib/v2Read.ts): the agents writing this vault, the
+// The v2 view's reads (lib/views/v2Read.ts): the agents writing this vault, the
 // latest assertions as a feed, one entity's, and the sorted feed. The graph
 // itself comes from /api/graph; these add only who and what, each a query
 // the projection answers from its indexes, stamped with the last commit the
 // feed reads (lib/viewStamps.ts feedStamp).
 /** JSON read from one snapshot, reporting the feed stamp it was read at. */
-const feedJson = <T>(res: ServerResponse, read: (db: Database, stamp: string) => T): void => serveStamped(res, ROOT, feedStamp, read);
+const feedJson = <T>(res: ServerResponse, read: (snapshot: Snapshot, stamp: string) => T): void => serveStamped(res, ROOT, feedStamp, read);
 // The author tally counts every live row: once per feed stamp, not per tab.
 let v2Held: { stamp: string; feed: V2Feed } | undefined;
 function v2({ res }: Ctx): void {
-  feedJson(res, (db, stamp) => {
-    if (!stamp || v2Held?.stamp !== stamp) v2Held = { stamp, feed: readV2Feed(db) };
+  feedJson(res, (snapshot, stamp) => {
+    if (!stamp || v2Held?.stamp !== stamp) v2Held = { stamp, feed: readV2Feed(snapshot) };
     return v2Held.feed;
   });
 }
@@ -488,10 +485,10 @@ function v2({ res }: Ctx): void {
 function v2Entity({ res, url }: Ctx): void {
   const id = url.searchParams.get("id") ?? "";
   if (!id) return json(res, 400, { error: "Which entity? Pass ?id=." });
-  feedJson(res, (db) => ({ rows: readEntityFeed(db, id) }));
+  feedJson(res, (snapshot) => ({ rows: readEntityFeed(snapshot, id) }));
 }
 
-// The sorted feed (lib/feedStage.ts): what needs the owner, what an agent
+// The sorted feed (lib/stages/feed.ts): what needs the owner, what an agent
 // could do, what is worth knowing. Empty without a feed: block, and the view
 // keeps showing the latest assertions. A page at a time (`limit`, newest
 // first, and `before`, the `next` of the page before): the feed only grows.
@@ -499,21 +496,21 @@ const SORTED_MAX = 5_000;
 function v2Sorted({ res, url }: Ctx): void {
   const limit = Math.min(SORTED_MAX, Math.max(1, Math.trunc(Number(url.searchParams.get("limit"))) || SORTED_PAGE));
   const before = url.searchParams.get("before") ?? undefined;
-  feedJson(res, (db) => {
+  feedJson(res, (snapshot) => {
     if (!loadManifest(ROOT).feed) return { rows: [], next: null };
     // What lenses shared, and changes that grew a shared lens (D2, D3), among what arrived.
     const sharing = feedLensEvents(ROOT, connectionStorePath()).map(({ event: e, count, sources }, i): V2SortedRow => ({
       source: `lens:${e.at}:${i}`, section: e.kind === "shared" ? "know" : "needs-you", headline: lensEventHeadline(e, count), due: null, added: e.at,
-      entities: readEntitiesCiting(db, sources), lens: e.lens,
+      entities: readEntitiesCiting(snapshot, sources), lens: e.lens,
     }));
-    return withRows(readSortedPage(ROOT, db, limit, before), sharing, limit, before);
+    return withRows(readSortedPage(snapshot, limit, before), sharing, limit, before);
   });
 }
 
-// Serve the graph as a FINISHED PICTURE: structure plus settled positions,
-// computed once per structure by lib/graphLayout.ts and cached in .state.
+// Serve the graph as a FINISHED PICTURE: structure plus seated positions
+// (lib/views/layout.ts), kept by the maintainer (lib/maintainedGraph.ts).
 // The client used to receive only the structure and simulate it itself on
-// every load — see lib/graphLayout.ts for why that was the wrong side.
+// every load, which was the wrong side.
 //
 // There is one main graph, never a viewer switch. Once a vault contains an
 // assertion, the graph is the ontology-free projection over assertions and
@@ -529,7 +526,19 @@ async function graph({ req, res, url }: Ctx): Promise<void> {
   try {
     if (url.searchParams.has("current")) await maintainGraphView(ROOT);
     const filter = vaultFilter(req.headers?.["x-bigbrain-vault-filter"]);
-    if (personalOnly(filter)) return sendView(req, res, await currentGraphView(ROOT));
+    if (personalOnly(filter)) {
+      const view = await currentGraphView(ROOT), since = url.searchParams.get("since");
+      // a viewer holding an earlier picture is sent what changed (step 8), when that is less
+      const delta = since && since !== view.hash ? graphDeltaSince(ROOT, since) : undefined;
+      if (delta) {
+        const body = JSON.stringify({ delta });
+        if (body.length < view.body.length / 2) {
+          res.writeHead(200, { "content-type": "application/json", "cache-control": "no-cache", etag: `"${view.hash}"`, vary: "x-bigbrain-vault-filter" });
+          return void res.end(body);
+        }
+      }
+      return sendView(req, res, view);
+    }
     json(res, 200, await unionGraph(ROOT, await currentGraph(ROOT), filter));
   } catch (error) {
     json(res, 500, { error: errText(error) });
@@ -550,9 +559,10 @@ async function briefingFor(root: string, request: NoteBriefingRequest): Promise<
   const scope = typeof request === "string" ? undefined : request.scope;
   if (scope && "server" in scope) return briefingInput(await serverBriefingRecord(scope.server, request, await you()), request);
   if (scope) {
-    const lens = readLens(root, connectionStorePath(), scope.lens);
+    const lens = readLens(root, scope.lens);
     if (!lens) throw new Error("That lens is gone.");
-    return readNoteBriefingInput(root, request, undefined, claimsOnly(withVaultSnapshot(root, (db) => readLensClaims(db, lens.members))));
+    return readNoteBriefingInput(root, request, undefined, claimsOnly(withSnapshot(root, (snapshot) =>
+      readLensClaims(snapshot, lensMembersOf(snapshot, lens).in))));
   }
   return readNoteBriefingInput(root, request, (ids) => sharedEntityClaims(root, ids));
 }
@@ -567,14 +577,14 @@ async function serverGraphRoute({ res, url }: Ctx): Promise<void> {
   }
 }
 
-// A note's "touched by" record (phase 4 item 3): frontmatter provenance +
-// bounded git history + a bounded queue-journal scan, merged newest-first
-// (lib/noteLog.ts — the pure merge is tested there; this route is just the
-// path-safety guard, same as /api/note).
+// What touched a note, from the record (lib/views/noteHistory.ts): a
+// source's landings, claims, declines and copy judgments; an entity's
+// claims, names and bindings. A note the record holds nothing for has none.
 function noteLogRoute({ res, url }: Ctx): void {
   const rel = url.searchParams.get("path") ?? "";
-  if (!noteFile(rel)) return send(res, 404, "no such note", "text/plain");
-  json(res, 200, { path: rel, log: noteLog(ROOT, rel) });
+  const log = withSnapshot(ROOT, (snapshot) => noteHistoryOf(snapshot, rel));
+  if (!log) return send(res, 404, "no such note in the record", "text/plain");
+  json(res, 200, { path: rel, log });
 }
 
 // What has been ASKED about one note (#50's note-side half): every queue
@@ -844,6 +854,8 @@ export function start(): void {
   if (!secret) throw new Error(`no viewer session at ${viewerSessionPath(PORT)}; the supervisor writes it at start`);
   const allowSession = viewerGate(secret, PORT);
   live.start();
+  // a joined server's follower landing a new head (lib/serverStore.ts) moves the joined stamp
+  try { watchServers(connectionStorePath(), () => live.refreshViews()); } catch { /* no settings directory yet */ }
   // Pilot's live reads are dispatched in this process.
   logIntegrationCalls(ROOT);
   // The projection is warmed HERE, before the port opens, so the first
@@ -874,13 +886,12 @@ export function start(): void {
   // server's death.
   const metrics = isDesktop() ? telemetry(ROOT) : undefined;
   metrics?.start();
-  const sharedRuleTimer=setInterval(()=>{void tickLenses(ROOT,connectionStorePath()).then(()=>tickPublishing(ROOT,connectionStorePath()));void tickIntegrationAdmission(ROOT).catch(()=>{});},30000);sharedRuleTimer.unref();
   const server = createServer(async (req, res) => {
     armor(res);
     if (!allowLoopbackRequest(req, res)) return;
     if (!allowSession(req, res)) return;
     if (await inclusionReviewApi(req,res,ROOT)) return;
-    if (await lensApi(req,res,ROOT,(ids) => withVaultSnapshot(ROOT, (db) => readEntitiesCiting(db, ids)))) return;
+    if (await lensApi(req,res,ROOT,(ids) => withSnapshot(ROOT, (snapshot) => readEntitiesCiting(snapshot, ids)))) return;
     if (await jevSettingsApi(req,res,ROOT)) return;
     // Joining a shared vault changes the Field's graph: a write here pushes its stamp.
     const joined = () => { if (req.method !== "GET") live.refreshViews(); };

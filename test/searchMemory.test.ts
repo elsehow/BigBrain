@@ -28,7 +28,7 @@ function fixture() {
   return root;
 }
 function scan(root: string, query: string, filters: SearchFilters = {}, limit = 20) {
-  const result = scanSurface(root, query, limit, "api", { ledger: false, filters });
+  const result = scanSurface(root, query, limit, "api", { filters });
   if (!result.ok) throw new Error(result.reason);
   return result;
 }
@@ -57,7 +57,7 @@ test("memory leads equally relevant record hits, topics precede the index, and t
 test("UI scan, MCP and CLI return the same openable memory results", () => {
   const root = fixture();
   const expected = scan(root, "clinic appointment");
-  const web = scanSurface(root, "clinic appointment", 20, "web", { ledger: false });
+  const web = scanSurface(root, "clinic appointment", 20, "web", {});
   expect(web.ok && web.hits).toEqual(expected.hits);
   const ctx = { root, via: "api" as const };
   const mcp = handleMcpTool(ctx, "search_vault", { query: "clinic appointment" }) as { hits: (SearchHit & { provenance: { kind: string } })[] };

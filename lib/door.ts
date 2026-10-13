@@ -25,7 +25,7 @@ import {
   type Arrival,
   type Outcome,
 } from "./arrivals";
-import { FirewallUnavailable, recordWithheld, screen } from "./firewall";
+import { FirewallUnavailable, recordDecision, screen } from "./stages/firewall";
 import { checkItem, IntakeError, receive, type IntakeReceipt, type ReceiveItemOpts } from "./intake";
 import { withHeldLock } from "./sqliteLock";
 import { stage, type StagedItem } from "./stageStorage";
@@ -82,11 +82,11 @@ async function settleHeld(root: string, id: string): Promise<Settled> {
     throw e;
   }
   let outcome: Outcome;
-  if (!verdict.pass) {
-    recordWithheld(root, source, content, verdict);
-    outcome = { state: "withheld" };
-  } else if (a.to === "staging") outcome = { state: "staged", fresh: stage(root, a.item) };
+  if (!verdict.pass) outcome = { state: "withheld" };
+  else if (a.to === "staging") outcome = { state: "staged", fresh: stage(root, a.item) };
   else outcome = landed(root, a);
+  // the gate's record: every decision, passes included, never the content
+  recordDecision(root, id, source, content, verdict, outcome.state === "landed" ? `landed ${outcome.receipt.insertionId ?? ""}`.trim() : outcome.state);
   settleArrival(root, id, outcome);
   return outcome;
 }
