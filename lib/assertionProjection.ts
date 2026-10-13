@@ -41,7 +41,7 @@ import { ENTITY_FOLDS_FILE } from "./entityFoldLog";
 import type { LabelRow } from "./entityLookalikes";
 import { assertionDb } from "./env";
 import { dueOf, FEED_SECTIONS, type FeedRecord } from "./feedJournal";
-import { FEED_JOURNAL_DIR, runJournalFiles, TEND_JOURNAL_DIR } from "./runJournal";
+import { FEED_JOURNAL_DIR, MEMORY_JOURNAL_DIR, memoryJournalFiles, runJournalFiles, TEND_JOURNAL_DIR } from "./runJournal";
 import { refuseRetiredLogs } from "./retiredLogs";
 import { sourceThreads } from "./sourceThreads";
 import { copyKeys, titleBuckets, titleForms } from "./sourceCopies";
@@ -77,7 +77,7 @@ import { withProjectionWrite } from "./projectionWriteLock";
 //     evidence (lib/maintainedGraph.ts).
 // 29: lens verdicts, the inclusion kind (inclusion_verdicts).
 // 30: each source's content hash, body and attachments alone (body_sha256).
-const SCHEMA_VERSION = "32";
+const SCHEMA_VERSION = "33";
 
 export interface AssertionSearchHit {
   id: string;
@@ -399,6 +399,10 @@ function schema(db: Database): void {
   // Every claim a successful feed call read, placed or skipped: what the
   // feed stage has settled (lib/stages/feed.ts).
   db.run("CREATE TABLE IF NOT EXISTS feed_reads (assertion_id TEXT PRIMARY KEY) WITHOUT ROWID");
+  // Each memory run's record of where it left the pass (journal/memory/,
+  // its `memoryStamp`): the latest is the pass's position (lib/views/memory.ts).
+  // A run from before journals carried one keeps its start and its error.
+  db.run("CREATE TABLE IF NOT EXISTS memory_runs (rel TEXT PRIMARY KEY, stamp_json TEXT, run TEXT, started_at TEXT, wall_ms REAL, failed INTEGER NOT NULL)");
 }
 
 /** Keep the database inode stable: readers in WAL transactions retain the
@@ -1214,7 +1218,7 @@ export function projectJournal(root: string, rel: string): void {
 }
 
 const journalFiles = (root: string): string[] =>
-  [TEND_JOURNAL_DIR, FEED_JOURNAL_DIR].flatMap((dir) => runJournalFiles(root, dir));
+  [...[TEND_JOURNAL_DIR, FEED_JOURNAL_DIR].flatMap((dir) => runJournalFiles(root, dir)), ...memoryJournalFiles(root)];
 
 /** Project one journal file, once. False when it was already, or is not
  * there to read; a damaged record counts as projected, with nothing in it. */
@@ -1227,6 +1231,12 @@ function insertJournalRow(db: Database, root: string, rel: string): boolean {
   db.query("INSERT INTO journals(rel) VALUES (?)").run(rel);
   if (record && rel.startsWith(`${TEND_JOURNAL_DIR}/`)) insertTendRun(db, rel, record);
   if (record && rel.startsWith(`${FEED_JOURNAL_DIR}/`)) insertFeedItems(db, record as unknown as FeedRecord);
+  if (record && rel.startsWith(`${MEMORY_JOURNAL_DIR}/`)) {
+    const text = (v: unknown) => (typeof v === "string" ? v : null);
+    db.query("INSERT INTO memory_runs(rel, stamp_json, run, started_at, wall_ms, failed) VALUES (?, ?, ?, ?, ?, ?)").run(rel,
+      record.memoryStamp && typeof record.memoryStamp === "object" ? JSON.stringify(record.memoryStamp) : null,
+      text(record.run), text(record.startedAt), typeof record.wallMs === "number" ? record.wallMs : null, record.error ? 1 : 0);
+  }
   return true;
 }
 

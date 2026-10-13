@@ -17,13 +17,16 @@ import type { ModelChoice } from "../modelChoice";
  * the last run saw (lib/memoryInputs.ts), so a retraction or an alias
  * withdrawn — a removal — is work too, as are joined servers' assertions,
  * which are held outside the snapshot (lib/serverStore.ts). The checkpoint
- * is journaled with each run and cached in .state (lib/memory.ts). */
+ * is the record's: each run's journal carries where it left the pass, and
+ * the latest is read from a snapshot (lib/views/memory.ts); .state keeps
+ * only when the pass is next due (lib/memory.ts). */
 import { cpSync, existsSync, mkdirSync, readFileSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import { AST_CITE, SHARED_AST_CITE } from "../ids";
 import type { Manifest } from "../manifest";
 import { hasAssertionEvents } from "../assertionLog";
-import { assertionIdsExist, projectNotes, syncAssertionProjection } from "../assertionProjection";
+import { assertionIdsExist, projectJournal, projectNotes, syncAssertionProjection } from "../assertionProjection";
+import { MEMORY_JOURNAL_DIR } from "../runJournal";
 import { ENGINE_ROOT } from "../engine";
 import { writeAtomic } from "../fsx";
 import { commitPathsOnly, gitOut, pokePublish } from "../git";
@@ -56,7 +59,7 @@ import {
   memoryDue,
   memoryNeedsRebuild,
   readMemoryStamp,
-  writeMemoryStamp,
+  writeMemorySchedule,
   type MemoryStamp,
 } from "../memory";
 
@@ -325,6 +328,7 @@ function writeMemoryJournal(root: string, runId: string, record: Record<string, 
   const dir = join(root, "journal", "memory");
   mkdirSync(dir, { recursive: true });
   writeAtomic(join(dir, `${runId}.json`), `${JSON.stringify(record, null, 2)}\n`);
+  projectJournal(root, `${MEMORY_JOURNAL_DIR}/${runId}.json`); // where the pass now stands
 }
 
 export async function runMemory(opts: MemoryRunOpts): Promise<MemoryRunResult> {
@@ -601,7 +605,7 @@ export async function runMemory(opts: MemoryRunOpts): Promise<MemoryRunResult> {
       // journal say so, and diagnostics reads both (lib/diagnostics.ts).
       // A vault not yet on the clock (no stamp: the first run is --force,
       // and it failed) stays off it.
-      if (nextStamp) writeMemoryStamp(root, nextStamp);
+      if (nextStamp) writeMemorySchedule(root, nextStamp);
       // same shape on both paths — a caller reading `canonicalized` should
       // not have to know whether the run failed to know it was 0
       return {
@@ -626,8 +630,8 @@ export async function runMemory(opts: MemoryRunOpts): Promise<MemoryRunResult> {
       COMMIT_PATHS.filter((p) => committable(root, p))
     );
 
-    // The committed journal carries the checkpoint; .state is its cache.
-    writeMemoryStamp(root, {
+    // The committed journal carries the position; .state keeps the schedule.
+    writeMemorySchedule(root, {
       ...nextStamp!,
       lastCommit: committed ? gitOut(root, ["rev-parse", "HEAD"]) : stamp.lastCommit,
     });
