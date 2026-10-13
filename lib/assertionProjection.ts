@@ -33,6 +33,7 @@ import {
   type SourceInsertion,
 } from "./insertionLog";
 import { liveAssertionSql, liveSourceSql, supersedesOf } from "./sourceSupersede";
+import { contentHash } from "./contentHash";
 import type { DeclineEvent } from "./declineLog";
 import { entityAliasResolution, type EntityAliasEvent } from "./entityAliasLog";
 import type { EntitySourceEvent } from "./entitySourceLog";
@@ -77,7 +78,8 @@ import { withProjectionWrite } from "./projectionWriteLock";
 // 27: the graph view's connections by where each was written, the briefing's
 //     evidence (lib/maintainedGraph.ts).
 // 29: lens verdicts, the inclusion kind (inclusion_verdicts).
-const SCHEMA_VERSION = "29";
+// 30: each source's content hash, body and attachments alone (body_sha256).
+const SCHEMA_VERSION = "30";
 
 export interface AssertionSearchHit {
   id: string;
@@ -198,6 +200,9 @@ function schema(db: Database): void {
     -- every process that files the row (schema 23).
     transcript_model TEXT,
     supersedes TEXT,
+    -- Its content alone, body and attachments, without the envelope
+    -- (lib/contentHash.ts): what the door dedupes on (schema 30).
+    body_sha256 TEXT,
     intake_class TEXT NOT NULL,
     intake_priority INTEGER,
     intake_at TEXT NOT NULL
@@ -218,6 +223,7 @@ function schema(db: Database): void {
     (insertion_id, source_id, title, occurred_at, received_at, envelope_kind, envelope_source)`);
   db.run("CREATE INDEX IF NOT EXISTS sources_intake ON sources(intake_priority, intake_at, insertion_id)");
   db.run("CREATE INDEX IF NOT EXISTS sources_sha256 ON sources(envelope_sha256)");
+  db.run("CREATE INDEX IF NOT EXISTS sources_body_sha256 ON sources(body_sha256) WHERE body_sha256 IS NOT NULL");
   db.run("CREATE INDEX IF NOT EXISTS sources_stream ON sources(envelope_stream, envelope_key)");
   // The read-side supersede (lib/sourceSupersede.ts): a later landing of the
   // same source naming this row hides it from every reader. Indexed because
@@ -515,15 +521,16 @@ function insertSourceRow(db: Database, source: SourceInsertion, root: string): b
     db.query("INSERT INTO source_documents(insertion_id, event_json) VALUES (?, ?)").run(source.id, eventJson);
     db.query(`INSERT INTO sources(
       insertion_id, source_id, title, occurred_at, received_at, content_sha256, header_json, excerpt, prose_chars,
-      supersedes, intake_class, intake_priority, intake_at, transcript_model,
+      supersedes, intake_class, intake_priority, intake_at, transcript_model, body_sha256,
       envelope_kind, envelope_source, envelope_sha256, envelope_stream, envelope_key, envelope_seq
-    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?15,
+    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?15, ?16,
       json_extract(?14, '$.envelope.kind'), json_extract(?14, '$.envelope.source'), json_extract(?14, '$.envelope.sha256'),
       json_extract(?14, '$.envelope.stream'), json_extract(?14, '$.envelope.key'), json_extract(?14, '$.envelope.seq'))`).run(
       source.id, source.source_id, source.title, source.occurred_at ?? null, source.received_at ?? null,
       source.content_sha256, JSON.stringify(metadata), excerpt, proseChars(source.body),
       supersedesOf(source) ?? null, klass, priority, source.received_at ?? source.occurred_at ?? "", eventJson,
-      source.envelope.source === "agent-chat" ? savedClaudeModel(root, source.envelope.attachments) ?? null : null
+      source.envelope.source === "agent-chat" ? savedClaudeModel(root, source.envelope.attachments) ?? null : null,
+      contentHash(source.body, Array.isArray(source.envelope.attachments) ? source.envelope.attachments as { sha256: string }[] : []) ?? null
     );
     db.run("INSERT OR REPLACE INTO meta(k,v) VALUES ('threads_dirty','1')");
     const key = db.query("INSERT OR IGNORE INTO source_copy_keys(key, insertion_id) VALUES (?, ?)");
