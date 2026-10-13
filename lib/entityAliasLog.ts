@@ -68,7 +68,18 @@ export type EntityAliasAppendResult = AppendResult<EntityAliasEvent>;
 
 const clean = (value: string): string => value.trim().replace(/\s+/g, " ");
 
-export const isRetraction = (event: EntityAliasEvent): boolean => event.entity.id === event.alias_id;
+/** What the alias fold reads of a declaration: a `same` identity's row
+ * (lib/assertionKinds.ts), or a retired log's event, which `bigbrain
+ * migrate` reads. */
+export interface AliasDeclaration {
+  id: string;
+  alias: string;
+  alias_id: string;
+  entity: AssertionEntity;
+  created_at: string;
+}
+
+export const isRetraction = (event: AliasDeclaration): boolean => event.entity.id === event.alias_id;
 
 export function validateEntityAliasEvent(event: EntityAliasEvent): void {
   if (event.event !== "entity.aliased" || !/^eal_[a-f0-9]{24}$/u.test(event.id))
@@ -147,12 +158,12 @@ export interface EntityAliasResolution {
  * is the whole answer. Pure — the projection's insert path implements the
  * same rules incrementally in SQL; this is what the log readers (entity
  * view, graph) use. */
-export function entityAliasResolution(events: readonly EntityAliasEvent[]): EntityAliasResolution {
-  const byTime = (a: EntityAliasEvent, b: EntityAliasEvent): number =>
+export function entityAliasResolution(events: readonly AliasDeclaration[]): EntityAliasResolution {
+  const byTime = (a: AliasDeclaration, b: AliasDeclaration): number =>
     a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id);
-  const latest = new Map<string, EntityAliasEvent>();
+  const latest = new Map<string, AliasDeclaration>();
   for (const event of [...events].sort(byTime)) latest.set(event.alias_id, event);
-  const target = new Map<string, EntityAliasEvent>();
+  const target = new Map<string, AliasDeclaration>();
   for (const event of latest.values()) if (!isRetraction(event)) target.set(event.alias_id, event);
 
   // Break cycles, oldest declaration first, until every chain ends.

@@ -89,7 +89,7 @@ function identityBodiesOf<S extends string>(claims:PublishableIdentities<S>,shar
 /** Your identity assertions that stand and cite sources: what a server may be told. */
 function liveIdentities(root:string):IdentityAssertion[]{
   return withVaultSnapshot(root,db=>(db.query(`SELECT event_json FROM assertion_kinds k WHERE kind = 'identity'
-    AND NOT EXISTS (SELECT 1 FROM revocations r WHERE r.assertion_id = k.id)`).all() as {event_json:string}[])
+    AND NOT EXISTS (SELECT 1 FROM retractions r WHERE r.retracts = k.id)`).all() as {event_json:string}[])
     .map(r=>JSON.parse(r.event_json) as IdentityAssertion).filter(e=>e.sources.length>0));
 }
 

@@ -121,7 +121,7 @@ export function revokedAssertions(root: string, opts: { strict?: boolean } = {})
 
 /** Follow supersession to the assertion that stands today — itself when it
  * was never revoked, or was revoked without a successor. Cycle-safe. */
-export function resolveAssertionIdIn(revoked: ReadonlyMap<string, RevocationEvent>, id: string): string {
+export function resolveAssertionIdIn(revoked: ReadonlyMap<string, { superseded_by?: string }>, id: string): string {
   const seen = new Set<string>();
   let at = id;
   while (!seen.has(at)) {

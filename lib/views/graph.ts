@@ -250,7 +250,6 @@ export function drawGraph(record: VaultRecord, scope: Drawable, observe?: Observ
   for (const source of events) if (!superseded.has(source.id)) live.set(source.source_id, source.id);
   const opens = new Map<string, Map<string, string>>();
   for (const binding of record.entitySources) {
-    if (!binding.bound) continue;
     const entity = nodes.get(resolve(binding.entity).id);
     const landed = sourceByInsertion.get(binding.insertion_id);
     const liveId = landed && (superseded.has(landed.id) ? live.get(landed.source_id) : landed.id);

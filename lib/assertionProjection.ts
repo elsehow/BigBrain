@@ -25,8 +25,10 @@ import {
   type AssertionEvent,
   type AssertionSourceReference,
   type RecordedAssertion,
+  type DeclineAssertion,
+  type IdentityAssertion,
+  type RetractionAssertion,
 } from "./assertionLog";
-import { legacyShape } from "./assertionKinds";
 import {
   listSourceInsertionEventFiles,
   validateSourceInsertion,
@@ -34,16 +36,12 @@ import {
 } from "./insertionLog";
 import { liveAssertionSql, liveSourceSql, supersedesOf } from "./sourceSupersede";
 import { contentHash } from "./contentHash";
-import type { DeclineEvent } from "./declineLog";
-import { entityAliasResolution, type EntityAliasEvent } from "./entityAliasLog";
-import type { EntitySourceEvent } from "./entitySourceLog";
-import type { SourceCopyEvent } from "./sourceCopyLog";
-import { ENTITY_FOLDS_FILE, type EntityFoldRejectEvent } from "./entityFoldLog";
+import { entityAliasResolution, type AliasDeclaration } from "./entityAliasLog";
+import { ENTITY_FOLDS_FILE } from "./entityFoldLog";
 import type { LabelRow } from "./entityLookalikes";
 import { assertionDb } from "./env";
 import { dueOf, FEED_SECTIONS, type FeedRecord } from "./feedJournal";
 import { FEED_JOURNAL_DIR, runJournalFiles, TEND_JOURNAL_DIR } from "./runJournal";
-import type { RevocationEvent } from "./revocationLog";
 import { refuseRetiredLogs } from "./retiredLogs";
 import { sourceThreads } from "./sourceThreads";
 import { copyKeys, titleBuckets, titleForms } from "./sourceCopies";
@@ -79,7 +77,7 @@ import { withProjectionWrite } from "./projectionWriteLock";
 //     evidence (lib/maintainedGraph.ts).
 // 29: lens verdicts, the inclusion kind (inclusion_verdicts).
 // 30: each source's content hash, body and attachments alone (body_sha256).
-const SCHEMA_VERSION = "30";
+const SCHEMA_VERSION = "31";
 
 export interface AssertionSearchHit {
   id: string;
@@ -289,9 +287,9 @@ function schema(db: Database): void {
     id UNINDEXED, label, tokenize='unicode61'
   )`);
   // The assertion log's events of every kind but prose (lib/assertionLog.ts,
-  // schema 28): the census sync diffs against. Each also lands, in its old
-  // log's shape, in the table its old log fills (lib/assertionKinds.ts), so
-  // every fold over that table reads both until the old logs are migrated.
+  // schema 28), whole: the census sync diffs against. Each also lands in its
+  // kind's own table below, whose columns are its own fields (schema 31,
+  // lib/assertionKinds.ts): no kind is held in a retired log's shape.
   db.run(`CREATE TABLE IF NOT EXISTS assertion_kinds (
     id TEXT PRIMARY KEY,
     kind TEXT NOT NULL,
@@ -305,22 +303,40 @@ function schema(db: Database): void {
     insertion_id TEXT NOT NULL REFERENCES sources(insertion_id),
     source_id TEXT NOT NULL,
     reason TEXT NOT NULL,
+    author_id TEXT NOT NULL,
     created_at TEXT NOT NULL,
-    event_json TEXT NOT NULL,
     retracted_by TEXT,
     PRIMARY KEY(decline_id, insertion_id)
   )`);
   db.run("CREATE INDEX IF NOT EXISTS declines_insertion ON declines(insertion_id)");
-  // Entity aliases (lib/entityAliasLog.ts): the event census sync diffs
-  // against, the FLAT resolved table one lookup answers through (every
-  // entity_id in it is canonical), and an FTS over alias labels so "Evan"
-  // still finds Evan Keller. Both derived tables are rewritten from the
-  // census on every alias event — the fold is the one rule set.
-  db.run(`CREATE TABLE IF NOT EXISTS entity_alias_events (
+  // Identity assertions, one row each, by what they say:
+  //   same       alias (alias_id, alias_label) names entity (entity_id, entity_label)
+  //   is-source  entity is the landing a
+  //   distinct   entities a and b are two
+  //   copy       landings a and b are one work; a score is a model's judgment
+  //   not-copy   landings a and b are two works
+  db.run(`CREATE TABLE IF NOT EXISTS identities (
     id TEXT PRIMARY KEY,
-    event_json TEXT NOT NULL,
+    says TEXT NOT NULL,
+    entity_id TEXT,
+    entity_label TEXT,
+    alias_id TEXT,
+    alias_label TEXT,
+    a TEXT,
+    b TEXT,
+    score REAL,
+    author_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
     retracted_by TEXT
   )`);
+  db.run("CREATE INDEX IF NOT EXISTS identities_says ON identities(says, created_at, id)");
+  db.run("CREATE INDEX IF NOT EXISTS identities_a ON identities(a)");
+  db.run("CREATE INDEX IF NOT EXISTS identities_b ON identities(b)");
+  db.run("CREATE INDEX IF NOT EXISTS identities_entity ON identities(entity_id)");
+  db.run("CREATE INDEX IF NOT EXISTS identities_alias ON identities(alias_id)");
+  // The aliases resolved, FLAT (every entity_id in it is canonical), and an
+  // FTS over alias labels so "Evan" still finds Evan Keller: rewritten from
+  // the standing `same` identities on every one (refoldEntityAliases).
   db.run(`CREATE TABLE IF NOT EXISTS entity_aliases (
     alias_id TEXT PRIMARY KEY,
     alias TEXT NOT NULL,
@@ -331,45 +347,19 @@ function schema(db: Database): void {
   db.run(`CREATE VIRTUAL TABLE IF NOT EXISTS entity_alias_fts USING fts5(
     alias_id UNINDEXED, alias, tokenize='unicode61'
   )`);
-  // Entity↔source bindings (lib/entitySourceLog.ts): the census alone. The
-  // graph folds it (latest per pair) when it builds; there is no resolved
-  // table to keep in step.
-  db.run(`CREATE TABLE IF NOT EXISTS entity_source_events (
+  // Retractions (#629). A retracted prose assertion keeps its `assertions`
+  // row — flagged, so its old id still redirects — and loses its entity and
+  // FTS edges; its evidence edges stay, so the insertions it settled stay
+  // settled.
+  db.run(`CREATE TABLE IF NOT EXISTS retractions (
     id TEXT PRIMARY KEY,
-    event_json TEXT NOT NULL,
-    retracted_by TEXT
-  )`);
-  // Copies judged and declared (lib/sourceCopyLog.ts): the census alone,
-  // folded latest-per-pair on read (lib/sourceCopyReview.ts).
-  db.run(`CREATE TABLE IF NOT EXISTS source_copy_events (
-    id TEXT PRIMARY KEY,
-    event_json TEXT NOT NULL,
-    retracted_by TEXT
-  )`);
-  // Revocations (lib/revocationLog.ts, #629): the census sync diffs against.
-  // A revoked assertion keeps its `assertions` row — flagged, so its old id
-  // still redirects — and loses its entity and FTS edges; its evidence
-  // edges stay, so the insertions it settled stay settled.
-  db.run(`CREATE TABLE IF NOT EXISTS revocations (
-    id TEXT PRIMARY KEY,
-    assertion_id TEXT NOT NULL,
+    retracts TEXT NOT NULL,
     superseded_by TEXT,
     reason TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    event_json TEXT NOT NULL
+    author_id TEXT NOT NULL,
+    created_at TEXT NOT NULL
   )`);
-  db.run("CREATE INDEX IF NOT EXISTS revocations_assertion ON revocations(assertion_id, created_at, id)");
-  // Entity folds (lib/entityFolds.ts): pairs the operator said are two
-  // things, as written (readers resolve each side through the alias table),
-  // and the pass's standing proposals, the file whole (projectFolds).
-  db.run(`CREATE TABLE IF NOT EXISTS entity_fold_rejects (
-    id TEXT PRIMARY KEY,
-    a TEXT NOT NULL,
-    b TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    event_json TEXT NOT NULL,
-    retracted_by TEXT
-  )`);
+  db.run("CREATE INDEX IF NOT EXISTS retractions_retracts ON retractions(retracts, created_at, id)");
   // Each lens verdict (lib/assertionLog.ts InclusionAssertion), one row per
   // source: what the lens views read (lib/views/lens.ts). Nothing else does.
   db.run(`CREATE TABLE IF NOT EXISTS inclusion_verdicts (
@@ -630,38 +620,32 @@ function insertAssertionRow(db: Database, event: AssertionEvent): boolean {
   });
 }
 
-function writeDeclineRows(db: Database, event: DeclineEvent): void {
-  for (const ref of event.insertions) {
+function writeDeclineRows(db: Database, event: DeclineAssertion): void {
+  for (const ref of event.sources) {
     const held = db.query("SELECT insertion_id FROM sources WHERE insertion_id = ?").get(ref.insertion_id);
     if (!held) throw new Error(`assertion-projection: declined insertion is not projected: ${ref.insertion_id}`);
   }
-  const eventJson = encoded(event);
-  for (const ref of event.insertions) {
-    db.query(`INSERT INTO declines(decline_id, insertion_id, source_id, reason, created_at, event_json)
-      VALUES (?, ?, ?, ?, ?, ?)`).run(
-      event.id, ref.insertion_id, ref.source_id, event.reason, event.created_at, eventJson
-    );
-  }
+  const row = db.query(`INSERT INTO declines(decline_id, insertion_id, source_id, reason, author_id, created_at) VALUES (?, ?, ?, ?, ?, ?)`);
+  for (const ref of event.sources) row.run(event.id, ref.insertion_id, ref.source_id, event.reason, event.author.id, event.created_at);
   applyRetraction(db, event.id);
 }
 
 
-// ── revocations ─────────────────────────────────────────────────────────────
+// ── retractions ─────────────────────────────────────────────────────────────
 
 /** The tables whose rows a retraction can withdraw besides prose, by the
- * column naming the event. */
+ * column naming the assertion. */
 const RETRACTABLE_TABLES: ReadonlyArray<readonly [table: string, column: string]> = [
-  ["declines", "decline_id"], ["entity_alias_events", "id"], ["entity_source_events", "id"],
-  ["source_copy_events", "id"], ["entity_fold_rejects", "id"], ["inclusion_verdicts", "assertion_id"],
+  ["declines", "decline_id"], ["identities", "id"], ["inclusion_verdicts", "assertion_id"],
 ];
 
 /** Withdraw `target` if a retraction names it, whichever of the two was
- * projected first: a rebuild reads a log in filename order and the logs in
- * turn, so a retraction can land before what it names. Earliest event time,
- * then id, wins — the log reader's rule, independent of arrival order. */
+ * projected first: a rebuild reads a log in filename order, so a retraction
+ * can land before what it names. Earliest event time, then id, wins — the
+ * log reader's rule, independent of arrival order. */
 function applyRetraction(db: Database, target: string): void {
-  const winner = db.query(`SELECT id, superseded_by FROM revocations
-    WHERE assertion_id = ? ORDER BY created_at, id LIMIT 1`).get(target) as
+  const winner = db.query(`SELECT id, superseded_by FROM retractions
+    WHERE retracts = ? ORDER BY created_at, id LIMIT 1`).get(target) as
     { id: string; superseded_by: string | null } | null;
   if (!winner) return;
   const prose = db.query("SELECT revoked_by FROM assertions WHERE id = ?").get(target) as
@@ -670,7 +654,7 @@ function applyRetraction(db: Database, target: string): void {
     for (const [table, column] of RETRACTABLE_TABLES) {
       const moved = db.query(`UPDATE ${table} SET retracted_by = ? WHERE ${column} = ? AND retracted_by IS NOT ?`)
         .run(winner.id, target, winner.id).changes;
-      if (moved && table === "entity_alias_events") refoldEntityAliases(db);
+      if (moved && table === "identities" && db.query("SELECT 1 FROM identities WHERE id = ? AND says = 'same'").get(target)) refoldEntityAliases(db);
     }
     return;
   }
@@ -692,12 +676,10 @@ function applyRetraction(db: Database, target: string): void {
   }
 }
 
-function writeRevocationRow(db: Database, event: RevocationEvent): void {
-  db.query(`INSERT INTO revocations(id, assertion_id, superseded_by, reason, created_at, event_json)
-    VALUES (?, ?, ?, ?, ?, ?)`).run(
-    event.id, event.assertion_id, event.superseded_by ?? null, event.reason, event.created_at, encoded(event)
-  );
-  applyRetraction(db, event.assertion_id);
+function writeRetractionRow(db: Database, event: RetractionAssertion): void {
+  db.query(`INSERT INTO retractions(id, retracts, superseded_by, reason, author_id, created_at) VALUES (?, ?, ?, ?, ?, ?)`)
+    .run(event.id, event.retracts, event.superseded_by ?? null, event.reason, event.author.id, event.created_at);
+  applyRetraction(db, event.retracts);
 }
 
 
@@ -728,20 +710,27 @@ export function liveAssertionsForEntity(root: string, entityId: string, db?: Dat
       { event_json: string }[]).map((row) => JSON.parse(row.event_json) as AssertionEvent));
 }
 
-// ── entity aliases ──────────────────────────────────────────────────────────
+// ── identities ──────────────────────────────────────────────────────────────
 
-/** Rewrite the resolved alias table and its FTS from the event census. The
- * census is tiny (an operator declares aliases by the dozen, not the
- * thousand), and re-folding it on every event keeps the projection's rules
- * literally entityAliasLog.ts's — latest per alias wins, self-alias
+/** The standing `same` identities, as the alias fold reads them. */
+export function aliasDeclarationsIn(db: Database): AliasDeclaration[] {
+  return (db.query(`SELECT id, alias_label AS alias, alias_id, entity_id, entity_label, created_at FROM identities
+    WHERE says = 'same' AND retracted_by IS NULL ORDER BY created_at, id`).all() as
+    { id: string; alias: string; alias_id: string; entity_id: string; entity_label: string; created_at: string }[])
+    .map((r) => ({ id: r.id, alias: r.alias, alias_id: r.alias_id, entity: { id: r.entity_id, label: r.entity_label }, created_at: r.created_at }));
+}
+
+/** Rewrite the resolved alias table and its FTS from the standing `same`
+ * identities. They are few (an operator declares aliases by the dozen, not
+ * the thousand), and re-folding them on every one keeps the projection's
+ * rules literally entityAliasLog.ts's — latest per alias wins, self-alias
  * retracts, cycles drop their oldest, chains flatten — with no incremental
  * twin to drift. */
 function refoldEntityAliases(db: Database): void {
-  const events = (db.query("SELECT event_json FROM entity_alias_events WHERE retracted_by IS NULL").all() as { event_json: string }[])
-    .map((row) => JSON.parse(row.event_json) as EntityAliasEvent);
-  const { canonical } = entityAliasResolution(events);
+  const declared = aliasDeclarationsIn(db);
+  const { canonical } = entityAliasResolution(declared);
   const aliasLabel = new Map<string, string>();
-  for (const event of events) aliasLabel.set(event.alias_id, event.alias);
+  for (const said of declared) aliasLabel.set(said.alias_id, said.alias);
   db.run("DELETE FROM entity_aliases");
   db.run("DELETE FROM entity_alias_fts");
   for (const [aliasId, entity] of canonical) {
@@ -752,31 +741,36 @@ function refoldEntityAliases(db: Database): void {
   }
 }
 
-function writeEntityAliasRow(db: Database, event: EntityAliasEvent): void {
-  db.query("INSERT INTO entity_alias_events(id, event_json) VALUES (?, ?)").run(event.id, encoded(event));
-  refoldEntityAliases(db);
+/** One identity's row: the columns its kind names (the schema's comment). */
+function writeIdentityRow(db: Database, event: IdentityAssertion): void {
+  const { identity } = event, src = event.sources.map((s) => s.insertion_id);
+  let entity: AssertionEntity | undefined, alias: AssertionEntity | undefined, a: string | undefined, b: string | undefined, score: number | undefined;
+  switch (identity.says) {
+    case "same": ({ entity, alias } = identity); break;
+    case "is-source": entity = identity.entity; a = src[0]; break;
+    case "distinct": a = identity.entities[0].id; b = identity.entities[1].id; break;
+    case "copy": [a, b] = src; score = identity.score; break;
+    case "not-copy": [a, b] = src; break;
+  }
+  db.query(`INSERT INTO identities(id, says, entity_id, entity_label, alias_id, alias_label, a, b, score, author_id, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(event.id, identity.says, entity?.id ?? null, entity?.label ?? null,
+    alias?.id ?? null, alias?.label ?? null, a ?? null, b ?? null, score ?? null, event.author.id, event.created_at);
+  if (identity.says === "same") refoldEntityAliases(db);
   applyRetraction(db, event.id);
 }
 
-function writeEntitySourceRow(db: Database, event: EntitySourceEvent): void {
-  db.query("INSERT INTO entity_source_events(id, event_json) VALUES (?, ?)").run(event.id, encoded(event));
-  applyRetraction(db, event.id);
+/** The change kind a commit of this assertion logs: what each view's stamp
+ * passes over (lib/viewStamps.ts). */
+function changeKindOf(event: IdentityAssertion | DeclineAssertion | RetractionAssertion): ChangeKind {
+  if (event.kind === "decline") return "decline";
+  if (event.kind === "retraction") return "revocation";
+  switch (event.identity.says) {
+    case "same": return "alias";
+    case "is-source": return "entity_source";
+    case "distinct": return "fold_reject";
+    case "copy": case "not-copy": return "copy";
+  }
 }
-
-function writeSourceCopyRow(db: Database, event: SourceCopyEvent): void {
-  db.query("INSERT INTO source_copy_events(id, event_json) VALUES (?, ?)").run(event.id, encoded(event));
-  applyRetraction(db, event.id);
-}
-
-function writeEntityFoldRejectRow(db: Database, event: EntityFoldRejectEvent): void {
-  db.query("INSERT INTO entity_fold_rejects(id, a, b, created_at, event_json) VALUES (?, ?, ?, ?, ?)")
-    .run(event.id, event.pair[0].id, event.pair[1].id, event.created_at, encoded(event));
-  applyRetraction(db, event.id);
-}
-
-
-
-
 
 function writeInclusionRows(db: Database, event: InclusionAssertion): void {
   const row = db.query(`INSERT INTO inclusion_verdicts(assertion_id, position, lens, rule, insertion_id, source_id, input, score, summary,
@@ -787,8 +781,7 @@ function writeInclusionRows(db: Database, event: InclusionAssertion): void {
 }
 
 /** Any event in the assertion log. Prose is an assertion row; every other
- * kind is held in `assertion_kinds` and lands, in its old log's shape, in
- * that log's table, with the change kind that log's events carry. */
+ * kind is held in `assertion_kinds` and lands in its own kind's table. */
 function insertRecordedRow(db: Database, event: RecordedAssertion): boolean {
   if (isProse(event)) return insertAssertionRow(db, event);
   validateRecordedAssertion(event);
@@ -796,16 +789,12 @@ function insertRecordedRow(db: Database, event: RecordedAssertion): boolean {
     db.query("INSERT INTO assertion_kinds(id, kind, event_json) VALUES (?, ?, ?)").run(event.id, event.kind, eventJson);
     writeInclusionRows(db, event);
   });
-  const legacy = legacyShape(event);
-  return insertOnce(db, legacy.kind, "assertion_kinds", "id", event.id, event, (eventJson) => {
+  return insertOnce(db, changeKindOf(event), "assertion_kinds", "id", event.id, event, (eventJson) => {
     db.query("INSERT INTO assertion_kinds(id, kind, event_json) VALUES (?, ?, ?)").run(event.id, event.kind, eventJson);
-    switch (legacy.kind) {
-      case "decline": return writeDeclineRows(db, legacy.event);
-      case "revocation": return writeRevocationRow(db, legacy.event);
-      case "alias": return writeEntityAliasRow(db, legacy.event);
-      case "entity_source": return writeEntitySourceRow(db, legacy.event);
-      case "copy": return writeSourceCopyRow(db, legacy.event);
-      case "fold_reject": return writeEntityFoldRejectRow(db, legacy.event);
+    switch (event.kind) {
+      case "decline": return writeDeclineRows(db, event);
+      case "retraction": return writeRetractionRow(db, event);
+      case "identity": return writeIdentityRow(db, event);
     }
   });
 }
@@ -834,17 +823,16 @@ function aliasTargetOf(db: Database, id: string): { id: string; label: string } 
 /** The standing declarations that a label names another entity, old log
  * and identity assertions alike: what retracting the alias withdraws. */
 export function liveAliasDeclarations(root: string, aliasId: string, db?: Database): string[] {
-  return reading(root, db, (handle) => (handle.query(`SELECT id FROM entity_alias_events
-    WHERE retracted_by IS NULL AND json_extract(event_json, '$.alias_id') = ?1
-      AND json_extract(event_json, '$.entity.id') != ?1 ORDER BY id`).all(aliasId) as { id: string }[]).map((r) => r.id));
+  return reading(root, db, (handle) => (handle.query(`SELECT id FROM identities
+    WHERE says = 'same' AND retracted_by IS NULL AND alias_id = ?1 AND entity_id != ?1 ORDER BY id`).all(aliasId) as { id: string }[]).map((r) => r.id));
 }
 
 /** The standing bindings of an entity, under its own id or an alias's, to
  * one source: what unbinding the pair withdraws. */
 export function liveBindingDeclarations(root: string, entityId: string, insertionId: string, db?: Database): string[] {
-  return reading(root, db, (handle) => (handle.query(`SELECT id FROM entity_source_events
-    WHERE retracted_by IS NULL AND json_extract(event_json, '$.bound') = 1 AND json_extract(event_json, '$.insertion_id') = ?2
-      AND json_extract(event_json, '$.entity.id') IN (SELECT ?1 UNION SELECT alias_id FROM entity_aliases WHERE entity_id = ?1)
+  return reading(root, db, (handle) => (handle.query(`SELECT id FROM identities
+    WHERE says = 'is-source' AND retracted_by IS NULL AND a = ?2
+      AND entity_id IN (SELECT ?1 UNION SELECT alias_id FROM entity_aliases WHERE entity_id = ?1)
     ORDER BY id`).all(entityId, insertionId) as { id: string }[]).map((r) => r.id));
 }
 
@@ -872,7 +860,7 @@ export function projectedEntityRow(root: string, id: string, db?: Database): Pro
 export function retiredEntitySuccessor(root: string, id: string, db?: Database): AssertionEntity | undefined {
   return reading(root, db, (handle) => {
     const successors = handle.query(`SELECT DISTINCT r.superseded_by AS id
-      FROM revocations r JOIN assertions a ON a.id = r.assertion_id, json_each(a.event_json, '$.entities') je
+      FROM retractions r JOIN assertions a ON a.id = r.retracts, json_each(a.event_json, '$.entities') je
       WHERE r.superseded_by IS NOT NULL AND json_extract(je.value, '$.id') = ?`).all(id) as { id: string }[];
     const votes = new Map<string, { entity: AssertionEntity; n: number }>();
     for (const { id: successorId } of successors) {
@@ -1948,7 +1936,7 @@ export function assertionProjectionDigest(root: string): string {
       db.query(`SELECT assertion_id, insertion_id, source_id
         FROM assertion_sources ORDER BY assertion_id, insertion_id`).all(),
       db.query("SELECT alias_id, entity_id FROM entity_aliases ORDER BY alias_id").all(),
-      db.query("SELECT assertion_id, superseded_by FROM revocations ORDER BY id").all(),
+      db.query("SELECT retracts, superseded_by FROM retractions ORDER BY id").all(),
       db.query("SELECT id, revoked_by, superseded_by FROM assertions WHERE revoked_by IS NOT NULL ORDER BY id").all(),
     ];
     return sha256hex(JSON.stringify(rows));

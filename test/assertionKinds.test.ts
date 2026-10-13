@@ -4,7 +4,7 @@ import {
   assertionEntityId, createAssertionEvent, createDeclineAssertion, createIdentityAssertion, createRetraction,
   readAssertionLog, readRecordedAssertions, validateRecordedAssertion, type RecordedAssertion,
 } from "../lib/assertionLog";
-import { aliasEvents, entityAliasResolver } from "../lib/assertionKinds";
+import { entityAliasResolver, standingAliases } from "../lib/assertionKinds";
 import {
   appendAndProjectAssertion, liveAliasDeclarations, liveBindingDeclarations, openAssertionProjectionReadonly,
   projectedAliasTarget, projectionRevision, projectSourceInsertion, rebuildAssertionProjection, recoverAssertionProjection,
@@ -30,9 +30,10 @@ function vault() {
   return { root, a, b, sources: new Map([[a.id, a], [b.id, b]]) };
 }
 
-const live = (root: string, table: string): string[] => {
+/** The standing identities saying `says`. */
+const live = (root: string, says: string): string[] => {
   const db = openAssertionProjectionReadonly(root);
-  try { return (db.query(`SELECT id FROM ${table} WHERE retracted_by IS NULL ORDER BY id`).all() as { id: string }[]).map((r) => r.id); }
+  try { return (db.query("SELECT id FROM identities WHERE says = ? AND retracted_by IS NULL ORDER BY id").all(says) as { id: string }[]).map((r) => r.id); }
   finally { db.close(); }
 };
 
@@ -84,7 +85,7 @@ test("an identity assertion aliases, and a retraction withdraws it", () => {
   appendAndProjectAssertion(root, createRetraction({ retracts: same.id, reason: "two people", ...said("2") }));
   expect(projectedAliasTarget(root, short.id)).toBeUndefined();
   expect(entityAliasResolver(root)(short)).toEqual(short);
-  expect(aliasEvents(root).map((e) => e.id)).toEqual([]);
+  expect(standingAliases(root).map((e) => e.id)).toEqual([]);
 });
 
 test("a retraction a rebuild reads before what it names still withdraws it", () => {
@@ -104,10 +105,10 @@ test("a retraction a rebuild reads before what it names still withdraws it", () 
     appendAndProjectAssertion(root, target);
     appendAndProjectAssertion(root, first(target.id));
   }
-  const before = { aliases: live(root, "entity_alias_events"), bindings: live(root, "entity_source_events") };
+  const before = { aliases: live(root, "same"), bindings: live(root, "is-source") };
   expect(before).toEqual({ aliases: [], bindings: [] });
   rebuildAssertionProjection(root);
-  expect({ aliases: live(root, "entity_alias_events"), bindings: live(root, "entity_source_events") }).toEqual(before);
+  expect({ aliases: live(root, "same"), bindings: live(root, "is-source") }).toEqual(before);
   expect(projectedAliasTarget(root, entity("Lovelace").id)).toBeUndefined();
   // and the census holds every kind: recovery finds nothing to do
   const revision = projectionRevision(root);
@@ -160,7 +161,7 @@ test("what an alias or a binding retraction withdraws: every standing declaratio
   expect(liveBindingDeclarations(root, ada.id, a.id)).toEqual([binding.id, oldBinding.id].sort());
   for (const retracts of liveBindingDeclarations(root, ada.id, a.id))
     appendAndProjectAssertion(root, createRetraction({ retracts, reason: "not this source", ...said("7") }));
-  expect(live(root, "entity_source_events")).toEqual([]);
+  expect(live(root, "is-source")).toEqual([]);
   // still decided: the bulk pass never binds the pair again
   expect(declaredEntitySources(root).map((e) => e.id).sort()).toEqual([binding.id, oldBinding.id].sort());
 });

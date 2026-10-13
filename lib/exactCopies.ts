@@ -20,8 +20,8 @@ export function exactCopyPairs(root: string): [string, string][] {
       WHERE present = 1 AND body_sha256 IN (SELECT body_sha256 FROM sources WHERE present = 1 AND body_sha256 IS NOT NULL
         GROUP BY body_sha256 HAVING count(*) > 1)
       ORDER BY body_sha256, coalesce(received_at, occurred_at, ''), insertion_id`).all() as { hash: string; id: string }[];
-    const said = new Set((db.query(`SELECT json_extract(event_json, '$.pair[0]') AS a, json_extract(event_json, '$.pair[1]') AS b
-      FROM source_copy_events WHERE retracted_by IS NULL`).all() as { a: string; b: string }[]).map((r) => copyPairKey(r.a, r.b)));
+    const said = new Set((db.query(`SELECT a, b FROM identities WHERE says IN ('copy', 'not-copy') AND retracted_by IS NULL`)
+      .all() as { a: string; b: string }[]).map((r) => copyPairKey(r.a, r.b)));
     const pairs: [string, string][] = [];
     let first: { hash: string; id: string } | undefined;
     for (const row of rows) {
