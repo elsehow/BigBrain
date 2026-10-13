@@ -468,7 +468,7 @@ function searchHandler({ root, url, now, json, log, record }: RouteCtx): Respons
 // dominated by session-start machinery auto-fetching the working set —
 // machine reads, not knowledge demand (lib/retrieval.ts header, rule 3).
 // The asymmetry with the web viewer, which DOES record its memory reads,
-// is intentional: there the read is a person clicking. The tree is bounded (lib/memoryRun.ts: 9 files,
+// is intentional: there the read is a person clicking. The tree is bounded (lib/stages/memory.ts: 9 files,
 // ~3,300 words), so there is nothing to paginate.
 function memoryHandler({ root, url, json, setBytes, record }: RouteCtx): Response {
   const slug = url.searchParams.get("path") ?? "";

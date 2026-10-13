@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { assertionEntityId } from "../lib/assertionLog";
 import { writeAtomic } from "../lib/fsx";
 import { memoryDue, readMemoryStamp, writeMemoryStamp } from "../lib/memory";
-import { runMemory } from "../lib/memoryRun";
+import { runMemory } from "../lib/stages/memory";
 import { addMember, initMemberStore, mintCredential } from "../lib/sharedMembers";
 import { SharedVault } from "../lib/sharedVault";
 import { makeSharedApiHandler } from "../lib/sharedVaultApi";

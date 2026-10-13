@@ -69,7 +69,6 @@ const NOT_YET_STAGES = [
   "lib/inclusionQueries.ts",
   // checks a Jev key when it is saved: operational
   "lib/jevSettingsApi.ts",
-  "lib/memoryRun.ts",
   "lib/pilotBackend.ts",
   "lib/scanReader.ts",
   "lib/sharedRuleEvaluator.ts",

@@ -11,7 +11,7 @@ import type { Options } from "./support/pi";
 import { fakePi } from "./support/pi";
 import type { SourceInsertion } from "../lib/insertionLog";
 import type { Manifest } from "../lib/manifest";
-import type { MemoryRunResult } from "../lib/memoryRun";
+import type { MemoryRunResult } from "../lib/stages/memory";
 import { stagedIds } from "../lib/stage";
 import { stage } from "../lib/stageStorage";
 import { runTend, tendDue, tendHasWork } from "../lib/tend";

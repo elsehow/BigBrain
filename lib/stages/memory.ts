@@ -1,30 +1,43 @@
-import type { PiSDK } from "./run/piSession";
+import type { PiSDK } from "../run/piSession";
 type PiLoader = () => Promise<PiSDK>;
-import { MemoryEdits } from "./memoryEdits";
-import { choiceJournalFields } from "./modelResolution";
-import type { ModelChoice } from "./modelChoice";
-/** Memory consolidation through bounded Pi tools. Budget and citation gates
- * validate the memory tree; recovery restores only host-observed edits that
- * still match this run. Journals, publication, locks and cursor advancement
- * remain host-owned. No whole-vault quarantine or rollback occurs. */
+import { MemoryEdits } from "../memoryEdits";
+import { choiceJournalFields } from "../modelResolution";
+import type { ModelChoice } from "../modelChoice";
+/** memory.ts — the memory pass, the classic chain's second stage
+ * (docs/plans/2026-10-12-stages-and-views-refactor.md, R11): consolidation
+ * through bounded Pi tools. Budget and citation gates validate the memory
+ * tree; recovery restores only host-observed edits that still match this
+ * run. Journals, publication, locks and cursor advancement remain
+ * host-owned. No whole-vault quarantine or rollback occurs.
+ *
+ * Its output is record: memory/, committed with the run's journal. It
+ * reaches a model only through the runner the chain hands it. Unlike the
+ * other record stages, what it waits on is not `waiting` over items: its
+ * input is the whole record, and its position is a checkpoint of every id
+ * the last run saw (lib/memoryInputs.ts), so a retraction or an alias
+ * withdrawn — a removal — is work too, as are joined servers' assertions,
+ * which are held outside the snapshot (lib/serverStore.ts). The checkpoint
+ * is journaled with each run and cached in .state (lib/memory.ts). */
 import { cpSync, existsSync, mkdirSync, readFileSync, renameSync } from "node:fs";
 import { join } from "node:path";
-import { AST_CITE, SHARED_AST_CITE } from "./ids";
-import type { Manifest } from "./manifest";
-import { hasAssertionEvents } from "./assertionLog";
-import { assertionIdsExist, projectNotes, syncAssertionProjection } from "./assertionProjection";
-import { ENGINE_ROOT } from "./engine";
-import { writeAtomic } from "./fsx";
-import { commitPathsOnly, gitOut, pokePublish } from "./git";
-import { canonicalizeScope, followRenames } from "./run/commit";
-import { modelRunJournalFields, newRunId } from "./run/journal";
-import { runModel, type ModelRunResult, type RunUsage } from "./run/model";
-import type { RunMeter } from "./meterTypes";
-import { sha256hex } from "./hash";
-import { clip } from "./text";
-import { readMemorySnapshot, renderMemoryContext, type MemorySnapshot } from "./memoryContext";
-import { sharedCite, unknownSharedCitations, type SharedMemory } from "./sharedMemory";
-import { stampMemoryProvenance } from "./memoryProvenance";
+import { AST_CITE, SHARED_AST_CITE } from "../ids";
+import type { Manifest } from "../manifest";
+import { hasAssertionEvents } from "../assertionLog";
+import { assertionIdsExist, projectNotes, syncAssertionProjection } from "../assertionProjection";
+import { ENGINE_ROOT } from "../engine";
+import { writeAtomic } from "../fsx";
+import { commitPathsOnly, gitOut, pokePublish } from "../git";
+import { canonicalizeScope, followRenames } from "../run/commit";
+import { modelRunJournalFields, newRunId } from "../run/journal";
+import { asModelRun, modelRequest, type ModelRunResult, type RunModelOpts, type RunUsage } from "../run/model";
+import { modelRunner } from "./runner";
+import type { ModelRunner } from "./stage";
+import type { RunMeter } from "../meterTypes";
+import { sha256hex } from "../hash";
+import { clip } from "../text";
+import { readMemorySnapshot, renderMemoryContext, type MemorySnapshot } from "../memoryContext";
+import { sharedCite, unknownSharedCitations, type SharedMemory } from "../sharedMemory";
+import { stampMemoryProvenance } from "../memoryProvenance";
 import {
   describeBudget,
   measureTree,
@@ -33,7 +46,7 @@ import {
   trimPrompt,
   citationRepairPrompt,
   MEMORY_TRIM_ATTEMPTS,
-} from "./memoryTree";
+} from "../memoryTree";
 import {
   acquireMemoryLock,
   assertionAt,
@@ -45,7 +58,7 @@ import {
   readMemoryStamp,
   writeMemoryStamp,
   type MemoryStamp,
-} from "./memory";
+} from "../memory";
 
 const COMMIT_PATHS = ["memory", "journal/memory", "journal/retrieval", "journal/model-runs"];
 
@@ -63,7 +76,13 @@ export interface MemoryRunOpts {
   keepTree?: boolean;
   /** SDK loader — tests replace transport, keeping the production session path */
   loadPi?: PiLoader;
+  /** The model runner the chain hands the stage; the session job through
+   * `loadPi` by default. */
+  model?: ModelRunner;
 }
+
+/** One text turn through the runner the stage was handed. */
+const ask = async (model: ModelRunner, opts: RunModelOpts): Promise<ModelRunResult> => asModelRun(await model(modelRequest(opts)));
 
 export interface MemoryRunResult {
   /** false when the pass declined to run at all (not due, locked, unseeded) */
@@ -149,7 +168,7 @@ async function enforceBudget(args: {
   /** the main turn's report; each trim's is appended to it */
   report: string;
   edits: MemoryEdits;
-  loadPi?: PiLoader;
+  model: ModelRunner;
 }): Promise<{
   measured: { files: number; words: number };
   trims: TrimTurn[];
@@ -173,16 +192,13 @@ async function enforceBudget(args: {
     const t1 = Date.now();
     let trimRun: ModelRunResult;
     try {
-      trimRun = await runModel(
-        {
-          prompt: trimPrompt(before, attempt, report),
-          root,
-          role: MEMORY_ROLE,
-          target: args.target, memoryEdits: args.edits,
-          auth: args.auth,
-        },
-        args.loadPi
-      );
+      trimRun = await ask(args.model, {
+        prompt: trimPrompt(before, attempt, report),
+        root,
+        role: MEMORY_ROLE,
+        target: args.target, memoryEdits: args.edits,
+        auth: args.auth,
+      });
     } catch (e) {
       // the tree is known over budget and nobody is left to fix it:
       // the runaway guard applies
@@ -313,6 +329,7 @@ function writeMemoryJournal(root: string, runId: string, record: Record<string, 
 
 export async function runMemory(opts: MemoryRunOpts): Promise<MemoryRunResult> {
   const { root, manifest } = opts;
+  const model = opts.model ?? modelRunner(opts.loadPi);
 
   const verdict = memoryDue(root, {
     force: (opts.force ?? false) || (opts.fromScratch ?? false),
@@ -407,16 +424,13 @@ export async function runMemory(opts: MemoryRunOpts): Promise<MemoryRunResult> {
     const t0 = Date.now();
     let run: ModelRunResult | undefined;
     try {
-      run = await runModel(
-        {
-          prompt,
-          root,
-          role: MEMORY_ROLE,
-          target: manifest.memory, memoryEdits: edits,
-          auth: manifest.auth,
-        },
-        opts.loadPi
-      );
+      run = await ask(model, {
+        prompt,
+        root,
+        role: MEMORY_ROLE,
+        target: manifest.memory, memoryEdits: edits,
+        auth: manifest.auth,
+      });
       result = run.text;
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
@@ -435,7 +449,7 @@ export async function runMemory(opts: MemoryRunOpts): Promise<MemoryRunResult> {
         auth: manifest.auth,
         report,
         edits,
-        ...(opts.loadPi ? { loadPi: opts.loadPi } : {}),
+        model,
       });
       report = budget.report;
       trims.push(...budget.trims);
@@ -480,10 +494,7 @@ export async function runMemory(opts: MemoryRunOpts): Promise<MemoryRunResult> {
         console.warn(`${MEMORY_ROLE}: ${check.failure}; handing the tree back to repair them`);
         const t3 = Date.now();
         try {
-          const fix = await runModel(
-            { prompt: citationRepairPrompt(check.unknown), root, role: MEMORY_ROLE, target: manifest.memory, memoryEdits: edits, auth: manifest.auth },
-            opts.loadPi
-          );
+          const fix = await ask(model, { prompt: citationRepairPrompt(check.unknown), root, role: MEMORY_ROLE, target: manifest.memory, memoryEdits: edits, auth: manifest.auth });
           repairUsage = fix.usage;
           rewrite();
           qualified += qualifySharedCitations(root, shared, edits);

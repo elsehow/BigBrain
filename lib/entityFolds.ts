@@ -19,7 +19,7 @@ import type { ModelChoice } from "./modelChoice";
  * the seeded aliases (2026-08-30); identity stays operator-authored.
  *
  * ONE feeder, on the memory clock — after the sweep's gates, on its model
- * (lib/memoryRun.ts) — and `bigbrain entity folds --propose` on demand.
+ * (lib/stages/memory.ts) — and `bigbrain entity folds --propose` on demand.
  * The clock asks about the DELTA: the entities that gained a claim since
  * the last proposal are the question, every other label the lookup, no
  * tools, one turn — the first full-census run cost $9.95 over eleven

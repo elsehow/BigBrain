@@ -3,7 +3,7 @@
  * Content addressing is how this vault says "the same thing": an insertion
  * id, an assertion id, a blob's name, a landed reference's dedup key, a
  * token's stored digest. Eight modules had opened `node:crypto` to write the
- * same line, and lib/memoryRun.ts imported the whole reference-writing module
+ * same line, and lib/stages/memory.ts imported the whole reference-writing module
  * to reach the copy that lived there.
  */
 

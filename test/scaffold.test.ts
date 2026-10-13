@@ -86,7 +86,7 @@ describe("the engine's prompts", () => {
     // agents to `Read prompts/discuss.md` — an idiom the viewer had already
     // dropped for the plugin's HTTP command. Seeding went with #524 and the
     // prompts are the engine's now, but the rule stands: the readers are
-    // lib/memoryRun.ts (memory.md), lib/stages/intake.ts (tend.md),
+    // lib/stages/memory.ts (memory.md), lib/stages/intake.ts (tend.md),
     // lib/entityFolds.ts (entity-folds.md, #728), lib/pilot.ts (pilot.md,
     // #770 — the realtime session's instructions) and lib/stages/feed.ts
     // (feed.md, the classic chain's feed stage); add a name here only

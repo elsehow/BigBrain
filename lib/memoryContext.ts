@@ -2,7 +2,7 @@
  * memoryContext.ts — what the memory pass is SHOWN: the snapshot it folds,
  * and the run context appended to prompts/memory.md.
  *
- * Split out of lib/memoryRun.ts (#640), where ~200 lines of prompt
+ * Split out of lib/stages/memory.ts (#640), where ~200 lines of prompt
  * assembly sat inside the run body between the lock and the model call.
  * The two belong together and apart from the run: the snapshot is read
  * ONCE and both the prompt and the cursor advance come from it, which is

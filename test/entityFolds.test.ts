@@ -226,7 +226,7 @@ describe("a proposal run", () => {
 import { dispatch } from "../lib/httpx";
 import { createEntityFoldRejectEvent, appendEntityFoldRejectEvent, readEntityFoldRejectLog, validateEntityFoldRejectEvent } from "../lib/entityFoldLog";
 import { acceptFold, changedSince, foldsRoutes, liveFolds, rejectFold, rejectedPairList, rejectedPairs } from "../lib/entityFolds";
-import { runMemory } from "../lib/memoryRun";
+import { runMemory } from "../lib/stages/memory";
 import { appendAssertionEvent } from "../lib/assertionLog";
 import { gitVault, NATIVE_YAML, testManifest } from "./support/vault";
 

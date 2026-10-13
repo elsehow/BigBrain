@@ -12,7 +12,7 @@ import { join } from "node:path";
 import type { PiLoader } from "./support/pi";
 import { fakeMemoryPi as fakePi } from "./support/memoryPi";
 import { gitOut } from "../lib/git";
-import { runMemory } from "../lib/memoryRun";
+import { runMemory } from "../lib/stages/memory";
 import { readModelRuns } from "../lib/run/monitor";
 import type { Manifest } from "../lib/manifest";
 import { previousRunFailure } from "../lib/memoryContext";
@@ -268,7 +268,7 @@ describe("memoryRunning — the viewer's spinner reads the lock, never guesses",
 // ══════════════════════════════════════════════════════════════════════
 // runMemory — the pass end-to-end. bin/memory.ts was a top-level script,
 // so importing anything from it EXECUTED a sweep and this suite could not
-// exist; the body moved to lib/memoryRun.ts (2026-08-07) precisely so it
+// exist; the body moved to lib/stages/memory.ts (2026-08-07) precisely so it
 // could. The model is stubbed at the spawn seam — what is under test is
 // the RUNNER's mechanical contract, which is the half that is not a guess.
 // ══════════════════════════════════════════════════════════════════════

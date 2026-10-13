@@ -20,7 +20,7 @@ export const newRunId = (now = new Date()): string =>
  * ran: which runner, under what sampling and tool policy, at what cost,
  * inside what containment — answerable per run, never inferred from
  * vault.yaml later. One builder, both writers (the queue journal in
- * worker.ts, the memory journal in memoryRun.ts), so the field set cannot
+ * worker.ts, the memory journal in lib/stages/memory.ts), so the field set cannot
  * drift between them again. The pi transcript profile (`tools`) is NOT
  * here: the queue journal records it, the memory journal never has, and
  * this builder changes neither shape. */

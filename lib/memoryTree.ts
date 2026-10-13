@@ -1,7 +1,7 @@
 /**
  * memoryTree.ts — the memory pass's tree, and the budget it is held to.
  *
- * Split out of lib/memoryRun.ts (#640), where reading the tree, measuring
+ * Split out of lib/stages/memory.ts (#640), where reading the tree, measuring
  * it, reverting it and describing the overage were four closures inside a
  * 620-line function — each needing only `root`, none needing the run.
  *
