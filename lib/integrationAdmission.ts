@@ -9,7 +9,10 @@
  * Runs every 30 s from the viewer's server (web/server.ts). A failure leaves
  * the item staged and retries it after 15 minutes.
  */
+import {readFileSync} from 'node:fs';
+import {join} from 'node:path';
 import {parseEnvelope} from './envelope';
+import {ensureDir,writeAtomic} from './fsx';
 import {stagedItems,type StagedItem} from './stageStorage';
 import {stagedAccount,admitStaged,passStaged} from './stage';
 import {integrationActive,integrationAccounts,MANAGED_INTEGRATIONS} from './integrationAccess';
@@ -27,36 +30,54 @@ export function stagedSource(s:StagedItem):InclusionSource {
 
 /** Items per account per tick. */
 const BATCH=50;
-const running=new Set<string>(),retryAfter=new Map<string,number>();
+const running=new Set<string>();
+
+/** The staged items admission would take up now, each integration's batch at most. */
+function admissible(root:string):{name:string;item:StagedItem}[]{
+ const out:{name:string;item:StagedItem}[]=[];
+ for(const name of MANAGED_INTEGRATIONS)for(const account of integrationAccounts(root,name)){
+  if(!integrationActive(root,name,account))continue;
+  out.push(...stagedItems(root,name).filter(s=>stagedAccount(root,s)===account)
+   // Granola lands verbatim transcripts only; older summary-only items stay pending
+   .filter(s=>name!=='granola'||parseEnvelope(s.content).envelope.format==='granola-transcript-v1').slice(0,BATCH).map(item=>({name,item})));
+ }
+ return out;
+}
+
+/** What waits for admission: its chain's due (lib/chains.ts). */
+export const admissionWaiting=(root:string):number=>admissible(root).length;
+
+/** A failed item waits 15 minutes before it is tried again. Kept in
+ * `.state/` because each tick is its own process (lib/chains.ts). */
+const RETRY_MS=15*60000;
+const retryFile=(root:string)=>join(root,'.state','admission-retry.json');
+function readRetries(root:string):Record<string,number>{try{return JSON.parse(readFileSync(retryFile(root),'utf8'))}catch{return {}}}
 
 export async function tickIntegrationAdmission(root:string,store=connectionStorePath()):Promise<void>{
  if(running.has(root))return;running.add(root);
+ const now=Date.now(),retries=Object.fromEntries(Object.entries(readRetries(root)).filter(([,at])=>at>now));
  try{
   const gate=loadManifest(root).gate;
-  for(const name of MANAGED_INTEGRATIONS)for(const account of integrationAccounts(root,name)){
-   if(!integrationActive(root,name,account))continue;
-   const pending=stagedItems(root,name).filter(s=>stagedAccount(root,s)===account)
-    // Granola lands verbatim transcripts only; older summary-only items stay pending
-    .filter(s=>name!=='granola'||parseEnvelope(s.content).envelope.format==='granola-transcript-v1').slice(0,BATCH);
-   for(const item of pending){
-    const key=JSON.stringify([root,item.id]);if((retryAfter.get(key)??0)>Date.now())continue;
-    try{
-     const d=gate&&gated(gate,name)?await gateDecide({root,store,cfg:gate,source:name,item:stagedSource(item)}):undefined;
-     if(!integrationActive(root,name,account))break;
-     if(d&&!d.admitted){
-      recordGateDecision(root,d);
-      const r=passStaged(root,[item.id],`Under the worth gate's cut-off (${d.score?.toFixed(2)} < ${d.threshold}).`);
-      if(!r[0]?.ok)throw Error(r[0]?.error??'Could not pass the item');
-     }else{
-      const r=admitStaged(root,[item.id]),insertion_id=r[0]?.insertion_id;
-      if(d)recordGateDecision(root,{...d,...(insertion_id?{insertion_id}:{})});
-      if(!r[0]?.ok)throw Error(r[0]?.error??'Could not admit the item');
-     }
-     retryAfter.delete(key);
-    }catch{retryAfter.set(key,Date.now()+15*60000);}
-   }
+  for(const {name,item} of admissible(root)){
+   if((retries[item.id]??0)>now)continue;
+   if(!integrationActive(root,name,stagedAccount(root,item)))continue;
+   try{
+    const d=gate&&gated(gate,name)?await gateDecide({root,store,cfg:gate,source:name,item:stagedSource(item)}):undefined;
+    if(!integrationActive(root,name,stagedAccount(root,item)))continue;
+    if(d&&!d.admitted){
+     recordGateDecision(root,d);
+     const r=passStaged(root,[item.id],`Under the worth gate's cut-off (${d.score?.toFixed(2)} < ${d.threshold}).`);
+     if(!r[0]?.ok)throw Error(r[0]?.error??'Could not pass the item');
+    }else{
+     const r=admitStaged(root,[item.id]),insertion_id=r[0]?.insertion_id;
+     if(d)recordGateDecision(root,{...d,...(insertion_id?{insertion_id}:{})});
+     if(!r[0]?.ok)throw Error(r[0]?.error??'Could not admit the item');
+    }
+    delete retries[item.id];
+   }catch{retries[item.id]=Date.now()+RETRY_MS;}
   }
  }finally{
+  try{ensureDir(join(root,'.state'));writeAtomic(retryFile(root),JSON.stringify(retries));}catch{/* a lost backoff costs one early retry */}
   // The gate's decisions are record: what it passed never reached the gardener.
   if(loadManifest(root).gate)commitRunRecords(root,{dir:GATE_JOURNAL_DIR,role:'gate',summary:'gate: decisions',appended:true});
   running.delete(root);
