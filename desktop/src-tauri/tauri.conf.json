@@ -23,7 +23,8 @@
     ],
     "externalBin": [
       "binaries/bun",
-      "binaries/bigbrain-guest"
+      "binaries/bigbrain-guest",
+      "binaries/bigbrain-vm"
     ],
     "resources": [
       "resources/engine"

@@ -17,5 +17,11 @@
        Info.plist beside this file carries the usage string macOS shows. -->
   <key>com.apple.security.device.audio-input</key>
   <true/>
+  <!-- Contained desktops (docs/plans/2026-10-12-contained-desktops.md):
+       bigbrain-vm, a sidecar signed with this same file, boots each
+       desktop's machine with Virtualization.framework. An ad-hoc signature
+       carries it; the app and bun hold it unused, which grants no data. -->
+  <key>com.apple.security.virtualization</key>
+  <true/>
 </dict>
 </plist>

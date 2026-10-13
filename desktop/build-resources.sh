@@ -7,6 +7,10 @@
 #                                            each desktop's files and commands
 #                                            run through it (guests.ts finds it
 #                                            beside bun)
+#   src-tauri/binaries/bigbrain-vm-<triple>  the machine helper (packages/vm,
+#                                            Swift): boots contained desktops'
+#                                            machines; signed by the bundler
+#                                            with entitlements.plist
 #   src-tauri/resources/engine/              the engine tree the sidecar runs
 #                                            (bin/ lib/ integrations/ prompts/
 #                                            deploy/ clients/ packages/ web/ui/dist/
@@ -38,6 +42,10 @@ chmod 755 "$here/src-tauri/binaries/bun-$triple"
 cargo build --release --target "$triple" --manifest-path "$engine/packages/guest/Cargo.toml"
 cp "$engine/packages/guest/target/$triple/release/bigbrain-guest" "$here/src-tauri/binaries/bigbrain-guest-$triple"
 chmod 755 "$here/src-tauri/binaries/bigbrain-guest-$triple"
+# the machine helper; signed for the dev loop too, where nothing bundles it
+vm=$(sh "$engine/packages/vm/build.sh" | tail -1)
+cp "$vm" "$here/src-tauri/binaries/bigbrain-vm-$triple"
+chmod 755 "$here/src-tauri/binaries/bigbrain-vm-$triple"
 
 dest="$here/src-tauri/resources/engine"
 if [ "${1:-}" = "--bun-only" ]; then

@@ -230,7 +230,10 @@ minisign signature checking out, so an insecure feed cannot serve a fake.
 
 `beforeBuildCommand` runs `build-resources.sh`, which copies bun to
 `src-tauri/binaries/bun-<triple>`, builds the guest agent (`packages/guest`,
-so cargo is needed) into `src-tauri/binaries/bigbrain-guest-<triple>`, and
+so cargo is needed) into `src-tauri/binaries/bigbrain-guest-<triple>` and
+the machine helper (`packages/vm`, so Swift is needed) into
+`src-tauri/binaries/bigbrain-vm-<triple>`, which the bundler signs with
+`entitlements.plist` (it carries `com.apple.security.virtualization`), and
 assembles `src-tauri/resources/engine` (`bun install --production` inside
 it). Both are gitignored; `BUNDLE` in the
 engine copy records the commit it came from.
