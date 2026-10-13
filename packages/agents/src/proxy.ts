@@ -14,6 +14,11 @@
  * proxy URL's user and password (credential), so a connection that carries
  * it is known to be theirs and reaches that desktop's hosts too. Another
  * desktop can't make it: it is keyed by a secret only this process holds.
+ * A contained desktop's machine needs no credential: it reaches the proxy
+ * only through its own Unix socket (serveDesktop), so the socket says whose
+ * a connection is. drop() closes a desktop's open connections, the moment
+ * its hosts shrink (the plan's D9: a desktop that read outside material
+ * loses the network).
  */
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { lookup } from "node:dns/promises";
@@ -69,7 +74,47 @@ export class EgressProxy {
   private server?: Server;
   private listening?: Promise<number>;
   private key = randomBytes(32);
+  private desktopServers = new Map<string, Server>();
+  /** Each desktop's open connections, client and upstream, for drop(). */
+  private open = new Map<string, Set<Socket>>();
   constructor(private options: EgressOptions) {}
+
+  /** Serve one desktop's machine on a Unix socket of its own: every connection there is that desktop's. */
+  serveDesktop(desktop: string, path: string): Promise<void> {
+    this.desktopServers.get(desktop)?.close();
+    return new Promise<void>((done, fail) => {
+      const server = createServer(socket => this.serve(socket, desktop));
+      server.once("error", fail);
+      server.listen(path, () => { server.unref(); done(); });
+      this.desktopServers.set(desktop, server);
+    });
+  }
+
+  /** Stop serving a desktop's machine and close its open connections. */
+  unserveDesktop(desktop: string): void {
+    this.desktopServers.get(desktop)?.close();
+    this.desktopServers.delete(desktop);
+    this.drop(desktop);
+  }
+
+  /** Close every open connection of a desktop's: what it may reach has just changed. */
+  drop(desktop: string): number {
+    const sockets = this.open.get(desktop);
+    if (!sockets) return 0;
+    const n = sockets.size;
+    for (const s of sockets) s.destroy();
+    this.open.delete(desktop);
+    return n;
+  }
+
+  private track(desktop: string, ...sockets: Socket[]): void {
+    let set = this.open.get(desktop);
+    if (!set) this.open.set(desktop, set = new Set());
+    for (const s of sockets) {
+      set.add(s);
+      s.once("close", () => { set!.delete(s); if (!set!.size && this.open.get(desktop) === set) this.open.delete(desktop); });
+    }
+  }
 
   /** A desktop's credential, the password its commands' proxy URL carries. */
   credential(desktop: string): string {
@@ -96,9 +141,14 @@ export class EgressProxy {
     });
   }
 
-  close(): void { this.server?.close(); this.server = undefined; this.listening = undefined; }
+  close(): void {
+    this.server?.close(); this.server = undefined; this.listening = undefined;
+    // a copy: unserveDesktop deletes from the map being walked
+    // oxlint-disable-next-line unicorn/no-useless-spread
+    for (const d of [...this.desktopServers.keys()]) this.unserveDesktop(d);
+  }
 
-  private serve(client: Socket): void {
+  private serve(client: Socket, known?: string): void {
     client.on("error", () => client.destroy());
     client.setTimeout(HEAD_MS, () => client.destroy());
     let head = Buffer.alloc(0);
@@ -110,12 +160,12 @@ export class EgressProxy {
       if (end < 0) return answer(client, 431, "Request headers too large.");
       client.pause();
       client.setTimeout(0);
-      this.forward(client, head.subarray(0, end).toString("latin1").split("\r\n"), head.subarray(end + 4)).catch(() => client.destroy());
+      this.forward(client, head.subarray(0, end).toString("latin1").split("\r\n"), head.subarray(end + 4), known).catch(() => client.destroy());
     };
     client.on("data", take);
   }
 
-  private async forward(client: Socket, lines: string[], rest: Buffer): Promise<void> {
+  private async forward(client: Socket, lines: string[], rest: Buffer, known?: string): Promise<void> {
     const [method = "", target = "", version = "HTTP/1.1"] = lines[0]!.split(" ");
     let host: string, port: number, request: Buffer | undefined;
     if (method === "CONNECT") {
@@ -132,19 +182,20 @@ export class EgressProxy {
       request = Buffer.from([`${method} ${url.pathname}${url.search} ${version}`, ...headers, "Connection: close", "", ""].join("\r\n"), "latin1");
     }
     const auth = lines.slice(1).find(l => /^proxy-authorization\s*:/i.test(l));
-    const desktop = this.desktopOf(auth?.slice(auth.indexOf(":") + 1));
+    const desktop = known ?? this.desktopOf(auth?.slice(auth.indexOf(":") + 1));
     const refuse = (why: string, status = 403) => answer(client, status, `BigBrain's sandbox refused ${host}:${port}: ${why}.`,
       status === 407 ? ['Proxy-Authenticate: Basic realm="BigBrain"'] : []);
     if (!PORTS.has(port)) return refuse("only ports 80 and 443 are reachable");
     if (!allowedHost(host, this.options.hosts(desktop))) {
       const why = `it is not on the desktop network allowlist${this.options.ask ? `; ${this.options.ask}` : " (Settings)"}`;
       // a client that sends its credential only when asked (git) is asked, for a host its desktop may reach
-      return refuse(why, auth ? 403 : 407);
+      return refuse(why, auth || known ? 403 : 407);
     }
     let upstream: Socket;
     try { upstream = await (this.options.dial ?? dialPublic)(host, port); }
     catch (e) { return e instanceof Refusal ? refuse(e.message) : answer(client, 502, `Could not reach ${host}:${port}.`); }
     if (client.destroyed) { upstream.destroy(); return; }
+    if (desktop) this.track(desktop, client, upstream);
     upstream.on("error", () => { upstream.destroy(); client.destroy(); });
     client.on("close", () => upstream.destroy());
     // ended, not destroyed: what is still buffered for the client reaches it

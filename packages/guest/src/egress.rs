@@ -8,12 +8,22 @@ use std::os::unix::net::UnixStream;
 pub const LISTEN: &str = "127.0.0.1:3128";
 pub const HOST_PORT: u32 = 7471;
 
+/// The host's egress port: 7471, unless the kernel's command line names
+/// another (`bigbrain.egress_port=`, for test harnesses where machines share a host vsock).
+fn host_port() -> u32 {
+    std::fs::read_to_string("/proc/cmdline")
+        .ok()
+        .and_then(|c| c.split_whitespace().find_map(|w| w.strip_prefix("bigbrain.egress_port=").and_then(|p| p.parse().ok())))
+        .unwrap_or(HOST_PORT)
+}
+
 pub fn serve() -> io::Result<()> {
     let listener = TcpListener::bind(LISTEN)?;
+    let port = host_port();
     std::thread::spawn(move || {
         for tcp in listener.incoming().flatten() {
             std::thread::spawn(move || {
-                if let Ok(up) = crate::vsock::connect(crate::vsock::HOST_CID, HOST_PORT) {
+                if let Ok(up) = crate::vsock::connect(crate::vsock::HOST_CID, port) {
                     splice(tcp, up);
                 }
             });

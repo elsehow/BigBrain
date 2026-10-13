@@ -1,0 +1,86 @@
+# A desktop's machine (docs/plans/2026-10-12-contained-desktops.md): the
+# image built on each architecture's own runner, booted under KVM where the
+# runner has it, and the macOS helper compiled, signed and asked what it
+# would configure. GitHub's macOS runners can't nest virtualization, so
+# booting with the helper is the maintainer's (packages/vm/README.md).
+name: machine
+on:
+  pull_request:
+    paths:
+      - 'packages/guest/**'
+      - 'packages/vm/**'
+      - 'packages/agents/image/**'
+      - 'packages/agents/src/guest.ts'
+      - '.github/workflows/machine.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: machine-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  image:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: amd64
+            triple: x86_64-unknown-linux-musl
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+            triple: aarch64-unknown-linux-musl
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - run: sudo apt-get update -q && sudo apt-get install -y -q debootstrap musl-tools cpio qemu-system-x86 qemu-system-arm socat
+      - run: rustup target add ${{ matrix.triple }}
+      - run: bun install --frozen-lockfile
+      - run: bun run vm:image out
+      - name: boot it, where the runner has KVM
+        run: |
+          if [ -w /dev/kvm ] || sudo chmod 666 /dev/kvm 2>/dev/null; then
+            sudo modprobe vhost_vsock 2>/dev/null || true
+            sudo chmod 666 /dev/vhost-vsock 2>/dev/null || true
+          fi
+          if [ -w /dev/kvm ] && [ -w /dev/vhost-vsock ]; then
+            BIGBRAIN_VM_TESTS=qemu BIGBRAIN_MACHINE_IMAGE=$PWD/out bun test packages/agents/test/machine.test.ts
+          else
+            echo "::notice::no KVM or vhost-vsock on ${{ matrix.runner }}: the image is built but not booted"
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: machine-${{ matrix.arch }}
+          path: |
+            out/vmlinuz
+            out/initramfs.cpio
+            out/rootfs.img.gz
+            out/manifest.txt
+            out/dpkg.txt
+            out/modules.txt
+          retention-days: 14
+          compression-level: 0
+  helper:
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - run: sh packages/vm/build.sh
+      - name: the helper configures a disk, vsock, console, entropy and a balloon, and nothing else
+        run: |
+          BIN=$(swift build -c release --package-path packages/vm --show-bin-path)/bigbrain-vm
+          codesign -d --entitlements - "$BIN" 2>&1 | grep -q com.apple.security.virtualization
+          D=$(mktemp -d /tmp/vm.XXXX)
+          head -c 1048576 /dev/zero > "$D/vmlinuz"; : > "$D/initramfs.cpio"; truncate -s 64m "$D/disk.img"
+          echo "{\"kernel\":\"$D/vmlinuz\",\"initramfs\":\"$D/initramfs.cpio\",\"cmdline\":\"console=hvc0\",\"cpus\":2,\"memoryMiB\":1024,\"disk\":\"$D/disk.img\",\"console\":\"$D/console.log\",\"guestSocket\":\"$D/g.sock\",\"egressSocket\":\"$D/e.sock\"}" > "$D/config.json"
+          "$BIN" --dump-config < "$D/config.json" | tee "$D/devices.json"
+          python3 - "$D/devices.json" <<'PY'
+          import json, sys
+          d = json.load(open(sys.argv[1]))["devices"]
+          assert set(d) <= {"block", "vsock", "console", "entropy", "balloon"}, d
+          assert d["block"] == 1 and d["vsock"] == 1 and d["console"] == 1, d
+          PY
