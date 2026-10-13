@@ -47,3 +47,14 @@ That downloads the latest CI image for the Mac's architecture into
 `spike-results.md`, the table the plan's go/no-go reads. The clock row is
 by hand: `bun packages/agents/test/machine.spike.ts --clock`, then sleep the
 Mac for ten minutes and wake it.
+
+## On the maintainer's Mac: everything else only a Mac can test
+
+```
+bun run vm:verify
+```
+
+Builds both helpers, takes the CI image for the branch, and runs the
+sandbox and Harbor's macOS tests (through a Seatbelt-confined guest), the
+host's desktop tests, and the VM and contained-desktop suites on
+Virtualization.framework. It ends with one line per suite.
