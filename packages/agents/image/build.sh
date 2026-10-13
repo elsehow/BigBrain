@@ -55,13 +55,25 @@ deb $MIRROR $SUITE-updates main
 deb ${DEBIAN_SNAPSHOT:+http://snapshot.debian.org/archive/debian-security/$DEBIAN_SNAPSHOT}${DEBIAN_SNAPSHOT:-http://deb.debian.org/debian-security} $SUITE-security main
 SOURCES
 in_root() { chroot "$R" /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8 "$@"; }
+# no docs, man pages or translations: nothing in a machine reads them, and they are a fifth of the download
+cat >"$R/etc/dpkg/dpkg.cfg.d/90bigbrain-slim" <<'SLIM'
+path-exclude=/usr/share/doc/*
+path-include=/usr/share/doc/*/copyright
+path-exclude=/usr/share/man/*
+path-exclude=/usr/share/info/*
+path-exclude=/usr/share/locale/*
+path-exclude=/usr/share/lintian/*
+path-exclude=/usr/share/linda/*
+SLIM
+find "$R/usr/share/doc" -type f ! -name copyright -delete 2>/dev/null || true
+rm -rf "$R/usr/share/man/"* "$R/usr/share/info/"* "$R/usr/share/locale/"*
 in_root apt-get update -q >/dev/null
 # shellcheck disable=SC2086
 in_root apt-get install -y -q --no-install-recommends $PACKAGES >"$WORK/apt.log" 2>&1 || { tail -30 "$WORK/apt.log"; exit 1; }
 
 say "toolchains: node $NODE_VERSION, bun $BUN_VERSION, uv $UV_VERSION"
 fetch "https://nodejs.org/dist/v$NODE_VERSION/node-v$NODE_VERSION-linux-$NODE_ARCH.tar.xz" "$(pin NODE_SHA256)" "$WORK/dl/node.tar.xz"
-tar -xJf "$WORK/dl/node.tar.xz" -C "$R/usr/local" --strip-components=1 --exclude='*/README.md' --exclude='*/CHANGELOG.md' --exclude='*/LICENSE'
+tar -xJf "$WORK/dl/node.tar.xz" -C "$R/usr/local" --strip-components=1 --exclude='*/README.md' --exclude='*/CHANGELOG.md' --exclude='*/share/doc' --exclude='*/share/man'
 fetch "https://github.com/oven-sh/bun/releases/download/bun-v$BUN_VERSION/bun-linux-$BUN_ARCH.zip" "$(pin BUN_SHA256)" "$WORK/dl/bun.zip"
 python3 -c 'import sys, zipfile; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])' "$WORK/dl/bun.zip" "$WORK/dl"
 install -m 0755 "$WORK/dl/bun-linux-$BUN_ARCH/bun" "$R/usr/local/bin/bun"
@@ -144,7 +156,8 @@ mkfs.ext4 -q -F -L bigbrain -E root_owner=0:0 -d "$R" "$WORK/rootfs.img"
 say "out: $OUT"
 mv "$WORK/vmlinuz" "$OUT/vmlinuz"
 mv "$WORK/initramfs.cpio" "$OUT/initramfs.cpio"
-gzip -c --no-name "$WORK/rootfs.img" >"$OUT/rootfs.img.gz"
+# zero the free blocks' leftovers first is mkfs's job (-d writes a fresh fs); -9 for the download
+gzip -9 -c --no-name "$WORK/rootfs.img" >"$OUT/rootfs.img.gz"
 mv "$WORK/rootfs.img" "$OUT/rootfs.img"
 echo "$DPKG" >"$OUT/dpkg.txt"
 cp "$WORK/initramfs/modules/order" "$OUT/modules.txt"

@@ -111,9 +111,17 @@ function resident(m: Machine): number {
   return total;
 }
 
-function cpuPercent(): number {
-  const ps = execFileSync("ps", ["-axo", "%cpu=,comm="]).toString().split("\n").map(l => l.trim());
-  return ps.filter(l => l.includes("com.apple.Virtualization.VirtualMachine") || l.includes("qemu-system")).reduce((n, l) => n + Number(l.split(/\s+/)[0]), 0);
+/** CPU seconds the machines' processes have used so far (ps's cumulative TIME: [[dd-]hh:]mm:ss[.ss]). */
+function cpuSeconds(): number {
+  const ps = execFileSync("ps", ["-axo", "time=,comm="]).toString().split("\n").map(l => l.trim()).filter(Boolean);
+  let total = 0;
+  for (const l of ps) {
+    if (!l.includes("com.apple.Virtualization.VirtualMachine") && !l.includes("qemu-system") && !l.includes("bigbrain-vm")) continue;
+    const t = l.split(/\s+/)[0]!;
+    const [days, rest] = t.includes("-") ? [Number(t.split("-")[0]), t.split("-")[1]!] : [0, t];
+    total += days * 86400 + rest.split(":").map(Number).reduce((acc, x) => acc * 60 + x, 0);
+  }
+  return total;
 }
 
 /** A host loopback port joined to a guest port: the preview forward of Phase 3c, in miniature. */
@@ -256,10 +264,10 @@ async function main() {
   // ── idle ──
   const idleMin = QUICK ? 1 : 5;
   console.log(`idling ${idleMin} min …`);
-  const samples: number[] = [];
-  for (let i = 0; i < idleMin * 12; i++) { await sleep(5000); samples.push(cpuPercent()); }
+  const cpu0 = cpuSeconds(), t0 = performance.now();
+  await sleep(idleMin * 60_000);
+  const cpu = (cpuSeconds() - cpu0) / ((performance.now() - t0) / 1000) * 100;
   const rss = resident(a) / 1024;
-  const cpu = samples.reduce((x, y) => x + y, 0) / samples.length;
   record(`idle footprint (after ${idleMin} min)`, `${rss.toFixed(0)} MB resident`, judge(rss, 400, 1024));
   record(`idle CPU (${idleMin} min)`, `${cpu.toFixed(1)} %`, judge(cpu, 2, 10));
 
