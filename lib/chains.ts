@@ -24,6 +24,7 @@ import { loadManifest } from "./manifest";
 import { readMemoryStamp } from "./memory";
 import { tickPublishing } from "./sharedAssertionPublish";
 import { connectionStorePath, readConnections } from "./sharedConnections";
+import { exactCopyPairs, settleExactCopies } from "./exactCopies";
 import { judgeCopies } from "./sourceCopyJudge";
 import { classicChain } from "./tend";
 import { unjudgedCopies, withVaultSnapshot } from "./vaultReadModel";
@@ -36,14 +37,22 @@ const attempt = async <T>(run: () => Promise<T>): Promise<{ value?: T; error?: s
   try { return { value: await run() }; } catch (error) { return { error: error instanceof Error ? error.message : String(error) }; }
 };
 
-/** Pairs that might be one document, judged by Jev or Quick (lib/sourceCopyJudge.ts). */
-export const copiesChain: Chain<{ value?: Awaited<ReturnType<typeof judgeCopies>>; error?: string }> = {
+/** Pairs that might be one document: those one content hash proves said so
+ * by the system (lib/exactCopies.ts), the rest judged by Jev or Quick
+ * (lib/sourceCopyJudge.ts). */
+export const copiesChain: Chain<{ value?: Awaited<ReturnType<typeof judgeCopies>> & { exact: number }; error?: string }> = {
   name: "copies",
   job: "copies",
-  due: (root) => ({ source: unjudgedCopies(root).length, scheduled: {} }),
-  run: ({ root }) => attempt(() => judgeCopies(root, connectionStorePath())),
-  report: ({ value, error }) => error ? failed("copies", error) : ok(value && (value.judged || value.failed)
-    ? [`copies: ${value.judged} judged${value.failed ? `, ${value.failed} failed` : ""}${value.left > value.judged ? `, ${value.left - value.judged} left` : ""}`] : []),
+  due: (root) => ({ source: exactCopyPairs(root).length + unjudgedCopies(root).length, scheduled: {} }),
+  run: ({ root }) => attempt(async () => {
+    const exact = settleExactCopies(root);
+    return { exact, ...await judgeCopies(root, connectionStorePath()) };
+  }),
+  report: ({ value, error }) => error ? failed("copies", error) : ok([
+    ...(value?.exact ? [`copies: ${value.exact} proven by their content`] : []),
+    ...(value && (value.judged || value.failed)
+      ? [`copies: ${value.judged} judged${value.failed ? `, ${value.failed} failed` : ""}${value.left > value.judged ? `, ${value.left - value.judged} left` : ""}`] : []),
+  ]),
 };
 
 /** The labels that name one thing, proposed to the owner (lib/entityFolds.ts),
