@@ -13,6 +13,8 @@ on:
       - 'packages/agents/src/guest.ts'
       - 'packages/agents/src/machine*.ts'
       - 'packages/agents/src/projects.ts'
+      - 'packages/agents/src/proxy.ts'
+      - 'packages/agents/src/egressPolicy.ts'
       - 'packages/agents/src/containedTools.ts'
       - 'packages/agents/test/machine.test.ts'
       - 'packages/agents/test/contained.test.ts'
