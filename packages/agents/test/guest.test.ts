@@ -135,6 +135,15 @@ describe.skipIf(!BIN || !unix)("bigbrain-guest --serve", () => {
     expect(text.trim().split("\n").sort()).toEqual(["ORRERY=1"]);
   });
 
+  test("a login environment's worth of variables, and no more than the limit", async () => {
+    const env = Object.fromEntries(Array.from({ length: 300 }, (_, i) => [`ORRERY_${i}`, "x".repeat(40)]));
+    let text = "";
+    const x = await g.exec(["/usr/bin/env"], { cwd: dir, env }, (_k, d) => { text += d; });
+    await x.exit;
+    expect(text.trim().split("\n").length).toBe(300);
+    await expect(g.exec(["/usr/bin/env"], { cwd: dir, env: Object.fromEntries(Array.from({ length: 1025 }, (_, i) => [`E${i}`, "1"])) }, () => {})).rejects.toMatchObject({ code: "bad-request" });
+  });
+
   test("stdin, then closing it", async () => {
     let text = "";
     const x = await g.exec(["/bin/cat"], { cwd: dir, stdin: true }, (_k, d) => { text += d; });

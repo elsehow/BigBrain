@@ -18,7 +18,7 @@ export const KIND = { control: 0, stdout: 1, stderr: 2, stdin: 3, data: 4 } as c
 export const CONTROL_CAP = 256 * 1024;
 export const DATA_CAP = 1024 * 1024;
 export const LIMITS = {
-  path: 4096, argv: 256, argvBytes: 1024 * 1024, env: 64, list: 10_000,
+  path: 4096, argv: 256, argvBytes: 1024 * 1024, env: 1024, envBytes: 128 * 1024, list: 10_000,
   read: 64 * 1024 * 1024, write: 256 * 1024 * 1024, connections: 64, jobs: 64,
 } as const;
 /** The first answer frame of any request arrives within this, or the request fails. */
@@ -317,7 +317,8 @@ export class Guest {
     if (!argv.length || argv.length > LIMITS.argv || argv.reduce((n, a) => n + Buffer.byteLength(a) + 1, 0) > LIMITS.argvBytes)
       throw new GuestError("bad-request", `argv has 1 to ${LIMITS.argv} entries, 1 MiB in all`);
     const env = o.env ?? {};
-    if (Object.keys(env).length > LIMITS.env) throw new GuestError("bad-request", `env has at most ${LIMITS.env} entries`);
+    if (Object.keys(env).length > LIMITS.env || Object.entries(env).reduce((n, [k, v]) => n + Buffer.byteLength(k) + Buffer.byteLength(v) + 2, 0) > LIMITS.envBytes)
+      throw new GuestError("bad-request", `env has at most ${LIMITS.env} entries and 128 KiB`);
     const conn = await this.open({ op: "exec", argv, cwd: checkPath(o.cwd), env, user: o.user ?? "work", stdin: o.stdin ?? false, ...(o.grace !== undefined ? { grace: o.grace } : {}) });
     let started: { job: number; pid: number };
     try { started = expect("exec", await conn.answer("exec"), "exec"); }

@@ -171,8 +171,11 @@ pub fn exec(g: &Arc<Guest>, req: &Req, conn: UnixStream) -> Result<(), Error> {
         return Err(bad("argv is over 1 MiB, or holds a NUL"));
     }
     let env = req.map("env");
-    if env.len() > crate::proto::ENV_MAX || env.iter().any(|(k, v)| k.is_empty() || k.contains('=') || k.contains('\0') || v.contains('\0')) {
-        return Err(bad("env has at most 64 entries, each NAME=value without NUL"));
+    if env.len() > crate::proto::ENV_MAX
+        || env.iter().map(|(k, v)| k.len() + v.len() + 2).sum::<usize>() > crate::proto::ENV_BYTES
+        || env.iter().any(|(k, v)| k.is_empty() || k.contains('=') || k.contains('\0') || v.contains('\0'))
+    {
+        return Err(bad("env has at most 1,024 entries and 128 KiB, each NAME=value without NUL"));
     }
     let cwd = req.path("cwd")?;
     if !std::path::Path::new(&cwd).is_dir() {

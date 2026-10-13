@@ -6,7 +6,8 @@ pub const PROTOCOL: u64 = 1;
 pub const PATH_MAX: usize = 4096;
 pub const ARGV_MAX: usize = 256;
 pub const ARGV_BYTES: usize = 1024 * 1024;
-pub const ENV_MAX: usize = 64;
+pub const ENV_MAX: usize = 1024;
+pub const ENV_BYTES: usize = 128 * 1024;
 
 #[derive(Debug)]
 pub struct Error {

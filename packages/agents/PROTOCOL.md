@@ -55,7 +55,7 @@ names inside a listing.
 | op | request fields | answer |
 |---|---|---|
 | `hello` | `protocol` (int), `tz` (string) | `protocol`, `agent` (version), `image` (string, `""` when unknown), `arch`, `booted` (ms) |
-| `exec` | `argv` (1–256 strings), `cwd`, `env` (object, ≤ 64 string values), `user` (`"work"` or `"root"`), `stdin` (bool), `grace` (ms, optional) | `job`, `pid`; then stdout and stderr frames as the job writes; then the control frame `{"event": "exit", "code": int\|null, "signal": string\|null}` once the job's leader has exited and both pipes have closed |
+| `exec` | `argv` (1–256 strings), `cwd`, `env` (object, ≤ 1,024 string values, 128 KiB in all), `user` (`"work"` or `"root"`), `stdin` (bool), `grace` (ms, optional) | `job`, `pid`; then stdout and stderr frames as the job writes; then the control frame `{"event": "exit", "code": int\|null, "signal": string\|null}` once the job's leader has exited and both pipes have closed |
 | `detach` | `job` | `{}`: the job outlives its `exec` connection |
 | `job.stop` | `job`, `grace` (ms) | `{}`, once the job's process group is gone: TERM, then KILL after `grace` |
 | `job.list` | – | `jobs: [{job, argv, started, exited: {code, signal}\|null, ports: [int]}]` |
@@ -127,7 +127,7 @@ Both sides enforce them; the host before it sends.
 | other frames | 1 MiB |
 | path | 4,096 bytes, no NUL |
 | `argv` | 256 entries, 1 MiB in all |
-| `env` | 64 entries |
+| `env` | 1,024 entries, 128 KiB in all (a person's login environment, in the sandboxed mode) |
 | `list` | 10,000 entries |
 | `read` | 64 MiB |
 | `write` | 256 MiB |
