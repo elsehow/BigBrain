@@ -12,6 +12,7 @@ import { optionalJevKey } from '../lib/jevSettings';
 import { sharedSettingsApi } from '../lib/sharedSettingsApi';
 import { feedLensEvents, lensEventHeadline } from '../lib/lensSync';
 import { connectionStorePath } from '../lib/sharedConnections';
+import { watchServers } from '../lib/serverStore';
 import { sharedWorkspace } from "../lib/sharedWorkspace";
 import { allowVaultRequest, vaultIdentity } from "../lib/vaultBoundary";
 import { ApplicationChanges } from "../lib/applicationChanges";
@@ -840,6 +841,8 @@ export function start(): void {
   if (!secret) throw new Error(`no viewer session at ${viewerSessionPath(PORT)}; the supervisor writes it at start`);
   const allowSession = viewerGate(secret, PORT);
   live.start();
+  // a joined server's follower landing a new head (lib/serverStore.ts) moves the joined stamp
+  try { watchServers(connectionStorePath(), () => live.refreshViews()); } catch { /* no settings directory yet */ }
   // Pilot's live reads are dispatched in this process.
   logIntegrationCalls(ROOT);
   // The projection is warmed HERE, before the port opens, so the first

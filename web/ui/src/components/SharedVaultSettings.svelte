@@ -13,7 +13,7 @@
  type Note={id:string;title:string;by:string|null;at:string;path:string};
  type Person={handle:string;display:string;role:string};
  const FACES=7,PAGE=10;
- let data=$state<{evaluator?:string;name:string;endpoint:string;identity:{handle:string;role:string;display:string;permissions:string[];vault?:{recommended_rules?:{id:string;text:string;mentions:string[]}[]}};items:(Contribution&{lenses:string[]})[]}|null>(null);
+ let data=$state<{evaluator?:string;sync?:{syncedAt?:string;error?:{message:string;at:string}};name:string;endpoint:string;identity:{handle:string;role:string;display:string;permissions:string[];vault?:{recommended_rules?:{id:string;text:string;mentions:string[]}[]}};items:(Contribution&{lenses:string[]})[]}|null>(null);
  let notes=$state<Note[]|null>(null),people=$state<Person[]>([]),peopleOpen=$state(false),peopleQuery=$state('');
  let tab=$state<'all'|'yours'>('all'),query=$state(''),hits=$state<Set<string>|null>(null),showAll=$state(false);
  const activeItems=$derived(data?.items.filter(item=>item.status==='active')??[]);
@@ -46,7 +46,8 @@
  $effect(()=>{if(sharedSettings.invite&&sharedSettings.prefill){invite=sharedSettings.prefill;sharedSettings.prefill='';}});
  $effect(()=>{const id=sharedSettings.selected;if(id){tab='all';query='';hits=null;showAll=false;data=null;notes=null;people=[];void load().catch(e=>notice={ok:false,text:e.message});void loadNotes().catch(e=>notice={ok:false,text:e.message});void loadPeople().catch(()=>{});void loadLenses().catch(()=>{});}});
 </script>
-<SettingsPage active="sharedVaultSettings" title={data?.name.toUpperCase()??'SERVERS'} count={data?`${new URL(data.endpoint).host} · ${writable?'read and write':'read only'}`:undefined} {notice}>
+<SettingsPage active="sharedVaultSettings" title={data?.name.toUpperCase()??'SERVERS'} count={data?`${new URL(data.endpoint).host} · ${writable?'read and write':'read only'}`:undefined}
+  notice={notice ?? (data?.sync?.error ? { ok: false, text: `This computer's copy stopped updating ${data.sync.syncedAt ? `after ${new Date(data.sync.syncedAt).toLocaleString()}` : "before its first sync"}: ${data.sync.error.message}. What it held is still shown.` } : null)}>
  {#if data}
  {#if people.length}<button class="people" aria-label={people.length===1?'Show 1 person':`Show all ${people.length} people`} onclick={()=>peopleOpen=true}>
   {#each faces.slice(0,FACES) as p (p.handle)}<span class="face" class:admin={p.role==='owner'} title={p.role==='owner'?`${names.get(p.handle)}, admin`:names.get(p.handle)}>{(p.display.trim()[0]??'?').toUpperCase()}</span>{/each}

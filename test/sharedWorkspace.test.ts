@@ -8,6 +8,7 @@ import { allowLoopbackRequest } from '../lib/httpx';
 import { makeSharedApiHandler } from '../lib/sharedVaultApi';
 import { initMemberStore, addMember, mintCredential, revokeCredential } from '../lib/sharedMembers';
 import { saveConnection, endpointURL } from '../lib/sharedConnections';
+import { followServers } from '../lib/serverStore';
 
 test('shared shell adapter isolates records, protects credentials, and respects permissions and revocation', async () => {
   const home = mkdtempSync(join(tmpdir(), 'bb-shared-shell-')), root = join(home, 'vault'), members = join(home,'members.json'), store = join(home,'connections.json');
@@ -40,10 +41,11 @@ test('shared shell adapter isolates records, protects credentials, and respects 
     const note = await (await request('/api/note?path='+encodeURIComponent(receipt.path))).json() as {content:string;sourceAssertions:unknown[]};
     expect(note.content).toContain('launches next week'); expect(note.sourceAssertions).toHaveLength(1);
     expect((await request('/api/search?q=launches')).status).toBe(200);
-    // the vault's door asks only whether the member may still read: no pull of the vault
+    // a read asks the server nothing: it answers from this computer's copy (lib/serverStore.ts)
     const before = remoteCalls;
     expect(await (await request('/api/vault')).json()).toEqual({});
-    expect(remoteCalls - before).toBe(1);
+    expect((await request('/api/graph')).status).toBe(200);
+    expect(remoteCalls - before).toBe(0);
     for (const path of ['/api/config','/api/pilot/chat/send','/api/setup/vault','/api/enqueue']) expect((await request(path,{})).status).toBe(403);
     expect((await request('/api/note?path=../../personal.md')).status).toBe(404);
     expect((await request('/api/drop',{name:'Denied',content:'No'},readonly.id)).status).toBe(403);
@@ -51,8 +53,10 @@ test('shared shell adapter isolates records, protects credentials, and respects 
     expect((await request('/api/graph',undefined,connection.id,{'x-bigbrain-vault':'personal'})).status).toBe(409);
     expect(personalCalls).toBe(0);
     revokeCredential(members,owner.credential.id);
-    expect((await request('/api/graph')).status).toBe(401);
-    expect((await request('/api/drop',{name:'Denied',content:'Revoked'})).status).toBe(401);
+    // the follower hears it, and the copy goes with the access
+    await followServers(store);
+    expect((await request('/api/graph')).status).toBe(403);
+    expect((await request('/api/drop',{name:'Denied',content:'Revoked'})).status).toBe(403);
     expect(personalCalls).toBe(0);
     expect((await fetch(base+'/api/graph')).status).toBe(200); expect(personalCalls).toBe(1);
   } finally { local.closeAllConnections(); local.close(); remote.stop(true); }

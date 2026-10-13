@@ -45,6 +45,8 @@ export const CADENCE: Readonly<Record<string, number>> = {
   lenses: 60,
   // admits what integrations staged, through the worth gate (likewise)
   admission: 60,
+  // follows each joined server into this computer's copy of it (lib/serverStore.ts)
+  servers: 30,
   // removes agent scratch nothing will read again (lib/scratchPrune.ts)
   prune: 86_400,
 };
