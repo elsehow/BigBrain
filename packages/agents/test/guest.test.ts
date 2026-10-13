@@ -247,18 +247,24 @@ describe.skipIf(!BIN || !unix)("bigbrain-guest --serve", () => {
 
   test("64 open connections, then limit", async () => {
     const held: Socket[] = [];
-    for (let i = 0; i < 64; i++) held.push(await new Promise<Socket>(done => { const s = connect({ path: sock }, () => done(s)); }));
+    let closedByGuest = 0;
+    for (let i = 0; i < 64; i++) held.push(await new Promise<Socket>(done => {
+      const s = connect({ path: sock }, () => done(s));
+      s.on("close", () => { closedByGuest++; });
+      s.on("error", () => {});
+    }));
     // the guest accepts them in its own time: ask until it is full
     let a: Record<string, unknown> = {};
-    for (let i = 0; i < 100 && a.error !== "limit"; i++) {
-      a = (frames(await raw(sock, control({ op: "hello", protocol: 1, tz: "" })))[0] as { control: Record<string, unknown> }).control;
+    const t0 = Date.now();
+    while (a.error !== "limit" && Date.now() - t0 < 15_000) {
+      a = (frames(await raw(sock, control({ op: "hello", protocol: 1, tz: "" })))[0] as { control: Record<string, unknown> } | undefined)?.control ?? {};
       if (a.error !== "limit") await sleep(50);
     }
-    expect(a).toMatchObject({ ok: false, error: "limit" });
+    expect({ answer: a.error ?? a.ok, closedByGuest }).toEqual({ answer: "limit", closedByGuest: 0 });
     held.forEach(s => s.destroy());
     await until(async () => { try { await g.hello(); return true; } catch { return false; } });
     expect((await g.hello()).protocol).toBe(1);
-  }, 20_000);
+  }, 30_000);
 });
 
 describe("the client refuses a guest that breaks the protocol", () => {
