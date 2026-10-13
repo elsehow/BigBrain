@@ -256,7 +256,7 @@ export async function runTend(opts: TendOpts): Promise<TendResult> {
     if (due.due) {
       const runner = opts.memoryRunner ?? runMemory;
       memory = await runner({
-        root, manifest, warmBriefings: true,
+        root, manifest,
         ...(opts.force ? { force: true } : {}),
         ...(opts.loadPi ? { loadPi: opts.loadPi } : {}),
       });
@@ -278,6 +278,7 @@ export async function runTend(opts: TendOpts): Promise<TendResult> {
  * chain admits or passes. */
 export const classicChain: Chain<TendResult> = {
   name: "classic",
+  job: "tend",
   due(root: string, opts: { now?: Date } = {}) {
     return {
       source: dueIntakeIds(root).length + stagedIds(root).length,

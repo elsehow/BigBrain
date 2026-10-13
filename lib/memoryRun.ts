@@ -22,7 +22,6 @@ import { runModel, type ModelRunResult, type RunUsage } from "./run/model";
 import type { RunMeter } from "./meterTypes";
 import { sha256hex } from "./hash";
 import { clip } from "./text";
-import { proposeEntityFolds, readEntityFolds } from "./entityFolds";
 import { readMemorySnapshot, renderMemoryContext, type MemorySnapshot } from "./memoryContext";
 import { sharedCite, unknownSharedCitations, type SharedMemory } from "./sharedMemory";
 import { stampMemoryProvenance } from "./memoryProvenance";
@@ -55,8 +54,6 @@ export interface MemoryRunOpts {
   manifest: Manifest;
   /** run regardless of due-ness (a vault with no stamp is never auto-due) */
   force?: boolean;
-  /** Production runners warm disposable Quick previews after successful commits. */
-  warmBriefings?: boolean;
   /** the native regeneration posture (#459): run at cursor zero with the
    * old memory/ tree moved into an isolated backup first, so the record
    * alone is the input. Implies force — an explicit operator act. */
@@ -338,7 +335,6 @@ export async function runMemory(opts: MemoryRunOpts): Promise<MemoryRunResult> {
 
   const startedAt = new Date();
   const runId = newRunId(startedAt);
-  let warmCompletedMemory = false;
 
   const edits = new MemoryEdits(root);
   try {
@@ -521,43 +517,6 @@ export async function runMemory(opts: MemoryRunOpts): Promise<MemoryRunResult> {
       });
     }
 
-    // The pass's second job (#728): the labels that name one thing, as
-    // proposals for the operator (lib/entityFolds.ts). After the gates, so
-    // a reverted sweep proposes nothing; on the sweep's model; over the
-    // entities that gained a claim since the last proposal, no tools, one
-    // turn. Its failure is its own — journaled under `folds`, never the
-    // sweep's error: a fold missed today is proposed tomorrow, and a day's
-    // memory is not worth losing over it. Its spend counts toward the run's.
-    let folds: Record<string, unknown> | undefined;
-    let foldsUsage: RunUsage | undefined;
-    if (!error) {
-      const t2 = Date.now();
-      try {
-        const since = readEntityFolds(root)?.proposedAt;
-        const r = await proposeEntityFolds(root, {
-          target: manifest.memory,
-          auth: manifest.auth,
-          ...(since !== undefined ? { since } : {}),
-          ...(opts.loadPi ? { loadPi: opts.loadPi } : {}),
-        });
-        foldsUsage = r.ran ? r.folds.usage : undefined;
-        folds = {
-          ran: r.ran,
-          changed: r.changed,
-          census: r.folds.census,
-          groups: r.folds.groups.length,
-          dropped: r.folds.dropped.length,
-          ...(r.ran && r.folds.sessionId ? { session: r.folds.sessionId } : {}),
-          ...(foldsUsage ? { usage: foldsUsage } : {}),
-          wallMs: Date.now() - t2,
-        };
-        if (r.ran) console.log(`${MEMORY_ROLE}: folds — ${r.changed} entity(ies) in the question, ${r.folds.groups.length} group(s) standing`);
-      } catch (e) {
-        folds = { error: e instanceof Error ? e.message : String(e), wallMs: Date.now() - t2 };
-        console.warn(`${MEMORY_ROLE}: folds failed — ${folds["error"]}`);
-      }
-    }
-
     const nextRunAt = new Date(Date.now() + manifest.memory.intervalMs).toISOString();
     const lastAst = asts.at(-1);
     const lastIns = inss.at(-1);
@@ -594,8 +553,7 @@ export async function runMemory(opts: MemoryRunOpts): Promise<MemoryRunResult> {
       ...(trims.length ? { trims } : {}),
       // a citation repair turn (#113) is part of the run the same way
       ...(citationRepair ? { citationRepair } : {}),
-      ...(trims.length || foldsUsage || repairUsage ? journalTotals(run, trims, sumUsage([foldsUsage, repairUsage])) : {}),
-      ...(folds ? { folds } : {}),
+      ...(trims.length || repairUsage ? journalTotals(run, trims, sumUsage([repairUsage])) : {}),
       // the tree as the run left it, before any revert — the size
       // trajectory is answerable from the journal, run by run
       ...(measured ? { tree: measured } : {}),
@@ -663,7 +621,6 @@ export async function runMemory(opts: MemoryRunOpts): Promise<MemoryRunResult> {
       lastCommit: committed ? gitOut(root, ["rev-parse", "HEAD"]) : stamp.lastCommit,
     });
     if (committed) pokePublish(root);
-    warmCompletedMemory = !!opts.warmBriefings;
     console.log(
       `${MEMORY_ROLE}: done — ${changed} file(s) in tree${committed ? ", committed" : ", no changes"}`
     );
@@ -685,14 +642,8 @@ export async function runMemory(opts: MemoryRunOpts): Promise<MemoryRunResult> {
   } finally {
     lock.release();
     // What the pass wrote (or restored), through the notes door: no read
-    // looks at the files, and the briefings warmed next read the graph.
+    // looks at the files. Fold proposals and briefing warming, which read
+    // what the pass committed, are chains of their own (lib/chains.ts).
     try { projectNotes(root, ["memory"]); } catch { /* the viewer's watcher, or the next start, projects them */ }
-    if (warmCompletedMemory) {
-      try {
-        const { warmMemoryBriefings } = await import("./memoryBriefings");
-        await warmMemoryBriefings(root);
-      } catch (error) { console.warn("Quick memory preview warming failed:", error); }
-    }
-
   }
 }

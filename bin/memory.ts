@@ -24,7 +24,6 @@ await refreshSharedMemory(VAULT_ROOT).catch(() => {});
 
 const res = await runMemory({
   root: VAULT_ROOT,
-  warmBriefings: true,
   manifest: loadManifest(VAULT_ROOT),
   force: process.argv.includes("--force"),
   fromScratch: process.argv.includes("--from-scratch"),

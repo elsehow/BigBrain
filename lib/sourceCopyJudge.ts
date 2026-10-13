@@ -4,7 +4,7 @@
  * lib/sourceCopyLog.ts. Jev when the person has a key, else Quick — the
  * switch lib/sharedRuleEvaluator.ts makes. A pair whose call fails is left
  * unjudged: it is still asked of the person, and the next pass tries again.
- * Run by the supervisor (bin/copies.ts).
+ * Run by the supervisor as the copies chain (lib/chains.ts).
  */
 
 import { randomUUID } from "node:crypto";

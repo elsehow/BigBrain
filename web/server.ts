@@ -5,13 +5,11 @@ import {logIntegrationCalls} from '../lib/readLog';
 import {inclusionReviewApi} from '../lib/inclusionReviewApi';
 import {lensApi} from '../lib/lensApi';
 import {readLens} from '../lib/lenses';
-import {tickIntegrationAdmission} from '../lib/integrationAdmission';
 import { unionGraph, unionRecent, unionSearch, unionNote, vaultFilter, includesPersonal, personalOnly, serverBriefingRecord, serverGraph, sharedEntityClaims } from '../lib/sharedReadUnion';
 import { jevSettingsApi } from '../lib/jevSettingsApi';
 import { optionalJevKey } from '../lib/jevSettings';
 import { sharedSettingsApi } from '../lib/sharedSettingsApi';
-import { feedLensEvents, lensEventHeadline, tickLenses } from '../lib/lensSync';
-import { tickPublishing } from '../lib/sharedAssertionPublish';
+import { feedLensEvents, lensEventHeadline } from '../lib/lensSync';
 import { connectionStorePath } from '../lib/sharedConnections';
 import { sharedWorkspace } from "../lib/sharedWorkspace";
 import { allowVaultRequest, vaultIdentity } from "../lib/vaultBoundary";
@@ -874,7 +872,6 @@ export function start(): void {
   // server's death.
   const metrics = isDesktop() ? telemetry(ROOT) : undefined;
   metrics?.start();
-  const sharedRuleTimer=setInterval(()=>{void tickLenses(ROOT,connectionStorePath()).then(()=>tickPublishing(ROOT,connectionStorePath()));void tickIntegrationAdmission(ROOT).catch(()=>{});},30000);sharedRuleTimer.unref();
   const server = createServer(async (req, res) => {
     armor(res);
     if (!allowLoopbackRequest(req, res)) return;
