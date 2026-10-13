@@ -89,7 +89,7 @@ export function syntheticVault(root: string, opts: SyntheticVaultOpts = {}): Syn
   mkdirSync(root, { recursive: true });
   if (readdirSync(root).length) throw new Error(`syntheticVault: ${root} is not empty`);
   writeFileSync(join(root, "vault.yaml"), `# A synthetic vault (test/support/syntheticVault.ts): every word in it is invented.\n${
-    readFileSync(join(import.meta.dir, "..", "..", "vault.example.yaml"), "utf8")}`);
+    readFileSync(join(import.meta.dir, "..", "..", "vault.example.yaml"), "utf8")}\n# The feed journal below is read.\nfeed:\n  since: 2026-01-01\n`);
   writeFileSync(join(root, ".gitignore"), readFileSync(join(import.meta.dir, "..", "..", "deploy", "vault-template", "gitignore"), "utf8"));
 
   const people: AssertionEntity[] = [];
