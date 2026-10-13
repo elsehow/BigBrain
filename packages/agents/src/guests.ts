@@ -44,6 +44,11 @@ export interface Guests {
   /** The host's own path for a guest path, for the host's hooks (OpenOptions.write and .file);
    * throws for a path the file tools never write. Absent where the guest's files aren't the host's. */
   real?(abs: string, rel: string): string;
+  /** Where a guest's listening port is reached from this computer, when the
+   * guest's loopback isn't this computer's (a machine): a host loopback port
+   * forwarded to it, opened on first ask and kept until `unforward`. */
+  forward?(desktop: string, port: number): Promise<number>;
+  unforward?(desktop: string, port: number): void;
   /** Which desktop holds a port on this machine, if any does. */
   holder?(port: number): Promise<string | undefined>;
   /** Stop everything a desktop runs. Returns how many guests or process groups. */

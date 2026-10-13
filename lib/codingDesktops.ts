@@ -651,7 +651,7 @@ export class CodingDesktops {
         return change(d => openView(d, view, viewId(), { userAsked: a.user_asked === true }));
       }, a => `Showed ${String(a.path ?? "a note")}`),
       tool("show_page", async a => {
-        const url = rule(() => loopbackUrl(a.url));
+        const url = await this.shown(id, rule(() => loopbackUrl(a.url)));
         const title = typeof a.title === "string" && a.title.trim() ? a.title.trim().slice(0, 60) : new URL(url).host;
         return change(d => openView(d, { kind: "url", path: url, title, at: new Date().toISOString() }, viewId(), { userAsked: a.user_asked === true }));
       }, a => `Showed ${String(a.url ?? "a page")}`),
@@ -670,6 +670,20 @@ export class CodingDesktops {
       }, () => "Closed a view"),
       tool("arrange_desktop", async a => change(d => arrangeDesktop(d, a.layout, "agent")), () => "Arranged the desktop"),
     ];
+  }
+
+  /** Where a page a desktop serves is shown from: a contained desktop's address
+   * names its machine's port, reached here through that port's forward. */
+  private async shown(id: string, url: string): Promise<string> {
+    if (!this.contained(this.get(id))) return url;
+    const u = new URL(url);
+    const port = Number(u.port || 80);
+    const open = await this.peek(id);
+    const server = (await open?.servers().catch(() => []) ?? []).find(s => s.port === port);
+    if (!server?.hostPort) throw new CodingDesktopError(`Nothing in your machine is serving on port ${port}. Start the server with bash first; its result says where it listens.`);
+    u.hostname = "127.0.0.1";
+    u.port = String(server.hostPort);
+    return u.href;
   }
 
   // ── the live stream ───────────────────────────────────────────────────────

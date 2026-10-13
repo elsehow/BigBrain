@@ -19,6 +19,7 @@
  *   connection is from the socket it arrives on.
  */
 import { existsSync } from "node:fs";
+import { createServer, type Server, type Socket } from "node:net";
 import { dirname, join, resolve } from "node:path";
 import type { Guest } from "./guest";
 import type { Guests, Prepared } from "./guests";
@@ -66,6 +67,8 @@ export interface MachinesOptions {
 
 interface Entry {
   machine: Machine;
+  /** Guest port → its forward: a host loopback listener joined to the guest's port by connect. */
+  forwards: Map<number, { server: Server; port: number; sockets: Set<Socket> }>;
   jobs: number;
   used: number;
   starting?: Promise<void>;
@@ -97,9 +100,9 @@ export class Machines implements Guests {
         dir: join(stateFolder(this.o.ws, desktop), "vm"), image: { kernel: "", initramfs: "", rootfs: "" },
         backend: this.o.backend, helper: this.o.helper, cpus: this.o.cpus, memoryMiB: this.o.memoryMiB?.(), tz: this.o.tz,
         egress: path => this.o.proxy.serveDesktop(desktop, path),
-        onExit: why => { this.o.proxy.unserveDesktop(desktop); this.emit(desktop, { type: "machine.failed", message: why, console: "" }); },
+        onExit: why => { this.unforwardAll(desktop); this.o.proxy.unserveDesktop(desktop); this.emit(desktop, { type: "machine.failed", message: why, console: "" }); },
       });
-      e = { machine, jobs: 0, used: 0, failures: [] };
+      e = { machine, forwards: new Map(), jobs: 0, used: 0, failures: [] };
       this.entries.set(desktop, e);
     }
     return e;
@@ -167,9 +170,55 @@ export class Machines implements Guests {
     };
   }
 
+  /** A host loopback port forwarded to the guest's `port` (the plan's Previews). */
+  async forward(desktop: string, port: number): Promise<number> {
+    const e = this.entry(desktop);
+    const known = e.forwards.get(port);
+    if (known) return known.port;
+    const sockets = new Set<Socket>();
+    const server = createServer(client => {
+      sockets.add(client);
+      client.on("close", () => sockets.delete(client));
+      client.on("error", () => client.destroy());
+      // held by hand until the guest says yes: bun's paused server socket doesn't give back what it buffered
+      const early: Buffer[] = [];
+      const hold = (d: Buffer) => early.push(d);
+      client.on("data", hold);
+      e.machine.guest().connect(port).then(up => {
+        sockets.add(up);
+        up.on("close", () => { sockets.delete(up); client.destroy(); });
+        up.on("error", () => client.destroy());
+        client.on("close", () => up.destroy());
+        client.off("data", hold);
+        for (const b of early) up.write(b);
+        client.pipe(up); up.pipe(client); up.resume();
+      }).catch(() => client.destroy());
+    });
+    const hostPort = await new Promise<number>((done, fail) => {
+      server.once("error", fail);
+      server.listen(0, "127.0.0.1", () => done((server.address() as { port: number }).port));
+    });
+    server.unref();
+    e.forwards.set(port, { server, port: hostPort, sockets });
+    return hostPort;
+  }
+
+  unforward(desktop: string, port: number): void {
+    const f = this.entries.get(desktop)?.forwards.get(port);
+    if (!f) return;
+    f.server.close();
+    for (const s of f.sockets) s.destroy();
+    this.entries.get(desktop)!.forwards.delete(port);
+  }
+
+  private unforwardAll(desktop: string): void {
+    for (const port of [...this.entries.get(desktop)?.forwards.keys() ?? []]) this.unforward(desktop, port);
+  }
+
   /** Stop a desktop's machine: its guest powers off. Its disk stays. */
   async stop(desktop: string, why = "stopped"): Promise<void> {
     const e = this.entries.get(desktop);
+    if (e) this.unforwardAll(desktop);
     if (!e || e.machine.state === "stopped") return;
     await e.machine.stop();
     this.o.proxy.unserveDesktop(desktop);

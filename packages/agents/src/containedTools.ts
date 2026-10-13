@@ -22,7 +22,7 @@ export interface ContainedContext {
   ws: Workspace; desktop: string; harbor: Harbor;
   opened(record: CopyRecord): void;
   synced(project: string, from: string, to: string): void;
-  server(port: number, job: number, command: string): void;
+  server(port: number, job: number, command: string, hostPort?: number): void;
   /** The host's word on a path the machine doesn't have (OpenOptions.elsewhere): a vault note, say. */
   elsewhere?(path: string): string | undefined;
 }
@@ -146,7 +146,7 @@ export function containedTools(ctx: ContainedContext): AgentTool[] {
             ? "\n[The proxy refused a host. Your machine reaches only package registries, GitHub and hosts your person allows; request_host asks for another.]" : "";
           return { text: `${tail(result.output) || "(no output)"}\n[exit ${result.code ?? result.signal}]${note}`, label: `Ran ${short(command)}${ok ? "" : ` (exit ${result.code ?? result.signal})`}`, ok };
         }
-        for (const port of result.ports) ctx.server(port, result.job, command);
+        for (const port of result.ports) ctx.server(port, result.job, command, result.hostPorts[port]);
         const label = result.ports.length ? `Started ${short(command)} on :${result.ports.join(", :")}` : `Still running ${short(command)}`;
         return { text: `${tail(result.output)}\n[${result.note}]`, label, ok: true };
       },

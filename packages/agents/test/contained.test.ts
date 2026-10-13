@@ -154,6 +154,24 @@ describe.skipIf(!enabled)(`a contained desktop (${BACKEND})`, () => {
     await machines.stopAll();
   }, 180_000);
 
+  test("previews: a server in the machine is found by its job, reached through a forward, and the forward closes with the job", async () => {
+    const { ws } = scene();
+    const machines = machinesFor(ws);
+    const harbor = new Agents(ws, new Harbor({ env: {}, discovery: false }), machines).contained!;
+    const r = await harbor.run("desk-p1", `bun -e "Bun.serve({ port: 5173, hostname: '127.0.0.1', fetch: () => new Response('orrery page') }); console.log('up')"`, "/work");
+    expect(r.status).toBe("running");
+    if (r.status !== "running") return;
+    expect(r.ports).toEqual([5173]);
+    const hostPort = r.hostPorts[5173]!;
+    expect(hostPort).toBeGreaterThan(0);
+    expect(r.note).toContain(`shown at http://127.0.0.1:${hostPort}`);
+    for (let i = 0; i < 3; i++) expect(await (await fetch(`http://127.0.0.1:${hostPort}/`)).text()).toBe("orrery page");
+    expect((await harbor.servers("desk-p1")).map(s => [s.port, s.hostPort])).toEqual([[5173, hostPort]]);
+    await harbor.stopJob(r.job);
+    await expect(fetch(`http://127.0.0.1:${hostPort}/`)).rejects.toThrow();
+    await machines.stopAll();
+  }, 120_000);
+
   test("one machine at a time: starting a second stops the idle first, and says so", async () => {
     const { ws } = scene();
     const machines = machinesFor(ws, 1);

@@ -28,12 +28,14 @@ export interface Job {
   pid: number; started: string;
   exited?: { code: number | null; signal: string | null };
   ports: number[];
+  /** Where each port is reached from this computer, when that differs (a machine's forwards). */
+  hostPorts: Record<number, number>;
   output(): string;
 }
 interface JobState extends Job { guest: Guest; guestJob: number; execution: Execution; done: Promise<void> }
 export type RunResult =
   | { status: "exited"; code: number | null; signal: string | null; output: string; job: number }
-  | { status: "running"; job: number; ports: number[]; output: string; note: string };
+  | { status: "running"; job: number; ports: number[]; hostPorts: Record<number, number>; output: string; note: string };
 
 export interface HarborOptions extends LocalGuestsOptions {
   settleMs?: number;              // how long before a still-running command may return as a job
@@ -74,7 +76,7 @@ export class Harbor {
     catch (e) { p.done(); throw e; }
     const id = this.next++;
     const job: JobState = {
-      id, desktop, command, cwd, pid: execution.pid, started: new Date().toISOString(), ports: [],
+      id, desktop, command, cwd, pid: execution.pid, started: new Date().toISOString(), ports: [], hostPorts: {},
       guest: p.guest, guestJob: execution.job, execution, done: Promise.resolve(), output: () => buf.join(""),
     };
     this.jobs.set(id, job);
@@ -82,7 +84,11 @@ export class Harbor {
       x => { job.exited = x; },
       // the guest went away mid-job: the job is gone with it
       () => { job.exited = { code: null, signal: "SIGKILL" }; },
-    ).finally(() => p.done());
+    ).finally(() => {
+      p.done();
+      // a job's forwards close with it
+      for (const port of job.ports) this.guests.unforward?.(desktop, port);
+    });
     const onAbort = () => { void this.stopJob(id); };
     signal?.addEventListener("abort", onAbort, { once: true });
 
@@ -97,12 +103,14 @@ export class Harbor {
           const ports = (await p.guest.ports().catch(() => [])).filter(l => l.job === job.guestJob).map(l => l.port);
           if (ports.length) {
             job.ports = [...new Set(ports)].sort((a, b) => a - b);
-            return { status: "running", job: id, ports: job.ports, output: job.output(),
-              note: `Still running as job ${id}; listening on ${job.ports.map(p => `127.0.0.1:${p}`).join(", ")}.` };
+            if (this.guests.forward) for (const port of job.ports) job.hostPorts[port] = await this.guests.forward(desktop, port);
+            const where = job.ports.map(p => job.hostPorts[p] ? `127.0.0.1:${p}, shown at http://127.0.0.1:${job.hostPorts[p]}` : `127.0.0.1:${p}`);
+            return { status: "running", job: id, ports: job.ports, hostPorts: job.hostPorts, output: job.output(),
+              note: `Still running as job ${id}; listening on ${where.join("; ")}.` };
           }
         }
         if (elapsed >= waitMs)
-          return { status: "running", job: id, ports: [], output: job.output(), note: `Still running as job ${id} after ${Math.round(waitMs / 1000)}s; it keeps running in the background.` };
+          return { status: "running", job: id, ports: [], hostPorts: {}, output: job.output(), note: `Still running as job ${id} after ${Math.round(waitMs / 1000)}s; it keeps running in the background.` };
       }
     } finally {
       signal?.removeEventListener("abort", onAbort);
@@ -124,17 +132,19 @@ export class Harbor {
   job(id: number): Job | undefined { return this.jobs.get(id); }
 
   /** The servers a desktop is running now: its live jobs' listening ports. */
-  async servers(desktop: string): Promise<Array<{ port: number; pid: number; job?: number; command?: string }>> {
+  async servers(desktop: string): Promise<Array<{ port: number; pid: number; job?: number; command?: string; hostPort?: number }>> {
     const live = this.jobsFor(desktop).filter(j => !j.exited) as JobState[];
     const guests = [...new Set(live.map(j => j.guest))];
     const found = (await Promise.all(guests.map(g => g.ports().then(ps => ps.map(p => ({ ...p, guest: g }))).catch(() => [])))).flat();
     const seen = new Set<number>();
-    const out: Array<{ port: number; pid: number; job?: number; command?: string }> = [];
+    const out: Array<{ port: number; pid: number; job?: number; command?: string; hostPort?: number }> = [];
     for (const l of found) {
       const job = live.find(j => j.guest === l.guest && j.guestJob === l.job);
       if (!job || seen.has(l.port)) continue;
       seen.add(l.port);
-      out.push({ port: l.port, pid: l.pid, job: job.id, command: job.command });
+      const hostPort = job.hostPorts[l.port] ?? (this.guests.forward ? await this.guests.forward(desktop, l.port) : undefined);
+      if (hostPort) job.hostPorts[l.port] = hostPort;
+      out.push({ port: l.port, pid: l.pid, job: job.id, command: job.command, ...(hostPort ? { hostPort } : {}) });
     }
     return out.sort((a, b) => a.port - b.port);
   }

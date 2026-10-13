@@ -196,8 +196,8 @@ export class Desktop {
       ws: this.ws, desktop: this.id, harbor: this.harbor, elsewhere: options.elsewhere,
       opened: r => { saveCopy(this.ws, this.id, r); this.emit({ type: "project.opened", project: r.project, base: r.base, branch: r.branch, ms: r.ms, bytes: r.bytes }); },
       synced: (project, from, to) => this.emit({ type: "project.synced", project, from, to }),
-      server: (port, job, command) => {
-        this.emit({ type: "server.started", port, job, command });
+      server: (port, job, command, hostPort) => {
+        this.emit({ type: "server.started", port, job, command, ...(hostPort ? { hostPort } : {}) });
         void this.harbor.whenExited(job).then(x => this.emit({ type: "server.exited", job, code: x?.code ?? null }));
       },
     }) : codingTools({

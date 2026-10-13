@@ -28,7 +28,7 @@ export interface AgentTool {
 export interface ToolContext {
   ws: Workspace; desktop: string; harbor: Harbor;
   started(record: WorkRecord): void;
-  server(port: number, job: number, command: string): void;
+  server(port: number, job: number, command: string, hostPort?: number): void;
   /** The host's word on a path outside the workspace (OpenOptions.elsewhere). */
   elsewhere?(path: string): string | undefined;
   /** The host's word on a shell command before it runs (OpenOptions.shell). */
@@ -198,7 +198,7 @@ export function codingTools(ctx: ToolContext): AgentTool[] {
             : !ok && /Operation not permitted|403 Forbidden/.test(result.output) ? `\n[The sandbox may have refused that. Commands write only ${untrusted ? `your own folder (desktops/${ctx.desktop}/…)` : "your own folder and projects no other desktop is editing"} and your temp folder, reach the internet only through a proxy to allowlisted hosts, and can't reach your person's credentials or other programs.]` : "";
           return { text: `${tail(result.output) || "(no output)"}\n[exit ${result.code ?? result.signal}]${note}`, label: `Ran ${short(command)}${ok ? "" : ` (exit ${result.code ?? result.signal})`}`, ok };
         }
-        for (const port of result.ports) ctx.server(port, result.job, command);
+        for (const port of result.ports) ctx.server(port, result.job, command, result.hostPorts[port]);
         const label = result.ports.length ? `Started ${short(command)} on :${result.ports.join(", :")}` : `Still running ${short(command)}`;
         return { text: `${tail(result.output)}\n[${result.note}]`, label, ok: true };
       },
