@@ -14,7 +14,7 @@
  * A caller that skips the filter does not compile; getting past one takes a
  * cast, and a cast can be found.
  */
-import { assertionSourceReferences, type AssertionEvent, type AssertionSourceReference } from "../assertionLog";
+import { assertionSourceReferences, type AssertionEvent, type AssertionSourceReference, type IdentityAssertion } from "../assertionLog";
 import { assertionSuperseded } from "../sourceSupersede";
 
 declare const scoped: unique symbol;
@@ -52,4 +52,13 @@ export function inLens<L extends string>(live: Live, _lens: L, members: Readonly
  * which `shared` says is shared there, exactly as cited. */
 export function publishableTo<S extends string>(live: Live, _server: S, shared: (ref: AssertionSourceReference) => boolean): Publishable<S> {
   return live.filter((row) => all(row, shared)) as readonly AssertionEvent[] as Publishable<S>;
+}
+
+/** Server `server`'s share of the identity assertions: those citing sources,
+ * every one of them shared there (step 7). An alias, which cites nothing,
+ * never is. */
+export type PublishableIdentities<S extends string> = readonly IdentityAssertion[] & { readonly [scoped]: { server: S; identity: true } };
+export function identitiesPublishableTo<S extends string>(identities: readonly IdentityAssertion[], _server: S,
+  shared: (ref: AssertionSourceReference) => boolean): PublishableIdentities<S> {
+  return identities.filter((e) => e.sources.length > 0 && e.sources.every(shared)) as readonly IdentityAssertion[] as PublishableIdentities<S>;
 }

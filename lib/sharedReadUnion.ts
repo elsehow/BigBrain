@@ -43,7 +43,7 @@ const EMPTY_VIEW=sharedProjection([],[]);
 export function viewOf(c:SharedConnection,store=connectionStorePath()):View{
  const {snapshot}=readServer(store,c.id);if(!snapshot)return EMPTY_VIEW;
  const hit=cached.get(c.id);if(hit?.head===snapshot.head)return hit.view;
- const view=sharedProjection(snapshot.evidence,snapshot.assertions as AssertionView[]);cached.set(c.id,{head:snapshot.head,view});return view;
+ const view=sharedProjection(snapshot.evidence,snapshot.assertions as AssertionView[],snapshot.identities??[]);cached.set(c.id,{head:snapshot.head,view});return view;
 }
 /** How each joined server's copy stands: what a field shows beside it. */
 export function serverStatuses(store=connectionStorePath()):(ServerStatus&{id:string;name:string})[]{

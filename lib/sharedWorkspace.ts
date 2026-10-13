@@ -6,7 +6,8 @@ import { allowVaultRequest } from './vaultBoundary';
 import { connectionStorePath, readConnections, publicConnection, refreshConnectionNames, saveConnection, connectInvite, sharedRequest, SharedConnectionError, type SharedIdentity } from './sharedConnections';
 import { insertionEventRel, sourceMoment, type SourceInsertion, type SourceMetadata } from './insertionLog';
 import { sourceInsertionMarkdown, insertionFiler } from './sourceFeed';
-import { assertionSourceReferences, type AssertionEvent } from './assertionLog';
+import { assertionSourceReferences, type AssertionEvent, type IdentityAssertion } from './assertionLog';
+import { DEFAULT_CUTOFF } from './sourceCopies';
 import type { AssertionView } from './sharedVault';
 import { followServer, onServerChange, readServer, serverBody } from './serverStore';
 import { serverMatches, viewOf } from './sharedReadUnion';
@@ -18,11 +19,39 @@ import { isUserNode, isUserNote } from './userNote';
 
 const entityPath = (id: string) => `projection/entities/${id}.md`;
 type SharedSource = SourceMetadata & { body?: string; submitted_at?: string };
-export function sharedProjection(sources: SharedSource[], views: AssertionView[]) {
+/** Which of a server's landings are one work, and which entity each landing
+ * is, as its identity assertions say (step 7): the latest word on a pair
+ * stands; a model's score counts from the default cut-off. Each copy draws
+ * as the earliest of them. */
+function serverIdentity(sources: readonly SharedSource[], identities: readonly IdentityAssertion[]) {
+  const latest = new Map<string, IdentityAssertion>();
+  for (const e of [...identities].sort((a, b) => a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : a.id < b.id ? -1 : 1)) {
+    if (e.identity.says !== 'copy' && e.identity.says !== 'not-copy') continue;
+    const [a, b] = e.sources.map(r => r.insertion_id).sort(); latest.set(`${a}|${b}`, e);
+  }
+  const at = new Map(sources.map(s => [s.id, (s.received_at ?? s.occurred_at ?? '') + '\u0000' + s.id]));
+  const parent = new Map<string, string>(), find = (x: string): string => { const p = parent.get(x) ?? x; if (p === x) return x; const r = find(p); parent.set(x, r); return r; };
+  for (const [key, e] of latest) {
+    const same = e.identity.says === 'copy' && (e.identity.score === undefined || e.identity.score >= DEFAULT_CUTOFF);
+    const [a, b] = key.split('|') as [string, string];
+    if (!same || !at.has(a) || !at.has(b)) continue;
+    const [x, y] = [find(a), find(b)];
+    if (x !== y) { const first = (at.get(x)! < at.get(y)!) ? x : y; parent.set(x, first); parent.set(y, first); }
+  }
+  const bindings = identities.flatMap(e => e.identity.says === 'is-source' && e.sources[0] ? [{ entity: e.identity.entity.id, source: e.sources[0].insertion_id }] : []);
+  return { copyOf: (id: string) => find(id), bindings };
+}
+
+export function sharedProjection(sources: SharedSource[], views: AssertionView[], identities: readonly IdentityAssertion[] = []) {
   const assertions = views.filter(v => !v.revocation).map(v => v.assertion);
+  const { copyOf, bindings } = serverIdentity(sources, identities);
   const byId = new Map(sources.map(s => [s.id, s]));
   const entities = new Map(assertions.flatMap(a => a.entities.map(e => [e.id, e] as const)));
-  const nodes: GraphNode[] = sources.map(s => ({ id: `source:${s.id}`, title: s.title, path: insertionEventRel(s), group: 'source', degree: 0, ...insertionFiler(s) }));
+  // a copy draws as the work's first landing, carrying the others' paths
+  const nodes: GraphNode[] = sources.filter(s => copyOf(s.id) === s.id).map(s => {
+    const copies = sources.filter(o => o.id !== s.id && copyOf(o.id) === s.id).map(o => insertionEventRel(o));
+    return { id: `source:${s.id}`, title: s.title, path: insertionEventRel(s), group: 'source', degree: 0, ...insertionFiler(s), ...(copies.length ? { memberPaths: copies } : {}) };
+  });
   nodes.push(...[...entities.values()].map(e => ({ id: e.id, title: e.label, path: entityPath(e.id), group: 'entity', entity: true as const, degree: 0 })));
   const received = (s: SharedSource) => s.submitted_at ?? sourceMoment(s);
   // Edges as a vault's own graph draws them (lib/assertionGraph.ts): each
@@ -43,11 +72,17 @@ export function sharedProjection(sources: SharedSource[], views: AssertionView[]
   for (const s of sources) arrive(`source:${s.id}`, received(s));
   for (const a of assertions) {
     const named = [...new Set(a.entities.map(e => e.id))];
-    const cited = assertionSourceReferences(a).filter(ref => byId.has(ref.insertion_id)).map(ref => `source:${ref.insertion_id}`);
+    const cited = [...new Set(assertionSourceReferences(a).filter(ref => byId.has(ref.insertion_id)).map(ref => `source:${copyOf(ref.insertion_id)}`))];
     for (const id of named) { arrive(id, a.created_at); for (const source of cited) link(id, source, a); }
     for (let i = 0; i < named.length; i++) for (let j = i + 1; j < named.length; j++) link(named[i]!, named[j]!, a);
   }
   for (const node of nodes) node.degree = degree.get(node.id) ?? 0;
+  // an entity that IS a landing opens it, and the landing draws as the entity
+  for (const { entity, source } of bindings) {
+    const e = nodes.find(n => n.id === entity), s = nodes.find(n => n.id === `source:${copyOf(source)}`);
+    if (!e || !s) continue;
+    e.opens = [...new Set([...(e.opens ?? []), s.id])]; s.drawnAs ??= e.id;
+  }
   const recent = [...sources].sort((a,b) => received(b).localeCompare(received(a))).map(s => ({ path: insertionEventRel(s), title: s.title, modified: Date.parse(received(s)) || 0, author: s.author.id, action: 'created', ...insertionFiler(s), id: s.source_id, insertionId: s.id, type: 'source' }));
   const assertionView = (a: AssertionEvent) => ({ id: a.id, text: a.text, confidence: a.confidence, created_at: a.created_at, author: a.author,
     entities: a.entities.map(e => ({ ...e, path: entityPath(e.id) })),
@@ -59,7 +94,7 @@ export function sharedProjection(sources: SharedSource[], views: AssertionView[]
     if (entity) { const list = assertions.filter(a => a.entities.some(e => e.id === entity.id)).map(assertionView); return { path, content: `# ${entity.label}\n\n${list.map(a => a.text).join('\n\n')}`, projectedEntity: { ...entity, assertions: list } }; }
     return null;
   };
-  return { sources, assertions, recent, note, arrivals, connections, graph: { nodes, edges, projection: 'assertions' as const, hash: sha256hex(JSON.stringify([sources, assertions])) } };
+  return { sources, assertions, identities, recent, note, arrivals, connections, graph: { nodes, edges, projection: 'assertions' as const, hash: sha256hex(JSON.stringify([sources, assertions, identities.map(e => e.id)])) } };
 }
 
 const fields = new Map<string, Graph>();
@@ -159,7 +194,7 @@ export async function sharedWorkspace(req: IncomingMessage, res: ServerResponse,
       const index = sources.findIndex(s => s.id === id);
       if (index >= 0) sources[index] = { ...sources[index]!, body: serverBody(store, connection.id, id!) ?? '' };
     }
-    const view = path === '/api/note' ? sharedProjection(sources, held.snapshot?.assertions ?? []) : viewOf(connection, store);
+    const view = path === '/api/note' ? sharedProjection(sources, held.snapshot?.assertions ?? [], held.snapshot?.identities ?? []) : viewOf(connection, store);
     const offset = Math.max(0, Number(url.searchParams.get('offset')) || 0), limit = Math.min(200, Math.max(1, Number(url.searchParams.get('limit')) || 50));
     if (path === '/api/graph') json(res, 200, serverField(view, await you?.()));
     else if (path === '/api/recent') json(res, 200, { recent: view.recent.slice(offset, offset+limit), total: sources.length, nextOffset: offset+limit < sources.length ? offset+limit : null });
