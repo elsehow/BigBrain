@@ -1,6 +1,6 @@
 //! bigbrain-guest: the agent inside a desktop's machine.
 //!
-//! `--init`: PID 1 of the machine. Mounts the basics, loads the kernel
+//! `--init` (or no arguments, as PID 1): PID 1 of the machine. Mounts the basics, loads the kernel
 //! modules the initramfs carries, moves onto the machine's disk, and serves
 //! the guest protocol on vsock 7470, with the egress forwarder on
 //! 127.0.0.1:3128.
@@ -90,7 +90,7 @@ impl Guest {
         if !self.machine || now.abs_diff(now_ms()) <= 1000 {
             return;
         }
-        let tv = libc::timeval { tv_sec: (now / 1000) as libc::time_t, tv_usec: ((now % 1000) * 1000) as libc::suseconds_t };
+        let tv = libc::timeval { tv_sec: (now / 1000) as _, tv_usec: ((now % 1000) * 1000) as _ };
         unsafe { libc::settimeofday(&tv, std::ptr::null()) };
     }
 }
@@ -252,7 +252,11 @@ fn usage() -> ! {
 }
 
 fn main() {
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    let mut args: Vec<String> = std::env::args().skip(1).collect();
+    // the kernel starts an initramfs's /init with no arguments
+    if args.is_empty() && std::process::id() == 1 {
+        args.push("--init".into());
+    }
     let jobs = Arc::new(jobs::Jobs::default());
     match args.iter().map(String::as_str).collect::<Vec<_>>().as_slice() {
         ["--serve", "--unix", path] => {

@@ -32,3 +32,4 @@ web/ui/.profile-local/
 
 # the guest agent's Rust build (bun run guest:build)
 packages/guest/target/
+packages/agents/image/out/
