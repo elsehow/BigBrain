@@ -15,6 +15,7 @@
     "logomark:render": "node bin/renderLogomark.cjs",
     "pilot:dev": "bun bin/pilotDev.ts",
     "desktop:dev": "sh desktop/dev.sh",
+    "guest:build": "cargo build --release --manifest-path packages/guest/Cargo.toml",
     "site:build": "bun site/build.ts",
     "lint": "oxlint --deny-warnings bin lib web integrations clients site test packages",
     "plugins:build": "bun bin/build-agent-plugins.ts",

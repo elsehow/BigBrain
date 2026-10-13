@@ -13,6 +13,11 @@ Every PR and main push runs `bun run ci:checks` as two Linux jobs, side by side:
   in two halves balanced by recorded duration. The ordinary filesystem watcher
   regression remains part of it.
 
+Beside them, `guest` builds the guest agent (`packages/guest`, Rust), lints it,
+and runs the guest protocol's conformance suite
+(`packages/agents/test/guest.test.ts`) against it. The unit suite skips that
+file where no guest is built (`bun run guest:build`).
+
 `bun run test` is the full unit suite: `bin/test-parallel.ts` splits the test files
 across one `bun test` process per CPU (`BIGBRAIN_TEST_JOBS` overrides), balanced
 on each file's duration in `test/timings.json`. A file added since the last

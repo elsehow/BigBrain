@@ -29,3 +29,6 @@ web/ui/.profile-local/
 
 # Synthetic CI failure diagnostics.
 /artifacts/
+
+# the guest agent's Rust build (bun run guest:build)
+packages/guest/target/

@@ -6,3 +6,4 @@ export { codingTools, type AgentTool, type ToolResult, type ToolContext } from "
 export { Seatbelt, confinement, profile, profileInput, canonical, CACHES, DEFAULT_HOSTS, SANDBOX_EXEC, type SandboxPolicy, type Confinement, type Launcher, type Launch } from "./sandbox";
 export { EgressProxy, allowedHost, privateAddress, type EgressOptions } from "./proxy";
 export { AgentsError, workspace, listProjects, takeLease, leaseHolder, releaseLeases, type Workspace, type Project } from "./workspace";
+export { Guest, GuestError, FrameReader, PROTOCOL, LIMITS, clean, type Hello, type Stat, type Entry, type EntryKind, type GuestJob, type GuestPort, type ExecOptions, type Execution, type Exited, type GuestErrorCode } from "./guest";
