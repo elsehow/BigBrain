@@ -76,7 +76,8 @@ import { assertionsFromSource, projectedEntityMarkdown, truncatedEntityView } fr
 import { insertionEventRel, sourceMoment } from "../lib/insertionLog";
 import { foldsRoutes } from "../lib/entityFolds";
 import { copyReview, sourceCopyRoutes } from "../lib/sourceCopyReview";
-import { briefingInput, claimsOnly, createNoteBriefingService, noteBriefingRoutes, readNoteBriefingInput, type NoteBriefingInput, type NoteBriefingRequest } from "../lib/noteBriefing";
+import { briefingInput, claimsOnly, noteBriefingRoutes, readNoteBriefingInput, type NoteBriefingInput, type NoteBriefingRequest } from "../lib/noteBriefing";
+import { createNoteBriefingService } from "../lib/stages/briefing";
 import { noteRelationRoutes } from "../lib/noteRelation";
 import { sourceReadStateRoutes } from "../lib/sourceReadStateApi";
 import { sourceOrigin, sourceOrigins, type SourceOrigin } from "../lib/sourceOrigin";

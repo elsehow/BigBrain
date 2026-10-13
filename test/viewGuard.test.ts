@@ -65,7 +65,6 @@ test("a view reads no clock, no randomness, no engine-rounded math", () => {
 // search and scan reader, Pilot's sessions) settle nothing and stay.
 const NOT_YET_STAGES = [
   "lib/diagnostics.ts",
-  "lib/entityBriefing.ts",
   "lib/entityFolds.ts",
   "lib/feedStage.ts",
   "lib/inclusionQueries.ts",

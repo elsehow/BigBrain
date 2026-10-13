@@ -2,7 +2,7 @@ import { rmSync } from "node:fs";
 import { nativeVault } from "./support/vault";
 import { fakePi } from "./support/pi";
 import { runAgent } from "../lib/run/agent";
-import { createNoteBriefingService } from "../lib/noteBriefing";
+import { createNoteBriefingService } from "../lib/stages/briefing";
 import { expect, test } from "bun:test";
 import { Check } from "typebox/value";
 import { noteBriefingSchema, parseNoteBriefing, type NoteBriefingInput } from "../lib/noteBriefing";

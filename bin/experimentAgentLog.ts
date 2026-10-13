@@ -1,6 +1,6 @@
 /** Explicit, read-only replay; no automatic Quick activity in the app. */
 import { readFileSync, writeFileSync } from "node:fs";
-import { runBriefingModel } from "../lib/entityBriefing";
+import { runBriefingModel } from "../lib/stages/quick";
 import type { WorkSession } from "../lib/workHistory";
 import { AGENT_LOG_SYSTEM, GOAL_LOG_SYSTEM, goalLogInput, nativeAgentEvidence, logWindow, parseAgentLog, type AgentLogEvidence, type AgentLogEntry } from "../lib/agentLog";
 const [root, sessionId, nativePath, out] = process.argv.slice(2);
