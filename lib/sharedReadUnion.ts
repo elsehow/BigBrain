@@ -1,4 +1,3 @@
-import { sharedGraphLayout } from './sharedGraphLayout';
 /** Read-only federation. Shared-only paths stay namespaced; a personal source's
  * opaque origin key links its shared copy back to the same local graph item,
  * and an entity is one entity in every vault: its id is its name's (lib/ids.ts),
@@ -21,6 +20,7 @@ import {sha256hex} from './hash';
 import {existsSync,readFileSync} from 'node:fs';
 import {join} from 'node:path';
 import {SHARED_AST_CITE,parseEntityId} from './ids';
+import {edgeKey,seatLayout,type Positions} from './views/layout';
 import {memoryTreeFiles} from './memoryTree';
 import type {RecentEntry} from './viewTypes';
 import {entityAliasResolver} from './assertionKinds';
@@ -76,6 +76,14 @@ function views(filter: string[] = []){return readConnections(connectionStorePath
 function localSources(root:string){return new Map(readSourceInsertionLog(root,{strict:true}).map(s=>['origin:'+sourceKey(s),s]));}
 /** Each memory topic's citations of joined vaults' claims, by path. */
 function sharedCitations(root:string){const cited=new Map<string,[string,string][]>();if(!existsSync(join(root,'memory')))return cited;for(const f of memoryTreeFiles(root))cited.set(`memory/${f}`,[...readFileSync(join(root,'memory',f),'utf8').matchAll(SHARED_AST_CITE)].map(m=>[m[1]!,m[2]!]));return cited;}
+/** The union seated: your nodes where your field seats them, every other
+ * node seated around them by when it arrived on its server. */
+function seatedAround(graph:Graph,arrivals:ReadonlyMap<string,string>):Graph{
+ const fixed:Positions={};
+ for(const n of graph.nodes)if(Number.isFinite(n.x)&&Number.isFinite(n.y))fixed[n.id]=[n.x!,n.y!];
+ const at=seatLayout(graph,arrivals,fixed);
+ return {...graph,nodes:graph.nodes.map(n=>({...n,x:at[n.id]![0],y:at[n.id]![1]}))};
+}
 export async function unionGraph(root:string,graph:Graph,filter:string[] = []):Promise<Graph>{
  const personalGraph=graph;
  const localPaths=new Map(personalGraph.nodes.flatMap(n=>[n.path,...(n.memberPaths??[])].filter((p):p is string=>!!p).map(p=>[p,n])));
@@ -91,8 +99,11 @@ export async function unionGraph(root:string,graph:Graph,filter:string[] = []):P
  // many vaults draw it; one drawn twice is a heavier thread.
  const resolveEntity=entityAliasResolver(root),entityAt=new Map<string,typeof nodes[number]>(nodes.filter(n=>n.entity).map(n=>[n.id,n]));
  const pair=(a:string,b:string)=>a<b?a+'\0'+b:b+'\0'+a,edgeAt=new Map(edges.map(e=>[pair(e.source,e.target),e])),madeBy=new Map<string,string>();
- for(const {c,view} of views(filter)){
- const ids=new Map<string,string>();
+ // When each server's part arrived: server by server in the order of their
+ // ids, each by its own clock (lib/views/layout.ts seatLayout).
+ const arrivals=new Map<string,string>();
+ for(const [k,{c,view}] of views(filter).entries()){
+ const ids=new Map<string,string>(),when=(key:string)=>`${String(k).padStart(4,'0')}\u0000${view.arrivals.get(key)??''}`;
  for(const n of view.graph.nodes){const source=view.sources.find(s=>'source:'+s.id===n.id),personal=source?local.get(source.source_id):undefined,existing=personal?paths.get(insertionEventRel(personal)):undefined;
  if(existing){ids.set(n.id,existing.id);byId.get(existing.id)!.vaults.push(c.id);continue;}
  const entityId=n.entity?resolveEntity({id:parseEntityId(n.id),label:n.title}).id:undefined,same=entityId?entityAt.get(entityId):undefined;
@@ -100,10 +111,10 @@ export async function unionGraph(root:string,graph:Graph,filter:string[] = []):P
  const id=`shared:${c.id}:${n.id}`;ids.set(n.id,id);madeBy.set(id,c.id);
  const localNode=personal?localPaths.get(insertionEventRel(personal)):undefined;
  if(localNode)remoteCopies.set(localNode.id,[...(remoteCopies.get(localNode.id)??[]),id]);
- const made={...n,id,path:remotePath(c,source?.id??n.id),vaults:[c.id]};nodes.push(made);byId.set(id,made);if(entityId)entityAt.set(entityId,made);}
+ const made={...n,id,path:remotePath(c,source?.id??n.id),vaults:[c.id]};nodes.push(made);arrivals.set(id,when(n.id));byId.set(id,made);if(entityId)entityAt.set(entityId,made);}
  for(const e of view.graph.edges){const source=ids.get(e.source)!,target=ids.get(e.target)!,key=pair(source,target),seen=edgeAt.get(key);
   if(seen){seen.weight=(seen.weight??1)+1;continue;}
-  const edge={...e,source,target};edgeAt.set(key,edge);edges.push(edge);
+  const edge={...e,source,target};edgeAt.set(key,edge);edges.push(edge);arrivals.set(edgeKey(source,target),when(edgeKey(e.source,e.target)));
   // this vault's projection already counted it on the nodes it made
   for(const end of [source,target])if(madeBy.get(end)!==c.id){const node=byId.get(end);if(node)node.degree++;}}
  // A memory folded from this vault's claims stands beside their entities.
@@ -125,7 +136,7 @@ export async function unionGraph(root:string,graph:Graph,filter:string[] = []):P
   for(const id of connected)nodes.push({...memories.get(id)!,vaults:['personal']});
  }
  const servers=serverStatuses().filter(s=>!filter.length||filter.includes(s.id));
- return {...sharedGraphLayout({...graph,nodes,edges,hash:sha256hex(JSON.stringify([graph.hash,nodes.map(n=>[n.id,n.vaults]),edges,servers.map(s=>[s.id,s.head,!!s.error])]))}),servers};
+ return {...seatedAround({...graph,nodes,edges,hash:sha256hex(JSON.stringify([graph.hash,nodes.map(n=>[n.id,n.vaults]),edges,servers.map(s=>[s.id,s.head,!!s.error])]))},arrivals),servers};
 }
 export async function unionRecent(root:string,personal:RecentEntry[],offset:number,limit:number,total:number,filter:string[] = []){
  if(!includesPersonal(filter)){personal=[];total=0;}

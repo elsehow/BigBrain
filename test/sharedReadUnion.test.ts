@@ -23,9 +23,12 @@ test('combined reads link own copies, expose shared-only sources and preserve pe
  try{
  const c=await saveConnection(store,{name:'Example',endpoint:`http://127.0.0.1:${server.port}`,token:owner.token});
  await followServers(store); // this computer's copy: every read below answers from it
- const graph={nodes:[{id:'personal-node',title:source.title,group:'source',degree:0,path:insertionEventRel(source)}],edges:[],hash:'example'};
+ const graph={nodes:[{id:'personal-node',title:source.title,group:'source',degree:0,path:insertionEventRel(source),x:40,y:-20}],edges:[],hash:'example'};
  const merged=await unionGraph(personal,graph);expect(merged.nodes).toHaveLength(2);expect(merged.nodes.filter(n=>n.title===source.title)).toHaveLength(1);
  expect(merged.nodes.every(n=>Number.isFinite(n.x)&&Number.isFinite(n.y))).toBe(true);
+ // your seats are where your field put them; a server's nodes are seated around them
+ expect(merged.nodes.find(n=>n.id==='personal-node')).toMatchObject({x:40,y:-20});
+ expect((await unionGraph(personal,graph)).nodes.map(n=>[n.id,n.x,n.y])).toEqual(merged.nodes.map(n=>[n.id,n.x,n.y]));
  const focused=await unionGraph(personal,graph,[c.id]);expect(focused.nodes).toHaveLength(2);expect(focused.nodes.some(n=>n.id==='personal-node')).toBe(false);
  expect((await unionRecent(personal,[],0,40,0,[c.id])).recent).toHaveLength(2);
  expect((await unionGraph(personal,graph,['personal'])).nodes).toHaveLength(1);

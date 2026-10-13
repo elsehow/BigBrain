@@ -12,6 +12,12 @@
  * else. A new assertion nudges its neighbours; a
  * retraction can move what sat beside it.
  *
+ * A picture can extend another (`fixed`): the nodes it already seated keep
+ * their places exactly and count as earlier than every other, and the rest
+ * are seated beside them by the same rules. Your field with a joined
+ * server's beside it is your field, its seats unmoved, and the server's
+ * nodes seated around it (lib/sharedReadUnion.ts).
+ *
  * The same record draws the same picture on any machine: the arithmetic is
  * +, ×, ÷ and √, which every engine rounds alike, and directions come from
  * the fixed table below, never `Math.sin` or `Math.cos`, whose last bits
@@ -70,21 +76,25 @@ const two = (v: number): number => Math.round(v * 100) / 100;
 
 /** The picture of `graph`, from when each node and edge arrived (`arrivals`:
  * a time for every node id and every edge's `edgeKey`; one absent is
- * earliest). */
-export function seatLayout(graph: Graph, arrivals: ReadonlyMap<string, string>): Positions {
+ * earliest), extending `fixed`: the seats a picture already gave some of
+ * its nodes, which stay where they are. */
+export function seatLayout(graph: Graph, arrivals: ReadonlyMap<string, string>, fixed: Positions = {}): Positions {
   const at = (key: string) => arrivals.get(key) ?? "";
   // code-unit order, never a locale's: the same on every machine
   const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
   const order = (a: string, b: string) => cmp(at(a), at(b)) || cmp(a, b);
-  const nodes = graph.nodes.map((n) => n.id).sort(order);
-  const rank = new Map(nodes.map((id, i) => [id, i]));
+  const held = graph.nodes.map((n) => n.id).filter((id) => fixed[id]);
+  const nodes = graph.nodes.map((n) => n.id).filter((id) => !fixed[id]).sort(order);
+  // a fixed seat is earlier than any other, and was there before any link
+  const rank = new Map([...held.map((id) => [id, -1] as const), ...nodes.map((id, i) => [id, i] as const)]);
+  const isFixed = (id: string) => rank.get(id) === -1;
   const earlier = new Map<string, string[]>(), around = new Map<string, string[]>();
   for (const e of graph.edges) {
     if (!rank.has(e.source) || !rank.has(e.target)) continue;
     for (const [a, b] of [[e.source, e.target], [e.target, e.source]] as const) {
       let all = around.get(a); if (!all) around.set(a, all = []); all.push(b);
       // only the links it arrived with: one made later is no reason to have sat elsewhere
-      if (at(edgeKey(a, b)) > at(a) || rank.get(b)! > rank.get(a)!) continue;
+      if (!isFixed(b) && (at(edgeKey(a, b)) > at(a) || rank.get(b)! > rank.get(a)!)) continue;
       let list = earlier.get(a); if (!list) earlier.set(a, list = []); list.push(b);
     }
   }
@@ -102,9 +112,10 @@ export function seatLayout(graph: Graph, arrivals: ReadonlyMap<string, string>):
     const key = `${cell(at[0])},${cell(at[1])}`, held = grid.get(key);
     if (held) held.push(at); else grid.set(key, [at]);
   };
+  for (const id of held) seat(id, fixed[id]!);
   let lone = 0;
   for (const id of nodes) {
-    const near = (earlier.get(id) ?? []).sort((a, b) => rank.get(a)! - rank.get(b)!);
+    const near = (earlier.get(id) ?? []).sort((a, b) => rank.get(a)! - rank.get(b)! || cmp(a, b));
     let x = 0, y = 0;
     for (const o of near) { const [px, py] = seats.get(o)!; x += px; y += py; }
     const [cx, cy] = near.length ? [x / near.length, y / near.length] : [0, 0];
@@ -121,6 +132,7 @@ export function seatLayout(graph: Graph, arrivals: ReadonlyMap<string, string>):
     seat(id, at);
   }
   const out: Positions = {};
+  for (const id of held) out[id] = fixed[id]!;
   for (const id of nodes) {
     const [sx, sy] = seats.get(id)!, by = around.get(id);
     if (!by?.length) { out[id] = [two(sx), two(sy)]; continue; }

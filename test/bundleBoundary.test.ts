@@ -16,7 +16,7 @@
  * never answered. This test is the guard #654 needed.
  *
  * The other direction — the viewer importing from lib/ — is fine and
- * common (slug, wire, graphGeometry): Vite bundles what it reaches.
+ * common (slug, wire, views): Vite bundles what it reaches.
  */
 
 import { describe, expect, test } from "bun:test";
