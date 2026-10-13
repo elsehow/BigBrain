@@ -314,10 +314,11 @@ function sourceNode(source: SourceMetadata, degree: number): GraphNode {
   };
 }
 
-/** The field: the graph of `scope`, seated (lib/views/layout.ts). A node or
- * an edge arrives with the first assertion that draws it; a document's link
- * with the document. A note last, beside what it links; a source nothing
- * connects, when it arrived. */
+/** The field: the graph of `scope`, seated (lib/views/layout.ts). A source
+ * arrives when it landed, whatever later cites it, so a claim never moves a
+ * seat taken before it; any other node or edge arrives with the first
+ * assertion that draws it, a document's link with the document, and a note
+ * last, beside what it links. */
 export function fieldOf(record: VaultRecord, scope: Drawable, observe?: ObserveConnection): Graph {
   const added = new Map(record.rows.map((row) => [row.id, row.created_at]));
   const arrivals = new Map<string, string>();
@@ -330,9 +331,10 @@ export function fieldOf(record: VaultRecord, scope: Drawable, observe?: ObserveC
       : doc?.startsWith("source:") ? sourceMoment(record.sources.get(doc.slice(7))!) || LAST : LAST;
     arrive(edgeKey(a, b), t); arrive(a, t); arrive(b, t);
   });
-  for (const node of graph.nodes) if (!arrivals.has(node.id)) {
+  for (const node of graph.nodes) {
     const source = node.id.startsWith("source:") ? record.sources.get(node.id.slice(7)) : undefined;
-    arrivals.set(node.id, source ? sourceMoment(source) || LAST : LAST);
+    const landed = source && sourceMoment(source);
+    if (landed) arrivals.set(node.id, landed); else if (!arrivals.has(node.id)) arrivals.set(node.id, LAST);
   }
   return withSeats(graph, arrivals);
 }
