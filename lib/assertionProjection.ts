@@ -20,6 +20,7 @@ import {
   listAssertionEventFiles,
   validateAssertionEvidence,
   validateRecordedAssertion,
+  type InclusionAssertion,
   type AssertionEntity,
   type AssertionEvent,
   type AssertionSourceReference,
@@ -75,7 +76,8 @@ import { withProjectionWrite } from "./projectionWriteLock";
 //     its title's buckets, kept as it lands. A change to either rule bumps it.
 // 27: the graph view's connections by where each was written, the briefing's
 //     evidence (lib/maintainedGraph.ts).
-const SCHEMA_VERSION = "28";
+// 29: lens verdicts, the inclusion kind (inclusion_verdicts).
+const SCHEMA_VERSION = "29";
 
 export interface AssertionSearchHit {
   id: string;
@@ -362,6 +364,25 @@ function schema(db: Database): void {
     event_json TEXT NOT NULL,
     retracted_by TEXT
   )`);
+  // Each lens verdict (lib/assertionLog.ts InclusionAssertion), one row per
+  // source: what the lens views read (lib/views/lens.ts). Nothing else does.
+  db.run(`CREATE TABLE IF NOT EXISTS inclusion_verdicts (
+    assertion_id TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    lens TEXT NOT NULL,
+    rule TEXT,
+    insertion_id TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    input TEXT,
+    score REAL,
+    summary INTEGER NOT NULL,
+    include INTEGER,
+    how TEXT,
+    created_at TEXT NOT NULL,
+    retracted_by TEXT,
+    PRIMARY KEY (assertion_id, position)
+  )`);
+  db.run("CREATE INDEX IF NOT EXISTS inclusion_lens ON inclusion_verdicts(lens, source_id, created_at)");
   db.run("CREATE TABLE IF NOT EXISTS entity_folds (body TEXT NOT NULL)");
   // The run journals (lib/runJournal.ts), each projected once, with a
   // change row: a tend round's model and window, and the sorted feed's items
@@ -430,7 +451,7 @@ const encoded = (value: unknown): string => JSON.stringify(value);
  * restored by hand (`remove`/`add`), a note created, edited or deleted, a
  * run journal written (projectJournal), or the fold proposals rewritten
  * (projectFolds). */
-export type ChangeKind = "source" | "assertion" | "decline" | "revocation" | "alias" | "entity_source" | "copy" | "fold_reject"
+export type ChangeKind = "source" | "assertion" | "decline" | "revocation" | "alias" | "entity_source" | "copy" | "fold_reject" | "inclusion"
   | "markdown" | "journal" | "folds";
 export interface ProjectionChange { revision: number; kind: ChangeKind; id: string; op: "add" | "edit" | "remove" }
 
@@ -624,7 +645,7 @@ function writeDeclineRows(db: Database, event: DeclineEvent): void {
  * column naming the event. */
 const RETRACTABLE_TABLES: ReadonlyArray<readonly [table: string, column: string]> = [
   ["declines", "decline_id"], ["entity_alias_events", "id"], ["entity_source_events", "id"],
-  ["source_copy_events", "id"], ["entity_fold_rejects", "id"],
+  ["source_copy_events", "id"], ["entity_fold_rejects", "id"], ["inclusion_verdicts", "assertion_id"],
 ];
 
 /** Withdraw `target` if a retraction names it, whichever of the two was
@@ -750,12 +771,24 @@ function writeEntityFoldRejectRow(db: Database, event: EntityFoldRejectEvent): v
 
 
 
+function writeInclusionRows(db: Database, event: InclusionAssertion): void {
+  const row = db.query(`INSERT INTO inclusion_verdicts(assertion_id, position, lens, rule, insertion_id, source_id, input, score, summary,
+    include, how, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+  event.verdicts.forEach((v, i) => row.run(event.id, i, event.lens, event.rule ?? null, v.insertion_id, v.source_id, v.input ?? null,
+    v.score ?? null, v.summary ? 1 : 0, v.include === undefined ? null : v.include ? 1 : 0, v.how ?? null, event.created_at));
+  applyRetraction(db, event.id);
+}
+
 /** Any event in the assertion log. Prose is an assertion row; every other
  * kind is held in `assertion_kinds` and lands, in its old log's shape, in
  * that log's table, with the change kind that log's events carry. */
 function insertRecordedRow(db: Database, event: RecordedAssertion): boolean {
   if (isProse(event)) return insertAssertionRow(db, event);
   validateRecordedAssertion(event);
+  if (event.kind === "inclusion") return insertOnce(db, "inclusion", "assertion_kinds", "id", event.id, event, (eventJson) => {
+    db.query("INSERT INTO assertion_kinds(id, kind, event_json) VALUES (?, ?, ?)").run(event.id, event.kind, eventJson);
+    writeInclusionRows(db, event);
+  });
   const legacy = legacyShape(event);
   return insertOnce(db, legacy.kind, "assertion_kinds", "id", event.id, event, (eventJson) => {
     db.query("INSERT INTO assertion_kinds(id, kind, event_json) VALUES (?, ?, ?)").run(event.id, event.kind, eventJson);

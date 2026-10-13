@@ -4,7 +4,7 @@ import { vaultFetch } from "./vaultScope";
 export type SharingMode = "conservative" | "yeehaw";
 export interface ServerRef { id: string; name: string }
 export interface LensReviewSummary { reason: "model" | "vault" | "update"; hold: boolean; joins: number; leaves: number; at: string }
-export interface LensSummary { id: string; name: string; text: string; members: number; error?: string; servers: ServerRef[]; review?: LensReviewSummary }
+export interface LensSummary { id: string; name: string; text: string; members: number; pending?: number; error?: string; servers: ServerRef[]; review?: LensReviewSummary }
 export interface LensNoteRow { id: string; title: string; date: string; path: string }
 export interface LensDetail extends Omit<LensSummary, "review"> {
   pins: string[]; exclusions: string[]; summarized: string[]; notes: LensNoteRow[];

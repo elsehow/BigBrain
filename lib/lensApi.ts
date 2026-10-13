@@ -23,48 +23,60 @@ import {json,readBody} from './httpx';
 import {allowVaultRequest,vaultIdentity} from './vaultBoundary';
 import {connectionStorePath,readConnections,sharedRequest} from './sharedConnections';
 import {inclusionPath,readInclusionPolicy,sourceDigest,type InclusionLabel} from './inclusionPolicy';
-import {EVALUATOR_VERSION} from './inclusionEvaluation';
+import {EVALUATOR_VERSION,inclusionEvaluator} from './inclusionEvaluation';
 import {rmSync} from 'node:fs';
-import {resolveRuleMentions} from './sharedRuleMentions';
-import {fitThreshold,lensScope,previewThreshold,listLenses,membership,newLens,readLens,removeLens,setSharingMode,sharingMode,updateLens,writeLens,type Lens} from './lenses';
-import {lensNotes,scorePass,type LensPass} from './lensScoring';
+import {LENS_ID} from './ids';
+import {resolveRuleMentions,noteClaims} from './sharedRuleMentions';
+import {fitThreshold,lensError,lensScope,previewThreshold,listLenses,newLens,readLens,removeLens,ruled,setSharingMode,sharingMode,updateLens,writeLens,type Lens} from './lenses';
+import {labelsOf,landScores,readLensState,sayOnLens,type LensReading} from './lensRecord';
+import {lensNotes,scorePass,verdictInput,type LensPass} from './stages/inclusion';
 import {insertionEventRel} from './insertionLog';
-import {readLensEvents,tickLenses} from './lensSync';
+import {originOf,readLensEvents,sharedOrigins,tickLenses,unmigratedLenses} from './lensSync';
 
-const LENS_ID=/^lens_[a-f0-9]{12}$/;
 const checkId=(id:unknown):string=>{if(typeof id!=='string'||!LENS_ID.test(id))throw Error('Unknown lens.');return id;};
 
 interface Preview {id:string;root:string;lens:string;text:string;labels:InclusionLabel[];busy:boolean;done:number;total:number;error?:string;pass?:LensPass;threshold?:number;at:number}
 const previews=new Map<string,Preview>();
 
+/** The rule's own answer from a preview: its ratings, by source, then its scores. */
+function previewRuled(p:Preview,notes:ReturnType<typeof lensNotes>){
+ const bySource=new Map(notes.map(n=>[n.insertion.id,n.source_id]));
+ const ratings=new Map(p.labels.flatMap(l=>{const id=bySource.get(l.source.id)??notes.find(n=>n.digest===sourceDigest(l.source))?.source_id;return id?[[id,l.include] as const]:[];}));
+ return ruled(ratings,p.threshold!,notes,p.pass!.scores);
+}
+
 /** Each note the rule takes, or the lens had: what the table needs, with hand edits left to the screen. */
-function previewRows(p:Preview,lens:Lens|undefined){
+function previewRows(p:Preview,state:LensReading|undefined){
  if(!p.pass)return [];
- const notes=lensNotes(p.root),was=new Set(lens?.members??[]),pins=new Set(lens?.pins??[]),exclusions=new Set(lens?.exclusions??[]);
- // The rule's own answer, before hand edits: ratings, then score, then the note's old place.
- const ruled=membership({labels:p.labels,pins:[],exclusions:[],members:lens?.members??[],calibration:{identity:'',model:'',threshold:p.threshold!}},notes,p.pass.scores);
- return notes.filter(n=>ruled.has(n.source_id)||was.has(n.source_id)||pins.has(n.source_id)||exclusions.has(n.source_id)).map(n=>({
+ const notes=lensNotes(p.root),was=state?.members.in??new Set<string>(),pins=new Set(state?.hands.pins??[]),exclusions=new Set(state?.hands.exclusions??[]);
+ const rule=previewRuled(p,notes).in;
+ return notes.filter(n=>rule.has(n.source_id)||was.has(n.source_id)||pins.has(n.source_id)||exclusions.has(n.source_id)).map(n=>({
   id:n.source_id,title:n.title,date:(n.insertion.received_at??n.insertion.occurred_at??'').slice(0,10),path:insertionEventRel(n.insertion),
-  rule:ruled.has(n.source_id),was:was.has(n.source_id),summarized:p.pass!.summarized.has(n.source_id),failed:p.pass!.failed.has(n.source_id),
+  rule:rule.has(n.source_id),was:was.has(n.source_id),summarized:p.pass!.summarized.has(n.source_id),failed:p.pass!.failed.has(n.source_id),
  }));
 }
 function previewView(p:Preview){
- const lens=readLens(p.root,connectionStorePath(),p.lens);
- return {id:p.id,busy:p.busy,done:p.done,total:p.total,error:p.error,failed:p.pass?.failed.size??0,rows:p.busy?[]:previewRows(p,lens)};
+ const lens=readLens(p.root,p.lens);
+ return {id:p.id,busy:p.busy,done:p.done,total:p.total,error:p.error,failed:p.pass?.failed.size??0,rows:p.busy?[]:previewRows(p,lens&&readLensState(p.root,lens))};
 }
+
+/** A lens's ratings as the evaluator is taught them: a rule review's, while one is open, else the record's. */
+const ratingsFor=(root:string,store:string,id:string,lens:Lens|undefined):InclusionLabel[]=>
+ readInclusionPolicy(root,store,lensScope(id))?.labels??(lens?labelsOf(root,readLensState(root,lens).hands.ratings):[]);
 
 function startPreview(root:string,store:string,id:string,text:unknown):ReturnType<typeof previewView>{
  if(typeof text!=='string'||!text.trim()||text.length>8000)throw Error('Write a rule first.');
  resolveRuleMentions(root,text);
  for(const [key,p] of previews)if(p.lens===id||Date.now()-p.at>3600000)previews.delete(key);
- const lens=readLens(root,store,id),labels=readInclusionPolicy(root,store,lensScope(id))?.labels??lens?.labels??[];
+ const lens=readLens(root,id),labels=ratingsFor(root,store,id,lens);
+ const saved=lens&&{...lens,labels:labelsOf(root,readLensState(root,lens).hands.ratings)};
  const notes=lensNotes(root);
  const p:Preview={id:randomUUID(),root,lens:id,text:text.trim(),labels,busy:true,done:0,total:notes.length,at:Date.now()};previews.set(p.id,p);
  void (async()=>{try{
   const pass=await scorePass(root,store,{text:p.text,labels},notes,{fresh:true,summaries:0,current:()=>previews.has(p.id),progress:done=>{p.done=done;}});
   if(pass.outOfCredits)throw Error('Out of usage credits. (You need credits to see what this rule includes.)');
   const digests=new Map(notes.map(n=>[n.digest,n.source_id]));
-  p.threshold=previewThreshold(lens,p.text,labels,()=>fitThreshold(labels.flatMap(l=>{const sid=digests.get(sourceDigest(l.source));const score=sid?pass.scores.get(sid):undefined;return score===undefined?[]:[{include:l.include,score}];})));
+  p.threshold=previewThreshold(saved,p.text,labels,()=>fitThreshold(labels.flatMap(l=>{const sid=digests.get(sourceDigest(l.source));const score=sid?pass.scores.get(sid):undefined;return score===undefined?[]:[{include:l.include,score}];})));
   p.pass=pass;
  }catch(e){p.error=e instanceof Error?e.message:String(e);}finally{p.busy=false;}})();
  return previewView(p);
@@ -79,45 +91,67 @@ function save(root:string,store:string,body:{id?:unknown;name?:unknown;text?:unk
  if(!p||p.lens!==id||p.busy||!p.pass||p.error)throw Error('Wait for the preview to finish.');
  if(typeof body.text!=='string'||body.text.trim()!==p.text)throw Error('The rule changed. Wait for the new preview.');
  const pins=ids(body.pins),exclusions=ids(body.exclusions).filter(x=>!pins.includes(x));
- const before=readLens(root,store,id),notes=lensNotes(root);
- const fields={name:body.name.trim(),text:p.text,labels:p.labels,pins,exclusions,calibration:{identity:p.pass.identity,model:p.pass.model,threshold:p.threshold!,version:EVALUATOR_VERSION}};
- const members=[...membership({...fields,members:before?.members??[]},notes,p.pass.scores)];
- const joins=members.filter(m=>!before?.members.includes(m));
+ const before=readLens(root,id),notes=lensNotes(root),had=before?readLensState(root,before).members.in:new Set<string>();
+ const rule=previewRuled(p,notes),pinned=new Set(pins),excluded=new Set(exclusions);
+ const joins=notes.filter(n=>!excluded.has(n.source_id)&&(pinned.has(n.source_id)||rule.in.has(n.source_id))&&!had.has(n.source_id));
  if(before?.servers.length&&joins.length&&!confirmed(before,body.confirm))throw Error('Type the lens’s name to share these notes.');
- const lens:Lens=before?{...before,...fields,members,summarized:members.filter(m=>p.pass!.summarized.has(m)),review:undefined,error:undefined,version:randomUUID(),updated:new Date().toISOString()}
-  :newLens({id,...fields,members,summarized:members.filter(m=>p.pass!.summarized.has(m))});
- writeLens(root,store,lens);previews.delete(p.id);
- // The lens now holds the review's ratings; a later edit starts from them.
+ const calibration={identity:p.pass.identity,model:p.pass.model,threshold:p.threshold!,version:EVALUATOR_VERSION};
+ const lens:Lens=before?{...before,name:body.name.trim(),text:p.text,calibration,review:undefined,version:randomUUID(),updated:new Date().toISOString()}
+  :newLens({id,name:body.name.trim(),text:p.text,calibration});
+ writeLens(root,lens,`lens: ${lens.name} — saved`);
+ // The owner's word, then what the preview scored: the record now says what the screen showed.
+ sayOnLens(root,lens,{pins,exclusions,ratings:p.labels.map(l=>({insertion_id:l.source.id,include:l.include}))});
+ const claims=noteClaims(root);
+ landScores(root,lens,p.pass.identity,p.pass.model,notes.flatMap(n=>{const score=p.pass!.scores.get(n.source_id);return score===undefined?[]:[{
+  insertion_id:n.insertion.id,source_id:n.source_id,input:verdictInput(n.digest,claims.get(n.insertion.id)),score,...(p.pass!.summarized.has(n.source_id)?{summary:true as const}:{})}];}));
+ previews.delete(p.id);
+ // The record now holds the review's ratings; a later edit starts from them.
  for(const draft of [false,true])rmSync(inclusionPath(root,store,lensScope(id),draft),{force:true});
  void tickLenses(root,store);
- return lens;
+ return readLens(root,id)!;
 }
 
 async function share(root:string,store:string,body:{id?:unknown;server?:unknown;on?:unknown;confirm?:unknown}){
- const id=checkId(body.id),lens=readLens(root,store,id);if(!lens)throw Error('Save the lens first.');
+ const id=checkId(body.id),lens=readLens(root,id);if(!lens)throw Error('Save the lens first.');
  const c=readConnections(store).find(x=>x.id===body.server);if(!c)throw Error('Server unavailable.');
  if(!confirmed(lens,body.confirm))throw Error('Type the lens’s name to confirm.');
  if(body.on===true){
   if(c.root&&c.root!==root)throw Error('This server is shared from another vault.');
   const who=await sharedRequest<{permissions:string[]}>(c,'/v1/whoami');if(!who.permissions.includes('write'))throw Error('This server is read-only.');
  }
- const updated=updateLens(root,store,id,l=>{l.servers=body.on===true?[...new Set([...l.servers,c.id])]:l.servers.filter(s=>s!==c.id);});
+ const updated=updateLens(root,id,l=>{l.servers=body.on===true?[...new Set([...l.servers,c.id])]:l.servers.filter(s=>s!==c.id);},
+  `lens: ${lens.name} — ${body.on===true?'shared with':'no longer shared with'} ${c.name}`);
  void tickLenses(root,store);
  return updated;
 }
 
-function summary(store:string,lens:Lens){
- const servers=readConnections(store);
- return {id:lens.id,name:lens.name,text:lens.text,members:lens.members.length,error:lens.error,
+/** What a review would add to the servers the lens is shared with, and take off them. */
+function reviewChanges(store:string,lens:Lens,state:LensReading){
+ const owned=sharedOrigins(store,lens.servers);
+ return {joins:[...state.members.in].filter(id=>!owned.has(originOf(id))),leaves:state.notes.filter(n=>owned.has(originOf(n.source_id))&&state.members.out.has(n.source_id)).map(n=>n.source_id)};
+}
+function summary(root:string,store:string,lens:Lens,state=readLensState(root,lens)){
+ const servers=readConnections(store),changes=lens.review?.at?reviewChanges(store,lens,state):undefined;
+ return {id:lens.id,name:lens.name,text:lens.text,members:state.members.in.size,pending:state.members.pending.size,error:lensError(root,lens.id),
   servers:lens.servers.flatMap(s=>{const c=servers.find(x=>x.id===s);return c?[{id:c.id,name:c.name}]:[];}),
-  review:lens.review&&lens.review.at?{reason:lens.review.reason,hold:lens.review.hold,joins:lens.review.joins.length,leaves:lens.review.leaves.length,at:lens.review.at}:undefined};
+  review:lens.review&&changes?{reason:lens.review.reason,hold:lens.review.hold,joins:changes.joins.length,leaves:changes.leaves.length,at:lens.review.at}:undefined};
 }
 function detail(root:string,store:string,lens:Lens){
- const byId=new Map(lensNotes(root).map(n=>[n.source_id,n]));
+ const state=readLensState(root,lens),byId=new Map(lensNotes(root).map(n=>[n.source_id,n]));
  const row=(sid:string)=>{const n=byId.get(sid);return n?[{id:sid,title:n.title,date:(n.insertion.received_at??n.insertion.occurred_at??'').slice(0,10),path:insertionEventRel(n.insertion)}]:[];};
- return {...summary(store,lens),pins:lens.pins,exclusions:lens.exclusions,summarized:lens.summarized,
-  notes:lens.members.flatMap(row),review:lens.review&&lens.review.at?{...lens.review,joins:lens.review.joins.flatMap(row),leaves:lens.review.leaves.flatMap(row)}:undefined};
+ const changes=lens.review?.at?reviewChanges(store,lens,state):undefined;
+ return {...summary(root,store,lens,state),pins:state.hands.pins,exclusions:state.hands.exclusions,summarized:[...state.members.summarized],
+  notes:[...state.members.in].flatMap(row),
+  review:lens.review&&changes?{reason:lens.review.reason,hold:lens.review.hold,at:lens.review.at,joins:changes.joins.flatMap(row),leaves:changes.leaves.flatMap(row)}:undefined};
 }
+
+/** "Looks OK" on a review: what the lens is scored with now is what the owner has seen. */
+function reviewOk(root:string,store:string,id:string):Lens{
+ const lens=readLens(root,id);if(!lens)throw Error('This lens no longer exists.');
+ const evaluator=inclusionEvaluator(root,store,lens.text,labelsOf(root,readLensState(root,lens).hands.ratings));
+ return updateLens(root,id,l=>{l.review=undefined;l.calibration={...l.calibration,identity:evaluator.identity,model:evaluator.model,version:EVALUATOR_VERSION};},`lens: ${lens.name} — reviewed`);
+}
+
 
 /** `entitiesOf`: the entities claims citing these notes name (web/server.ts reads the record). */
 export async function lensApi(req:IncomingMessage,res:ServerResponse,root:string,entitiesOf:(sourceIds:ReadonlySet<string>)=>string[]){
@@ -126,10 +160,10 @@ export async function lensApi(req:IncomingMessage,res:ServerResponse,root:string
  const store=connectionStorePath(),action=url.pathname.slice('/api/lenses'.length).replace(/^\//,'');
  try{
   if(req.method==='GET'){
-   if(action===''){json(res,200,{lenses:listLenses(root,store).map(l=>summary(store,l)),servers:readConnections(store).map(c=>({id:c.id,name:c.name})),mode:sharingMode(store)});return true;}
+   if(action===''){json(res,200,{lenses:listLenses(root).map(l=>summary(root,store,l)),servers:readConnections(store).map(c=>({id:c.id,name:c.name})),mode:sharingMode(store),unmigrated:unmigratedLenses(root,store)});return true;}
    if(action==='lens'||action==='entities'){
-    const lens=readLens(root,store,checkId(url.searchParams.get('id')));if(!lens)throw Error('This lens no longer exists.');
-    json(res,200,action==='lens'?detail(root,store,lens):{entities:entitiesOf(new Set(lens.members))});return true;
+    const lens=readLens(root,checkId(url.searchParams.get('id')));if(!lens)throw Error('This lens no longer exists.');
+    json(res,200,action==='lens'?detail(root,store,lens):{entities:entitiesOf(readLensState(root,lens).members.in)});return true;
    }
    if(action==='notes'){
     const words=(url.searchParams.get('q')??'').toLowerCase().trim().split(/\s+/).filter(Boolean),out:{id:string;title:string;date:string;path:string}[]=[];
@@ -146,11 +180,11 @@ export async function lensApi(req:IncomingMessage,res:ServerResponse,root:string
   else if(action==='preview')json(res,202,startPreview(root,store,checkId(body.id),body.text));
   else if(action==='save')json(res,200,detail(root,store,save(root,store,body)));
   else if(action==='share')json(res,200,detail(root,store,await share(root,store,body)));
-  else if(action==='review-ok'){const lens=updateLens(root,store,checkId(body.id),l=>{l.review=undefined;});void tickLenses(root,store);json(res,200,detail(root,store,lens));}
+  else if(action==='review-ok'){const lens=reviewOk(root,store,checkId(body.id));void tickLenses(root,store);json(res,200,detail(root,store,lens));}
   else if(action==='delete'){
-   const id=checkId(body.id),lens=readLens(root,store,id);
+   const id=checkId(body.id),lens=readLens(root,id);
    if(lens?.servers.length&&!confirmed(lens,body.confirm))throw Error('Type the lens’s name to confirm.');
-   removeLens(root,store,id);void tickLenses(root,store);json(res,200,{ok:true});
+   removeLens(root,id);void tickLenses(root,store);json(res,200,{ok:true});
   }
   else if(action==='mode')json(res,200,{mode:setSharingMode(store,body.mode)});
   else json(res,404,{error:'Not found'});

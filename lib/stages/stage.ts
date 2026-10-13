@@ -47,10 +47,13 @@ export interface MemoStore<Out> {
   get(key: string): Out | undefined;
 }
 
-/** What a run is handed: what was written, a model, and its write. */
+/** What a run is handed: its write, and the model runner when it asks one
+ * through the background jobs rather than through an evaluator of its own.
+ * Not a snapshot: a run awaits models, and a snapshot is a transaction a
+ * read holds only while it reads. What a stage reads it reads first, in
+ * `waiting`, and it is handed that batch. */
 export interface StageContext<W> {
-  readonly snapshot: Snapshot;
-  readonly model: ModelRunner;
+  readonly model?: ModelRunner;
   readonly write: W;
 }
 

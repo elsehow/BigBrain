@@ -110,7 +110,7 @@ export const lensesChain: Chain<{ value?: void; error?: string }> = {
   job: "lenses",
   due(root) {
     const store = connectionStorePath();
-    return { source: listLenses(root, store).length + readConnections(store).length, scheduled: {} };
+    return { source: listLenses(root).length + readConnections(store).length, scheduled: {} };
   },
   run: ({ root }) => attempt(async () => {
     const store = connectionStorePath();

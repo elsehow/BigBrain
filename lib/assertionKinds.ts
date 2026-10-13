@@ -65,7 +65,7 @@ function recordedKinds(root: string, opts: { strict?: boolean }): { shapes: Lega
   refuseRetiredLogs(root);
   const shapes: LegacyShape[] = [], withdrawn = new Set<string>();
   for (const event of readRecordedAssertions(root, opts)) {
-    if (isProse(event)) continue;
+    if (isProse(event) || event.kind === "inclusion") continue; // inclusion has no old shape
     if (event.kind === "retraction") withdrawn.add(event.retracts);
     shapes.push(legacyShape(event));
   }

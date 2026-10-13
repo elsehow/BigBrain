@@ -52,6 +52,9 @@ export const AST_CITE = /\[\[(ast_[a-f0-9]{24})(?:\|[^\]\n]*)?\]\]/gu;
  * reverse, so each gate checks its own kind (lib/sharedMemory.ts). */
 export const SHARED_AST_CITE = /\[\[shared:([A-Za-z0-9-]+):(ast_[a-f0-9]{24})(?:\|[^\]\n]*)?\]\]/gu;
 
+/** A lens (lib/lenses.ts): `lens_` + 12 hex. */
+export const LENS_ID = /^lens_[a-f0-9]{12}$/u;
+
 /** An arrival in `log/insertions/`: `ins_` + 24 hex. */
 export const INS_ID = /^ins_[a-f0-9]{24}$/u;
 
