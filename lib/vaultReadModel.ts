@@ -22,6 +22,7 @@ import {
 import { copyPairKey, type SourceCopyEvent } from "./sourceCopyLog";
 import { STUB_CHARS } from "./text";
 import { aboutIds, VOICE_KINDS } from "./voiceFacts";
+import type { Snapshot } from "./views/view";
 import { Database } from "bun:sqlite";
 
 /** Source summaries and settlement shared by feed and graph construction. */
@@ -102,6 +103,10 @@ export function withVaultSnapshot<T>(root: string, read: (db: Database, revision
     try { return read(db, revision); } finally { reading.delete(root); }
   } finally { if (db.inTransaction) db.run("ROLLBACK"); db.close(); }
 }
+
+/** One snapshot, handed to a view (lib/views/view.ts). */
+export const withSnapshot = <T>(root: string, view: (snapshot: Snapshot) => T): T =>
+  withVaultSnapshot(root, (db, revision) => view({ db, revision }));
 
 /** A feed miss needs neither assertion prose nor Markdown/link evidence.
  * The graph reuses these same objects when it needs the rest of the corpus. */

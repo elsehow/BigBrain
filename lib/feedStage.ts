@@ -42,7 +42,7 @@ import { runAgent } from "./run/agent";
 import { modelRunJournalFields, newRunId } from "./run/journal";
 import type { RunUsage } from "./run/model";
 import { tryHold } from "./sqliteLock";
-import { plainText } from "./v2Feed";
+import { plainText } from "./views/v2Feed";
 import { projectJournal } from "./assertionProjection";
 
 export const FEED_PROMPT_VERSION = "feed/v3";

@@ -1,20 +1,21 @@
 /**
  * v2Read.ts — the v2 view's reads of the projection (engine side;
- * lib/v2Feed.ts stays pure so the viewer can share it). Each is a query its
+ * lib/views/v2Feed.ts stays browser-safe so the viewer can share it). Each is a query its
  * indexes answer: the projection keeps what a feed row needs beside each
  * assertion (when its claim was first recorded, the model of the gardener
  * run that wrote it) and the sorted feed's items from the stage's journal
  * (schema 24), so a read decodes only the rows it returns and never opens a
- * journal. The author tally alone counts every live row. The routes read
- * inside withVaultSnapshot; the dev preview reads a vault's projection
- * opened read-only (bin/v2Preview.ts).
+ * journal. The author tally alone counts every live row. Each is a view
+ * (lib/views/view.ts): the routes hand it a snapshot; the dev preview, a
+ * vault's projection opened read-only (bin/v2Preview.ts).
  */
 import type { Database } from "bun:sqlite";
-import type { AssertionEvent } from "./assertionLog";
-import { projectedSourceHeads } from "./assertionProjection";
-import { FEED_SECTIONS } from "./feedJournal";
-import { insertionEventRel } from "./insertionLog";
-import { liveAssertionSql } from "./sourceSupersede";
+import type { AssertionEvent } from "../assertionLog";
+import { sourceHeadsIn } from "../assertionProjection";
+import { FEED_SECTIONS } from "../feedJournal";
+import { insertionEventRel } from "../insertionLog";
+import { liveAssertionSql } from "../sourceSupersede";
+import type { Snapshot } from "./view";
 import { authorName, feedRow, pageKey, type SortedPage, type V2Author, type V2Feed, type V2FeedRow, type V2SortedRow } from "./v2Feed";
 
 const LIVE = `a.revoked_by IS NULL AND ${liveAssertionSql("a")}`;
@@ -56,14 +57,14 @@ function authors(db: Database): V2Author[] {
 /** The authors, and the latest assertions by when each claim was first
  * recorded, oldest first: a cleanup pass's rewrites sit at their originals'
  * dates instead of crowding the top. */
-export function readV2Feed(db: Database): V2Feed {
+export function readV2Feed({ db }: Snapshot): V2Feed {
   const latest = db.query(`SELECT a.id FROM assertions a WHERE ${LIVE}
     ORDER BY a.first_at DESC, a.id DESC LIMIT ?`).all(FEED) as { id: string }[];
   return { authors: authors(db), feed: feedRows(db, latest.reverse()) };
 }
 
 /** One entity's latest assertions, its aliases folded in, dated and ordered as the feed is. */
-export function readEntityFeed(db: Database, entityId: string, limit = 6): V2FeedRow[] {
+export function readEntityFeed({ db }: Snapshot, entityId: string, limit = 6): V2FeedRow[] {
   const id = folding(db)(entityId);
   const latest = db.query(`SELECT a.id FROM assertions a
     WHERE a.id IN (SELECT assertion_id FROM assertion_entities
@@ -75,7 +76,7 @@ export function readEntityFeed(db: Database, entityId: string, limit = 6): V2Fee
 /** The entities named by live claims citing any of these notes (personal
  * source ids), folded through the alias table: a lens, as the field filters
  * to it. */
-export function readEntitiesCiting(db: Database, sourceIds: Iterable<string>): string[] {
+export function readEntitiesCiting({ db }: Snapshot, sourceIds: Iterable<string>): string[] {
   const canonical = folding(db);
   const named = db.query(`SELECT DISTINCT e.entity_id AS id FROM assertion_entities e JOIN assertions a ON a.id = e.assertion_id
     WHERE ${LIVE} AND e.assertion_id IN (SELECT assertion_id FROM assertion_sources WHERE source_id IN (SELECT value FROM json_each(?)))`)
@@ -86,7 +87,7 @@ export function readEntitiesCiting(db: Database, sourceIds: Iterable<string>): s
 /** The claims a lens's notes alone support: live, citing at least one note,
  * every note they cite a member. All a briefing on the lens reads
  * (lib/noteBriefing.ts claimsOnly). */
-export function readLensClaims(db: Database, members: Iterable<string>): Set<string> {
+export function readLensClaims({ db }: Snapshot, members: Iterable<string>): Set<string> {
   const ids = db.query(`SELECT a.id FROM assertions a WHERE ${LIVE}
     AND EXISTS (SELECT 1 FROM assertion_sources x WHERE x.assertion_id = a.id)
     AND NOT EXISTS (SELECT 1 FROM assertion_sources x WHERE x.assertion_id = a.id
@@ -94,12 +95,12 @@ export function readLensClaims(db: Database, members: Iterable<string>): Set<str
   return new Set(ids.map(({ id }) => id));
 }
 
-/** One page of the sorted feed (lib/v2Feed.ts pageSortedFeed, as a query):
+/** One page of the sorted feed (lib/views/v2Feed.ts pageSortedFeed, as a query):
  * the stage's items newest first, after the row `before` names, each joined
  * to its live claims' entities and to its source. An item whose claims have
  * all been revoked or superseded since it was sorted drops out: the record
  * no longer says it. */
-export function readSortedPage(root: string, db: Database, limit: number, before?: string): SortedPage {
+export function readSortedPage({ db }: Snapshot, limit: number, before?: string): SortedPage {
   const [added = "", section = "", source = ""] = before?.split("|") ?? [];
   const rank = (FEED_SECTIONS as readonly string[]).indexOf(section);
   const items = db.query(`SELECT f.source, f.section, f.headline, f.due, f.added FROM feed_items f
@@ -109,7 +110,7 @@ export function readSortedPage(root: string, db: Database, limit: number, before
   const page = items.slice(0, limit);
   const claims = db.query(`SELECT a.id FROM feed_item_assertions i JOIN assertions a ON a.id = i.assertion_id
     WHERE i.source = ? AND ${LIVE} ORDER BY i.position`);
-  const heads = projectedSourceHeads(root, page.map((r) => r.source), db);
+  const heads = sourceHeadsIn(db, page.map((r) => r.source));
   const rows = page.map((item): V2SortedRow => {
     const h = heads.get(item.source);
     return {

@@ -10,6 +10,7 @@
     "test:sessions": "bun test test/pilotChat.test.ts test/pilotProviders.test.ts test/pilotAccess.test.ts test/pilotWorkMigration.test.ts test/pilotOnly.test.ts",
     "typecheck": "tsc --noEmit",
     "web": "bun web/server.ts",
+    "field:digest": "bun bin/fieldDigest.ts",
     "web:build": "cd web/ui && bun install --frozen-lockfile && bunx --no-install vite build",
     "web:dev": "cd web/ui && bunx vite",
     "logomark:render": "node bin/renderLogomark.cjs",

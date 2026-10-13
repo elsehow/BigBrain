@@ -3,7 +3,7 @@ import {entityAliasResolution} from './entityAliasLog';
 import {aliasEvents} from './assertionKinds';
 import {parseMentions,type MentionItem} from './pilotMentions';
 import type {SourceInsertion} from './insertionLog';
-import {plainText} from './v2Feed';
+import {plainText} from './views/v2Feed';
 export interface RuleEntity extends MentionItem {aliases:string[];sourceIds:Set<string>;context:string[]}
 /** What the gardener read in one note revision: its claims, and the entities they name by their canonical labels. */
 export interface NoteClaims {claims:string[];claim_entities:string[]}

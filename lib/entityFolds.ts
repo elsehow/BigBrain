@@ -493,7 +493,7 @@ export function foldsRoutes(root: string, author: () => EventAuthor = operatorAu
     })();
   };
   return [
-    { method: "GET", path: "/api/entity/folds", handler: ({ res }) => serveStamped(res, root, foldsStamp, readFolds) },
+    { method: "GET", path: "/api/entity/folds", handler: ({ res }) => serveStamped(res, root, foldsStamp, ({ db }) => readFolds(db)) },
     {
       method: "POST",
       path: "/api/entity/folds/accept",

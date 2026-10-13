@@ -4,7 +4,7 @@
  * The v2 view (web/ui V2View) draws /api/graph's entities as a field;
  * this is its one extra read: the latest assertions as a feed, each with its
  * author, and the sorted feed the feed stage places sources in. The rows and
- * their order are queried from the projection (lib/v2Read.ts); this is what a
+ * their order are queried from the projection (lib/views/v2Read.ts); this is what a
  * row says, and how the sorted feed pages.
  *
  * An author is named only from what the record says: a model or agent author
@@ -17,7 +17,7 @@
  * Pure, and safe for the browser bundle (the view imports plainText).
  */
 
-import type { AssertionEvent } from "./assertionLog";
+import type { AssertionEvent } from "../assertionLog";
 
 export interface V2Author {
   id: string;
