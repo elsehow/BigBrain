@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import type { Graph } from "../lib/graph";
 import { NODE_R_MAX, nodeRadius, nodeSpacing, seedPosition } from "../lib/graphGeometry";
-import { arrivalLayout, computeLayout, edgeKey, neighbourSignatures, placeLayout } from "../lib/graphLayout";
+import { computeLayout } from "../lib/graphLayout";
+import { edgeKey, seatLayout } from "../lib/views/layout";
 
 // The force layout, moved out of the browser (web/ui/src/lib/layout.worker.ts,
 // deleted 2026-08-17). What matters is not the exact coordinates — a force
@@ -100,58 +101,6 @@ describe("graphGeometry", () => {
   });
 });
 
-describe("placeLayout", () => {
-  // Twenty fabricated hubs of ten leaves each: a settled vault in miniature.
-  const ids: string[] = [], edges: [string, string][] = [];
-  for (let h = 0; h < 20; h++) {
-    ids.push(`hub${h}`);
-    for (let l = 0; l < 10; l++) { ids.push(`leaf${h}-${l}`); edges.push([`hub${h}`, `leaf${h}-${l}`]); }
-  }
-  const base = graph(ids, edges);
-  const settled = computeLayout(base);
-  const before = neighbourSignatures(base);
-  const nearest = (out: Record<string, [number, number]>, id: string) =>
-    Math.min(...Object.entries(out).filter(([o]) => o !== id).map(([, p]) => dist(p, out[id]!)));
-
-  test("a new node lands by what it connects to, and nothing else moves", () => {
-    const next = graph([...ids, "new"], [...edges, ["new", "leaf3-4"]]);
-    const placed = placeLayout(next, settled, before)!;
-    // it and the leaf it joined moved; every other node stands exactly where it was
-    expect(placed.moved).toBe(2);
-    for (const id of ids) if (id !== "leaf3-4") expect(placed.positions[id]).toEqual(settled[id]!);
-    expect(dist(placed.positions["new"]!, placed.positions["leaf3-4"]!)).toBeLessThan(80);
-    expect(nearest(placed.positions, "new")).toBeGreaterThan(nodeSpacing(1));
-  });
-
-  test("a node that was alone joins what it now connects to", () => {
-    const lonely = graph([...ids, "drop"], edges);
-    const withDrop = placeLayout(lonely, settled, before)!;
-    const filed = graph([...ids, "drop"], [...edges, ["drop", "hub7"]]);
-    const placed = placeLayout(filed, withDrop.positions, neighbourSignatures(lonely))!;
-    expect(dist(placed.positions["drop"]!, placed.positions["hub7"]!)).toBeLessThan(120);
-  });
-
-  test("a lone new node lands among the lone nodes a settle spread, not outside them", () => {
-    const loners = Array.from({ length: 12 }, (_, i) => `alone${i}`);
-    const field = graph([...ids, ...loners], edges);
-    const spread = computeLayout(field);
-    const placed = placeLayout(graph([...ids, ...loners, "arrival"], edges), spread, neighbourSignatures(field))!;
-    const radii = loners.map((id) => Math.hypot(...spread[id]!));
-    const r = Math.hypot(...placed.positions["arrival"]!);
-    expect(r).toBeGreaterThan(Math.min(...radii) - 60);
-    expect(r).toBeLessThan(Math.max(...radii) + 60);
-  });
-
-  test("a change that moves no connection places nothing", () => {
-    const reweighed: Graph = { ...base, edges: base.edges.map((e, i) => (i ? e : { ...e, weight: 2 })), hash: "h2" };
-    expect(placeLayout(reweighed, settled, before)).toEqual({ positions: settled, moved: 0 });
-  });
-
-  test("a graph mostly new is settled whole, not placed", () => {
-    expect(placeLayout(base, { hub0: settled["hub0"]! }, before)).toBeUndefined();
-  });
-});
-
 // A shared server's field (lib/sharedWorkspace.ts serverField): every reader
 // of the same record must draw the same picture, and it must stay put as the
 // record grows. `claims` claims arrive a minute apart, each naming two
@@ -167,20 +116,37 @@ function grown(claims: number): { graph: Graph; arrivals: Map<string, string> } 
   return { graph: graph([...ids], [...links.values()], String(claims)), arrivals };
 }
 
-describe("arrivalLayout", () => {
+describe("seatLayout (lib/views/layout.ts): your field and a server's", () => {
   test("the same record draws the same picture, in whatever order it is read", () => {
     const { graph: g, arrivals } = grown(60);
     const reversed = { ...g, nodes: [...g.nodes].reverse(), edges: [...g.edges].reverse() };
-    expect(arrivalLayout(reversed, arrivals)).toEqual(arrivalLayout(g, arrivals));
+    expect(seatLayout(reversed, arrivals)).toEqual(seatLayout(g, arrivals));
   });
 
-  test("what arrives later barely moves what was there", () => {
+  test("what arrives later moves only what it links to, and only a little", () => {
     const before = grown(60), after = grown(70);
-    const was = arrivalLayout(before.graph, before.arrivals), now = arrivalLayout(after.graph, after.arrivals);
-    const extent = Math.max(...Object.values(was).map(([x, y]) => Math.hypot(x, y)));
-    const moved = Object.keys(was).map((id) => dist(was[id]!, now[id]!) / extent).sort((a, b) => a - b);
-    // measured: a median of 4% of the field's reach (a layout started afresh moved 66%)
-    expect(moved[moved.length >> 1]!).toBeLessThan(0.08);
-    expect(moved.at(-1)!).toBeLessThan(0.3);
+    const was = seatLayout(before.graph, before.arrivals), now = seatLayout(after.graph, after.arrivals);
+    const touched = new Set(after.graph.edges.filter((e) => !before.arrivals.has(edgeKey(e.source, e.target))).flatMap((e) => [e.source, e.target]));
+    for (const id of Object.keys(was)) if (!touched.has(id)) expect(now[id]).toEqual(was[id]!);
+    const extent = Math.max(...Object.values(was).map(([x, y]) => Math.sqrt(x * x + y * y)));
+    const moved = [...touched].filter((id) => was[id]).map((id) => dist(was[id]!, now[id]!) / extent);
+    expect(Math.max(...moved)).toBeLessThan(0.3);
+  });
+
+  test("linked nodes sit closer than unlinked ones, and no two share a point", () => {
+    const { graph: g, arrivals } = grown(80);
+    const at = seatLayout(g, arrivals), ids = g.nodes.map((n) => n.id);
+    const linked = g.edges.map((e) => dist(at[e.source]!, at[e.target]!));
+    const pairs: number[] = [];
+    for (let i = 0; i < ids.length; i++) for (let j = i + 1; j < ids.length; j += 7) pairs.push(dist(at[ids[i]!]!, at[ids[j]!]!));
+    const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
+    expect(mean(linked)).toBeLessThan(mean(pairs));
+    expect(new Set(Object.values(at).map((p) => p.join(","))).size).toBe(ids.length);
+  });
+
+  test("a node alone takes the open spiral, and positions are two decimals", () => {
+    const at = seatLayout(graph(["a", "b"], []), new Map([["a", "1"], ["b", "2"]]));
+    expect(at["a"]).not.toEqual(at["b"]);
+    for (const [x, y] of Object.values(at)) { expect(Math.round(x * 100) / 100).toBe(x); expect(Math.round(y * 100) / 100).toBe(y); }
   });
 });

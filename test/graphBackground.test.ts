@@ -1,8 +1,7 @@
 import { expect, test, afterEach } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readLayoutCache } from "../lib/graphCache";
 import { currentGraph, forgetGraphView, freshGraph, graphNow, maintainGraphView, saveGraphView, savedGraph, type BuildGraphView } from "../lib/maintainedGraph";
 import { buildAssertionGraph } from "../lib/assertionGraph";
 import { appendSourceInsertionEvent, insertionEventRel } from "../lib/insertionLog";
@@ -97,7 +96,8 @@ test("the view carries settled positions for its structure, and the layout persi
   const latest = savedGraph(root)!;
   expect(latest.nodes).toHaveLength(2);
   expect(latest.nodes.every(n => Number.isFinite(n.x) && Number.isFinite(n.y))).toBe(true);
-  expect(readLayoutCache(root)?.hash).toBe(latest.hash);
+  // seated by the view at this revision, nothing kept from a layout drawn before (R7)
+  expect(existsSync(join(root, ".state", "graph-layout-assertions.json"))).toBe(false);
 });
 
 test("stopping the watcher suppresses a ping from an outstanding async warm", async () => {

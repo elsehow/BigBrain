@@ -262,7 +262,7 @@ export function createLive(opts: LiveOptions): Live {
       try {
         await warmLayout(root);
       } catch {
-        /* layout is best-effort; graphWithLayout computes on demand */
+        /* warming is best-effort: a read builds the view at its revision */
       }
       if (stopped || current !== revision) return;
       publishViews();

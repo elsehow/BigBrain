@@ -6,7 +6,6 @@ import { heapStats } from 'bun:jsc';
 import { createHash } from 'node:crypto';
 import { scanSurface } from '../../lib/searchCore';
 import { syncAssertionProjection } from '../../lib/assertionProjection';
-import { graphWithLayout } from '../../lib/graphCache';
 import { forgetGraphView as invalidateGraphCaches, graphNow as primaryGraphCached } from '../../lib/maintainedGraph';
 const root=process.argv[2];
 if(!root || !basename(root).startsWith('bb-vault-scale-') || !existsSync(join(root,'.benchmark-snapshot'))) throw new Error('Marked snapshot required');
@@ -31,7 +30,7 @@ for(let pass=0;pass<(process.env.BB_PROFILE_MEMORY_ONLY ? 0 : 6);pass++)for(cons
 Database.prototype.query=original;
 for(let cycle=0;cycle<(process.env.BB_PROFILE_SEARCH_ONLY ? 0 : 8);cycle++){
  invalidateGraphCaches(root);const begin=performance.now();const graph=primaryGraphCached(root);const graphMs=performance.now()-begin;
- const layoutStart=performance.now();graphWithLayout(root,graph);const layoutMs=performance.now()-layoutStart;
+ const layoutMs=0; // seated inside the build since R7
  Bun.gc(true);await Bun.sleep(0);Bun.gc(true);const {heapSize,extraMemorySize,objectCount}=heapStats();console.log(JSON.stringify({stage:'graph-memory',cycle,nodes:graph.nodes.length,edges:graph.edges.length,graphMs,layoutMs,heapSize,extraMemorySize,objectCount,...process.memoryUsage()}));
 }
 if(process.env.BB_PROFILE_SEARCH_ONLY) process.exit(0);
