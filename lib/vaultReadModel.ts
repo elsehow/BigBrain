@@ -258,7 +258,7 @@ function copiesRecordOf(snapshot: Snapshot): CopiesRecord {
 /** Copies of one document (lib/sourceCopies.ts), by insertion id. */
 export const sourceCopiesRecord = (root: string): Map<string, SourceCopies<SourceSummary>> => copiesRecord(root).groups;
 
-/** Candidates for the judging pass (lib/sourceCopyJudge.ts). */
+/** Candidates for the judging pass (lib/stages/copyJudge.ts). */
 export const unjudgedCopies = (root: string): [string, string][] => copiesRecord(root).unjudged;
 
 const SUMMARY = "s.header_json, s.excerpt, s.intake_priority, s.transcript_model";

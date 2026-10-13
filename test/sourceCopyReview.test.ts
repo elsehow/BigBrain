@@ -5,7 +5,7 @@ import { syncAssertionProjection } from "../lib/assertionProjection";
 import { insertionEventRel, type SourceInsertion } from "../lib/insertionLog";
 import { OutOfCredits } from "../lib/providerCredits";
 import { copyCandidates, copyCutoff, DEFAULT_CUTOFF, foldCopies, sourceCopies, type CopySaid } from "../lib/sourceCopies";
-import { judgeCopies, type CopyJudge } from "../lib/sourceCopyJudge";
+import { judgeCopies, type CopyJudge } from "../lib/stages/copyJudge";
 import { createSourceCopyEvent } from "../lib/sourceCopyLog";
 import { copyReview, declareCopies } from "../lib/sourceCopyReview";
 import { identities, insertion, nativeVault } from "./support/vault";

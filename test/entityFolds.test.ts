@@ -28,11 +28,11 @@ import {
   entityCensus,
   entityFoldsFile,
   parseFolds,
-  proposeEntityFolds,
   readEntityFolds,
   renderFoldsPrompt,
   validateFolds,
 } from "../lib/entityFolds";
+import { proposeEntityFolds } from "../lib/stages/foldProposals";
 import { appendSourceInsertionEvent } from "../lib/insertionLog";
 import type { PiLoader } from "./support/pi";
 import { fakePi } from "./support/pi";

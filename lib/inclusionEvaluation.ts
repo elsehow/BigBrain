@@ -3,7 +3,7 @@ import {existsSync,readFileSync,mkdirSync} from 'node:fs';
 import {dirname,join} from 'node:path';
 import {sha256hex} from './hash';
 import {writeAtomic} from './fsx';
-import {ruleEvaluator} from './sharedRuleEvaluator';
+import {ruleEvaluator} from './stages/ruleEvaluator';
 import {noteClaims,ruleMentionContext} from './sharedRuleMentions';
 import {sourceDigest,type InclusionSource,type InclusionLabel} from './inclusionPolicy';
 // Scores already read this run, by cache file: a lens pass reads every note's score every tick.

@@ -4,7 +4,7 @@ import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {inclusionEvaluator} from '../lib/inclusionEvaluation';
 import {saveJevKey} from '../lib/jevSettings';
-import {ruleEvaluator} from '../lib/sharedRuleEvaluator';
+import {ruleEvaluator} from '../lib/stages/ruleEvaluator';
 import {teachingExamples,inclusionExcerpt} from '../lib/inclusionExamples';
 import type {runAgent} from '../lib/run/agent';
 test('examples change cached predictions for unseen candidates and reach both providers',async()=>{

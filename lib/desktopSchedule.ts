@@ -35,7 +35,7 @@ export const CADENCE: Readonly<Record<string, number>> = {
   rss: 900,
   // The chains besides the classic one (lib/chains.ts). Each tick that finds
   // nothing due exits before any model call.
-  // judges candidates that might be one document (lib/sourceCopyJudge.ts)
+  // judges candidates that might be one document (lib/stages/copyJudge.ts)
   copies: 900,
   // proposes labels that name one thing; its own due waits the memory interval
   folds: 3600,

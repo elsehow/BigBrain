@@ -2,7 +2,7 @@ import {test,expect} from 'bun:test';
 import {mkdtempSync,writeFileSync,rmSync} from 'node:fs';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
-import {ruleEvaluator} from '../lib/sharedRuleEvaluator';
+import {ruleEvaluator} from '../lib/stages/ruleEvaluator';
 import {saveJevKey} from '../lib/jevSettings';
 import type {runAgent} from '../lib/run/agent';
 test('no Jev key uses the configured Quick connection with the complete source and no tools',async()=>{

@@ -8,7 +8,7 @@ import {lensScope,readLens} from './lenses';
 import {labelsOf,readLensState} from './lensRecord';
 import {getReview,startReview,reviewState,rateReview,pickReview,searchReviewSources,editReview,retryReview,finishReview,type ReviewContext} from './inclusionReview';
 import {ruleCandidateFilter,searchRuleEntities} from './sharedRuleMentions';
-import {ruleQueries} from './inclusionQueries';
+import {ruleQueries} from './stages/ruleQueries';
 export async function inclusionReviewApi(req:IncomingMessage,res:ServerResponse,root:string){
  const url=new URL(req.url??'/','http://localhost');if(!url.pathname.startsWith('/api/inclusion-review'))return false;
  if(!allowVaultRequest(req,res,vaultIdentity(root)))return true;
