@@ -18,13 +18,26 @@
  *   that desktop's (proxy.ts, serveDesktop), so the proxy knows whose a
  *   connection is from the socket it arrives on.
  */
-import { join } from "node:path";
+import { existsSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import type { Guest } from "./guest";
 import type { Guests, Prepared } from "./guests";
 import { Machine, MachineError, type MachineState } from "./machine";
 import type { MachineImages, Progress } from "./images";
 import type { EgressProxy } from "./proxy";
 import { AgentsError, checkDesktopId, stateFolder, type Workspace } from "./workspace";
+
+/** The macOS helper: BIGBRAIN_VM_HELPER, beside the running bun (the app's bundle), or this checkout's build (bun run vm:build). */
+export function vmHelper(): string | undefined {
+  return [
+    process.env.BIGBRAIN_VM_HELPER,
+    join(dirname(process.execPath), "bigbrain-vm"),
+    resolve(import.meta.dir, "../../vm/.build/release/bigbrain-vm"),
+  ].find((p): p is string => !!p && existsSync(p));
+}
+
+/** The Linux test harness that stands in for the helper (image/qemu.sh). */
+export const QEMU_HELPER = resolve(import.meta.dir, "../image/qemu.sh");
 
 export type MachineEvent =
   | { type: "machine.preparing"; got: number; total: number }
@@ -134,6 +147,9 @@ export class Machines implements Guests {
     const idle = live.filter(([, e]) => e.jobs === 0 && e.machine.state === "running").sort((a, b) => a[1].used - b[1].used);
     for (const [id] of idle.slice(0, live.length - cap + 1)) await this.stop(id, `${cap} machines were running; this one was idle longest`);
   }
+
+  /** Close a desktop's open connections beyond its machine: what it may reach just shrank (the plan's D9). */
+  drop(desktop: string): number { return this.o.proxy.drop(desktop); }
 
   /** Clear the record of failed starts, so the next command tries again. */
   retry(desktop: string): void { this.entry(desktop).failures = []; }

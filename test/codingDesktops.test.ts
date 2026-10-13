@@ -534,3 +534,47 @@ test("a desktop's changes reach the viewer's push, so the Field's list needs no 
   expect(new Set(pushed)).toEqual(new Set([`desktop:${made.id}`])); // its turn moved the list
   desktops.close();
 });
+
+test("a contained desktop: reading the web turns its network off, not its shell, closes what it had open, and the person turns it back on", async () => {
+  const { fauxAssistantMessage, fauxToolCall } = await import("@earendil-works/pi-ai");
+  const { EgressProxy, MachineImages, Machines } = await import("../packages/agents/src");
+  const tools: HostTool[] = [{ name: "web_search", description: "Search the web.", parameters: { type: "object", properties: { query: { type: "string" } } },
+    execute: async () => ({ answer: "Orrery 4.2 replaced the moon train." }) }];
+  let offered = "";
+  const { ws, host } = await fakeHost([
+    (context: unknown) => { offered = JSON.stringify(context); return fauxAssistantMessage([fauxToolCall("web_search", { query: "orrery 4.2" })], { stopReason: "toolUse" }); },
+    fauxAssistantMessage("Searched."),
+  ], tools);
+  const root = nativeVault(); roots.push(root);
+  // machines that are never started: what's tested is the host's gate
+  let desktops: CodingDesktops | undefined;
+  const dropped: string[] = [];
+  const proxy = new EgressProxy({ hosts: d => d && desktops?.networkOff(d) ? [] : ["registry.npmjs.org"] });
+  const machines = new Machines({ ws: workspace(ws), images: new MachineImages({ local: "/nowhere" }), proxy, backend: "qemu", helper: "/nowhere/qemu.sh" });
+  const realDrop = machines.drop.bind(machines);
+  machines.drop = d => { dropped.push(d); return realDrop(d); };
+  desktops = new CodingDesktops(root, { agents: new Agents(workspace(ws), quickHarbor(), machines), host });
+  const made = desktops.create();
+  expect(made.machine?.mode).toBe("contained");
+  expect(desktops.networkOff(made.id)).toBe(false);
+  await desktops.send(made.id, "what changed in orrery 4.2?", "in-1");
+  await answered(desktops, made.id);
+  expect(offered).toContain("Calling it turns this desktop's network off until your person allows it");
+  expect(offered).toContain("Your machine reaches beyond itself only through BigBrain's proxy");
+  expect(offered).not.toContain("turns this desktop's shell off");
+  expect(desktops.get(made.id).taint?.sources.map(s => s.via)).toEqual(["web_search"]);
+  expect(desktops.networkOff(made.id)).toBe(true);
+  expect(dropped).toEqual([made.id]);
+  desktops.refusedHost(made.id, "registry.npmjs.org");
+  const detail = await desktops.detail(made.id);
+  expect(detail.taint?.refused).toMatchObject({ host: "registry.npmjs.org" });
+  expect(detail.machine).toEqual({ mode: "contained", state: "stopped" });
+  desktops.allowNetwork(made.id);
+  expect(desktops.networkOff(made.id)).toBe(false);
+  // a desktop recorded before machines stays sandboxed
+  const { machine: _, ...legacy } = desktops.create();
+  writeFileSync(join(spoolDir(root), "coding-desktops", `${legacy.id}.json`), JSON.stringify(legacy));
+  expect((await desktops.detail(legacy.id)).machine).toEqual({ mode: "sandboxed" });
+  desktops.close();
+  proxy.close();
+});

@@ -75,6 +75,18 @@ export const isDev = (): boolean => Boolean(str("BIGBRAIN_DEV"));
  * the package's default, ~/bigbrain. */
 export const agentWorkspace = (): string | undefined => str("BIGBRAIN_WORKSPACE");
 
+/** Whether new coding desktops are contained, each in a machine of its own
+ * (docs/plans/2026-10-12-contained-desktops.md): "off" keeps them sandboxed;
+ * "qemu" runs machines under QEMU, a Linux developer's harness. Absent: on
+ * Apple silicon with the helper present, contained. */
+export const desktopMachines = (): "off" | "qemu" | undefined => {
+  const v = str("BIGBRAIN_DESKTOP_MACHINES");
+  return v === "off" || v === "qemu" ? v : undefined;
+};
+
+/** A local machine image folder to boot instead of the pinned download (`bun run vm:image`). */
+export const machineImageOverride = (): string | undefined => str("BIGBRAIN_MACHINE_IMAGE");
+
 /** Dev only: a module whose default export hosts a scripted agent
  * (test/support/scriptedAgentHost.ts), for looking at v2 without a model. */
 export const agentScript = (): string | undefined => (isDev() ? str("BIGBRAIN_AGENT_SCRIPT") : undefined);
@@ -152,6 +164,7 @@ export const ENGINE_ENV = [
   "BIGBRAIN_VAULT", "BIGBRAIN_SHARED_VAULT", "BIGBRAIN_PILOT_CONTEXT_ROOT", "BIGBRAIN_PILOT_DEV_PORT", "BIGBRAIN_PILOT_UI_PORT",
   "PORT", "BIGBRAIN_WEB_PORT", "BIGBRAIN_API_PORT", "BIGBRAIN_SHARED_PORT",
   "BIGBRAIN_DESKTOP", "BIGBRAIN_SUPERVISOR_PID", "BIGBRAIN_DEV", "BIGBRAIN_WORKSPACE", "BIGBRAIN_AGENT_SCRIPT",
+  "BIGBRAIN_DESKTOP_MACHINES", "BIGBRAIN_MACHINE_IMAGE",
   "BIGBRAIN_ROLE", "BIGBRAIN_WORK_ID", "BIGBRAIN_OWNER_EMAIL",
   "BIGBRAIN_TOKENS", "BIGBRAIN_CLIENT_TOKENS", "BIGBRAIN_READ_LOG", "BIGBRAIN_ARRIVALS", "BIGBRAIN_VAULT_POINTER", "BIGBRAIN_SHARED_MEMBERS", "BIGBRAIN_SHARED_PUBLIC_URL", "BIGBRAIN_SHARED_GOOGLE_CLIENT_ID",
   "BIGBRAIN_ASSERTION_DB", "BIGBRAIN_NO_RETRIEVAL_LOG", "BIGBRAIN_TEST_JOBS",

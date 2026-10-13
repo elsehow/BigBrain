@@ -66,6 +66,8 @@ export interface EgressOptions {
   hosts: (desktop?: string) => Iterable<string>;
   /** How to ask for a host off the list, said when one is refused. */
   ask?: string;
+  /** Told when a desktop's connection is refused a host off its list: the host shows it. */
+  refused?: (desktop: string, host: string) => void;
   /** How an allowed connection is made; tests stand in a local upstream. */
   dial?: (host: string, port: number) => Promise<Socket>;
 }
@@ -187,6 +189,7 @@ export class EgressProxy {
       status === 407 ? ['Proxy-Authenticate: Basic realm="BigBrain"'] : []);
     if (!PORTS.has(port)) return refuse("only ports 80 and 443 are reachable");
     if (!allowedHost(host, this.options.hosts(desktop))) {
+      if (desktop) this.options.refused?.(desktop, host);
       const why = `it is not on the desktop network allowlist${this.options.ask ? `; ${this.options.ask}` : " (Settings)"}`;
       // a client that sends its credential only when asked (git) is asked, for a host its desktop may reach
       return refuse(why, auth || known ? 403 : 407);
