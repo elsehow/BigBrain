@@ -93,6 +93,15 @@ export class Machine {
     this.sockets = socketDir(o.dir);
   }
 
+  /** Boot this image from now on: a new disk is cloned from its rootfs; an existing disk keeps its own origin. */
+  useImage(image: MachineImage): void { this.o.image = image; }
+
+  /** The rootfs a disk was cloned from (machine.json in its folder), if it has one. */
+  origin(): string | undefined {
+    try { return (JSON.parse(readFileSync(join(this.o.dir, "machine.json"), "utf8")) as { image?: string }).image || undefined; }
+    catch { return undefined; }
+  }
+
   get disk(): string { return join(this.o.dir, "disk.img"); }
   get consoleLog(): string { return join(this.o.dir, "console.log"); }
   get guestSocket(): string { return join(this.sockets, "guest.sock"); }

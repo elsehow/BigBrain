@@ -54,6 +54,17 @@ That mode leaves the installer, app archives and update feed alone. Preview the
 extension page using `python3 -m http.server 4174 --directory site/dist`, at
 `http://localhost:4174/plugins/`. Homepage work happens in the website repo.
 
+For the desktop machine's image (`packages/agents/machine.json`), download
+the CI run the pins name (`gh run download <run> -n machine-arm64 -D
+<dir>/arm64`, the same for amd64), then:
+
+```sh
+bun run site:deploy machine <dir>
+```
+
+It refuses any file that isn't the pinned one and publishes to
+`/srv/releases/machine/<arch>/<sha256>/`, never replacing a file.
+
 `site/nginx/bigbrain-site` is the source for
 `/etc/nginx/sites-available/bigbrain-site`; validate with `sudo nginx -t` before
 reloading. Preserve the routing split whenever editing it. Email PNG names and

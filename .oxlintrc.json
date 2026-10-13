@@ -40,7 +40,8 @@
     {
       "files": [
         "packages/agents/src/tools.ts",
-        "packages/agents/src/harbor.ts"
+        "packages/agents/src/harbor.ts",
+        "packages/agents/src/containedTools.ts"
       ],
       "rules": {
         "no-restricted-imports": [

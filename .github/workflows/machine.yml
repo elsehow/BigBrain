@@ -11,6 +11,11 @@ on:
       - 'packages/vm/**'
       - 'packages/agents/image/**'
       - 'packages/agents/src/guest.ts'
+      - 'packages/agents/src/machine*.ts'
+      - 'packages/agents/src/projects.ts'
+      - 'packages/agents/src/containedTools.ts'
+      - 'packages/agents/test/machine.test.ts'
+      - 'packages/agents/test/contained.test.ts'
       - '.github/workflows/machine.yml'
   workflow_dispatch:
 permissions:
@@ -48,7 +53,7 @@ jobs:
             sudo chmod 666 /dev/vhost-vsock 2>/dev/null || true
           fi
           if [ -w /dev/kvm ] && [ -w /dev/vhost-vsock ]; then
-            BIGBRAIN_VM_TESTS=qemu BIGBRAIN_MACHINE_IMAGE=$PWD/out bun test packages/agents/test/machine.test.ts
+            BIGBRAIN_VM_TESTS=qemu BIGBRAIN_MACHINE_IMAGE=$PWD/out bun test packages/agents/test/machine.test.ts packages/agents/test/contained.test.ts
           else
             echo "::notice::no KVM or vhost-vsock on ${{ matrix.runner }}: the image is built but not booted"
           fi

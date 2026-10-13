@@ -18,6 +18,8 @@ import { discardWork, landWork, listWork, workDiff, type LandHow, type Landed, t
 import { run } from "./run";
 import { Harbor, scopeOf } from "./harbor";
 import { codingTools, type AgentTool } from "./tools";
+import { containedTools } from "./containedTools";
+import type { Machines } from "./machines";
 import { AgentsError, checkDesktopId, releaseLeases, stateFolder, workspace, type Workspace } from "./workspace";
 
 type Model = NonNullable<CreateAgentSessionOptions["model"]>;
@@ -52,6 +54,10 @@ export interface OpenOptions {
   /** Whether the desktop has read untrusted material, asked before each
    * command: its commands then write only the desktop's own folder (sandbox.ts). */
   untrusted?: () => boolean;
+  /** Work in the desktop's own machine (Agents' `machines`), on copies of
+   * projects, instead of in place under the sandbox. The host decides per
+   * desktop, and keeps deciding the same way for it. */
+  contained?: boolean;
   /** Material the host hands over as data, not instructions (such as untrusted
    * content the desktop was started about): the session's first message, ahead
    * of the person's, kept in the session and never in the instructions. */
@@ -67,15 +73,32 @@ Paths are relative to your workspace.
 - Commands run in a sandbox, with your person's environment: they write your worktrees, the projects you edit in place and your temp folder, and reach the internet only through a proxy to package registries, GitHub and hosts your person allows. Long-running commands such as dev servers return once they're listening, and keep running; say the address you were given. stop_job stops one.
 - Commit finished work on your branch. Don't push, merge, rebase or switch branches in your person's checkouts unless they ask.`;
 
+/** What a contained desktop's agent is told about where it works. */
+export const CONTAINED_INSTRUCTIONS = (id: string) => `
+## Where you work
+You work in your own machine, a small Linux computer that only you use. Paths are the machine's; relative ones are under /work.
+- Your person's projects are on their computer. open_project copies one into your machine at /work/<name>, on your own branch desktop/${id}, from their current branch. sync_project brings in their newer commits. project_state answers questions about their real checkout (its branch, uncommitted files, stashes, worktrees), which your copy can't.
+- Change and test your copy freely: nothing you do reaches your person until they review it and land it. Commit finished work on desktop/${id}.
+- Commands run as the user work, with sudo if you need to install something (apt-get install works). Your machine reaches the internet only through a proxy to package registries, GitHub and hosts your person allows; request_host asks for another. Long-running commands such as dev servers return once they're listening, and keep running; stop_job stops one.`;
+
 export class Agents {
   private desktops = new Map<string, Desktop>();
-  constructor(readonly ws: Workspace = workspace(), readonly harbor = new Harbor({ scope: scopeOf(ws.root) })) {}
+  /** The harbor for contained desktops, over their machines; absent where they can't run. */
+  readonly contained?: Harbor;
+  constructor(readonly ws: Workspace = workspace(), readonly harbor = new Harbor({ scope: scopeOf(ws.root) }), readonly machines?: Machines) {
+    if (machines) {
+      this.contained = new Harbor({ guests: machines });
+      // a machine's life is its desktop's: in its event log, open or not
+      machines.on((id, event) => { this.log(id).append(event); });
+    }
+  }
 
   async open(id: string, options: OpenOptions): Promise<Desktop> {
     checkDesktopId(id);
     const existing = this.desktops.get(id);
     if (existing) return existing;
-    const desktop = new Desktop(this.ws, id, this.harbor);
+    if (options.contained && !this.contained) throw new AgentsError("Contained desktops aren't available here.");
+    const desktop = new Desktop(this.ws, id, options.contained ? this.contained! : this.harbor);
     await desktop.start(options);
     this.desktops.set(id, desktop);
     return desktop;
@@ -149,19 +172,28 @@ export class Desktop {
     const settingsManager = sdk.SettingsManager.inMemory({ retry: { enabled: false }, enableAnalytics: false, enableInstallTelemetry: false, cacheWarming: "off" } as never);
     const resourceLoader = new sdk.DefaultResourceLoader({ cwd: this.folder, agentDir: state, settingsManager,
       noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
-      systemPrompt: `${options.instructions.trim()}\n${WORKING_INSTRUCTIONS(this.id)}` });
+      systemPrompt: `${options.instructions.trim()}\n${(options.contained ? CONTAINED_INSTRUCTIONS : WORKING_INSTRUCTIONS)(this.id)}` });
     await resourceLoader.reload();
     const sessionManager = sdk.SessionManager.continueRecent(this.folder, join(state, "sessions"));
 
-    const tools: AgentTool[] = [
-      ...codingTools({
+    const coding: AgentTool[] = options.contained ? containedTools({
+      ws: this.ws, desktop: this.id, harbor: this.harbor, elsewhere: options.elsewhere,
+      opened: r => this.emit({ type: "project.opened", project: r.project, base: r.base, branch: r.branch, ms: r.ms, bytes: r.bytes }),
+      synced: (project, from, to) => this.emit({ type: "project.synced", project, from, to }),
+      server: (port, job, command) => {
+        this.emit({ type: "server.started", port, job, command });
+        void this.harbor.whenExited(job).then(x => this.emit({ type: "server.exited", job, code: x?.code ?? null }));
+      },
+    }) : codingTools({
         ws: this.ws, desktop: this.id, harbor: this.harbor, elsewhere: options.elsewhere, shell: options.shell, write: options.write, file: options.file, untrusted: options.untrusted,
         started: (r: WorkRecord) => this.emit({ type: "work.started", project: r.project, branch: r.branch, path: r.path, ms: r.ms, cloned: r.cloned }),
         server: (port, job, command) => {
           this.emit({ type: "server.started", port, job, command });
           void this.harbor.whenExited(job).then(x => this.emit({ type: "server.exited", job, code: x?.code ?? null }));
         },
-      }),
+      });
+    const tools: AgentTool[] = [
+      ...coding,
       ...(options.tools ?? []).map((t): AgentTool => ({
         name: t.name, description: t.description, parameters: t.parameters, label: t.label,
         run: async (args, signal) => ({ text: JSON.stringify(await t.execute(args, signal)) ?? "null", label: t.label?.(args) ?? t.name, ok: true }),

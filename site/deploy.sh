@@ -2,7 +2,32 @@
 set -eu
 cd "$(dirname "$0")/.."
 mode=${1:-app}
-case "$mode" in app|extensions) ;; *) echo 'Usage: bun run site:deploy [app|extensions]' >&2; exit 1;; esac
+case "$mode" in app|extensions|machine) ;; *) echo 'Usage: bun run site:deploy [app|extensions|machine <artifacts-dir>]' >&2; exit 1;; esac
+if test "$mode" = machine; then
+  # The desktop machine's image (packages/agents/machine.json): CI's
+  # machine-<arch> artifacts, unzipped into <artifacts-dir>/<arch>/, checked
+  # against the pins, then published at immutable paths. Never deletes.
+  src=${2:?'Usage: bun run site:deploy machine <artifacts-dir>'}
+  stage=$(mktemp -d)
+  bun -e '
+    const fs = require("fs"), path = require("path"), crypto = require("crypto");
+    const [src, stage] = process.argv.slice(1);
+    const pins = JSON.parse(fs.readFileSync("packages/agents/machine.json", "utf8"));
+    for (const [arch, files] of Object.entries(pins.arch)) for (const f of Object.values(files)) {
+      const from = path.join(src, arch, f.name);
+      const body = fs.readFileSync(from);
+      const sha = crypto.createHash("sha256").update(body).digest("hex");
+      if (sha !== f.sha256 || body.length !== f.size) throw Error(`${from} is not the pinned ${arch} ${f.name}`);
+      const to = path.join(stage, "machine", arch, f.sha256, f.name);
+      fs.mkdirSync(path.dirname(to), { recursive: true });
+      fs.copyFileSync(from, to);
+    }
+    console.log("machine image: every file matches machine.json");' "$src" "$stage"
+  rsync -rltz --ignore-existing --rsync-path='sudo -u bb-releases rsync' "$stage/machine" bigbrain.exe.xyz:/srv/releases/
+  rm -rf "$stage"
+  echo 'Published the machine image.'
+  exit 0
+fi
 for path in site/dist/plugins/index.html site/dist/email; do test -e "$path"; done
 if test -e site/dist/index.html; then
   echo 'Refusing legacy build containing a homepage; rebuild with bun run site:build.' >&2

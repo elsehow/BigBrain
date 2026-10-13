@@ -20,6 +20,12 @@ export type AgentEvent =
   | { type: "project.landed"; project: string; how: "pr" | "branch"; branch: string; url?: string }
   | { type: "server.started"; port: number; job: number; command: string }
   | { type: "server.exited"; job: number; code: number | null }
+  | { type: "project.opened"; project: string; base: string; branch: string; ms: number; bytes: number }
+  | { type: "project.synced"; project: string; from: string; to: string }
+  | { type: "machine.preparing"; got: number; total: number }
+  | { type: "machine.started"; ms: number; image: string }
+  | { type: "machine.stopped"; why: string }
+  | { type: "machine.failed"; message: string; console: string }
   | { type: "error"; message: string; recoverable: boolean };
 
 export type Stamped = AgentEvent & { seq: number; at: string };
@@ -37,9 +43,10 @@ export class EventLog {
     }
   }
   append(event: AgentEvent): Stamped {
-    // Deltas are for live viewers only: the finished message is the durable
-    // record, so a delta carries the last durable seq and is never written.
-    const live = event.type === "message.delta";
+    // Deltas and download progress are for live viewers only: the finished
+    // message (or machine.started) is the durable record, so a live event
+    // carries the last durable seq and is never written.
+    const live = event.type === "message.delta" || event.type === "machine.preparing";
     const stamped = { ...event, seq: live ? this.seq : ++this.seq, at: new Date().toISOString() } as Stamped;
     if (!live) appendFileSync(this.file, JSON.stringify(stamped) + "\n");
     for (const l of this.listeners) l(stamped);
