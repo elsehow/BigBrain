@@ -46,7 +46,7 @@ import { dieWithSupervisor } from "../lib/parentWatch";
 import { configSave, integrationsInfo } from "../lib/configWrite";
 import { allowLoopbackRequest, armor, dispatch, json, readBody, send, type Ctx, type Route } from "../lib/httpx";
 import { dropErrorStatus, Queued } from "../lib/door";
-import { firewallKey } from "../lib/firewall";
+import { firewallKey } from "../lib/stages/firewall";
 import { landDirective, landDrop } from "../lib/landItem";
 import { voiceMessagesFor } from "../lib/voice";
 import { createLive } from "../lib/liveEvents";

@@ -19,7 +19,7 @@ import {integrationActive,integrationAccounts,MANAGED_INTEGRATIONS} from './inte
 import type {InclusionSource} from './inclusionPolicy';
 import {connectionStorePath} from './sharedConnections';
 import {loadManifest} from './manifest';
-import {GATE_JOURNAL_DIR,gateDecide,gated,recordGateDecision} from './worthGate';
+import {GATE_JOURNAL_DIR,gateDecide,gated,recordGateDecision} from './stages/worthGate';
 import {commitRunRecords} from './runRecords';
 
 /** A staged item as the gate reads it: the whole arrival. */

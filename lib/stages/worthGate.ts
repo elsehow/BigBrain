@@ -22,15 +22,15 @@
 
 import { appendFileSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { openAssertionProjectionReadonly, syncAssertionProjection } from "./assertionProjection";
-import { ensureDir } from "./fsx";
-import { teachingExamples, type TeachingExample } from "./inclusionExamples";
-import type { InclusionLabel, InclusionSource } from "./inclusionPolicy";
-import { optionalJevKey } from "./jevSettings";
-import type { GateConfig } from "./manifest";
-import { evaluateJev } from "./sharedJev";
-import { liveSourceSql } from "./sourceSupersede";
-import { withCredits } from "./providerCredits";
+import { openAssertionProjectionReadonly, syncAssertionProjection } from "../assertionProjection";
+import { ensureDir } from "../fsx";
+import { teachingExamples, type TeachingExample } from "../inclusionExamples";
+import type { InclusionLabel, InclusionSource } from "../inclusionPolicy";
+import { optionalJevKey } from "../jevSettings";
+import type { GateConfig } from "../manifest";
+import { evaluateJev } from "../sharedJev";
+import { liveSourceSql } from "../sourceSupersede";
+import { withCredits } from "../providerCredits";
 
 export const GATE_JOURNAL_DIR = "journal/gate";
 

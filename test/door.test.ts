@@ -1,10 +1,10 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { arrivalsBase } from "../lib/arrivals";
 import { admit, hold, land, Queued, sweep } from "../lib/door";
-import { firewallKey, windows, withheldLog } from "../lib/firewall";
+import { firewallDecisions, firewallKey, windows } from "../lib/stages/firewall";
 import { sha256hex } from "../lib/hash";
 import { saveJevKey } from "../lib/jevSettings";
 import { JEV_MODEL } from "../lib/sharedJev";
@@ -181,9 +181,9 @@ describe("the firewall at the door", () => {
     expect(await hold(...item(root, mail("https://quillpad.example/reset?t=RESET-TOKEN")))).toBe(false);
     expect(readSourceInsertionLog(root)).toHaveLength(0);
     expect(stagedCount(root)).toBe(0);
-    const lines = readFileSync(withheldLog(root), "utf8").trim().split("\n").map((l) => JSON.parse(l));
+    const lines = firewallDecisions(root);
     expect(lines).toHaveLength(2);
-    expect(lines[1]).toMatchObject({ source: "email", reason: "credential", from: "Quillpad <no-reply@quillpad.example>" });
+    expect(lines[1]).toMatchObject({ source: "email", decision: "withheld", reason: "credential", outcome: "withheld", from: "Quillpad <no-reply@quillpad.example>" });
     expect(JSON.stringify(lines)).not.toContain("482910");
     expect(JSON.stringify(lines)).not.toContain("RESET-TOKEN");
   });
@@ -216,13 +216,15 @@ describe("the firewall at the door", () => {
     }
     expect(readSourceInsertionLog(down)).toHaveLength(0);
     expect(stagedCount(down)).toBe(0);
-    expect(existsSync(withheldLog(down))).toBe(false);
+    expect(firewallDecisions(down)).toEqual([]); // nothing decided while it could not answer
 
     // the firewall answers again: one sweep settles all three, with no retry of the doors' own
     expect(await sweep(down)).toEqual({ settled: 3, waiting: 0 });
     expect(readSourceInsertionLog(down)).toHaveLength(1);
     expect(stagedCount(down)).toBe(1);
-    expect(readFileSync(withheldLog(down), "utf8").trim().split("\n")).toHaveLength(1);
+    // every arrival's decision is kept, passes included, and only one was withheld
+    expect(firewallDecisions(down).map((d) => d.decision).sort()).toEqual(["passed", "passed", "withheld"]);
+    expect(firewallDecisions(down).find((d) => d.outcome.startsWith("landed"))?.outcome).toMatch(/^landed ins_[a-f0-9]{24}$/);
 
     const root = vault();
     mode = "broken";

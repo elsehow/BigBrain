@@ -2,14 +2,15 @@
  * API, lib/sharedJev.ts) BEFORE anything lands or stages it; until then it
  * waits in the sealed arrivals queue (lib/arrivals.ts). One yes/no question:
  * does it carry a credential? If that clears its threshold the item is
- * WITHHELD: not landed, not staged, never read by an agent. The one trace it
- * leaves is a metadata line (source, sender, date, reason, scores — never the
- * subject, which is where a one-time code lives) so a false positive can be
- * seen and the threshold tuned (deploy/firewall/eval).
+ * WITHHELD: not landed, not staged, never read by an agent. What it leaves is
+ * a metadata line (source, sender, date, reason, scores — never the subject,
+ * which is where a one-time code lives) so a false positive can be seen and
+ * the threshold tuned (deploy/firewall/eval).
  *
  * The threat this exists for is a password-reset email: an agent that can
  * request a reset and then read the link out of the record owns the
- * account. So the gate fails CLOSED — an unreachable endpoint withholds
+ * account. Every decision, a pass as much as a hold, leaves one line of
+ * metadata in the gate's record (`decisionLog`). So the gate fails CLOSED — an unreachable endpoint withholds
  * nothing and admits nothing; the arrival stays queued, and lands once the
  * endpoint answers (lib/door.ts).
  *
@@ -18,18 +19,18 @@
  * is off. It is decided per arrival, so a key added before an integration's
  * first poll screens that poll. Only lib/door.ts calls this. */
 
-import { appendFileSync, existsSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { parseEnvelope } from "./envelope";
-import { firewallUrl } from "./env";
-import { ensureDir } from "./fsx";
-import { looksBinary, type Attachment } from "./intake";
-import { optionalJevKey } from "./jevSettings";
-import { loadManifest } from "./manifest";
-import { connectionStorePath } from "./sharedConnections";
-import { JEV_MODEL, JEV_URL } from "./sharedJev";
-import { ensureSpool, spoolDir } from "./spool";
-import { OutOfCredits, outOfCredits, withCredits } from "./providerCredits";
+import { parseEnvelope } from "../envelope";
+import { firewallUrl } from "../env";
+import { ensureDir } from "../fsx";
+import { looksBinary, type Attachment } from "../intake";
+import { optionalJevKey } from "../jevSettings";
+import { loadManifest } from "../manifest";
+import { connectionStorePath } from "../sharedConnections";
+import { JEV_MODEL, JEV_URL } from "../sharedJev";
+import { ensureSpool, spoolDir } from "../spool";
+import { OutOfCredits, outOfCredits, withCredits } from "../providerCredits";
 
 /** The Jev key the firewall screens with, or undefined when it is off for
  * this vault: no vault.yaml (a scratch root), turned off, or no key. An
@@ -175,21 +176,51 @@ export async function screen(
   return { pass: true, scores };
 }
 
-export const withheldLog = (root: string): string => join(spoolDir(root), "firewall", "withheld.jsonl");
+/** Every arrival's decision, passes included (R10,
+ * docs/plans/2026-10-12-stages-and-views-refactor.md): the gate's record. It
+ * sits beside the arrivals queue, outside the vault by design, and holds
+ * what the firewall decided and why, never what an arrival said: source,
+ * sender, date, scores, and what became of it. Append-only; nothing prunes
+ * it, as the queue's own outcomes are pruned after a week. */
+export const decisionLog = (root: string): string => join(spoolDir(root), "firewall", "decisions.jsonl");
 
-/** The withheld item's one trace. Deliberately no subject, title or body. */
-export function recordWithheld(root: string, source: string, content: string, verdict: Extract<Verdict, { pass: false }>, now = new Date()): void {
+export interface FirewallDecision {
+  at: string;
+  /** The arrival it decided (lib/arrivals.ts). */
+  arrival: string;
+  source: string;
+  from?: string;
+  date?: string;
+  /** `off`: no key, or the owner turned it off; nothing was asked. */
+  decision: "passed" | "withheld" | "off";
+  reason?: string;
+  scores?: Scores;
+  /** What the arrival became: landed, staged, refused or withheld. */
+  outcome: string;
+}
+
+/** Append one arrival's decision. Deliberately no subject, title or body. */
+export function recordDecision(root: string, arrival: string, source: string, content: string, verdict: Verdict, outcome: string, now = new Date()): FirewallDecision {
   let envelope: Record<string, unknown> = {};
   try { envelope = parseEnvelope(content).envelope; } catch { /* a bare note has no envelope */ }
-  const line = {
-    at: now.toISOString(),
-    source,
+  const line: FirewallDecision = {
+    at: now.toISOString(), arrival, source,
     ...(typeof envelope.from === "string" ? { from: envelope.from } : {}),
     ...(typeof envelope.date === "string" ? { date: envelope.date } : {}),
-    reason: verdict.reason,
-    scores: verdict.scores,
+    decision: verdict.pass ? (verdict.scores ? "passed" : "off") : "withheld",
+    ...(verdict.pass ? {} : { reason: verdict.reason }),
+    ...(verdict.scores ? { scores: verdict.scores } : {}),
+    outcome,
   };
   ensureSpool(root);
   ensureDir(join(spoolDir(root), "firewall"));
-  appendFileSync(withheldLog(root), JSON.stringify(line) + "\n");
+  appendFileSync(decisionLog(root), JSON.stringify(line) + "\n");
+  return line;
+}
+
+/** Every decision so far, oldest first. */
+export function firewallDecisions(root: string): FirewallDecision[] {
+  try {
+    return readFileSync(decisionLog(root), "utf8").split("\n").flatMap((l) => { try { return l.trim() ? [JSON.parse(l) as FirewallDecision] : []; } catch { return []; } });
+  } catch { return []; }
 }

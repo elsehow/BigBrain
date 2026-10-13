@@ -68,6 +68,8 @@ const NOT_YET_STAGES = [
   "lib/entityFolds.ts",
   "lib/feedStage.ts",
   "lib/inclusionQueries.ts",
+  // checks a Jev key when it is saved: operational
+  "lib/jevSettingsApi.ts",
   "lib/memoryRun.ts",
   "lib/pilotBackend.ts",
   "lib/scanReader.ts",
@@ -83,6 +85,8 @@ const RUNNERS: Record<string, string[]> = {
   "lib/run/sessionJob": ["runSessionJob"],
   "lib/run/sessionFactory": ["createModelSession"],
   "lib/askModel": ["askModel"],
+  // Jev (TypeSafe's SystemOne) is a model too (R10)
+  "lib/sharedJev": ["askJev", "evaluateJev"],
 };
 const callsModel = (file: string) => imports(file).some(({ module, names }) =>
   module in RUNNERS && (names === "all" || names.some((n) => RUNNERS[module]!.includes(n))));
