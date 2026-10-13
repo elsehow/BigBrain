@@ -2,14 +2,16 @@
 
 Every arrival — a drop, a clip, an email, a meeting — is queued, then
 screened by Jev (TypeSafe's SystemOne API) before anything lands or stages it
-(`lib/door.ts`, `lib/firewall.ts`). One yes/no question: does it carry a **credential** — a
+(`lib/door.ts`, `lib/stages/firewall.ts`). One yes/no question: does it carry a **credential** — a
 password, key, token, one-time or verification code, recovery codes, or a
 password-reset, magic sign-in or verification link?
 
 Over the threshold and the item is **withheld**: deleted from the queue, not
-landed, not staged for the gardener, never read by any agent. One line goes to
-`.spool/firewall/withheld.jsonl` — source, sender, date, reason, scores; never
-the subject or body — so a false positive is visible.
+landed, not staged for the gardener, never read by any agent. Every arrival's
+decision, a pass as much as a hold, is one line in
+`.spool/firewall/decisions.jsonl` — source, sender, date, decision, reason,
+scores and what it became; never the subject or body — so a false positive is
+visible, and so is every pass.
 
 The threat it exists for: an agent that can request a password reset and then
 read the link out of the vault owns the account. So it fails **closed**: if
