@@ -29,7 +29,7 @@ export function fieldDigest(root: string): FieldDigest {
     WHERE a.revoked_by IS NULL AND ${liveAssertionSql("a")}`).all() as { id: string; event_json: string }[]);
   const record = vaultRecord(root);
   const aliases = [...record.aliases.canonical].map(([alias, entity]) => `alias\t${alias}\t${entity.id}\t${entity.label}`);
-  const bindings = record.entitySources.filter((b) => b.bound).map((b) => `binding\t${b.entity.id}\t${b.insertion_id}`);
+  const bindings = record.entitySources.map((b) => `binding\t${b.entity.id}\t${b.insertion_id}`);
   const copies = [...new Set(record.copies.values())].map((c) => `copies\t${c.members.map((m) => m.id).join(",")}`);
   const graph = buildAssertionGraph(root, undefined, record);
   const nodes = graph.nodes.map((n) => JSON.stringify([n.id, n.group, n.title, n.degree, n.entity ?? false,

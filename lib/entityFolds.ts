@@ -182,9 +182,9 @@ export type RejectedPair = (a: string, b: string) => boolean;
  * same-name pair you said are two. */
 export function rejectedPairList(db: Database): Array<[string, string]> {
   return db.query(`SELECT DISTINCT min(a, b), max(a, b) FROM (
-      SELECT coalesce(xa.entity_id, r.a) AS a, coalesce(xb.entity_id, r.b) AS b FROM entity_fold_rejects r
+      SELECT coalesce(xa.entity_id, r.a) AS a, coalesce(xb.entity_id, r.b) AS b FROM identities r
         LEFT JOIN entity_aliases xa ON xa.alias_id = r.a LEFT JOIN entity_aliases xb ON xb.alias_id = r.b
-      WHERE r.retracted_by IS NULL)
+      WHERE r.says = 'distinct' AND r.retracted_by IS NULL)
     WHERE a != b ORDER BY 1, 2`).values() as Array<[string, string]>;
 }
 

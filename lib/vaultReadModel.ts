@@ -5,21 +5,20 @@
 import type { SourceSummary } from "./sourceSummary";
 import { USER_IDENTITY_PROCEDURE, USER_IDENTITY_VERSION, userIdentityDeclarationsFromEvents } from "./userIdentityPolicy";
 import type { ConnectionEvidence, DocumentLinkTargets, MarkdownDocument, MarkdownIdentity } from "./markdownGraph";
-import { assertionDbPath, openAssertionProjectionReadonly, projectionRecovered, projectionRevision, syncAssertionProjection } from "./assertionProjection";
-import { entityAliasResolution, type EntityAliasEvent, type EntityAliasResolution } from "./entityAliasLog";
+import { aliasDeclarationsIn, assertionDbPath, openAssertionProjectionReadonly, projectionRecovered, projectionRevision, syncAssertionProjection } from "./assertionProjection";
+import { entityAliasResolution, type AliasDeclaration, type EntityAliasResolution } from "./entityAliasLog";
+import type { Binding, Retraction } from "./assertionKinds";
 import { assertionSourceReferences, type AssertionEvent } from "./assertionLog";
-import { latestEntitySourceDeclarations, type EntitySourceEvent } from "./entitySourceLog";
 import { insertionEventRel, sourceMoment, type SourceInsertion, type SourceMetadata } from "./insertionLog";
-import type { RevocationEvent } from "./revocationLog";
 import { withProjectionWrite } from "./projectionWriteLock";
 import type { RecentEntry } from "./viewTypes";
 import { threadsByInsertion, type SourceThread } from "./sourceThreads";
 import { supersededInsertionIds, liveAssertionSql, liveSourceSql } from "./sourceSupersede";
 import {
-  copyCandidates, copyCutoff, CROWD, foldCopyEvents, PROPOSE_FLOOR, sameTitle, sourceCopies, titleBuckets, titleForms,
+  copyCandidates, copyCutoff, CROWD, foldCopies, PROPOSE_FLOOR, sameTitle, sourceCopies, titleBuckets, titleForms,
   type CopyRecord, type CopyWhy, type SourceCopies, type TitleForms,
 } from "./sourceCopies";
-import { copyPairKey, type SourceCopyEvent } from "./sourceCopyLog";
+import { copyPairKey } from "./sourceCopyLog";
 import { STUB_CHARS } from "./text";
 import { aboutIds, VOICE_KINDS } from "./voiceFacts";
 import type { CacheKey, Snapshot } from "./views/view";
@@ -43,10 +42,10 @@ export interface VaultRecord extends SourceRecord {
   aliases: EntityAliasResolution;
   /** The latest entity↔source declaration per pair (lib/entitySourceLog.ts),
    * oldest first; `bound: false` ones are unbindings. */
-  entitySources: EntitySourceEvent[];
+  entitySources: Binding[];
   /** Copies of one document (lib/sourceCopies.ts), by insertion id. */
   copies: Map<string, SourceCopies<SourceSummary>>;
-  revoked: Map<string, RevocationEvent>;
+  revoked: Map<string, Retraction>;
 }
 interface DecodedRevision {
   revision: string;
@@ -56,7 +55,7 @@ interface DecodedRevision {
   copyLinks?: CopyLinks;
   catalog?: { sources: SourceMetadata[]; threads: SourceThread<SourceMetadata>[] };
   memory?: { inss: SourceMetadata[]; asserted: AssertionEvent[]; voice: SourceInsertion[];
-    revocations: RevocationEvent[]; aliases: EntityAliasEvent[] };
+    revocations: Retraction[]; aliases: AliasDeclaration[] };
 }
 const records = new Map<string, DecodedRevision>();
 function decodedRevision(root: string, revision: string): DecodedRevision {
@@ -138,9 +137,8 @@ export function vaultRecordOf(snapshot: Snapshot): VaultRecord {
   if (held.record) return held.record;
   const sources = sourceRecordOf(snapshot);
   const rows = decoded<AssertionEvent>(db, "SELECT event_json FROM assertions WHERE revoked_by IS NULL ORDER BY created_at, id");
-  const revoked = new Map<string, RevocationEvent>();
-  for (const event of decoded<RevocationEvent>(db, "SELECT event_json FROM revocations ORDER BY created_at, id"))
-    if (!revoked.has(event.assertion_id)) revoked.set(event.assertion_id, event);
+  const revoked = new Map<string, Retraction>();
+  for (const retraction of retractionsIn(db)) if (!revoked.has(retraction.retracts)) revoked.set(retraction.retracts, retraction);
   const aliases = aliasesIn(db);
   const entitySources = entitySourcesIn(db);
   const documents = (db.query("SELECT header_json AS document_json FROM markdown_documents ORDER BY path").all() as { document_json: string }[]).map(r => JSON.parse(r.document_json) as MarkdownIdentity);
@@ -199,11 +197,15 @@ function copyLinks(db: Database, landing: (insertionId: string) => string | unde
   const canonical = db.query("SELECT entity_id FROM entity_aliases WHERE alias_id = ?");
   const joins = new Map<string, string[]>();
   for (const binding of entitySourcesIn(db)) {
-    const id = binding.bound ? landing(binding.insertion_id) : undefined;
+    const id = landing(binding.insertion_id);
     const entity = (canonical.get(binding.entity.id) as { entity_id: string } | null)?.entity_id ?? binding.entity.id;
     if (id) joins.set(id, [...(joins.get(id) ?? []), `entity:${entity}`]);
   }
-  const said = foldCopyEvents(decoded<SourceCopyEvent>(db, "SELECT event_json FROM source_copy_events WHERE retracted_by IS NULL"));
+  const said = foldCopies((db.query(`SELECT id, says, a, b, score, author_id, created_at FROM identities
+    WHERE says IN ('copy', 'not-copy') AND retracted_by IS NULL`).all() as
+    { id: string; says: string; a: string; b: string; score: number | null; author_id: string; created_at: string }[])
+    .map((r) => ({ id: r.id, pair: [r.a, r.b] as const, created_at: r.created_at,
+      ...(r.score === null ? { same: r.says === "copy" } : { score: r.score, model: r.author_id }) })));
   const cutoff = copyCutoff(said);
   const pair = (key: string): [string, string] => key.split("|") as [string, string];
   const pairs: [string, string, CopyWhy][] = [];
@@ -430,15 +432,31 @@ function decoded<T>(db: Database, sql: string, ...params: string[]): T[] {
   return (db.query(sql).all(...params) as { event_json: string }[]).map(r => JSON.parse(r.event_json));
 }
 function aliasesIn(db: Database): EntityAliasResolution {
-  return entityAliasResolution(decoded<EntityAliasEvent>(db, "SELECT event_json FROM entity_alias_events WHERE retracted_by IS NULL"));
+  return entityAliasResolution(aliasDeclarationsIn(db));
 }
-function entitySourcesIn(db: Database): EntitySourceEvent[] {
-  return latestEntitySourceDeclarations(decoded<EntitySourceEvent>(db, "SELECT event_json FROM entity_source_events WHERE retracted_by IS NULL"));
+/** Every retraction, oldest first. */
+function retractionsIn(db: Database): Retraction[] {
+  return (db.query("SELECT id, retracts, superseded_by, reason, created_at FROM retractions ORDER BY created_at, id").all() as
+    { id: string; retracts: string; superseded_by: string | null; reason: string; created_at: string }[])
+    .map(({ superseded_by, ...r }) => ({ ...r, ...(superseded_by ? { superseded_by } : {}) }));
+}
+/** The is-source identities, oldest first; `standing` passes over the retracted. */
+function bindingsIn(db: Database, standing: boolean): Binding[] {
+  return (db.query(`SELECT id, entity_id, entity_label, a AS insertion_id, created_at FROM identities
+    WHERE says = 'is-source'${standing ? " AND retracted_by IS NULL" : ""} ORDER BY created_at, id`).all() as
+    { id: string; entity_id: string; entity_label: string; insertion_id: string; created_at: string }[])
+    .map((r) => ({ id: r.id, entity: { id: r.entity_id, label: r.entity_label }, insertion_id: r.insertion_id, created_at: r.created_at }));
+}
+/** Each entity's standing bindings, one per pair: the latest. */
+function entitySourcesIn(db: Database): Binding[] {
+  const latest = new Map<string, Binding>();
+  for (const binding of bindingsIn(db, true)) { const key = `${binding.entity.id}\u0000${binding.insertion_id}`; latest.delete(key); latest.set(key, binding); }
+  return [...latest.values()];
 }
 /** Every binding ever declared, retracted ones too: a pair the bulk pass
  * never decides again (lib/entitySourceSeed.ts). */
-export function declaredEntitySources(root: string): EntitySourceEvent[] {
-  return withVaultSnapshot(root, (db) => decoded<EntitySourceEvent>(db, "SELECT event_json FROM entity_source_events"));
+export function declaredEntitySources(root: string): Binding[] {
+  return withVaultSnapshot(root, (db) => bindingsIn(db, false));
 }
 function sourcesFor(db: Database, rows: readonly AssertionEvent[]): Map<string, SourceMetadata> {
   const ids = [...new Set(rows.flatMap(row => assertionSourceReferences(row).map(ref => ref.insertion_id)))];
@@ -465,7 +483,7 @@ export function entityReadModel(root: string, asked: string) {
  * ids, newest first, as the graph's `opens` orders them. A binding to a
  * superseded landing follows its source's live one. */
 function boundSources(db: Database, ids: readonly string[]): SourceMetadata[] {
-  const bound = entitySourcesIn(db).filter(event => event.bound && ids.includes(event.entity.id)).map(event => event.insertion_id);
+  const bound = entitySourcesIn(db).filter(event => ids.includes(event.entity.id)).map(event => event.insertion_id);
   if (!bound.length) return [];
   return decoded<SourceMetadata>(db, `SELECT DISTINCT s.header_json AS event_json FROM sources b
     JOIN sources s ON s.present = 1 AND s.source_id = b.source_id
@@ -603,8 +621,8 @@ export function memoryReadModel(root: string) {
       inss: decoded<SourceMetadata>(db, "SELECT header_json AS event_json FROM sources WHERE present = 1 ORDER BY coalesce(received_at, occurred_at, ''), insertion_id"),
       asserted: decoded<AssertionEvent>(db, "SELECT event_json FROM assertions ORDER BY created_at, id"),
       voice: decoded<SourceInsertion>(db, `SELECT event_json FROM sources JOIN source_documents USING (insertion_id) WHERE ${voiceWhere} ORDER BY coalesce(received_at, occurred_at, ''), insertion_id`, JSON.stringify(VOICE_KINDS)),
-      revocations: decoded<RevocationEvent>(db, "SELECT event_json FROM revocations ORDER BY created_at, id"),
-      aliases: decoded<EntityAliasEvent>(db, "SELECT event_json FROM entity_alias_events WHERE retracted_by IS NULL ORDER BY json_extract(event_json, '$.created_at'), id"),
+      revocations: retractionsIn(db),
+      aliases: aliasDeclarationsIn(db),
     };
   });
 }

@@ -56,7 +56,7 @@ import {
 } from "./insertionLog";
 import { RETIRED_LOGS, RETIRED_TREES, UNREAD_LOGS, fileCount } from "./retiredLogs";
 import { readRevocationLog, type RevocationEvent } from "./revocationLog";
-import { foldCopyEvents } from "./sourceCopies";
+import { foldCopies, type CopySaid } from "./sourceCopies";
 import { copyPairKey, readSourceCopyLog, type SourceCopyEvent } from "./sourceCopyLog";
 import { walkMarkdown } from "./vaultRead";
 
@@ -180,8 +180,8 @@ export interface RecordReading {
 }
 
 const sorted = (values: Iterable<string>): string[] => [...new Set(values)].sort();
-const copyLines = (events: readonly SourceCopyEvent[]): string[] => {
-  const { declared, judged } = foldCopyEvents(events);
+const copyLines = (said: readonly CopySaid[]): string[] => {
+  const { declared, judged } = foldCopies(said);
   return sorted([...[...declared].map(([key, same]) => `${key} declared ${same}`), ...[...judged].map(([key, j]) => `${key} judged ${j.score}`)]);
 };
 
@@ -194,7 +194,9 @@ export function readingOfRetired(retired: Retired): RecordReading {
     retracted: sorted([...winner.values()].map((r) => `${r.assertion_id} > ${r.superseded_by ?? ""}`)),
     aliases: sorted([...entityAliasResolution(retired.aliases).canonical].map(([alias, entity]) => `${alias} > ${entity.id}`)),
     bindings: sorted(latestEntitySourceDeclarations(retired.bindings).filter((b) => b.bound).map((b) => bindingKey(b.entity.id, b.insertion_id))),
-    copies: copyLines(retired.copies),
+    copies: copyLines(retired.copies.map((e) => e.event === "source.copies-judged"
+      ? { id: e.id, pair: e.pair, created_at: e.created_at, score: e.score, model: e.author.id }
+      : { id: e.id, pair: e.pair, created_at: e.created_at, same: e.same })),
     rejects: sorted(retired.rejects.map((r) => `${r.pair[0].id}|${r.pair[1].id}`)),
   };
 }
@@ -204,17 +206,17 @@ export function readingOfProjection(root: string): RecordReading {
   const db = openAssertionProjectionReadonly(root);
   try {
     const column = <T>(sql: string): T[] => db.query(sql).all() as T[];
-    const events = <T>(table: string): T[] =>
-      column<{ event_json: string }>(`SELECT event_json FROM ${table} WHERE retracted_by IS NULL`).map((r) => JSON.parse(r.event_json) as T);
+    const identities = (says: string) => column<{ id: string; says: string; entity_id: string; a: string; b: string; score: number | null; author_id: string; created_at: string }>(
+      `SELECT id, says, entity_id, a, b, score, author_id, created_at FROM identities WHERE says IN (${says}) AND retracted_by IS NULL`);
     return {
       declined: sorted(column<{ id: string }>("SELECT insertion_id AS id FROM declines WHERE retracted_by IS NULL").map((r) => r.id)),
       retracted: sorted(column<{ id: string; next: string | null }>("SELECT id, superseded_by AS next FROM assertions WHERE revoked_by IS NOT NULL")
         .map((r) => `${r.id} > ${r.next ?? ""}`)),
       aliases: sorted(column<{ a: string; e: string }>("SELECT alias_id AS a, entity_id AS e FROM entity_aliases").map((r) => `${r.a} > ${r.e}`)),
-      bindings: sorted(latestEntitySourceDeclarations(events<EntitySourceEvent>("entity_source_events")).filter((b) => b.bound)
-        .map((b) => bindingKey(b.entity.id, b.insertion_id))),
-      copies: copyLines(events<SourceCopyEvent>("source_copy_events")),
-      rejects: sorted(column<{ a: string; b: string }>("SELECT a, b FROM entity_fold_rejects WHERE retracted_by IS NULL").map((r) => `${r.a}|${r.b}`)),
+      bindings: sorted(identities("'is-source'").map((b) => bindingKey(b.entity_id, b.a))),
+      copies: copyLines(identities("'copy', 'not-copy'").map((r) => ({ id: r.id, pair: [r.a, r.b] as const, created_at: r.created_at,
+        ...(r.score === null ? { same: r.says === "copy" } : { score: r.score, model: r.author_id }) }))),
+      rejects: sorted(identities("'distinct'").map((r) => `${r.a}|${r.b}`)),
     };
   } finally { db.close(); }
 }

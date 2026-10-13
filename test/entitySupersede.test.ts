@@ -40,7 +40,7 @@ import {
 import { dueIntakeCount } from "../lib/work";
 import { insertion } from "./support/vault";
 import { alias } from "./support/said";
-import { revocationEvents } from "../lib/assertionKinds";
+import { retractionsIn } from "../lib/assertionKinds";
 
 const PRODUCED = { procedure: "test", version: "v1" } as const;
 const MODEL = { kind: "model", id: "m", invocation_id: "r" } as const;
@@ -89,9 +89,9 @@ describe("retractions", () => {
     retractions[1]!.created_at = "2026-09-05T00:00:00Z";
     for (const event of reverse ? [...retractions].reverse() : retractions)
       appendAndProjectAssertion(root, event);
-    const first = new Map<string, ReturnType<typeof revocationEvents>[number]>();
-    for (const r of revocationEvents(root).sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id)))
-      if (!first.has(r.assertion_id)) first.set(r.assertion_id, r);
+    const first = new Map<string, ReturnType<typeof retractionsIn>[number]>();
+    for (const r of retractionsIn(root).sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id)))
+      if (!first.has(r.retracts)) first.set(r.retracts, r);
     const expected = resolveAssertionIdIn(first, ids[0]!);
     expect(resolveAssertionId(root, ids[0]!)).toBe(expected);
     const digest = assertionProjectionDigest(root);
@@ -162,7 +162,7 @@ describe("supersede: the stub's assertions move, one by one", () => {
     expect(met.text).toBe(`[[${EK.id}|Evan]] and [[${EK.id}|Evan Keller]] met.`);
 
     // the revocation names the operator and the successor; the old id redirects
-    const revocation = revocationEvents(root).find((r) => r.assertion_id === hello.id)!;
+    const revocation = retractionsIn(root).find((r) => r.retracts === hello.id)!;
     expect(revocation.superseded_by).toBe(copy.id);
     expect(revocation.reason).toContain("by nick");
     expect(revocation.reason).toContain("[[Evan]] → " + EK.id);

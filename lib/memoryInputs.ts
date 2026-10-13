@@ -3,7 +3,7 @@
  * reliable positions in a growing log. Legacy cursors remain readable. */
 import { assertionSourceReferences, readAssertionLog } from "./assertionLog";
 import { readSourceInsertionLog } from "./insertionLog";
-import { aliasEvents, revocationEvents } from "./assertionKinds";
+import { retractionsIn, standingAliases } from "./assertionKinds";
 import { isVoiceKind } from "./voiceFacts";
 import { memoryReadModel } from "./vaultReadModel";
 import { assertionSuperseded, supersededInsertionIds } from "./sourceSupersede";
@@ -43,10 +43,10 @@ export function readMemoryInputs(root: string) {
     events = { inss: sources.map(({ body: _body, ...metadata }) => metadata),
       voice: sources.filter(e => isVoiceKind(e.envelope.kind)),
       asserted: readAssertionLog(root, { includeRevoked: true }),
-      revocations: revocationEvents(root), aliases: aliasEvents(root) };
+      revocations: retractionsIn(root), aliases: standingAliases(root) };
   }
   const { inss, asserted, voice, revocations, aliases } = events;
-  const revoked = new Set(revocations.map((e) => e.assertion_id));
+  const revoked = new Set(revocations.map((e) => e.retracts));
   const held = new Set(inss.map((e) => e.id));
   const superseded = supersededInsertionIds(inss);
   const asts = asserted.filter((e) => !revoked.has(e.id) && !assertionSuperseded(

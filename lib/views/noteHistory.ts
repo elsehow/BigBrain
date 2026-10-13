@@ -42,27 +42,26 @@ export function noteHistoryOf({ db }: Snapshot, path: string, limit = 50): Histo
     // the live claims naming it: a retracted claim leaves its entity edges
     add(`SELECT a.created_at AS at, a.author_id AS actor, 'asserted' AS action FROM assertions a
       WHERE a.id IN (SELECT assertion_id FROM assertion_entities WHERE entity_id IN ${ids})`, entity);
-    add(`SELECT json_extract(event_json, '$.created_at') AS at, json_extract(event_json, '$.author.id') AS actor,
-        CASE WHEN retracted_by IS NULL THEN 'named ' || json_extract(event_json, '$.alias') ELSE 'withdrew the name ' || json_extract(event_json, '$.alias') END AS action
-      FROM entity_alias_events WHERE json_extract(event_json, '$.entity.id') = ?1 OR json_extract(event_json, '$.alias_id') = ?1`, entity);
-    add(`SELECT json_extract(event_json, '$.created_at') AS at, json_extract(event_json, '$.author.id') AS actor, 'bound to a source' AS action
-      FROM entity_source_events WHERE json_extract(event_json, '$.entity.id') = ?`, entity);
+    add(`SELECT created_at AS at, author_id AS actor,
+        CASE WHEN retracted_by IS NULL THEN 'named ' || alias_label ELSE 'withdrew the name ' || alias_label END AS action
+      FROM identities WHERE says = 'same' AND (entity_id = ?1 OR alias_id = ?1)`, entity);
+    add(`SELECT created_at AS at, author_id AS actor, 'bound to a source' AS action
+      FROM identities WHERE says = 'is-source' AND entity_id = ?`, entity);
   } else return undefined;
   for (const id of landings) {
     add(`SELECT coalesce(received_at, occurred_at, '') AS at,
         coalesce(json_extract(header_json, '$.author.id'), '') AS actor, 'landed' AS action FROM sources WHERE insertion_id = ?`, id);
     add(`SELECT a.created_at AS at, a.author_id AS actor, 'asserted' AS action FROM assertions a
       JOIN assertion_sources x ON x.assertion_id = a.id WHERE x.insertion_id = ?`, id);
-    add(`SELECT r.created_at AS at, json_extract(r.event_json, '$.author.id') AS actor,
+    add(`SELECT r.created_at AS at, r.author_id AS actor,
         CASE WHEN r.superseded_by IS NULL THEN 'retracted a claim' ELSE 'rewrote a claim' END AS action
-      FROM revocations r JOIN assertion_sources x ON x.assertion_id = r.assertion_id WHERE x.insertion_id = ?`, id);
-    add(`SELECT created_at AS at, json_extract(event_json, '$.author.id') AS actor,
+      FROM retractions r JOIN assertion_sources x ON x.assertion_id = r.retracts WHERE x.insertion_id = ?`, id);
+    add(`SELECT created_at AS at, author_id AS actor,
         CASE WHEN retracted_by IS NULL THEN 'declined' ELSE 'declined, then took it back' END AS action
       FROM declines WHERE insertion_id = ?`, id);
-    add(`SELECT json_extract(event_json, '$.created_at') AS at, json_extract(event_json, '$.author.id') AS actor,
-        CASE WHEN json_extract(event_json, '$.event') = 'source.copies-judged' THEN 'judged a copy'
-          WHEN json_extract(event_json, '$.same') THEN 'said is a copy' ELSE 'said is not a copy' END AS action
-      FROM source_copy_events, json_each(event_json, '$.pair') p WHERE p.value = ?`, id);
+    add(`SELECT created_at AS at, author_id AS actor,
+        CASE WHEN score IS NOT NULL THEN 'judged a copy' WHEN says = 'copy' THEN 'said is a copy' ELSE 'said is not a copy' END AS action
+      FROM identities WHERE says IN ('copy', 'not-copy') AND (a = ?1 OR b = ?1)`, id);
   }
   const seen = new Set<string>();
   return rows.map((r) => ({ at: Date.parse(r.at) || 0, actor: r.actor || "unknown", action: r.action }))

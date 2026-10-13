@@ -37,7 +37,8 @@ import { appendSourceInsertionEvent } from "../lib/insertionLog";
 import type { PiLoader } from "./support/pi";
 import { fakePi } from "./support/pi";
 import { identities, insertion } from "./support/vault";
-import { aliasEvents } from "../lib/assertionKinds";
+import { standingAliases } from "../lib/assertionKinds";
+import { readRecordedAssertions } from "../lib/assertionLog";
 
 const PRODUCED = { procedure: "test", version: "v1" } as const;
 const MODEL = { kind: "model", id: "m", invocation_id: "r" } as const;
@@ -345,10 +346,11 @@ describe("the live view and the two acts", () => {
     expect(liveFolds(root).groups).toHaveLength(2);
     const r = acceptFold(root, { canonical: RIDGEWAYS.id, members: [AUTO_MAP.id, RIDGE_WAYS.id, RIDGEWAYS.id] }, USER);
     expect(r.aliased.map((e) => e.label).sort()).toEqual(["Auto-MAP", "Ridge Ways"]);
-    const aliases = aliasEvents(root);
+    const aliases = standingAliases(root);
     expect(aliases.map((e) => `${e.alias}→${e.entity.label}`).sort()).toEqual(["Auto-MAP→Ridgeways", "Ridge Ways→Ridgeways"]);
-    expect(aliases[0]!.author).toEqual(USER);
-    expect(aliases[0]!.produced_by.procedure).toBe("entity-folds-accept");
+    const said = readRecordedAssertions(root).find((e) => e.id === aliases[0]!.id)!;
+    expect(said.author).toEqual(USER);
+    expect(said.produced_by.procedure).toBe("entity-folds-accept");
     const live = liveFolds(root);
     expect(live.groups.map((g) => g.members.map((m) => m.label))).toEqual([["Evan", "Evan Keller"]]);
     // the file is untouched — the view is the file against today

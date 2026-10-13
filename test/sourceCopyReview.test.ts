@@ -4,7 +4,7 @@ import { buildAssertionGraph } from "../lib/assertionGraph";
 import { syncAssertionProjection } from "../lib/assertionProjection";
 import { insertionEventRel, type SourceInsertion } from "../lib/insertionLog";
 import { OutOfCredits } from "../lib/providerCredits";
-import { copyCandidates, copyCutoff, DEFAULT_CUTOFF, foldCopyEvents, sourceCopies } from "../lib/sourceCopies";
+import { copyCandidates, copyCutoff, DEFAULT_CUTOFF, foldCopies, sourceCopies, type CopySaid } from "../lib/sourceCopies";
 import { judgeCopies, type CopyJudge } from "../lib/sourceCopyJudge";
 import { createSourceCopyEvent } from "../lib/sourceCopyLog";
 import { copyReview, declareCopies } from "../lib/sourceCopyReview";
@@ -29,12 +29,12 @@ describe("the copy log", () => {
 
 describe("judgments and a person's word", () => {
   const judged = (pair: string, score: number, t: number) =>
-    createSourceCopyEvent({ a: id(pair[0]!), b: id(pair[1]!), score, author: MODEL, created_at: at(t), produced_by: PRODUCED });
+    ({ id: `j${pair}${t}`, pair: [id(pair[0]!), id(pair[1]!)], created_at: at(t), score, model: MODEL.id }) as CopySaid;
   const said = (pair: string, same: boolean, t: number) =>
-    createSourceCopyEvent({ a: id(pair[0]!), b: id(pair[1]!), same, author: PERSON, created_at: at(t), produced_by: PRODUCED });
+    ({ id: `s${pair}${t}`, pair: [id(pair[0]!), id(pair[1]!)], created_at: at(t), same }) as CopySaid;
 
   test("the latest of each kind per pair stands", () => {
-    const record = foldCopyEvents([said("ab", true, 1), judged("ab", 0.4, 1), said("ab", false, 2), judged("ab", 0.9, 3)]);
+    const record = foldCopies([said("ab", true, 1), judged("ab", 0.4, 1), said("ab", false, 2), judged("ab", 0.9, 3)]);
     expect(record.declared.get(`${id("a")}|${id("b")}`)).toBe(false);
     expect(record.judged.get(`${id("a")}|${id("b")}`)?.score).toBe(0.9);
   });
@@ -43,8 +43,8 @@ describe("judgments and a person's word", () => {
     const pairs = ["ab", "ac", "ad", "ae", "af"];
     const scores = [0.62, 0.7, 0.66, 0.4, 0.55], answers = [true, true, true, false, false];
     const events = pairs.flatMap((p, i) => [judged(p, scores[i]!, 1), said(p, answers[i]!, 2)]);
-    expect(copyCutoff(foldCopyEvents(events.slice(0, 8)))).toBe(DEFAULT_CUTOFF);
-    expect(copyCutoff(foldCopyEvents(events))).toBe(0.62);
+    expect(copyCutoff(foldCopies(events.slice(0, 8)))).toBe(DEFAULT_CUTOFF);
+    expect(copyCutoff(foldCopies(events))).toBe(0.62);
   });
 
   test("a person's 'not the same' cuts even an exact match", () => {
