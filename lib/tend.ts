@@ -8,7 +8,7 @@ import { acquireAssertionLock } from "./assertionAgent";
 import type { Chain } from "./chain";
 import { ENGINE_ROOT } from "./engine";
 import { loadManifest, type Manifest } from "./manifest";
-import { memoryDue, readMemoryStamp, writeMemoryStamp } from "./memory";
+import { memoryDue, readMemoryStamp, writeMemorySchedule } from "./memory";
 import { feedDue, runFeed, type FeedRunResult } from "./stages/feed";
 import { runMemory, type MemoryRunOpts, type MemoryRunResult } from "./stages/memory";
 import { stagedIds } from "./stage";
@@ -121,7 +121,7 @@ export async function runTend(opts: TendOpts): Promise<TendResult> {
     // scheduling. Once intake has been filed, initialize it exactly once.
     if (manifest.memory.adapter === "pi" && rounds.some(r => r.settled > 0)) {
       const stamp = readMemoryStamp(root);
-      if (!stamp.nextRunAt && !stamp.lastRunAt) writeMemoryStamp(root, { ...stamp, nextRunAt: new Date().toISOString() });
+      if (!stamp.nextRunAt && !stamp.lastRunAt) writeMemorySchedule(root, { ...stamp, nextRunAt: new Date().toISOString() });
     }
     const due = memoryDue(root, { force: opts.force ?? false });
     if (due.due) {

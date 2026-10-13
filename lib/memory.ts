@@ -1,18 +1,23 @@
-/** Memory scheduling and locking. Successful runs checkpoint the events
- * they observed in journal/memory; .state/memory.json caches that position.
- * Voice is evidence for curation and is rendered as data. */
+/** Memory scheduling and locking. Each run records the events it observed
+ * in its journal (journal/memory/), and the latest such record is where the
+ * pass stands (lib/memoryStamp.ts); .state/memory.json keeps only when it
+ * is next due. Voice is evidence for curation and is rendered as data. */
 
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { hasAssertionEvents, type AssertionEvent } from "./assertionLog";
 import { ensureDir, writeAtomic } from "./fsx";
 import { scheduledVerdict, type StageVerdict } from "./chain";
 import type { SourceInsertion } from "./insertionLog";
 import { loadManifest } from "./manifest";
-import { memoryInputDelta, readMemoryInputs, type MemoryCheckpoint, type LogCursor } from "./memoryInputs";
+import { memoryInputDelta, readMemoryInputs } from "./memoryInputs";
+import type { MemoryStamp } from "./memoryStamp";
+import { withSnapshot } from "./vaultReadModel";
+import { memoryPositionOf, type MemoryPosition } from "./views/memory";
 import { readSharedMemory, sharedMemoryDelta } from "./sharedMemory";
 import { isHeld, tryHold, type Hold } from "./sqliteLock";
 export { pastCursor, type LogCursor } from "./memoryInputs";
+export type { MemoryStamp } from "./memoryStamp";
 
 /** The memory pass's BIGBRAIN_ROLE value — the ONE machine role allowed to
  * see and write `memory/`. Lives here (not bin/memory.ts) so importing it
@@ -30,21 +35,6 @@ export const MEMORY_PROTOCOL_VERSION = 2;
 
 const memoryStampFile = (root: string): string => join(root, ".state", "memory.json");
 
-export interface MemoryStamp {
-  protocolVersion?: number;
-  /** Exact input census from the last successful run. */
-  checkpoint?: MemoryCheckpoint;
-  lastRunAt?: string;
-  nextRunAt?: string;
-  lastCommit?: string;
-  run?: string;
-  /** newest source-insertion event folded in (native vaults; reader order
-   * is `received_at ?? occurred_at`, id tiebreak). */
-  insertionCursor?: LogCursor;
-  /** newest assertion event folded in (native vaults; reader order is
-   * `created_at`, id tiebreak). */
-  assertionCursor?: LogCursor;
-}
 
 /** The two log readers' sort keys, named so the cursor comparisons and the
  * cursor advances cannot drift from the order the readers actually use. */
@@ -60,72 +50,45 @@ export function voiceDelta(root: string, stamp: MemoryStamp): SourceInsertion[] 
   return memoryInputDelta(readMemoryInputs(root), stamp).voiceNotes;
 }
 
-/** A malformed cache must not break the work view or hide a valid journal. */
-function isMemoryStamp(value: unknown): value is MemoryStamp {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const row = value as Record<string, unknown>;
-  if (row.protocolVersion !== undefined &&
-      (!Number.isSafeInteger(row.protocolVersion) || (row.protocolVersion as number) < 0)) return false;
-  for (const key of ["lastRunAt", "nextRunAt", "lastCommit", "run"])
-    if (row[key] !== undefined && typeof row[key] !== "string") return false;
-  for (const key of ["assertionCursor", "insertionCursor"]) {
-    const cursor = row[key] as LogCursor | undefined;
-    if (cursor !== undefined && (!cursor || typeof cursor.at !== "string" || typeof cursor.id !== "string")) return false;
-  }
-  if (row.checkpoint !== undefined) {
-    if (!row.checkpoint || typeof row.checkpoint !== "object") return false;
-    const checkpoint = row.checkpoint as Record<string, unknown>;
-    for (const key of ["assertions", "insertions", "revocations", "aliases"]) {
-      const ids = checkpoint[key];
-      if (!Array.isArray(ids) || !ids.every((id) => typeof id === "string")) return false;
-    }
-    const shared = checkpoint["shared"];
-    if (shared !== undefined) {
-      if (!shared || typeof shared !== "object" || Array.isArray(shared)) return false;
-      for (const vault of Object.values(shared as Record<string, unknown>)) {
-        const v = vault as { head?: unknown; assertions?: unknown } | null;
-        if (!v || !Number.isSafeInteger(v.head) || !Array.isArray(v.assertions) || !v.assertions.every((id) => typeof id === "string")) return false;
-      }
-    }
-  }
-  return true;
-}
 
-/** .state is a cache. The run journal retains the same checkpoint and
- * schedule, including failed attempts' backoff, for recovery after deletion. */
+/** Where the pass stands. Its position is the record's: the latest run
+ * journal's (lib/views/memory.ts), read from a snapshot, so the due check
+ * and the queue view read the one the run that wrote it left. Its schedule
+ * is this computer's (.state/memory.json), and the same journal recovers it
+ * when .state is gone: each attempt, failed ones included, records when the
+ * next is due. */
 export function readMemoryStamp(root: string): MemoryStamp {
-  try {
-    const stamp = JSON.parse(readFileSync(memoryStampFile(root), "utf8"));
-    if (isMemoryStamp(stamp)) return stamp;
-  } catch { /* recover from the journal */ }
-  const dir = join(root, "journal", "memory");
-  let files: string[];
-  try { files = readdirSync(dir).filter((f) => f.endsWith(".json")).sort().reverse(); }
-  catch { return {}; }
-  let latestAttempt: number | undefined;
-  for (const file of files) {
-    try {
-      const row = JSON.parse(readFileSync(join(dir, file), "utf8"));
-      if (isMemoryStamp(row.memoryStamp)) return row.memoryStamp;
-      // Older journals have no checkpoint. A successful run establishes
-      // that memory was enabled; reconcile it once on the normal schedule.
-      const started = Date.parse(row.startedAt);
-      if (!Number.isFinite(started)) continue;
-      latestAttempt ??= started + (typeof row.wallMs === "number" ? row.wallMs : 0);
-      if (row.error) continue;
-      return {
-        run: typeof row.run === "string" ? row.run : file.slice(0, -5),
-        lastRunAt: row.startedAt,
-        nextRunAt: new Date((latestAttempt ?? started) + loadManifest(root).memory.intervalMs).toISOString(),
-      };
-    } catch { /* an unreadable journal is not a recovery checkpoint */ }
-  }
-  return {};
+  let position: MemoryPosition | undefined;
+  try { position = withSnapshot(root, memoryPositionOf); } catch { /* no projection yet: nothing recorded */ }
+  const recorded: MemoryStamp = !position ? {} : "stamp" in position ? position.stamp : {
+    // Older journals have no checkpoint. A successful run establishes that
+    // memory was enabled; reconcile it once on the normal schedule.
+    run: position.legacy.run, lastRunAt: position.legacy.lastRunAt,
+    nextRunAt: new Date(position.legacy.attemptEnded + loadManifest(root).memory.intervalMs).toISOString(),
+  };
+  return { ...recorded, ...readSchedule(root) };
 }
 
-export function writeMemoryStamp(root: string, stamp: MemoryStamp): void {
+/** What this computer keeps of the stamp: when the pass is next due, and
+ * the commit it made last. */
+export type MemorySchedule = Pick<MemoryStamp, "nextRunAt" | "lastCommit">;
+
+function readSchedule(root: string): MemorySchedule {
+  try {
+    const held = JSON.parse(readFileSync(memoryStampFile(root), "utf8")) as Record<string, unknown>;
+    return {
+      ...(typeof held.nextRunAt === "string" ? { nextRunAt: held.nextRunAt } : {}),
+      ...(typeof held.lastCommit === "string" ? { lastCommit: held.lastCommit } : {}),
+    };
+  } catch { return {}; }
+}
+
+/** Keep the schedule. The position is never written here: a run's journal
+ * records it (lib/stages/memory.ts). */
+export function writeMemorySchedule(root: string, schedule: MemorySchedule): void {
   ensureDir(join(root, ".state"));
-  writeAtomic(memoryStampFile(root), JSON.stringify(stamp) + "\n");
+  const { nextRunAt, lastCommit } = schedule;
+  writeAtomic(memoryStampFile(root), JSON.stringify({ ...(nextRunAt ? { nextRunAt } : {}), ...(lastCommit ? { lastCommit } : {}) }) + "\n");
 }
 
 // ── what the pass is waiting on ─────────────────────────────────────────────

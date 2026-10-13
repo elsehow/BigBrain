@@ -1,3 +1,4 @@
+import { stageMemoryStamp } from "./support/memoryStamp";
 import { afterEach, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { rmSync, writeFileSync } from "node:fs";
@@ -7,7 +8,7 @@ import { assertionEntityId, createAssertionEvent } from "../lib/assertionLog";
 import { appendAndProjectAssertion, syncAssertionProjection } from "../lib/assertionProjection";
 import { admissionChain, briefingsChain, CHAINS, chainOfJob, copiesChain, foldsChain } from "../lib/chains";
 import { CADENCE, CHAIN_JOBS } from "../lib/desktopSchedule";
-import { readMemoryStamp, writeMemoryStamp } from "../lib/memory";
+import { readMemoryStamp } from "../lib/memory";
 import { insertion, nativeVault, NATIVE_YAML } from "./support/vault";
 
 const roots: string[] = [];
@@ -44,7 +45,7 @@ test("fold proposals wait for memory, then for a changed entity and the memory i
   claim(root, "2026-08-02T10:00:00.000Z");
   const due = (now: string) => foldsChain.due(root, { now: new Date(now) }).scheduled["folds"]!;
   expect(due("2026-08-03T00:00:00.000Z")).toMatchObject({ due: false, reason: "no stamp — first run is --force" });
-  writeMemoryStamp(root, { ...readMemoryStamp(root), lastRunAt: "2026-08-02T12:00:00.000Z" });
+  stageMemoryStamp(root, { ...readMemoryStamp(root), lastRunAt: "2026-08-02T12:00:00.000Z" });
   expect(due("2026-08-03T00:00:00.000Z")).toMatchObject({ due: true });
   // a proposal stands: nothing changed since it, then a claim lands, then the interval passes
   writeFileSync(join(root, ".state", "entity-folds.json"), JSON.stringify({ proposedAt: "2026-08-03T00:00:00.000Z", model: "m", census: 2, groups: [], dropped: [], wallMs: 0 }));
@@ -57,12 +58,12 @@ test("fold proposals wait for memory, then for a changed entity and the memory i
 test("briefings warm once after each memory sweep", async () => {
   const root = vault();
   expect(briefingsChain.due(root).source).toBe(0);
-  writeMemoryStamp(root, { ...readMemoryStamp(root), lastRunAt: "2026-08-02T12:00:00.000Z" });
+  stageMemoryStamp(root, { ...readMemoryStamp(root), lastRunAt: "2026-08-02T12:00:00.000Z" });
   expect(briefingsChain.due(root).source).toBe(1);
   const result = await briefingsChain.run({ root, manifest: {} as never });
   expect(result.error).toBeUndefined();
   expect(briefingsChain.due(root).source).toBe(0);
-  writeMemoryStamp(root, { ...readMemoryStamp(root), lastRunAt: "2026-08-03T12:00:00.000Z" });
+  stageMemoryStamp(root, { ...readMemoryStamp(root), lastRunAt: "2026-08-03T12:00:00.000Z" });
   expect(briefingsChain.due(root).source).toBe(1);
 });
 
