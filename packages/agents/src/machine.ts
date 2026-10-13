@@ -134,7 +134,7 @@ export class Machine {
       ? spawn(this.o.helper, [], { stdio: ["pipe", "pipe", "pipe"] })
       // qemu.sh runs QEMU and two socats: its own process group, so a kill takes all three
       : spawn("bash", [this.o.helper, resolve(this.o.image.kernel, ".."), this.sockets], {
-        detached: true, stdio: ["pipe", "pipe", "pipe"], env: { ...process.env, MEMORY: String(this.o.memoryMiB ?? 2048), CPUS: String(this.o.cpus ?? 2), DISK: this.disk, CONSOLE: this.consoleLog } });
+        detached: true, stdio: ["pipe", "pipe", "pipe"], env: { ...process.env, MEMORY: String(this.memory()), CPUS: String(this.o.cpus ?? 2), DISK: this.disk, CONSOLE: this.consoleLog } });
     this.child = child;
     this.exited = new Promise(done => child.once("exit", code => done(code)));
     let said = "", stderr = "";
