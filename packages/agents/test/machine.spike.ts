@@ -58,7 +58,7 @@ function image() {
   const img = imageAt(IMAGE);
   if (!existsSync(img.rootfs) && existsSync(`${img.rootfs}.gz`)) {
     console.log("unpacking rootfs.img.gz …");
-    if (spawnSync("sh", ["-c", `gunzip -c "${img.rootfs}.gz" > "${img.rootfs}"`]).status !== 0) throw new Error("couldn't unpack rootfs.img.gz");
+    if (spawnSync(process.execPath, [resolve(import.meta.dir, "../src/image.ts"), `${img.rootfs}.gz`, img.rootfs]).status !== 0) throw new Error("couldn't unpack rootfs.img.gz");
   }
   for (const f of [img.kernel, img.initramfs, img.rootfs]) if (!existsSync(f)) throw new Error(`missing ${f}: bun run vm:image, or unpack CI's machine-${arch() === "arm64" ? "arm64" : "amd64"} artifact into ${IMAGE}`);
   return img;

@@ -588,6 +588,44 @@ in (Alpine's virt kernel builds in only the console); whether the arm64
 silicon); whether VZ presents virtio over PCI or MMIO on each architecture;
 whether the balloon is worth enabling.
 
+## Spike results
+
+**2026-10-13, the maintainer's Mac: Apple silicon (arm64), macOS 26 (Darwin
+25.6), 12 CPUs, 24 GiB; the CI-built arm64 image, the ad-hoc signed helper.
+Verdict: go.**
+
+| measure | result | verdict |
+|---|---|---|
+| ad-hoc signed helper boots a machine | boots (aarch64, guest 0.1.0) | go |
+| modules | /dev/vda, vsock, rng and console up before hello; Debian's cloud kernel builds in virtio_pci, virtio_console and ext4, the rest load from the initramfs | go |
+| built-in against modules | not measured (a one-off kernel); moot at this boot time | not run |
+| boot to hello (p50 of 10) | 0.34 s | go |
+| image download | 319 MB | between |
+| disk clone | 0.00 s; free space fell 0 MB | go |
+| bun install, cold cache, through the proxy | 0.8 s (26 MB, 42 packages) | go |
+| test run | 0.24 s in the machine, 0.36 s on the host: 0.7× | go |
+| preview | 0.9 ms through a forward, 0.4 ms on the host: 2.3× | between |
+| file ops (p50 of 1,000) | stat, read 4 KB, write 4 KB: 0.2 ms each | go |
+| bulk transfer | write 160 MB/s, read 173 MB/s | go |
+| exec round trip (p50 of 100) | 0.4 ms | go |
+| bundle round trip | identical refs | go |
+| idle footprint (5 min) | 346 MB resident | go |
+| idle CPU (5 min) | 0.2 % | go |
+| three at once | 2,745 MB resident for three; no swap | go |
+| clock after the Mac sleeps | by hand, still to do | not run |
+
+Notes. The disk row read 8,192 MB allocated: the spike unpacked
+`rootfs.img.gz` with `gunzip`, which writes every zero, so the base image
+was not sparse (its clones share its blocks, hence 0 MB per clone). The
+engine's unpack writes sparse (`image.ts`). The preview's ratio is of
+sub-millisecond times. The image is 19 MB over its 300 MB budget after
+dropping docs, man pages and translations; the plan's lever (build-essential
+and Node on demand) is the person's call. Settled along the way: virtio is
+PCI on VZ arm64 and QEMU q35, MMIO modules load but go unused; the arm64
+kernel boots as Debian ships it once gunzipped; the balloon device is
+harmless and left on. QEMU/KVM on Linux (nested, 2 CPUs) gave boot 2 s, exec
+21 ms, file ops 4–8 ms: that path is a test harness only.
+
 ## Open questions
 
 Each has a default so execution never blocks. **(person)** marks the

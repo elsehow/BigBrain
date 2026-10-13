@@ -7,3 +7,4 @@ export { Seatbelt, confinement, profile, profileInput, canonical, CACHES, DEFAUL
 export { EgressProxy, allowedHost, privateAddress, type EgressOptions } from "./proxy";
 export { AgentsError, workspace, listProjects, takeLease, leaseHolder, releaseLeases, type Workspace, type Project } from "./workspace";
 export { Guest, GuestError, FrameReader, PROTOCOL, LIMITS, clean, type Hello, type Stat, type Entry, type EntryKind, type GuestJob, type GuestPort, type ExecOptions, type Execution, type Exited, type GuestErrorCode } from "./guest";
+export { unpackSparse } from "./image";

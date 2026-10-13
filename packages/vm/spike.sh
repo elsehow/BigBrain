@@ -29,7 +29,8 @@ fi
 echo "== image: CI run $RUN, machine-$ARCH"
 rm -rf "$IMAGE" && mkdir -p "$IMAGE"
 gh run download "$RUN" -n "machine-$ARCH" -D "$IMAGE"
-gunzip -kf "$IMAGE/rootfs.img.gz"
+# sparse: gunzip would write all 8 GiB, zeros included
+bun packages/agents/src/image.ts "$IMAGE/rootfs.img.gz" "$IMAGE/rootfs.img"
 cat "$IMAGE/manifest.txt"
 
 echo "== helper"
