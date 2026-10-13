@@ -196,10 +196,12 @@ Two linters, each only where it is competent. Keep it that way.
   refactor converts it (`docs/plans/2026-10-12-stages-and-views-refactor.md`).
   A view is a pure function of a `Snapshot` (`lib/views/view.ts`): never
   `root`, the disk, git, a model, the clock or `Math.random`. Only a
-  `Stage` (`lib/stages/stage.ts`) calls a model. `test/viewGuard.test.ts`
-  enforces both, and its list of modules that call models without being
-  stages yet only shrinks. `bun run field:digest <scratch vault>` proves a
-  refactor left a vault reading the same
+  `Stage` (`lib/stages/stage.ts`) calls a model, through the runner a
+  chain hands it (`lib/stages/runner.ts`). `test/viewGuard.test.ts`
+  enforces both; the only other model callers are operational (connection
+  and key checks) and the agents' own tools, and that list only shrinks.
+  `bun run field:digest <scratch vault>` proves a refactor left a vault
+  reading the same
 - `integrations/` — inbound/outbound integrations, each ticked by the
   supervisor on its `CADENCE` interval (`lib/desktopSchedule.ts`)
 - `web/` — the read-only web viewer (:4747)

@@ -15,7 +15,8 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { scheduledVerdict, type Chain, type ChainReport, type ChainRunOpts } from "./chain";
-import { changedSince, entityCensus, proposeEntityFolds, readEntityFolds } from "./entityFolds";
+import { changedSince, entityCensus, readEntityFolds } from "./entityFolds";
+import { proposeEntityFolds } from "./stages/foldProposals";
 import { ensureDir, writeAtomic } from "./fsx";
 import { admissionWaiting, tickIntegrationAdmission } from "./integrationAdmission";
 import { listLenses } from "./lenses";
@@ -25,7 +26,7 @@ import { readMemoryStamp } from "./memory";
 import { tickPublishing } from "./sharedAssertionPublish";
 import { connectionStorePath, readConnections } from "./sharedConnections";
 import { exactCopyPairs, settleExactCopies } from "./exactCopies";
-import { judgeCopies } from "./sourceCopyJudge";
+import { judgeCopies } from "./stages/copyJudge";
 import { classicChain } from "./tend";
 import { unjudgedCopies, withVaultSnapshot } from "./vaultReadModel";
 
@@ -39,7 +40,7 @@ const attempt = async <T>(run: () => Promise<T>): Promise<{ value?: T; error?: s
 
 /** Pairs that might be one document: those one content hash proves said so
  * by the system (lib/exactCopies.ts), the rest judged by Jev or Quick
- * (lib/sourceCopyJudge.ts). */
+ * (lib/stages/copyJudge.ts). */
 export const copiesChain: Chain<{ value?: Awaited<ReturnType<typeof judgeCopies>> & { exact: number }; error?: string }> = {
   name: "copies",
   job: "copies",

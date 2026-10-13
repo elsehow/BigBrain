@@ -57,22 +57,20 @@ test("a view reads no clock, no randomness, no engine-rounded math", () => {
   expect(views.filter((file) => impure.test(read(file)))).toEqual([]);
 });
 
-// Only stages call models. These modules do today and have not become
-// stages yet; the refactor removes each as it moves its call into
-// lib/stages/. The list only shrinks: an entry that no longer calls a model
-// fails until it is removed, and a module not on it fails when it starts.
-// Operational calls (connection checks, the model catalog, the agents' web
-// search and scan reader, Pilot's sessions) settle nothing and stay.
-const NOT_YET_STAGES = [
+// Only stages call models (R11 brought the last of them into lib/stages/).
+// What else calls one settles nothing, and the plan leaves it as it is:
+// operational calls and the agents' own tools. The list only shrinks: an
+// entry that no longer calls a model fails until it is removed, and a module
+// not on it fails when it starts.
+const NOT_STAGES = [
+  // settings › diagnostics: probes a provider connection
   "lib/diagnostics.ts",
-  "lib/entityFolds.ts",
-  "lib/inclusionQueries.ts",
-  // checks a Jev key when it is saved: operational
+  // checks a Jev key when it is saved
   "lib/jevSettingsApi.ts",
+  // Pilot's sessions: the agent the person talks to
   "lib/pilotBackend.ts",
+  // the agents' tools: reading a scan, searching the web
   "lib/scanReader.ts",
-  "lib/sharedRuleEvaluator.ts",
-  "lib/sourceCopyJudge.ts",
   "lib/webSearch.ts",
 ];
 /** The model runners, and the names each exports that call a model. */
@@ -91,6 +89,6 @@ const callsModel = (file: string) => imports(file).some(({ module, names }) =>
 test("only stages call models", () => {
   const engine = ["bin", "lib", "integrations"].flatMap(walk).concat(walk("web").filter((f) => !f.startsWith("web/ui/")));
   const calling = engine.filter((file) => !file.startsWith("lib/stages/") && !file.startsWith("lib/run/") && callsModel(file));
-  expect(calling.filter((file) => !NOT_YET_STAGES.includes(file))).toEqual([]);
-  expect(NOT_YET_STAGES.filter((file) => !calling.includes(file))).toEqual([]);
+  expect(calling.filter((file) => !NOT_STAGES.includes(file))).toEqual([]);
+  expect(NOT_STAGES.filter((file) => !calling.includes(file))).toEqual([]);
 });

@@ -4,7 +4,7 @@
  *
  * Two kinds of event, one pair each (insertion ids, ascending):
  *  - `source.copies-judged`: a model's score, 0–1, that the two are the same
- *    work (lib/sourceCopyJudge.ts). Kept because a judgment costs a call;
+ *    work (lib/stages/copyJudge.ts). Kept because a judgment costs a call;
  *    the cut-off is applied on read, so moving it re-judges nothing.
  *  - `source.copies-declared`: a person's word, `same` or not. It beats
  *    every judgment of the pair and every exact key the two share.

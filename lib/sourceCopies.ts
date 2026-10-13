@@ -136,7 +136,7 @@ export function sourceCopies<T extends SourceMetadata>(
 // label names its source (lib/entitySourceMatch.ts): the same words once an
 // extension, a parenthetical or a "| Publisher" tail is off, or one with its
 // subtitle dropped — never two that share only a head ("Series — Part one",
-// "Series — Part two"), and never on a date or a number alone. A model scores each (lib/sourceCopyJudge.ts); at or above
+// "Series — Part two"), and never on a date or a number alone. A model scores each (lib/stages/copyJudge.ts); at or above
 // the cut-off it is a copy, and below it, above the floor or not yet judged,
 // it is asked. A person's word settles a pair for good, and their answers to
 // judged pairs fit the cut-off.

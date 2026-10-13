@@ -42,7 +42,8 @@ import { requireVaultRoot } from "../lib/engine";
 import { seedEntityAliases } from "../lib/entityAliasSeed";
 import { seedEntitySources } from "../lib/entitySourceSeed";
 import { supersedeEntity } from "../lib/entitySupersede";
-import { describeFolds, liveFolds, proposeEntityFolds, readEntityFolds } from "../lib/entityFolds";
+import { describeFolds, liveFolds, readEntityFolds } from "../lib/entityFolds";
+import { proposeEntityFolds } from "../lib/stages/foldProposals";
 import { loadManifest } from "../lib/manifest";
 
 const USAGE = `usage:

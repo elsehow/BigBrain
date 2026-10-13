@@ -76,7 +76,7 @@ test('a review re-ranks its pool with the rule\'s queries before scoring, once p
  }finally{rmSync(c.root,{recursive:true,force:true});}
 });
 test('rule queries come from one Quick call, are cached, and fall back on failure',async()=>{
- const {ruleQueries}=await import('../lib/inclusionQueries');
+ const {ruleQueries}=await import('../lib/stages/ruleQueries');
  const c=fixture();try{
   let calls=0;const avery={title:'Avery Example',aliases:[],sourceIds:new Set<string>()},estate={title:'Estate',aliases:[],sourceIds:new Set<string>()};
   const run=(async()=>{calls++;return {text:JSON.stringify({phrases:['Estate  Plan','executor','x'],subjects:['Estate']})};}) as never;

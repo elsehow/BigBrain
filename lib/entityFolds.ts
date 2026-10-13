@@ -1,4 +1,3 @@
-import type { ModelChoice } from "./modelChoice";
 /**
  * entityFolds.ts — the memory pass's second job (#728): the labels in the
  * record that name ONE thing, proposed as groups for the operator to fold.
@@ -25,7 +24,8 @@ import type { ModelChoice } from "./modelChoice";
  * tools, one turn — the first full-census run cost $9.95 over eleven
  * verifying turns, a daily shape costs cents. Proposals accumulate until
  * settled. The output is DERIVED: `.state/entity-folds.json`, written by
- * this runner after validation and never by the model, and projected as it
+ * the proposing stage (lib/stages/foldProposals.ts) after validation and
+ * never by the model, and projected as it
  * is written; the READ is `readFolds`, the projection's copy against today's
  * record — a member folded or retired since is gone, a pair the operator
  * rejected (lib/entityFoldLog.ts) never re-forms — looking up only the
@@ -33,9 +33,7 @@ import type { ModelChoice } from "./modelChoice";
  * the operator's.
  */
 
-import type { PiSDK } from "./run/piSession";
-type PiLoader = () => Promise<PiSDK>;
-import { mkdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { userInfo } from "node:os";
 import { join } from "node:path";
 import type { Database } from "bun:sqlite";
@@ -45,19 +43,14 @@ import {
   appendAndProjectAssertion,
   openAssertionProjectionReadonly,
   projectedAssertionEntity,
-  projectFolds,
   syncAssertionProjection,
 } from "./assertionProjection";
-import { ENGINE_ROOT } from "./engine";
 import { ownerEmail } from "./env";
 import { ENTITY_FOLDS_FILE, pairKey } from "./entityFoldLog";
-import { writeAtomic } from "./fsx";
 import { json, readBody, type Ctx, type Route } from "./httpx";
 import { ENT_ID, ENTITY_LINK } from "./ids";
 import type { EventAuthor } from "./insertionLog";
-import type { Auth } from "./manifest";
-import { MEMORY_ROLE } from "./memory";
-import { runModel, type RunUsage } from "./run/model";
+import type { RunUsage } from "./run/model";
 import { liveAssertionSql } from "./sourceSupersede";
 import { clip } from "./text";
 import { withVaultSnapshot } from "./vaultReadModel";
@@ -291,81 +284,6 @@ export function readEntityFolds(root: string): EntityFolds | undefined {
   try { return foldsIn(readFileSync(entityFoldsFile(root), "utf8")); } catch { return undefined; }
 }
 
-export interface ProposeOpts {
-  target: ModelChoice;
-  auth: Auth;
-  /** SDK loader — tests replace transport, keeping the production session path */
-  loadPi?: PiLoader;
-  /** the clock's shape: only entities with a claim after this are the
-   * question, and standing proposals are kept. Absent: the whole census,
-   * fresh — `--propose`, and a vault's first pass. */
-  since?: string;
-  rejected?: RejectedPair;
-  now?: () => Date;
-  /** the prompt template; the engine's prompts/entity-folds.md by default */
-  template?: string;
-}
-
-export interface ProposeResult {
-  folds: EntityFolds;
-  /** the model ran — false when a delta had no question in it */
-  ran: boolean;
-  /** entities in the question */
-  changed: number;
-}
-
-/** Run the feeder once: census → model → validated groups → the state
- * file. The model runs as the memory pass (its role, its runner). */
-export async function proposeEntityFolds(root: string, opts: ProposeOpts): Promise<ProposeResult> {
-  const [census, refused] = withVaultSnapshot(root, (db) => [entityCensus(root, db), rejectedPairList(db)] as const);
-  const rejected = opts.rejected ?? rejectedPairs(refused);
-  const now = opts.now ?? (() => new Date());
-  const standing = opts.since !== undefined ? readEntityFolds(root) : undefined;
-  const changed = opts.since !== undefined ? changedSince(census, opts.since).length : census.length;
-  // stamped when the census is READ, not when the model returns: the next
-  // delta starts here, so a claim that lands during the run is in it
-  const proposedAt = now().toISOString();
-  const t0 = Date.now();
-  const template = opts.template ?? readFileSync(join(ENGINE_ROOT, "prompts", "entity-folds.md"), "utf8");
-  const prompt = census.length < 2 ? null : renderFoldsPrompt(template, census, opts.since);
-  if (prompt === null) {
-    // nothing to ask: the standing proposals, re-read against today, stand
-    const kept = standing
-      ? { ...standing, ...validateFolds(standing.groups.map(rawGroup), census, rejected) }
-      : { proposedAt, model: opts.target.model, census: census.length, groups: [], dropped: [], wallMs: 0 };
-    write(root, kept);
-    return { folds: kept, ran: false, changed };
-  }
-  const run = await runModel(
-    { prompt, root, target: opts.target, role: MEMORY_ROLE, auth: opts.auth, noTools: true },
-    opts.loadPi
-  );
-  // standing groups first: a member already proposed is not re-proposed,
-  // and a group settled or emptied since falls out here
-  const { groups, dropped } = validateFolds(
-    [...(standing?.groups ?? []).map(rawGroup), ...(parseFolds(run.text) as unknown[])],
-    census,
-    rejected
-  );
-  const folds: EntityFolds = {
-    proposedAt,
-    model: opts.target.model,
-    ...(run.sessionId ? { sessionId: run.sessionId } : {}),
-    census: census.length,
-    groups,
-    dropped,
-    ...(run.usage ? { usage: run.usage } : {}),
-    wallMs: Date.now() - t0,
-  };
-  write(root, folds);
-  return { folds, ran: true, changed };
-}
-
-function write(root: string, folds: EntityFolds): void {
-  mkdirSync(join(root, ".state"), { recursive: true });
-  writeAtomic(entityFoldsFile(root), `${JSON.stringify(folds, null, 2)}\n`);
-  projectFolds(root);
-}
 
 /** What the viewer shows: the standing proposals against TODAY's record —
  * a member aliased or retired since is gone, a rejected pair is split, a
