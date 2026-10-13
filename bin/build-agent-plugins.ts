@@ -7,7 +7,7 @@ import { ENGINE_ROOT } from "../lib/engine";
 
 export function buildAgentPlugins(root = ENGINE_ROOT, check = false): void {
   const outputs = new Map<string, string>();
-  const version = "0.1.24";
+  const version = "0.1.25";
   for (const agent of ["claude", "codex"] as const) {
     const target = agent === "claude" ? "clients/claude-plugin" : "clients/codex-plugin/plugins/bigbrain";
     const hookRoot = agent === "claude" ? "${CLAUDE_PLUGIN_ROOT}" : "${PLUGIN_ROOT}";
@@ -26,12 +26,14 @@ export function buildAgentPlugins(root = ENGINE_ROOT, check = false): void {
       }
     };
     walk("");
-    outputs.set(`${target}/.mcp.json`, JSON.stringify({ mcpServers: { bigbrain: {
-      command: "sh",
-      // Codex resolves cwd relative to the plugin; it does not expand hook
-      // variables in MCP args. Claude expands CLAUDE_PLUGIN_ROOT itself.
-      ...(agent === "codex" ? { args: ["scripts/local.sh", "--connection", "codex-plugin"], cwd: "." } : { args: [`${hookRoot}/scripts/local.sh`, "--connection", "claude-plugin"] }),
-    } } }, null, 2) + "\n");
+    // Claude Code reaches the vault through the door (#302): MCP over the
+    // local API, its header from a headersHelper that reads the plugin's
+    // connection. Codex resolves cwd relative to the plugin and does not
+    // expand hook variables in MCP args; its plugin keeps the stdio server.
+    outputs.set(`${target}/.mcp.json`, JSON.stringify({ mcpServers: { bigbrain: agent === "codex"
+      ? { command: "sh", args: ["scripts/local.sh", "--connection", "codex-plugin"], cwd: "." }
+      : { type: "http", url: "http://127.0.0.1:${BIGBRAIN_API_PORT:-4748}/mcp", headersHelper: `sh "${hookRoot}/scripts/local.sh" headers --connection claude-plugin` },
+    } }, null, 2) + "\n");
     if (agent === "claude") {
       for (const name of ["hooks.json"]) outputs.set(`${target}/hooks/${name}`, readFileSync(join(root, "clients/adapters/claude", name), "utf8"));
       const manifest = JSON.parse(readFileSync(join(root, "clients/adapters/claude/plugin.json"), "utf8"));

@@ -17,6 +17,10 @@ test('local registration is scoped to a vault and explicit; repeats, revoke, rec
  local.set('codex',false);expect(()=>clients.token(first.id)).toThrow('revoked');
  local.set('codex',true);expect(calls).toHaveLength(3);expect(calls[1]?.args).toEqual(['mcp','remove',calls[0]!.args[2]!]);expect(calls[2]?.args[2]).toBe(calls[0]?.args[2]);
  local.set('claude-code',true);expect(calls[3]?.args).toContain('user');
+ // Claude Code reaches the vault through the door; Codex, whose CLI cannot write a header, keeps stdio.
+ const claude=clients.list().find(c=>c.managedBy==='local:claude-code'&&!c.revoked)!;
+ expect(calls[3]?.args.slice(-4)).toEqual([calls[3]!.args.find(a=>/^bigbrain-[a-f0-9]{12}$/.test(a))!,'http://127.0.0.1:4748/mcp','--header',`Authorization: Bearer ${clients.token(claude.id)}`]);
+ expect(calls[3]?.args).toContain('http');
  local.set('claude-code',false);local.set('claude-code',true);
  expect(calls[4]?.args).toEqual(['mcp','remove',calls[3]!.args.find(a=>/^bigbrain-[a-f0-9]{12}$/.test(a))!,'--scope','user']);
  const failing=new LocalClients(fixture(),{which:()=>'/bin/codex',run:()=>{throw Error('private error');}});

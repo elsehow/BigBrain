@@ -4,11 +4,8 @@
  * lib/sharedOAuth.ts is how a member's Claude gets the credential; this is
  * what that credential can do with it.
  *
- * Streamable HTTP, stateless: every POST builds a fresh SDK `Server` and a
- * web-standard transport in JSON-response mode, answers, and is gone — no
- * session, no SSE stream, nothing held between requests, so it lives
- * inside the door's pure (Request) => Response handler and tests need no
- * socket. The door has already verified the credential (any live one with
+ * Streamable HTTP, stateless (lib/mcpHttp.ts, which the local API's `/mcp`
+ * shares). The door has already verified the credential (any live one with
  * `read`) before a byte of the body is read.
  *
  * Four tools, all read-only: `overview` (how an agent orients — a shared
@@ -26,12 +23,10 @@
  * mail is held.
  */
 
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
-import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError } from "@modelcontextprotocol/sdk/types.js";
+import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
 import { assertionSourceReferences, type AssertionEvent } from "./assertionLog";
 import type { EventAuthor } from "./insertionLog";
-import { readCapped } from "./sharedOAuth";
+import { rpcError, serveStatelessMcp } from "./mcpHttp";
 import { listMembers, type SharedActor } from "./sharedMembers";
 import { FEED_PAGE_CAP, LIST_PAGE_CAP, SEARCH_CAP, SharedVaultError, type AssertionView, type FeedEntry, type SharedVault } from "./sharedVault";
 import type { SourceInsertion } from "./insertionLog";
@@ -45,8 +40,6 @@ export interface SharedMcpContext {
   vaultName: string;
 }
 
-/** JSON-RPC requests are small; a body this big is not one. */
-const MAX_MCP_BODY_BYTES = 1024 * 1024;
 const DEFAULT_READ_CHARS = 20_000;
 const MAX_READ_CHARS = 100_000;
 
@@ -418,47 +411,20 @@ export function callSharedTool(ctx: SharedMcpContext, name: string, args: Record
 
 // ── the HTTP endpoint ───────────────────────────────────────────────────────
 
-const HEADERS = { "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer" };
-
-const rpcError = (status: number, code: number, message: string, headers: Record<string, string> = {}): Response =>
-  new Response(`${JSON.stringify({ jsonrpc: "2.0", error: { code, message }, id: null })}\n`, {
-    status,
-    headers: { "Content-Type": "application/json", ...HEADERS, ...headers },
-  });
-
 /** Answer one `/mcp` request for an already-verified actor. */
 export async function serveSharedMcp(req: Request, ctx: SharedMcpContext): Promise<Response> {
-  // Stateless: there is no session to stream to (GET) or end (DELETE).
-  if (req.method !== "POST") return rpcError(405, -32000, "Method not allowed: this server is stateless; POST JSON-RPC to it.", { Allow: "POST" });
-  if (!ctx.actor.permissions.includes("read")) return rpcError(403, -32000, "This credential cannot read the vault.");
-  const raw = await readCapped(req, MAX_MCP_BODY_BYTES);
-  if (raw === null) return rpcError(413, -32600, `Request body exceeds ${MAX_MCP_BODY_BYTES} bytes.`);
-  let body: unknown;
-  try {
-    body = JSON.parse(raw);
-  } catch {
-    return rpcError(400, ErrorCode.ParseError, "Parse error: the body is not JSON.");
-  }
-
-  const server = new Server({ name: "bigbrain-shared", version: "1.0.0" }, { capabilities: { tools: {} }, instructions: SHARED_MCP_INSTRUCTIONS });
-  server.setRequestHandler(ListToolsRequestSchema, () => ({ tools: sharedMcpToolList() }));
-  server.setRequestHandler(CallToolRequestSchema, (request) => {
-    try {
-      const text = callSharedTool(ctx, request.params.name, request.params.arguments ?? {});
-      return { content: [{ type: "text" as const, text }] };
-    } catch (error) {
-      if (error instanceof SharedToolError) return { content: [{ type: "text" as const, text: error.message }], isError: true };
-      throw error;
-    }
+  if (req.method === "POST" && !ctx.actor.permissions.includes("read")) return rpcError(403, -32000, "This credential cannot read the vault.");
+  return serveStatelessMcp(req, {
+    name: "bigbrain-shared",
+    instructions: SHARED_MCP_INSTRUCTIONS,
+    tools: sharedMcpToolList,
+    call: (name, args) => {
+      try {
+        return { content: [{ type: "text" as const, text: callSharedTool(ctx, name, args) }] };
+      } catch (error) {
+        if (error instanceof SharedToolError) return { content: [{ type: "text" as const, text: error.message }], isError: true };
+        throw error;
+      }
+    },
   });
-  const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
-  await server.connect(transport);
-  try {
-    const res = await transport.handleRequest(req, { parsedBody: body });
-    const headers = new Headers(res.headers);
-    for (const [k, v] of Object.entries(HEADERS)) headers.set(k, v);
-    return new Response(res.body, { status: res.status, headers });
-  } finally {
-    await server.close();
-  }
 }

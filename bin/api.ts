@@ -1,7 +1,7 @@
 /**
  * api.ts — the authenticated HTTP intake service (:4748, localhost-only)
  * for callers that hold a drop token: integrations, the browser extension,
- * the Claude Code plugin. The handler lives in lib/api.ts (testable
+ * and the one door — `/mcp`, where a connected agent reads the vault (#302). The handler lives in lib/api.ts (testable
  * without a socket); this file is just the serve loop.
  *
  * Never expose 4748 directly; front it with a TLS proxy
@@ -13,6 +13,7 @@ import { VAULT_ROOT } from "../lib/vaultRoot";
 import { tokenStorePath } from "../lib/auth";
 import { makeApiHandler, MAX_REQUEST_BYTES } from "../lib/api";
 import { dieWithSupervisor } from "../lib/parentWatch";
+import { logIntegrationCalls } from "../lib/readLog";
 
 // Under the desktop app: go when the supervisor goes (#597). Run by hand
 // there is no supervisor pid and this watches nothing.
@@ -22,6 +23,8 @@ dieWithSupervisor("api");
 // server too (every job gets the file's settings) and would collide the two.
 const port = apiPort();
 const storePath = tokenStorePath(VAULT_ROOT);
+// What a connected agent reads of an integration through `/mcp`, as the stdio server logs it.
+logIntegrationCalls(VAULT_ROOT);
 
 Bun.serve({
   hostname: "127.0.0.1",

@@ -19,6 +19,8 @@
  *   GET    /v1/gardener/next     Bearer + tend → due work + context packs (#479; a pure read — no lease)
  *   POST   /v1/gardener/submit   Bearer + tend → host-validated events, per-item and idempotent (#479)
  *                                (each success stamps journal/tend/door.json — the door's last-run trace, #482)
+ *   POST   /mcp                  Bearer (a Connected Clients connection) + vault:read → MCP over HTTP,
+ *                                the stdio server's tools; inbox:write adds drop (lib/localMcp.ts, #302)
  *
  * The surface above is ONE TABLE (`AUTHED_ROUTES` + `PUBLIC_ROUTES`, below) —
  * a route exists exactly once, as one `{method, path, scope, handler}` entry.
@@ -57,6 +59,7 @@ import { clampLimit, recordScan, scanSurface } from "./searchCore";
 import { nextWork, submitWire, WORK_KINDS, type SubmitResult, type WorkItem, type WorkKind, dueIntakeCount } from "./work";
 import { claudeAccount, ownerFor } from "./firstRun";
 import { normalizeClient, redeemPairCode } from "./pair";
+import { serveLocalMcp } from "./localMcp";
 
 export interface ApiDeps {
   root: string;
@@ -873,6 +876,17 @@ export function makeApiHandler(deps: ApiDeps): (req: Request) => Promise<Respons
 
     if (req.method === "OPTIONS")
       return respond(new Response(null, { status: 204, headers: CORS }));
+
+    // The one door (#302): its own verification, because a lapsed
+    // connection is still served there (lib/localMcp.ts says why).
+    if (path === "/mcp") {
+      const { response, record } = await serveLocalMcp(req, { root: deps.root, storePath: deps.storePath, now, log, takeToken });
+      if (record) {
+        tokenId = record.id;
+        tokenName = record.name;
+      }
+      return respond(response);
+    }
 
     for (const route of PUBLIC_ROUTES) {
       if (route.method !== req.method) continue;

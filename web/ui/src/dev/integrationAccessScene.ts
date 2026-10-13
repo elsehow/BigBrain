@@ -1,4 +1,5 @@
 /** Production settings components, fabricated accounts/clients, no provider calls. */
+import { DOOR_SENTENCE } from "../../../../lib/doorPresentation";
 import { api } from '../lib/api';
 import type { IntegrationInfo } from '../lib/types';
 export function installIntegrationAccessScene(fail=false) {
@@ -72,7 +73,14 @@ export function installIntegrationAccessScene(fail=false) {
       let id=body.id;
       if(body.action==='replace'){id='22222222';if(!clients.some(c=>c.id===id))clients.push({id,name:'Replacement Claude',kind:'claude-code',revoked:null,lastUsed:null,legacy:false,replaces:body.id,managedBy:undefined});}
       if(body.action==='create'){id='87654321';clients.push({id,name:body.name,kind:body.kind,revoked:null,lastUsed:null,legacy:false,replaces:undefined,managedBy:undefined});}
-      return json({id,command:`claude mcp add bigbrain -- bigbrain mcp --client ${id}`,configuration:{},instructions:'Run this command in your client, then restart its MCP connection.'});
+      // A fabricated credential: the door's setup carries one, as the real one does.
+      const url='http://127.0.0.1:4748/mcp',bearer=`Bearer bb_${id}_sampleSecretNotReal`;
+      const claude=`claude mcp add --scope user --transport http bigbrain ${url} --header 'Authorization: ${bearer}'`;
+      const codex=`[mcp_servers.bigbrain]\nurl = "${url}"\nhttp_headers = { Authorization = "${bearer}" }`;
+      const kind=clients.find(c=>c.id===id)?.kind??'claude-code';
+      return json({id,kind,url,claude,codex,command:kind==='codex'?codex:kind==='claude-code'?claude:null,configuration:{mcpServers:{bigbrain:{type:'http',url,headers:{Authorization:bearer}}}},
+        sentence:DOOR_SENTENCE,
+        instructions:'Run this in a terminal, then restart Claude Code.'});
     }
     if(!options?.method)return json(state());
     window.dispatchEvent(new CustomEvent('workbench-integration-action',{detail:body}));

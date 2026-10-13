@@ -14,5 +14,6 @@ const agent=flagValue(argv,"agent")??"claude";
 if(agent!=="claude"&&agent!=="codex")throw new Error("--agent must be claude or codex");
 const clients=new ConnectedClients(VAULT_ROOT);
 const setup=clients.ensure(flagValue(argv,"name")??(agent==="codex"?"Codex":"Claude Code"),agent==="codex"?"codex":"claude-code","cli:connect:"+agent);
+console.log(setup.sentence);
 console.log(setup.instructions);
 console.log(setup.command);

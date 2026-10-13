@@ -19,8 +19,18 @@ if (hasFlag(argv, "gardener")) {
 }
 if (sub === "config") {
   const clients = new ConnectedClients(requireVaultRoot());
-  const setup = flagValue(argv,"client") ? clients.setup(flagValue(argv,"client")!) : clients.ensure("Local MCP configuration","generic","cli:config");
-  console.log(JSON.stringify(setup.configuration, null, 2));
+  const id = flagValue(argv,"client") ?? clients.ensure("Local MCP configuration","generic","cli:config").id;
+  console.log(JSON.stringify(clients.stdio(id), null, 2));
+  process.exit(0);
+}
+// The Claude Code plugin's headersHelper (#302): the door's header for the
+// plugin's connection, as JSON on stdout. Nothing on failure — Claude Code
+// then reports the connection failed, and the app says where to fix it.
+if (sub === "headers") {
+  const root = requireVaultRoot(), connection = flagValue(argv, "connection");
+  if (connection !== "claude-plugin") { console.error("mcp headers: --connection claude-plugin"); process.exit(2); }
+  const clients = new ConnectedClients(root);
+  console.log(JSON.stringify({ Authorization: `Bearer ${clients.token(clients.ensure("Claude Code plugin", "claude-code", connection).id)}` }));
   process.exit(0);
 }
 if (sub === "memory") {
@@ -30,7 +40,7 @@ if (sub === "memory") {
 if (sub === "register") {
   const root = requireVaultRoot();
   const only = flagValues(argv, "client").filter(Boolean);
-  const results = registerMcpClients(root, { only, entry: target => new ConnectedClients(root).ensure(target.label,"generic",`registered:${target.key}`).configuration.mcpServers.bigbrain });
+  const results = registerMcpClients(root, { only, entry: target => { const clients = new ConnectedClients(root); return clients.stdio(clients.ensure(target.label,"generic",`registered:${target.key}`).id).mcpServers.bigbrain; } });
   let failed = false;
   for (const r of results) {
     if (r.status === "registered") console.log(`  ${r.label}: registered → ${r.path}`);
@@ -45,7 +55,7 @@ if (sub === "register") {
   else if (!failed) console.log("restart the client(s) to pick up the new server");
   process.exit(failed ? 1 : 0);
 } else if (sub) {
-  console.error(`mcp: unknown subcommand ${JSON.stringify(sub)} — serve (no args), config, memory, or register`);
+  console.error(`mcp: unknown subcommand ${JSON.stringify(sub)} — serve (no args), config, headers, memory, or register`);
   process.exit(2);
 }
 

@@ -10,10 +10,16 @@ import { readSourceInsertionLog } from '../lib/insertionLog';
 const roots:string[]=[];
 afterEach(()=>roots.splice(0).forEach(root=>rmSync(root,{recursive:true,force:true})));
 function fixture(){const root=nativeVault({files:{'vault.yaml':'{}','memory/index.md':'# Memory\n\nA synthetic vault.'}});roots.push(root);return {root,clients:new ConnectedClients(root,join(root,'tokens.json'))};}
-test('named client setup is private, per credential, and does not grant live access',()=>{
+test('named client setup is per credential, reaches the door, and the list never carries a secret',()=>{
  const {clients}=fixture();const a=clients.create({name:'Work Codex',kind:'codex'}),b=clients.create({name:'Personal Claude',kind:'claude-code'});
- expect(a.id).not.toBe(b.id);expect(a.command).toContain("codex mcp add");expect(b.command).toStartWith("claude mcp remove --scope user bigbrain\nclaude mcp add --scope user");
- expect(JSON.stringify(clients.list())).not.toContain('bb_');expect(JSON.stringify(a)).not.toContain('bb_');
+ expect(a.id).not.toBe(b.id);
+ expect(a.command).toBe(`[mcp_servers.bigbrain]\nurl = "http://127.0.0.1:4748/mcp"\nhttp_headers = { Authorization = "Bearer ${clients.token(a.id)}" }`);
+ expect(b.command).toBe(`claude mcp remove --scope user bigbrain\nclaude mcp add --scope user --transport http bigbrain http://127.0.0.1:4748/mcp --header 'Authorization: Bearer ${clients.token(b.id)}'`);
+ expect(b.configuration).toEqual({mcpServers:{bigbrain:{type:'http',url:'http://127.0.0.1:4748/mcp',headers:{Authorization:`Bearer ${clients.token(b.id)}`}}}});
+ expect(a.sentence).toStartWith('This agent can read your whole vault.');
+ // Each setup holds its own credential and no other; the stdio entry holds none.
+ expect(JSON.stringify(a)).not.toContain(clients.token(b.id));expect(JSON.stringify(clients.stdio(a.id))).not.toContain('bb_');
+ expect(JSON.stringify(clients.list())).not.toContain('bb_');
  expect(statSync(clients.store+'.clients/'+a.id+'.json').mode&0o777).toBe(0o600);
  clients.revoke(a.id);expect(()=>clients.token(a.id)).toThrow('revoked');expect(clients.token(b.id)).toStartWith('bb_');
  expect(clients.list().find(c=>c.id===a.id)?.revoked).toBeTruthy();

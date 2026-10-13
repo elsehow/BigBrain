@@ -2,6 +2,7 @@
   import { vaultFetch as fetch } from "../lib/vaultScope";
 
   import { providerLabel } from "../../../../lib/providerPresentation";
+  import { DOOR_GRANT, DOOR_SENTENCE } from "../../../../lib/doorPresentation";
   import { onMount } from "svelte";
   let { runner }: { runner?: string } = $props();
   let adding = $state(false), configuring = $state<string | null>(null);
@@ -9,7 +10,10 @@
   const status = (c: {revoked:string|null;expired?:boolean}) => c.revoked ? 'Access revoked' : c.expired ? 'Expired after 30 days unused' : 'Authorized';
   type Client={id:string;name:string;kind:string;managedBy?:string;legacy?:boolean;replaces?:string;lastUsed:string|null;revoked:string|null;expired?:boolean};
   let clients=$state<Client[]>([]), name=$state(""),kind=$state("claude-code"),busy=$state(false),error=$state("");
-  type Setup={id:string;command:string|null;configuration:unknown;instructions:string};
+  type Setup={id:string;kind:string;command:string|null;claude:string;codex:string;configuration:unknown;instructions:string;sentence:string};
+  /** What "Copy connection" offers: the connection's own agent, or all three for a generic client. */
+  const blocks=(s:Setup)=>s.kind==='claude-code'?[{label:'Claude Code',text:s.claude}]:s.kind==='codex'?[{label:'Codex, ~/.codex/config.toml',text:s.codex}]
+    :[{label:'MCP configuration',text:JSON.stringify(s.configuration,null,2)},{label:'Claude Code',text:s.claude},{label:'Codex, ~/.codex/config.toml',text:s.codex}];
   let setups=$state<Record<string,Setup>>({}), showingSetup=$state<string|null>(null), copied=$state<string|null>(null);
   /** When each client last read an integration, from the read log. */
   let lastRead=$state<Record<string,{ts:string;name:string}>>({});
@@ -26,13 +30,12 @@
     configuring=id;showingSetup=null;copied=null;
     if(!runner && !clients.find(c=>c.id===id)?.legacy)await action({action:'setup',id});
   }
-  async function copy(setup:Setup){
+  async function copy(key:string,text:string){
     error='';copied=null;
-    const text=setup.command??JSON.stringify(setup.configuration,null,2);
-    try { await navigator.clipboard.writeText(text);copied=setup.id; }
+    try { await navigator.clipboard.writeText(text);copied=key; }
     catch {
       const field=document.createElement('textarea');field.value=text;field.style.position='fixed';field.style.opacity='0';document.body.appendChild(field);field.select();
-      try { if(!document.execCommand('copy'))throw Error();copied=setup.id; }
+      try { if(!document.execCommand('copy'))throw Error();copied=key; }
       catch { error='Could not copy. Select the setup text to copy it.'; }
       finally { field.remove(); }
     }
@@ -47,6 +50,7 @@
     <form onsubmit={e=>{e.preventDefault();void action({action:'create',name:name.trim() || label(kind),kind});}}>
       <label>Client<select bind:value={kind} disabled={busy}><option value="claude-code">Claude Code</option><option value="codex">Codex</option><option value="generic">Generic MCP client</option></select></label>
       <label>Connection name<input bind:value={name} maxlength="120" placeholder={label(kind)} disabled={busy}/></label>
+      <p class="door-sentence">{DOOR_SENTENCE}</p>
       <button disabled={busy}>Create connection</button>
     </form>{/if}
     <h3>Existing connections</h3>
@@ -77,7 +81,7 @@
       <div class="settings-card-row">
         <div class="settings-card-main">
           <h2 class="settings-card-name">{client.name}</h2>
-          <span class="settings-card-about">{client.legacy ? 'Legacy plugin connection, deprecated. Replace it with a named MCP connection.' : `${label(client.kind)}, reaching your vault through BigBrain’s MCP server with this connection’s access.`}</span>
+          <span class="settings-card-about">{client.legacy ? 'Legacy plugin connection, deprecated. Replace it with a named MCP connection.' : `${label(client.kind)}. ${DOOR_GRANT}`}</span>
           <span class="settings-status"><i class:ready={!client.revoked && !client.expired} aria-hidden="true"></i>{status(client)}</span>
           <span class="settings-item-note">Connection {client.id} · {client.legacy ? 'Legacy plugin' : client.replaces ? 'Legacy plugin replacement' : client.managedBy?.startsWith('local:') ? 'Set up on this computer' : 'Manual setup'}</span>
           <span class="settings-item-note">{client.lastUsed ? `Last used ${new Date(client.lastUsed).toLocaleString()}` : 'Not used yet'}</span>
@@ -109,8 +113,11 @@
             {@const setup=setups[client.id]}
             <div class="settings-group"><span class="settings-group-label">Setup</span><div class="settings-group-body">
               <section class="setup" aria-label="Client setup">
+                <p class="door-sentence">{setup.sentence}</p>
                 <p>{setup.instructions}</p>
-                <div class="command-block"><pre><code>{setup.command??JSON.stringify(setup.configuration,null,2)}</code></pre><button onclick={()=>copy(setup)}>{copied===client.id?'Copied':'Copy setup'}</button></div>
+                {#each blocks(setup) as block(block.label)}
+                  <div class="command-block"><span class="settings-group-label">{block.label}</span><pre><code>{block.text}</code></pre><button onclick={()=>copy(client.id+block.label,block.text)}>{copied===client.id+block.label?'Copied':'Copy connection'}</button></div>
+                {/each}
                 <button onclick={()=>showingSetup=null}>Hide setup</button>
               </section>
             </div></div>
@@ -130,6 +137,7 @@
 
 <style>
   .command-block{background:var(--well);border:1px solid var(--rule);padding:16px;display:grid;gap:12px;min-width:0}.command-block pre{margin:0;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;line-height:1.6}
+  .door-sentence{color:var(--text-strong)}
   .client-controls{display:grid;gap:16px;margin-top:16px}
   .settings-row.compact{padding:0;border-bottom:0}
   section,form{display:grid;gap:16px;min-width:0}h3,p{margin:0}h3{font:var(--type-body);font-weight:500}p,label{font:var(--type-body)}p{color:var(--text-muted)}form,.setup{padding:12px 0;border-bottom:1px solid var(--rule)}.setup{padding:0;border-bottom:0}label{display:grid;gap:8px}input,select{padding:10px;font:inherit;background:var(--well);color:var(--text);border:1px solid var(--rule);max-width:100%;box-sizing:border-box}button{justify-self:start;font:var(--type-body);padding:8px 12px;border:1px solid var(--rule);background:transparent;color:var(--text-strong);cursor:pointer}button:disabled{opacity:.5;cursor:default}button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--activity);outline-offset:3px}.actions{display:flex;flex-wrap:wrap;gap:12px}pre{white-space:pre-wrap;overflow-wrap:anywhere;max-width:100%;font:var(--type-meta)}[role=alert]{color:var(--err)}
