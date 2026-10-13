@@ -18,7 +18,7 @@
 
 import Darwin
 import Foundation
-import Virtualization
+@preconcurrency import Virtualization
 
 struct Config: Decodable {
     let kernel: String
@@ -54,7 +54,8 @@ func errnoText() -> String { String(cString: strerror(errno)) }
 
 // MARK: - configuration
 
-func configuration(_ c: Config) throws -> VZVirtualMachineConfiguration {
+/// The machine's configuration; validated unless only described (a Mac that can't virtualize, such as CI's, refuses validation).
+func configuration(_ c: Config, validate: Bool = true) throws -> VZVirtualMachineConfiguration {
     let boot = VZLinuxBootLoader(kernelURL: URL(fileURLWithPath: c.kernel))
     boot.initialRamdiskURL = URL(fileURLWithPath: c.initramfs)
     boot.commandLine = c.cmdline
@@ -86,7 +87,7 @@ func configuration(_ c: Config) throws -> VZVirtualMachineConfiguration {
     vm.networkDevices = []
     vm.directorySharingDevices = []
 
-    try vm.validate()
+    if validate { try vm.validate() }
     return vm
 }
 
@@ -212,7 +213,7 @@ let config: Config
 do { config = try JSONDecoder().decode(Config.self, from: data) } catch { fail("the config is not valid: \(error)") }
 
 let vmConfig: VZVirtualMachineConfiguration
-do { vmConfig = try configuration(config) } catch { fail("the configuration is refused: \(error.localizedDescription)") }
+do { vmConfig = try configuration(config, validate: arguments != ["--dump-config"]) } catch { fail("the configuration is refused: \(error.localizedDescription)") }
 
 if arguments == ["--dump-config"] {
     guard let out = try? JSONSerialization.data(withJSONObject: describe(vmConfig), options: [.sortedKeys]) else { fail("can't describe the configuration") }
