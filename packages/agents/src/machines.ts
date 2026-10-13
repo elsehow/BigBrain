@@ -212,6 +212,8 @@ export class Machines implements Guests {
   }
 
   private unforwardAll(desktop: string): void {
+    // a copy: unforward deletes from the map being walked
+    // oxlint-disable-next-line unicorn/no-useless-spread
     for (const port of [...this.entries.get(desktop)?.forwards.keys() ?? []]) this.unforward(desktop, port);
   }
 
