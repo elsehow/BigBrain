@@ -100,19 +100,22 @@ test("the view carries settled positions for its structure, and the layout persi
   expect(existsSync(join(root, ".state", "graph-layout-assertions.json"))).toBe(false);
 });
 
-test("stopping the watcher suppresses a ping from an outstanding async warm", async () => {
+test("a change pushes its stamps without waiting on the graph's upkeep, and stopping hears no landing after", async () => {
   const root = fresh(), writes: string[] = [];
   let release!: () => void, entered!: () => void;
   const started = new Promise<void>(resolve => { entered = resolve; });
   const warming = new Promise<void>(resolve => { release = resolve; });
   const live = createLive({ root, debounceMs: 1, refresh: () => {}, warmLayout: () => { entered(); return warming; } });
+  live.start();
   live.addClient({ write: text => writes.push(text) });
   writes.length = 0; // the connection's stamps
-  live.handleChange("memory/index.md");
+  live.handleChange("vault.yaml");
   await started;
+  await Bun.sleep(5);
+  expect(writes.filter(w => w.startsWith("event: views"))).toHaveLength(1); // the upkeep still running
   live.stop(); release();
   await Bun.sleep(5);
-  expect(writes).toEqual([]);
+  expect(writes.filter(w => w.startsWith("event: views"))).toHaveLength(1);
 });
 
 test("a request is served only the current view, and builds it when none is; no watcher needed", async () => {
@@ -127,27 +130,6 @@ test("a request is served only the current view, and builds it when none is; no 
   // the view held is behind the decline: the request waits for the build, never serves it
   expect((await currentGraph(root)).nodes[0]?.pending).toBeUndefined();
   expect(savedGraph(root)!.nodes[0]?.pending).toBeUndefined();
-});
-
-test("a newer watcher change suppresses the older in-flight ping", async () => {
-  const root = fresh(), writes: string[] = [], releases: Array<() => void> = [];
-  let stamped = 0;
-  const live = createLive({ root, debounceMs: 1, refresh: () => {},
-    stamps: () => ({ generation: "g", revision: String(++stamped), views: { graph: "", joined: "", feed: "", files: "" } }),
-    warmLayout: () => new Promise<void>(resolve => releases.push(resolve)) });
-  live.addClient({ write: text => writes.push(text) });
-  writes.length = 0; // the connection's stamps
-  try {
-    live.handleChange("memory/first.md");
-    await Bun.sleep(5);
-    live.handleChange("memory/second.md");
-    await Bun.sleep(5);
-    expect(releases).toHaveLength(2);
-    releases[0]!(); await Promise.resolve();
-    expect(writes).toEqual([]);
-    releases[1]!(); await Promise.resolve();
-    expect(writes).toEqual(['event: views\ndata: {"generation":"g","revision":"2","views":{"graph":"","joined":"","feed":"","files":""}}\n\n']);
-  } finally { live.stop(); for (const release of releases) release(); }
 });
 
 test("the briefing's evidence follows the view: a link written appears, a link removed goes, a build behind keeps nothing", () => {

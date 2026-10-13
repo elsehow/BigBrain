@@ -14,7 +14,7 @@
  * on `revision`. */
 import type { Database } from "bun:sqlite";
 import type { ServerResponse } from "node:http";
-import { lastChangeExcept, openAssertionProjectionReadonly, type ChangeKind } from "./assertionProjection";
+import { lastChangeExcept, type ChangeKind } from "./assertionProjection";
 import { json } from "./httpx";
 import { graphStamp } from "./maintainedGraph";
 import { connectionStorePath, readConnections } from "./sharedConnections";
@@ -59,12 +59,13 @@ export function serveStamped<T>(res: ServerResponse, root: string, stamp: (root:
   }
 }
 
+/** Each view's stamp: the projection's from one snapshot, so no two can
+ * straddle a commit; the graph's as the maintainer holds it; the joined
+ * servers' as this computer holds them; `files` as the watcher chained it. */
 export function viewStamps(root: string, files: string): ViewStamps {
   let log: ReturnType<typeof lastChangeExcept>, folds = "";
   try {
-    const db = openAssertionProjectionReadonly(root);
-    try { log = lastChangeExcept(root, FEED_IGNORES, db); folds = foldsStamp(root, db); }
-    finally { db.close(); }
+    [log, folds] = withSnapshot(root, ({ db }) => [lastChangeExcept(root, FEED_IGNORES, db), foldsStamp(root, db)] as const);
   } catch { /* no projection yet */ }
   const [generation = "", revision = ""] = log?.at.split(":") ?? [];
   let graph = "", joined = "";
