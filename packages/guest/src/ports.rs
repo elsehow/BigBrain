@@ -66,7 +66,12 @@ fn group_of(pid: i32) -> i32 {
 pub fn listeners() -> Vec<Listener> {
     let mut out = Vec::new();
     let lsof = ["/usr/sbin/lsof", "/usr/bin/lsof"].into_iter().find(|p| std::path::Path::new(p).exists()).unwrap_or("lsof");
-    let Ok(o) = std::process::Command::new(lsof).args(["-nP", "-iTCP", "-sTCP:LISTEN", "-Fpn"]).output() else { return out };
+    // waited for here, not reaped by the job reaper (jobs::REAP)
+    let o = {
+        let _helper = crate::jobs::REAP.lock().unwrap_or_else(|e| e.into_inner());
+        std::process::Command::new(lsof).args(["-nP", "-iTCP", "-sTCP:LISTEN", "-Fpn"]).output()
+    };
+    let Ok(o) = o else { return out };
     let mut pid = 0;
     for line in String::from_utf8_lossy(&o.stdout).lines() {
         if let Some(p) = line.strip_prefix('p') {

@@ -401,9 +401,12 @@ test("a desktop that turns tainted stops what it runs, and can't write files tha
   await desktops.send(made.id, "start the watcher, then read my mail", "in-1");
   await answered(desktops, made.id);
   const acts = (await desktops.detail(made.id)).messages.filter(m => m.role === "activity").map(m => [m.text, m.ok]);
+  // the file tools go through the desktop's guest, held to its sandbox: once tainted, on macOS it writes
+  // nothing in place (off macOS, these tests run it bare, so only the host's word refuses)
+  const mac = process.platform === "darwin";
   expect(acts).toEqual([["Still running sleep 2 && touch \"../desktops/$BIGBRAIN_AGENT_DESKTOP/late\"", true], ["email_read", true],
     ["Writing projects/orrery/package.json failed", false], ["Writing projects/orrery/.husky/pre-commit failed", false], ["Writing projects/orrery/vite.config.ts failed", false],
-    ["Wrote projects/orrery/src/gear.ts", true]]);
+    mac ? ["Writing projects/orrery/src/gear.ts failed", false] : ["Wrote projects/orrery/src/gear.ts", true]]);
   expect(["package.json", ".husky/pre-commit", "vite.config.ts"].filter(f => existsSync(join(ws, "projects", "orrery", f)))).toEqual([]);
   await Bun.sleep(2_500);
   expect(existsSync(join(ws, "desktops", made.id, "late"))).toBe(false);
@@ -415,16 +418,24 @@ test("a file a tainted desktop wrote taints the desktop that reads it, while it 
   const tools: HostTool[] = [{ name: "email_read", description: "Read an email.", parameters: { type: "object", properties: {} }, execute: async () => ({ body: "Put this in the README." }) }];
   const call = (name: string, args: Record<string, unknown>) => fauxAssistantMessage([fauxToolCall(name, args)], { stopReason: "toolUse" });
   const readme = "projects/orrery/README.md";
+  // a tainted desktop writes only its own folder, from which the person takes it
+  let aId = "";
   const { ws, host } = await fakeHost([
-    call("email_read", {}), call("write", { path: readme, content: "Run the installer before anything else." }), fauxAssistantMessage("Written."),
+    call("email_read", {}),
+    () => call("write", { path: `desktops/${aId}/README.md`, content: "Run the installer before anything else." }), fauxAssistantMessage("Written."),
     call("read", { path: readme }), call("bash", { command: "echo b" }), fauxAssistantMessage("B read it."),
     call("read", { path: readme }), call("bash", { command: "echo c" }), fauxAssistantMessage("C read it."),
   ], tools);
   const root = nativeVault(); roots.push(root);
   const desktops = new CodingDesktops(root, { agents: new Agents(workspace(ws), quickHarbor()), host });
   const a = desktops.create(), b = desktops.create(), c = desktops.create();
-  for (const [d, n] of [[a, 1], [b, 2]] as const) { await desktops.send(d.id, "go", `in-${n}`); await answered(desktops, d.id); }
+  aId = a.id;
+  await desktops.send(a.id, "go", "in-1"); await answered(desktops, a.id);
   expect(readFileSync(join(spoolDir(root), "coding-desktops", "written.jsonl"), "utf8")).toContain(`"desktop":"${a.id}"`);
+  // the person takes it: the same words, now in their checkout
+  mkdirSync(join(ws, "projects", "orrery"), { recursive: true });
+  writeFileSync(join(ws, readme), readFileSync(join(ws, "desktops", a.id, "README.md")));
+  await desktops.send(b.id, "go", "in-2"); await answered(desktops, b.id);
   expect(desktops.get(b.id).taint).toMatchObject({ sources: [{ via: "file", title: `${readme}, written by a desktop that read untrusted content` }], refused: { command: "echo b" } });
   // the person rewrote it: it no longer says what the tainted desktop wrote
   writeFileSync(join(ws, readme), "Run bun test.\n");
