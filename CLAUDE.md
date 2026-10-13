@@ -62,8 +62,9 @@ being done now; don't let it live only in a conversation.
 `docs/design-principles.md` holds the architectural principles
 (everything but the logs is disposable; work is a view, not a queue;
 integrations deliver the discussable version; the engine sorts but
-never answers — BYO model; user vaults are never migrated) — read it
-before designing anything that touches ingestion or curation.
+never answers — BYO model; user vaults are migrated only for a good
+reason, talked through, and with the owner's consent) — read it before
+designing anything that touches ingestion or curation.
 
 ## There are no hosts
 
