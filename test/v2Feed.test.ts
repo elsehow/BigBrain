@@ -31,12 +31,12 @@ function vault(...more: SourceInsertion[]): string {
   return root;
 }
 let n = 0;
-type Over = { text?: string; supersedes?: string; project?: boolean; cites?: SourceInsertion[] };
+type Over = { text?: string; supersedes?: string; project?: boolean; cites?: SourceInsertion[]; model?: string };
 function claim(root: string, author: AssertionEvent["author"], procedure: string, entities: Array<{ id: string; label: string }>, at: string,
   over: Over = {}): AssertionEvent {
   const event = createAssertionEvent({
     text: over.text ?? `${entities.map((e) => `[[${e.id}|${e.label}]]`).join(" and ")} came up, ${++n}.`, entities, sources: (over.cites ?? [src]).map((s) => s.id),
-    author, confidence: "direct", created_at: at, produced_by: { procedure, version: "v1" }, ...(over.supersedes ? { supersedes: over.supersedes } : {}),
+    author, confidence: "direct", created_at: at, produced_by: { procedure, version: "v1", ...(over.model ? { model: over.model } : {}) }, ...(over.supersedes ? { supersedes: over.supersedes } : {}),
   }, new Map([src, agenda].map((s) => [s.id, s])));
   if (over.project !== false) appendAndProjectAssertion(root, event);
   return event;
@@ -149,6 +149,17 @@ describe("v2 feed", () => {
     expect(feed(root).authors.map((a) => [a.id, a.count])).toEqual([["gardener", 2], ["pi", 1], ["codex", 1]]);
     rebuildAssertionProjection(root);
     expect(named()).toEqual(expected);
+  });
+
+  test("a gardener row that names its model keeps it, whatever run it falls in", () => {
+    const root = vault();
+    const named = claim(root, pi, "bigbrain-mcp", [ada], "2026-08-02T10:30:00.000Z", { model: "model-z" });
+    const unnamed = claim(root, pi, "bigbrain-mcp", [ada], "2026-08-02T10:40:00.000Z");
+    tendRun(root, "run-a", "model-a", day(2, 10), day(2, 11));
+    const by = () => Object.fromEntries(feed(root).feed.map((r) => [r.id, r.by]));
+    expect(by()).toEqual({ [named.id]: "model-z", [unnamed.id]: "model-a" });
+    rebuildAssertionProjection(root);
+    expect(by()).toEqual({ [named.id]: "model-z", [unnamed.id]: "model-a" });
   });
 
   test("a rewrite keeps the date its claim was first recorded, whichever of them is projected first", () => {

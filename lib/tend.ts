@@ -28,6 +28,7 @@ import { dueIntakeIds } from "./work";
 import { creditsPaused } from "./providerCredits";
 import { projectJournal } from "./assertionProjection";
 import { runJournalFiles, TEND_JOURNAL_DIR } from "./runJournal";
+import { commitRunRecords } from "./runRecords";
 
 const TEND_PROMPT_VERSION = "tend/v5";
 export { TEND_JOURNAL_DIR };
@@ -90,6 +91,7 @@ function journalRecord(root: string, record: TendRunRecord): string {
   ensureDir(join(root, TEND_JOURNAL_DIR, record.completed_at.slice(0, 7)));
   writeAtomic(join(root, rel), `${JSON.stringify(record)}\n`);
   projectJournal(root, rel); // the v2 feed names models from these
+  commitRunRecords(root, { dir: TEND_JOURNAL_DIR, role: "tend", summary: `tend: run ${record.invocation_id} (${record.model})` });
   return rel;
 }
 

@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, spyOn, test } from "bun:test";
+import { spawnSync } from "node:child_process";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createAssertionEvent, type AssertionEvent } from "../lib/assertionLog";
@@ -118,6 +119,17 @@ describe("the feed stage", () => {
     expect(records[0]!.model).toBe("claude-sonnet-5-5");
     expect(sortedAssertions(records).size).toBe(4);
     expect(feedWork(root, loadManifest(root).feed!)).toEqual([]);
+  });
+
+  test("each call's record is committed with it, as the feed", async () => {
+    const a = insertion({ title: "alpha" });
+    const root = vault(FEED_YAML(""), a);
+    claim(root, a, "Briar asked for the budget by Friday.");
+    const git = (...args: string[]) => spawnSync("git", args, { cwd: root, encoding: "utf8" }).stdout.trim();
+    for (const args of [["init", "-q"], ["config", "user.email", "t@t"], ["config", "user.name", "t"], ["add", "-A"], ["commit", "-qm", "init"]]) git(...args);
+    await runFeed({ root, manifest: loadManifest(root), runner: scripted().runner, now });
+    expect(git("log", "-1", "--format=%an")).toBe("feed");
+    expect(git("status", "--porcelain", "--", "journal")).toBe("");
   });
 
   test("the feed is every source placed in a section: a skip adds nothing, and a date passing takes nothing away", async () => {

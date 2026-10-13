@@ -1,5 +1,6 @@
 import { fakeIntegrationActivation } from "./support/integrationActivation";
 import { afterAll, describe, expect, test } from "bun:test";
+import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -131,6 +132,16 @@ describe("the loop", () => {
     // old key too, for records already on disk.
     expect(j.usage.cache_read_tokens).toBe(1000);
     expect(j.insertion_ids.length).toBe(1);
+  });
+
+  test("each round's record is committed with it, as tend", async () => {
+    const root = vault(insertion(), insertion());
+    const git = (...args: string[]) => spawnSync("git", args, { cwd: root, encoding: "utf8" }).stdout.trim();
+    for (const args of [["init", "-q"], ["config", "user.email", "t@t"], ["config", "user.name", "t"], ["add", "-A"], ["commit", "-qm", "init"]]) git(...args);
+    await runTend({ root, manifest: manifest(root), loadPi: settlingModel(root, liveDue(root), []) });
+    const records = git("log", "--author=tend", "--name-only", "--format=").split("\n").filter((p) => p.startsWith("journal/tend/"));
+    expect(records).toHaveLength(2);
+    expect(git("status", "--porcelain", "-uall", "--", "journal/tend").split("\n").filter((l) => /\/\d{4}-\d{2}\//.test(l))).toEqual([]);
   });
 
   test("a no-progress round ends the run after one wasted call", async () => {

@@ -54,6 +54,9 @@ export interface AssertionProduction {
   version: string;
   invocation_id?: string;
   prompt_version?: string;
+  /** The model that made it, when a model did and the producer knows which:
+   * the gardener's writes name it (lib/vaultTools.ts submit). */
+  model?: string;
 }
 
 /** What an assertion says. */
@@ -204,6 +207,8 @@ export function validateAssertionEvent(event: AssertionEvent): void {
     throw new Error("assertion-log: an event cannot mix source references and legacy citations");
   if (!event.produced_by.procedure.trim() || !event.produced_by.version.trim())
     throw new Error("assertion-log: production procedure and version are required");
+  if (event.produced_by.model !== undefined && (typeof event.produced_by.model !== "string" || !event.produced_by.model.trim()))
+    throw new Error("assertion-log: a named model must be a non-empty string");
   if (event.supersedes !== undefined &&
       (!AST_ID.test(event.supersedes) || event.supersedes === event.id))
     throw new Error("assertion-log: invalid superseded assertion id");

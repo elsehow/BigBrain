@@ -39,6 +39,7 @@ import type { FeedConfig, Manifest } from "./manifest";
 import { memoryRead } from "./noteRead";
 import { render } from "./prompts";
 import { runAgent } from "./run/agent";
+import { commitRunRecords } from "./runRecords";
 import { modelRunJournalFields, newRunId } from "./run/journal";
 import type { RunUsage } from "./run/model";
 import { tryHold } from "./sqliteLock";
@@ -168,6 +169,7 @@ function journalFeed(root: string, record: FeedRecord): void {
   const rel = `${FEED_JOURNAL_DIR}/${month}/${record.invocation_id}.json`;
   writeAtomic(join(root, rel), `${JSON.stringify(record, null, 1)}\n`);
   projectJournal(root, rel); // the sorted feed is these
+  commitRunRecords(root, { dir: FEED_JOURNAL_DIR, role: "feed", summary: `feed: call ${record.invocation_id}` });
 }
 
 // ── the run ────────────────────────────────────────────────────────────────
