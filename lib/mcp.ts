@@ -13,6 +13,9 @@ export const MCP_INSTRUCTIONS =
   "Say when the vault is silent. Use drop to save findings or requests; saved material is attributed " +
   "to your agent, and BigBrain's own gardener files it. Conversations are not automatically captured.";
 export function mcpToolList(ctx?: McpContext) {
+  // Inside a lens: its reads and drop. Memory summarizes the whole vault and a live integration reads past it.
+  if (ctx?.scope) return MCP_TOOLS.filter(t => t.name !== "load_memory").map(({ name, description, inputSchema }) =>
+    ({ name, description, inputSchema, annotations:{readOnlyHint:name!=="drop",destructiveHint:false,idempotentHint:name!=="drop",openWorldHint:false} }));
   let caps: Record<string, { available?: boolean; operations?: string[] }> = {};
   try { if(ctx?.integrationToken) caps=integrationCapabilities(ctx.root,{kind:"mcp",token:ctx.integrationToken,storePath:ctx.tokenStore}) as typeof caps; }
   catch { /* Invalid or revoked clients have no live access. */ }
@@ -26,6 +29,7 @@ export function mcpToolList(ctx?: McpContext) {
   });
 }
 export function handleMcpTool(ctx: McpContext, name: string, args: Record<string, unknown> = {}): unknown | Promise<unknown> {
+  if (ctx.scope && !mcpToolList(ctx).some(t => t.name === name)) throw new VaultToolError(`no such tool: ${name}`);
   if (INTEGRATION_TOOLS.some(t => t.name === name)) return integrationToolCall(ctx.root, {kind:"mcp",token:ctx.integrationToken,storePath:ctx.tokenStore}, name, args, ctx.integrationOptions);
   const tool = MCP_TOOLS.find(t => t.name === name);
   if (!tool) throw new VaultToolError(`no such tool: ${name}`);

@@ -12,6 +12,7 @@
  * query while the viewer treats it as an emptied omnibox. Page-size
  * defaults also remain per client.
  */
+import type { ReadScope } from "./views/lensScope";
 import { withVaultSnapshot } from "./vaultReadModel";
 
 import { compactName, nameWords } from "./searchNames";
@@ -145,7 +146,8 @@ function assertionRanked(
   q: string,
   limit: number,
   filters: SearchFilters,
-  mode: "all" | "any"
+  mode: "all" | "any",
+  scope?: ReadScope
 ): RankedHit[] {
   return withVaultSnapshot(root, db => {
     const pool = Math.max(limit * 4, 100);
@@ -156,13 +158,17 @@ function assertionRanked(
     // blank while the second letter lands.
     const bodies = filters.type !== "entity" && queryTerms(q).some((term) => term.length >= 2);
     const sourceHits = bodies ? searchAssertionSources(root, q, pool, mode, db, filters) : [];
-    const assertionHits = !filters.type && !filters.source ? searchAssertionProjection(root, q, pool, mode, db) : [];
+    // Inside a lens (lib/views/lensScope.ts), a claim counts only when every
+    // source it cites is in: it is a hit, a snippet and a count only then.
+    const assertionHits = (!filters.type && !filters.source ? searchAssertionProjection(root, q, pool, mode, db) : [])
+      .filter((row) => !scope || scope.assertions.has(row.id));
     const entityHits = filters.type !== "reference" && !filters.source ? searchAssertionEntities(root, q, pool, mode, db) : [];
     const assertionRefs = sourceRefsForAssertions(root, assertionHits.map((row) => row.id), db);
     // Newest-first and pool-bounded per entity: a heavily-cited entity ranks
     // by its label match, not by fanning out into its complete history.
     const entityRows = entityHits.map((entity) =>
-      [entity, assertionsWithRefsForEntity(root, entity.id, pool, db)] as const);
+      [entity, assertionsWithRefsForEntity(root, entity.id, pool, db).filter((row) => !scope || scope.assertions.has(row.id))] as const)
+      .filter(([, rows]) => !scope || rows.length > 0);
 
     // An insertion id names its source outright. The FTS index holds titles
     // and bodies, never ids, so an agent handed `ins_…` (a desktop started
@@ -187,7 +193,7 @@ function assertionRanked(
       return (!filters.after || date >= filters.after) && (!filters.before || date <= filters.before);
     };
     const add = (source: SourceHead, hit: Omit<Candidate, "path" | "title" | "date">): void => {
-      if (!eligible(source)) return;
+      if (!eligible(source) || (scope && !scope.sources.has(source.source_id))) return;
       candidates.push({
         ...hit,
         path: insertionEventRel(source),
@@ -263,7 +269,7 @@ function assertionRanked(
           tier: entityTier(q, entity.alias ?? entity.label),
           date: newestDate,
           entity: true,
-          assertions: entity.assertions,
+          assertions: scope ? rows.length : entity.assertions,
           ...(entity.alias ? { alias: entity.alias } : {}),
           kind: 0,
         });
@@ -276,7 +282,7 @@ function assertionRanked(
             score: entity.score,
             tier: entityTier(q, entity.alias ?? entity.label),
             entity: true,
-            assertions: entity.assertions,
+            assertions: scope ? rows.length : entity.assertions,
             kind: 1,
           });
         }
@@ -351,6 +357,8 @@ export interface ScanOptions {
    * nothing (#361). On by default; the machine pass turns it off. */
   relax?: boolean;
   includeMemory?: boolean;
+  /** Answer inside a lens (lib/views/lensScope.ts): only what it serves, and never memory. */
+  scope?: ReadScope;
 }
 
 /** One product search over the assertion projection. Every door —
@@ -364,13 +372,13 @@ export function scanSurface(
   via: RetrievalVia,
   opts: ScanOptions = {}
 ): ScanResult {
-  const { filters = {}, relax = true, includeMemory = via !== "gardener" } = opts;
+  const { filters = {}, relax = true, scope } = opts, includeMemory = !scope && (opts.includeMemory ?? via !== "gardener");
   try {
     searchAlternatives(q); // validate before touching the projection
     // Notes are current as their door projected them (projectNotes).
     return withVaultSnapshot(root, () => {
       const ranked = (mode: "all" | "any"): RankedHit[] => {
-        const record = assertionRanked(root, q, limit, filters, mode);
+        const record = assertionRanked(root, q, limit, filters, mode, scope);
         const memory = includeMemory ? searchMemory(root, q, filters, mode) : [];
         // Keep the established record order. Memory is the curated working
         // set, so offer it before body matches and conversation echoes, while

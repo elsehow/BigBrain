@@ -37,6 +37,8 @@ import {noteClaims,type NoteClaims} from './sharedRuleMentions';
 import {inclusionStage,lensNotes,notesToScore,type PassOptions} from './stages/inclusion';
 import {waiting} from './stages/stage';
 import {withSnapshot} from './vaultReadModel';
+import {lensServedToAgents,tokenStorePath} from './auth';
+import {lensMembersOf} from './views/lens';
 
 /** Server writes per connection per tick: under the door's 60 a minute per credential. */
 const WRITE_BUDGET=25;
@@ -156,13 +158,19 @@ export async function passLens(root:string,store:string,lens:Lens,notes:ReturnTy
  * review (D3); one that grows nothing keeps the calibration it was saved
  * with current. A private lens just follows its rule. */
 function reviewLens(root:string,store:string,lens:Lens,state:LensReading,rule:{identity:string;model:string}):Lens{
- const shared=lens.servers.length>0,adopt=(l:Lens)=>{l.calibration={...l.calibration,identity:rule.identity,model:rule.model,version:EVALUATOR_VERSION};};
+ // A lens an agent reads through (#303) is served as a shared one is, and its additions are always held.
+ const agents=lensServedToAgents(tokenStorePath(root),lens.id);
+ const shared=lens.servers.length>0||agents,adopt=(l:Lens)=>{l.calibration={...l.calibration,identity:rule.identity,model:rule.model,version:EVALUATOR_VERSION};};
  if(state.members.rule!==rule.identity)return lens; // nothing scored under this rule yet
  // A lens never scored before takes its first rule as the one its owner saw.
  if(!lens.calibration.identity&&!lens.review)return updateLens(root,lens.id,adopt);
  if(!shared)return lens;
  const owned=new Set(lens.servers.flatMap(c=>readShares(store)[c]??[]));
- const joins=[...state.members.in].filter(id=>!owned.has(originOf(id)));
+ const joins=[...state.members.in].filter(id=>lens.servers.length&&!owned.has(originOf(id)));
+ if(agents&&lens.calibration.identity){ // what the agent was served: the lens under the rule its owner last saw, and the owner's word
+  const seen=withSnapshot(root,s=>lensMembersOf(s,lens,state.notes,lens.calibration.identity).in),own=new Set([...state.hands.pins,...state.hands.ratings.filter(r=>r.include).map(r=>r.source_id)]);
+  joins.push(...[...state.members.in].filter(id=>!seen.has(id)&&!own.has(id)));
+ }
  const changed=lens.calibration.identity!==rule.identity;
  if(lens.review&&!lens.review.at){ // migrated: the first pass says whether anything new would join
   if(!joins.length)return updateLens(root,lens.id,l=>{l.review=undefined;adopt(l);});
@@ -173,9 +181,9 @@ function reviewLens(root:string,store:string,lens:Lens,state:LensReading,rule:{i
  if(!changed||lens.review)return lens;
  if(!joins.length)return updateLens(root,lens.id,adopt);
  const reason:LensReview['reason']=rule.model!==lens.calibration.model?'model':lens.calibration.version!==EVALUATOR_VERSION?'update':'vault';
- const review:LensReview={reason,hold:reason==='update'||sharingMode(store)==='conservative',at:new Date().toISOString()};
+ const review:LensReview={reason,hold:reason==='update'||agents||sharingMode(store)==='conservative',at:new Date().toISOString()};
  const opened=updateLens(root,lens.id,l=>{l.review=review;},`lens: ${lens.name} — a change nobody made would share more`);
- addEvents(root,store,[{at:review.at,kind:review.hold?'paused':'expanded',lens:lens.id,servers:serverNames(store,lens.servers),reason}]);
+ addEvents(root,store,[{at:review.at,kind:review.hold?'paused':'expanded',lens:lens.id,servers:[...serverNames(store,lens.servers),...(agents?['the agents reading it']:[])],reason}]);
  return opened;
 }
 const serverNames=(store:string,ids:string[])=>{const all=readConnections(store);return ids.flatMap(id=>{const c=all.find(x=>x.id===id);return c?[c.name]:[];});};

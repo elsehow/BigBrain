@@ -30,8 +30,10 @@ import {
   sourceInsertionCached,
   sourceThreadView,
   sourceThreadMarkdown,
+  type ProjectedEntityView,
 } from "./assertionEntityView";
-import { isSourceThreadPath } from "./sourceThreads";
+import { isSourceThreadPath, threadSubject } from "./sourceThreads";
+import type { ReadScope } from "./views/lensScope";
 import { insertionEventRel, sourceMoment } from "./insertionLog";
 import { importedSourcePaths, otherCopies, projectedMarkdown, projectedMarkdownContent, projectedSourcePresent, withVaultSnapshot } from "./vaultReadModel";
 import { parseVaultPath } from "./ids";
@@ -227,10 +229,66 @@ function windowedBody(markdown: string, window: NoteWindow): Pick<NoteJson, "mar
  * (the same precedence `/v1/note` has always had). The caller records the
  * use (each door owns its `via`) and serializes.
  */
-export function notePayload(root: string, relRaw: string, window: NoteWindow = {}): NotePayload {
+export function notePayload(root: string, relRaw: string, window: NoteWindow = {}, scope?: ReadScope): NotePayload {
   // One snapshot for the note, its links and its copies: the projection,
   // never the disk (R6).
-  return withVaultSnapshot(root, () => notePayloadIn(root, relRaw, window));
+  return withVaultSnapshot(root, () => scope ? scopedNotePayload(root, relRaw, window, scope) : notePayloadIn(root, relRaw, window));
+}
+
+/** The one answer a lens gives for anything it does not hold — missing or
+ * outside alike, so a guessed path (an entity's is its name) learns nothing. */
+const outsideLens = (rel: string): NotePayload => ({ status: 404, error: `${rel || "(empty)"} is not in this lens` });
+
+/** A note as a lens-bound reader sees it (lib/views/lensScope.ts): a source
+ * only if the lens serves it, its copies only those it serves; a thread
+ * with only its served messages; an entity with only the assertions every
+ * source of which is served. Memory, journals and sessions never. */
+function scopedNotePayload(root: string, relRaw: string, window: NoteWindow, scope: ReadScope): NotePayload {
+  const resolved = resolveNote(root, relRaw, projectedNotePolicy(root));
+  if (!resolved || resolved.kind === "session" || resolved.kind === "markdown") return outsideLens(relRaw);
+  if (resolved.kind === "source") {
+    const { source } = resolved;
+    if (!scope.sources.has(source.source_id)) return outsideLens(relRaw);
+    const copies = otherCopies(root, source.id).filter((copy) => scope.insertions.has(copy.id)).map((copy) => ({ path: insertionEventRel(copy), title: copy.title }));
+    const markdown = sourceInsertionMarkdown(source, copies);
+    return { status: 200, rel: relRaw, note: {
+      path: relRaw, title: source.title, mtime: sourceMoment(source) || null, category: source.envelope["category"] ?? null,
+      date: sourceMoment(source) || null, source: source.envelope["source"] ?? null,
+      tags: Array.isArray(source.envelope["tags"]) ? source.envelope["tags"] : [], sources: [],
+      links: scopedLinks(root, markdown, scope), ...windowedBody(markdown, window),
+    } };
+  }
+  if (resolved.kind === "thread") {
+    const members = resolved.thread.members.filter((m) => scope.insertions.has(m.id));
+    if (!members.length) return outsideLens(relRaw);
+    const thread = { ...resolved.thread, title: threadSubject(members[0]!.title) || members[0]!.title, aliases: [], members,
+      assertions: resolved.thread.assertions.filter((a) => scope.assertions.has(a.id)) };
+    const markdown = sourceThreadMarkdown(thread), latest = members[0]!;
+    return { status: 200, rel: relRaw, note: {
+      path: relRaw, title: thread.title, mtime: sourceMoment(latest) || null,
+      category: "thread", date: sourceMoment(latest) || null, source: "email", tags: ["thread"], sources: [],
+      links: scopedLinks(root, markdown, scope), ...windowedBody(markdown, window),
+    } };
+  }
+  const assertions = resolved.entity.assertions.filter((a) => scope.assertions.has(a.id));
+  if (!assertions.length) return outsideLens(relRaw);
+  const entity = { ...resolved.entity, assertions, documents: resolved.entity.documents?.filter((d) => scope.insertions.has(d.insertion_id)) };
+  return entityNote(relRaw, entity, window, (markdown) => scopedLinks(root, markdown, scope));
+}
+
+/** A note's links, with the path of any it does not serve taken away: the
+ * name is in the served text already; where it leads is not. */
+function scopedLinks(root: string, markdown: string, scope: ReadScope): { name: string; path: string | null }[] {
+  return resolvedLinks(root, markdown).map((link) => link.path && inScope(root, link.path, scope) ? link : { ...link, path: null });
+}
+
+/** Whether a lens serves anything at this path. */
+function inScope(root: string, rel: string, scope: ReadScope): boolean {
+  const resolved = resolveNote(root, rel, projectedNotePolicy(root));
+  if (resolved?.kind === "source") return scope.sources.has(resolved.source.source_id);
+  if (resolved?.kind === "thread") return resolved.thread.members.some((m) => scope.insertions.has(m.id));
+  if (resolved?.kind === "entity") return resolved.entity.assertions.some((a) => scope.assertions.has(a.id));
+  return false;
 }
 /** How the agent doors read a note: from the projection, inside the jails. */
 export const projectedNotePolicy = (root: string): NoteReadPolicy => ({ sessions: true, source: sourceInsertionCached, markdown: asked => {
@@ -284,48 +342,7 @@ function notePayloadIn(root: string, relRaw: string, window: NoteWindow): NotePa
   // Projected entities are virtual notes, same as source insertions above:
   // the web door has served them since the entity view landed, and search
   // returns their paths — an agent must be able to follow its own hit.
-  if (resolved?.kind === "entity") {
-    const { entity } = resolved;
-    const view = filterEntityView(entity, window);
-    const total = entity.assertions.length;
-    const windowed = view.assertions.length < total || window.order === "desc";
-    const caption = windowed
-      ? [
-          `${view.assertions.length} of ${total} assertions`,
-          ...(window.q ? [`matching ${JSON.stringify(window.q)}`] : []),
-          ...(window.after ? [`from ${window.after}`] : []),
-          ...(window.before ? [`to ${window.before}`] : []),
-          ...(window.order === "desc" ? ["newest first"] : []),
-        ].join(", ")
-      : undefined;
-    // `toc` elides a big dossier to its table of contents (#620); either
-    // way this ONE value is both what the reader is shown and what the
-    // links below are resolved from.
-    const dossier = window.toc ? projectedEntityToc(view) : projectedEntityMarkdown(view, caption);
-    return {
-      status: 200,
-      rel: relRaw,
-      note: {
-        path: relRaw,
-        title: entity.label,
-        mtime: null,
-        category: null,
-        date: null,
-        source: null,
-        tags: [],
-        sources: [],
-        markdown: dossier,
-        // The dossier IS a navigation surface — every bullet cites its
-        // sources and names other entities — so its links are the reader's
-        // way out of it. Unlike a source (above), these resolve over the
-        // WINDOWED markdown: each assertion is self-contained, so links to
-        // assertions the reader was not shown are noise, not a trail.
-        links: resolvedLinks(root, dossier),
-        assertions_total: total,
-        assertions_shown: view.assertions.length,
-      },
-    };
-  }
+  if (resolved?.kind === "entity") return entityNote(relRaw, resolved.entity, window, (dossier) => resolvedLinks(root, dossier));
   // A path SHAPED like a projected note that the record does not hold is a
   // 404 that says why, never the jail's 403. The projection search reads is
   // append-only sync: a retraction commit removes the event file and the row
@@ -376,6 +393,51 @@ function notePayloadIn(root: string, relRaw: string, window: NoteWindow): NotePa
   };
 }
 
+
+/** A projected entity as a note, its dossier windowed; `links` resolves the dossier's trail. */
+function entityNote(relRaw: string, entity: ProjectedEntityView, window: NoteWindow,
+  links: (dossier: string) => { name: string; path: string | null }[]): NotePayload {
+  const view = filterEntityView(entity, window);
+  const total = entity.assertions.length;
+  const windowed = view.assertions.length < total || window.order === "desc";
+  const caption = windowed
+    ? [
+        `${view.assertions.length} of ${total} assertions`,
+        ...(window.q ? [`matching ${JSON.stringify(window.q)}`] : []),
+        ...(window.after ? [`from ${window.after}`] : []),
+        ...(window.before ? [`to ${window.before}`] : []),
+        ...(window.order === "desc" ? ["newest first"] : []),
+      ].join(", ")
+    : undefined;
+  // `toc` elides a big dossier to its table of contents (#620); either
+  // way this ONE value is both what the reader is shown and what the
+  // links below are resolved from.
+  const dossier = window.toc ? projectedEntityToc(view) : projectedEntityMarkdown(view, caption);
+  return {
+    status: 200,
+    rel: relRaw,
+    note: {
+      path: relRaw,
+      title: entity.label,
+      mtime: null,
+      category: null,
+      date: null,
+      source: null,
+      tags: [],
+      sources: [],
+      markdown: dossier,
+      // The dossier IS a navigation surface — every bullet cites its
+      // sources and names other entities — so its links are the reader's
+      // way out of it. Unlike a source (above), these resolve over the
+      // WINDOWED markdown: each assertion is self-contained, so links to
+      // assertions the reader was not shown are noise, not a trail.
+      links: links(dossier),
+      assertions_total: total,
+      assertions_shown: view.assertions.length,
+    },
+  };
+}
+
 /** A file a note links as `[name](blob:<sha256>)` (lib/intake.ts blobLink);
  * a name with a `]` in it still yields its target. */
 const BLOB_LINK = /(?:\[([^\]\n]*)\])?\(blob:([0-9a-f]{64})\)/g;
@@ -396,8 +458,8 @@ export type AttachmentPayload =
  * `blob:<sha256>`. Read each time, never stored: a PDF that landed as a stub
  * (or arrived in mail) stays one in the record. A scan, with no text layer,
  * is read by `readScan` when the host lends one (lib/scanReader.ts). */
-export async function attachmentPayload(root: string, relRaw: string, ref: string, window: NoteWindow = {}, readScan?: ScanReader): Promise<AttachmentPayload> {
-  const p = notePayload(root, relRaw);
+export async function attachmentPayload(root: string, relRaw: string, ref: string, window: NoteWindow = {}, readScan?: ScanReader, scope?: ReadScope): Promise<AttachmentPayload> {
+  const p = notePayload(root, relRaw, {}, scope);
   if (p.status !== 200) return p;
   const linked = [...p.note.markdown.matchAll(BLOB_LINK)].map(m => ({ name: m[1], sha256: m[2]! }));
   const sha = parseBlobRef(ref);

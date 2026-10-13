@@ -11,7 +11,8 @@ export function connectedClientRoutes(clients:ConnectedClients):Route[] {
       try {
         const value=JSON.parse(await readBody(req,12000));
         if(value.action==="local")return json(res,200,{local:local.set(value.kind,value.enabled)});
-        if(value.action==="create")return json(res,200,clients.create({name:value.name,kind:value.kind}));
+        // `lens`: a connection that reads through one lens alone (#303).
+        if(value.action==="create")return json(res,200,clients.create({name:value.name,kind:value.kind,...(value.lens!==undefined?{lens:value.lens}:{})}));
         if(value.action==="replace")return json(res,200,clients.replace(value.id));
         if(value.action==="setup")return json(res,200,clients.setup(value.id));
         if(value.action==="reconnect")return json(res,200,clients.reconnect(value.id));

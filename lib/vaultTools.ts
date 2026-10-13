@@ -10,6 +10,7 @@ import { fmBody, fmRaw, fmSerialize } from "./wire";
 import { openStaged } from "./stage";
 import { nextWork, submitWire, WORK_BATCH_LIMIT, WORK_KINDS, type WorkKind } from "./work";
 import { memoryForAgents, noteForAgent, rowsForAgent } from "./agentReads";
+import type { ReadScope } from "./views/lensScope";
 
 /** A tool-level refusal the transport should mark `isError` — the message
  * is for the calling model, so it says what would work. */
@@ -30,6 +31,9 @@ export interface VaultToolContext {
   model?: string;
   /** Host-lent: reads a scanned PDF attachment with the host's model (lib/scanReader.ts). */
   readScan?: ScanReader;
+  /** Host-selected from a lens-bound credential (#303): every read answers
+   * inside the lens. Never accepted from tool arguments. */
+  scope?: ReadScope;
 }
 
 /** One tool: MCP wire fields plus the handler. Schemas are hand-written
@@ -68,7 +72,7 @@ function searchTool(ctx: VaultToolContext, args: Record<string, unknown>): unkno
     throw new VaultToolError(`bad type "${type}" — use reference or entity`);
   if (type) filters.type = type as "reference" | "entity";
   const n = clampLimit(args["n"] === undefined ? null : String(args["n"]), 20);
-  const r = scanSurface(ctx.root, q, n, ctx.via, { filters });
+  const r = scanSurface(ctx.root, q, n, ctx.via, { filters, ...(ctx.scope ? { scope: ctx.scope } : {}) });
   if (!r.ok) throw new VaultToolError(r.reason);
   recordScan(ctx.root, q, r, ctx.via);
   // The gardener reads the record raw; every other reader is an agent (lib/agentReads.ts).
@@ -100,8 +104,8 @@ function readNoteTool(ctx: VaultToolContext, args: Record<string, unknown>): unk
   }
   const path = str(args["path"]), attachment = str(args["attachment"]).trim();
   // A promise for an attachment: its PDF's text is extracted as it is read.
-  if (attachment) return attachmentPayload(ctx.root, path, attachment, window, ctx.readScan).then(p => served(ctx, p, args));
-  return served(ctx, notePayload(ctx.root, path, window), args);
+  if (attachment) return attachmentPayload(ctx.root, path, attachment, window, ctx.readScan, ctx.scope).then(p => served(ctx, p, args));
+  return served(ctx, notePayload(ctx.root, path, window, ctx.scope), args);
 }
 
 /** A read as its caller receives it: recorded, sliced, and for agents fenced by provenance. */
@@ -113,6 +117,8 @@ function served(ctx: VaultToolContext, p: NotePayload | AttachmentPayload, args:
 }
 
 function loadMemoryTool(ctx: VaultToolContext): unknown {
+  // Memory summarizes the whole vault: never inside a lens.
+  if (ctx.scope) throw new VaultToolError("no such tool: load_memory");
   const r = memoryRead(ctx.root);
   if (r.status !== 200)
     throw new VaultToolError(r.status === 404 ? "no such memory file" : "forbidden path");

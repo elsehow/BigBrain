@@ -82,10 +82,10 @@ credentials those connections use.
   relations, `load_memory`. An assertion is in only if every source it
   cites is in — the lens rule already. A thread or a copy group comes in
   only with its members.
-- **Memory is out of a lens** unless the owner pins topics into it. Memory
-  summarizes the whole vault, so it is the widest leak in any narrow scope.
-  Lines carrying citations could be filtered; the owner's own uncited lines
-  cannot.
+- **Memory is never in a lens** (decided 2026-10-13, #303; this first read
+  "unless the owner pins topics into it"). Memory summarizes the whole
+  vault, so it is the widest leak in any narrow scope. Lines carrying
+  citations could be filtered; the owner's own uncited lines cannot.
 - Additions nobody made to a lens served to an agent are held for review,
   as Conservative mode already holds them for a shared lens
   (`LensReview`): a model's scoring decides what the agent reads.

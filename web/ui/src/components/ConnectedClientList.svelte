@@ -2,13 +2,13 @@
   import { vaultFetch as fetch } from "../lib/vaultScope";
 
   import { providerLabel } from "../../../../lib/providerPresentation";
-  import { DOOR_GRANT, DOOR_SENTENCE } from "../../../../lib/doorPresentation";
+  import { DOOR_GRANT, DOOR_SENTENCE, lensGrant } from "../../../../lib/doorPresentation";
   import { onMount } from "svelte";
   let { runner }: { runner?: string } = $props();
   let adding = $state(false), configuring = $state<string | null>(null);
   const label = (kind: string) => kind === "codex" || kind === "claude-code" ? providerLabel(kind) : "MCP client";
   const status = (c: {revoked:string|null;expired?:boolean}) => c.revoked ? 'Access revoked' : c.expired ? 'Expired after 30 days unused' : 'Authorized';
-  type Client={id:string;name:string;kind:string;managedBy?:string;legacy?:boolean;replaces?:string;lastUsed:string|null;revoked:string|null;expired?:boolean};
+  type Client={id:string;name:string;kind:string;managedBy?:string;legacy?:boolean;replaces?:string;lastUsed:string|null;revoked:string|null;expired?:boolean;lens?:string;lensName?:string|null};
   let clients=$state<Client[]>([]), name=$state(""),kind=$state("claude-code"),busy=$state(false),error=$state("");
   type Setup={id:string;kind:string;command:string|null;claude:string;codex:string;configuration:unknown;instructions:string;sentence:string};
   /** What "Copy connection" offers: the connection's own agent, or all three for a generic client. */
@@ -81,7 +81,7 @@
       <div class="settings-card-row">
         <div class="settings-card-main">
           <h2 class="settings-card-name">{client.name}</h2>
-          <span class="settings-card-about">{client.legacy ? 'Legacy plugin connection, deprecated. Replace it with a named MCP connection.' : `${label(client.kind)}. ${DOOR_GRANT}`}</span>
+          <span class="settings-card-about">{client.legacy ? 'Legacy plugin connection, deprecated. Replace it with a named MCP connection.' : client.lens ? `${label(client.kind)}. ${lensGrant(client.lensName ?? null)}` : `${label(client.kind)}. ${DOOR_GRANT}`}</span>
           <span class="settings-status"><i class:ready={!client.revoked && !client.expired} aria-hidden="true"></i>{status(client)}</span>
           <span class="settings-item-note">Connection {client.id} · {client.legacy ? 'Legacy plugin' : client.replaces ? 'Legacy plugin replacement' : client.managedBy?.startsWith('local:') ? 'Set up on this computer' : 'Manual setup'}</span>
           <span class="settings-item-note">{client.lastUsed ? `Last used ${new Date(client.lastUsed).toLocaleString()}` : 'Not used yet'}</span>

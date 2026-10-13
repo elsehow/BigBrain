@@ -7,7 +7,9 @@
  * The grant is the credential's scopes, checked on every request — the
  * transport is stateless (lib/mcpHttp.ts), so revoking a connection closes
  * it at the next call. `vault:read` opens the door and every read;
- * `inbox:write` adds `drop`. Nothing here edits or deletes.
+ * `lens:<id>` opens it to one lens, every read answering inside it (#303,
+ * lib/views/lensScope.ts); `inbox:write` adds `drop`. Nothing here edits or
+ * deletes.
  *
  * Only a credential Connected Clients lists gets in: the settings page is
  * the consent surface, so everything that can read through this door is
@@ -17,10 +19,13 @@
  */
 
 import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
-import { expiredMessage, hasScope, listedInConnectedClients, noteExpiredUse, touchLastUsed, verifyToken, type TokenRecord } from "./auth";
+import { boundLens, expiredMessage, hasScope, listedInConnectedClients, noteExpiredUse, touchLastUsed, verifyToken, type TokenRecord } from "./auth";
 import { ConnectedClients } from "./connectedClients";
 import { handleMcpTool, MCP_INSTRUCTIONS, McpToolError, mcpToolList, type McpContext } from "./mcp";
 import { rpcError, serveStatelessMcp, type McpToolResult } from "./mcpHttp";
+import { readLens } from "./lenses";
+import { withSnapshot } from "./vaultReadModel";
+import { lensScopeOf, type ReadScope } from "./views/lensScope";
 
 export interface LocalMcpDeps {
   root: string;
@@ -78,13 +83,21 @@ export async function serveLocalMcp(req: Request, deps: LocalMcpDeps): Promise<{
 
   const record = verdict.record;
   if (!listedInConnectedClients(record)) return { record, response: rpcError(403, -32000, "This credential is not a connected agent. Add one in BigBrain → Settings → Connected agents.") };
-  if (!hasScope(record, "vault:read")) return { record, response: rpcError(403, -32000, "missing scope vault:read") };
+  const bound = boundLens(record);
+  if (!hasScope(record, "vault:read") && !bound) return { record, response: rpcError(403, -32000, "missing scope vault:read") };
+  // Bound to a lens (#303): every read answers inside it, as it stands at this request.
+  let scope: ReadScope | undefined;
+  if (bound) {
+    const lens = readLens(deps.root, bound);
+    if (!lens) return { record, response: rpcError(403, -32000, "The lens this connection reads through no longer exists.") };
+    scope = withSnapshot(deps.root, (snapshot) => lensScopeOf(snapshot, lens));
+  }
   if (req.method === "POST") {
     touchLastUsed(deps.storePath, record.id, deps.now());
     new ConnectedClients(deps.root, deps.storePath).observed(record.id);
   }
 
-  const ctx: McpContext = { root: deps.root, via: "api", source: "mcp", clientName: record.name, integrationToken: presented, tokenStore: deps.storePath };
+  const ctx: McpContext = { root: deps.root, via: "api", source: "mcp", clientName: record.name, integrationToken: presented, tokenStore: deps.storePath, ...(scope ? { scope } : {}) };
   const writes = hasScope(record, "inbox:write");
   return {
     record,

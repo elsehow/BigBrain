@@ -62,10 +62,12 @@ export interface LensMembers {
   rule?: string;
 }
 
-/** A lens's notes, each in, out or pending, by source id. */
-export function lensMembersOf(snapshot: Snapshot, lens: { id: string; calibration: { threshold: number } }, notes = lensNotesOf(snapshot)): LensMembers {
+/** A lens's notes, each in, out or pending, by source id: under its current
+ * rule, or under `under` — an earlier rule, as the lens stood when its owner
+ * last looked (lib/views/lensScope.ts). */
+export function lensMembersOf(snapshot: Snapshot, lens: { id: string; calibration: { threshold: number } }, notes = lensNotesOf(snapshot), under?: string): LensMembers {
   const { db } = snapshot, hands = lensHandsOf(snapshot, lens.id);
-  const rule = (db.query(`SELECT rule FROM inclusion_verdicts WHERE lens = ? AND score IS NOT NULL AND retracted_by IS NULL
+  const rule = under ?? (db.query(`SELECT rule FROM inclusion_verdicts WHERE lens = ? AND score IS NOT NULL AND retracted_by IS NULL
     ORDER BY created_at DESC, assertion_id DESC LIMIT 1`).get(lens.id) as { rule: string } | null)?.rule ?? undefined;
   const scores = new Map<string, { score: number; summary: boolean }>();
   if (rule) for (const row of db.query(`SELECT insertion_id, score, summary FROM inclusion_verdicts

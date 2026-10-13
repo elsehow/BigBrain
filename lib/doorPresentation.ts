@@ -5,3 +5,11 @@ export const DOOR_SENTENCE = "This agent can read your whole vault. If it can al
 
 /** The grant every connection holds. */
 export const DOOR_GRANT = "Reads the whole vault and can drop into it. It never edits or deletes.";
+
+/** Shown before a lens-bound credential (#303). */
+export const lensSentence = (lens: string): string =>
+  `This agent can read only what the lens “${lens}” holds, and drop into your vault. It never edits or deletes. Memory is never in a lens.`;
+
+/** The grant a lens-bound connection holds; `null` once its lens is deleted. */
+export const lensGrant = (lens: string | null): string =>
+  lens === null ? "Its lens was deleted, so the door no longer lets it in." : `Reads only the lens “${lens}” and can drop into the vault. It never edits or deletes.`;

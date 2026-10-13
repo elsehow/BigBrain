@@ -1,11 +1,13 @@
 /** MCP connections are credentials/configurations, not agent runners or devices. */
 import { readFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { listTokens, mintToken, revokeToken, renewToken, tokenStorePath, verifyToken, touchLastUsed, hasScope, tokenExpired, noteExpiredUse, clearExpiredUse, expiredMessage, listedInConnectedClients } from "./auth";
+import { boundLens, lensScope, listTokens, mintToken, revokeToken, renewToken, tokenStorePath, verifyToken, touchLastUsed, hasScope, tokenExpired, noteExpiredUse, clearExpiredUse, expiredMessage, listedInConnectedClients } from "./auth";
 import { writeAtomic } from "./fsx";
 import { mcpServerEntry } from "./mcpRegister";
 import { apiPort } from "./env";
-import { DOOR_SENTENCE } from "./doorPresentation";
+import { DOOR_SENTENCE, lensSentence } from "./doorPresentation";
+import { readLens } from "./lenses";
+import { LENS_ID } from "./ids";
 /** The one door: MCP over the local API. */
 export const doorUrl=(port=apiPort())=>`http://127.0.0.1:${port}/mcp`;
 const quote=(s:string)=>/^[a-zA-Z0-9_@%+=:,./-]+$/.test(s)?s:"'"+s.replaceAll("'", "'\\''")+"'";
@@ -32,13 +34,18 @@ export class ConnectedClients {
       else try { const c = this.credential(t.id); kind = c.kind; managedBy = c.managedBy; replaces = c.replaces; } catch { /* Public history survives a lost local credential. */ }
       const expired=!t.revoked&&tokenExpired(t);
       return { id:t.id, name:t.name, kind, managedBy, legacy:t.via === "connect" || legacyPlugin(managedBy), replaces, created:t.created, lastUsed:t.last_used, revoked:t.revoked,
-        expired, expiredUse:expired ? t.expired_use ?? null : null, vault:{read:hasScope(t,"vault:read"),contribute:hasScope(t,"inbox:write")} };
+        expired, expiredUse:expired ? t.expired_use ?? null : null, vault:{read:hasScope(t,"vault:read"),contribute:hasScope(t,"inbox:write")},
+        ...(boundLens(t) ? {lens:boundLens(t),lensName:readLens(this.root,boundLens(t)!)?.name ?? null} : {}) };
     });
   }
-  create(value: {name?:unknown;kind?:unknown;managedBy?:string;replaces?:string}) {
+  /** The default grant is the whole vault, read and drop. `lens` binds the
+   * connection to one lens instead (#303): it reads through that lens alone. */
+  create(value: {name?:unknown;kind?:unknown;managedBy?:string;replaces?:string;lens?:unknown}) {
     if (typeof value.name !== "string" || !value.name.trim() || value.name.length > 120) throw new Error("Name this client connection (up to 120 characters).");
     if (!CLIENT_KINDS.includes(value.kind as ClientKind)) throw new Error("Choose Claude Code, Codex, or generic MCP.");
-    const {record,token} = mintToken(this.store,this.root,value.name.trim(),["vault:read","inbox:write"],{kind:"agent",via:"client"});
+    if (value.lens !== undefined && (typeof value.lens !== "string" || !LENS_ID.test(value.lens) || !readLens(this.root,value.lens))) throw new Error("Choose a saved lens.");
+    const read = typeof value.lens === "string" ? lensScope(value.lens) : "vault:read";
+    const {record,token} = mintToken(this.store,this.root,value.name.trim(),[read,"inbox:write"],{kind:"agent",via:"client"});
     const path=this.path(record.id);mkdirSync(dirname(path),{recursive:true,mode:0o700});
     try { writeAtomic(path,JSON.stringify({id:record.id,kind:value.kind,token,...(value.replaces ? {replaces:value.replaces}: {}),...(value.managedBy ? {managedBy:value.managedBy}: {})})+"\n",0o600); }
     catch(e) { revokeToken(this.store,record.id);throw e; }
@@ -62,11 +69,12 @@ export class ConnectedClients {
    * the secret, so it is shown only when asked for, and only in the app. */
   setup(id:string) {
     const token=this.token(id), c=this.credential(id), url=doorUrl(), bearer=`Bearer ${token}`;
+    const lens=this.list().find(x=>x.id===id)?.lens, name=lens ? readLens(this.root,lens)?.name : undefined;
     const claude=`claude mcp remove --scope user bigbrain\nclaude mcp add --scope user --transport http bigbrain ${url} --header ${quote("Authorization: "+bearer)}`;
     // The Codex CLI takes a bearer token only from an environment variable; its config file takes the header itself.
     const codex=`[mcp_servers.bigbrain]\nurl = "${url}"\nhttp_headers = { Authorization = "${bearer}" }`;
     const after=" BigBrain has to be running for the agent to reach the vault. This setup holds the connection’s secret: give it only to that agent.";
-    return {id,kind:c.kind,url,sentence:DOOR_SENTENCE,configuration:{mcpServers:{bigbrain:{type:"http",url,headers:{Authorization:bearer}}}},
+    return {id,kind:c.kind,url,sentence:lens ? lensSentence(name ?? "a deleted lens") : DOOR_SENTENCE,...(lens ? {lens} : {}),configuration:{mcpServers:{bigbrain:{type:"http",url,headers:{Authorization:bearer}}}},
       command:c.kind==="claude-code" ? claude : c.kind==="codex" ? codex : null,claude,codex,
       instructions:(c.kind==="claude-code" ? "Run this in a terminal, then restart Claude Code. It replaces your user-level bigbrain entry; a missing-entry message from the first line is harmless."
         : c.kind==="codex" ? "Add this to ~/.codex/config.toml in place of any [mcp_servers.bigbrain] there, then restart Codex."
@@ -97,7 +105,7 @@ export class ConnectedClients {
     const old=this.list().find(c=>c.id===id);if(!old)throw new Error('Client connection not found.');
     if(old.legacy)return this.replace(id);
     if(!old.revoked)this.revoke(id);
-    return this.create({name:old.name,kind:old.kind,managedBy:old.managedBy,replaces:old.replaces});
+    return this.create({name:old.name,kind:old.kind,managedBy:old.managedBy,replaces:old.replaces,...(old.lens ? {lens:old.lens} : {})});
   }
   /** Same id, same grants: unlike reconnect(), nothing is re-minted. */
   renew(id:string): void {

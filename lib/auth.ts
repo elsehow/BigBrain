@@ -6,7 +6,8 @@
  *
  * The model is fail-closed everywhere: a missing, empty, or unreadable
  * store verifies nobody. Scopes are exact strings (`inbox:write`;
- * `vault:read` — the web read path for non-browser API clients; `tend` — the
+ * `vault:read` — the web read path for non-browser API clients; `lens:<id>`
+ * — reads through one lens, at the door alone (#303); `tend` — the
  * gardener door's claim + submit, #479, held by ONE designated machine per
  * vault) — no wildcards, no hierarchy. (`outbox:write` retired with email,
  * 2026-08-10.)
@@ -185,6 +186,23 @@ export function hasScope(record: TokenRecord, scope: string): boolean {
   return record.scopes.includes(scope);
 }
 
+/** A credential bound to one lens (#303) holds `lens:<lens id>` in place of
+ * `vault:read`. Without `vault:read` every whole-vault read refuses it on
+ * its own; only the door (lib/localMcp.ts) reads through the lens. */
+const LENS_SCOPE = /^lens:(lens_[a-f0-9]{12})$/;
+export const lensScope = (lens: string): string => `lens:${lens}`;
+/** The lens this credential reads through, if it is bound to one. */
+export function boundLens(record: TokenRecord): string | undefined {
+  for (const scope of record.scopes) {
+    const m = LENS_SCOPE.exec(scope);
+    if (m) return m[1];
+  }
+  return undefined;
+}
+/** Whether any live credential reads through this lens. */
+export const lensServedToAgents = (storePath: string, lens: string): boolean =>
+  listTokens(storePath).some((t) => !t.revoked && boundLens(t) === lens);
+
 export const IDLE_EXPIRY_DAYS = 30;
 
 /** Listed, and renewed, in Settings → Connected clients: a connected
@@ -201,7 +219,7 @@ export const expiredMessage = (record: TokenRecord): string =>
 
 /** Reads the vault and is not the gardener's: the credentials that lapse. */
 export const expiresWhenIdle = (record: TokenRecord): boolean =>
-  hasScope(record, "vault:read") && !hasScope(record, "tend");
+  (hasScope(record, "vault:read") || boundLens(record) !== undefined) && !hasScope(record, "tend");
 
 /** Lapsed: unused (and unrenewed) for IDLE_EXPIRY_DAYS. Fail-closed — a
  * record with no readable timestamp counts as lapsed. */

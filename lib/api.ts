@@ -20,7 +20,8 @@
  *   POST   /v1/gardener/submit   Bearer + tend → host-validated events, per-item and idempotent (#479)
  *                                (each success stamps journal/tend/door.json — the door's last-run trace, #482)
  *   POST   /mcp                  Bearer (a Connected Clients connection) + vault:read → MCP over HTTP,
- *                                the stdio server's tools; inbox:write adds drop; loopback Host, never forwarded (lib/localMcp.ts, #302)
+ *                                the stdio server's tools; inbox:write adds drop; loopback Host, never forwarded (lib/localMcp.ts, #302);
+ *                                lens:<id> in place of vault:read → the same, inside one lens (#303)
  *
  * The surface above is ONE TABLE (`AUTHED_ROUTES` + `PUBLIC_ROUTES`, below) —
  * a route exists exactly once, as one `{method, path, scope, handler}` entry.
