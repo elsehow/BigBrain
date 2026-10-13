@@ -185,7 +185,7 @@ export class Machine {
           this.hello = await this.guest().hello(Math.max(500, deadline - Date.now()));
           break;
         } catch (e) {
-          if (Date.now() > deadline) throw new MachineError("The desktop's machine did not start: its guest never answered.", consoleTail(this.consoleLog));
+          if (Date.now() > deadline) throw new MachineError(`The desktop's machine did not start: its guest never answered${why() ? ` (${why()})` : ""}.`, consoleTail(this.consoleLog));
           if (!(e instanceof GuestError) || !["unreachable", "timeout"].includes(e.code)) throw e;
           await sleep(30);
         }

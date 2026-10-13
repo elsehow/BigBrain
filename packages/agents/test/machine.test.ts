@@ -33,9 +33,9 @@ const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
 /** Run a command in the guest; its output and exit. */
 async function sh(g: Guest, script: string, o: { user?: "work" | "root"; env?: Record<string, string> } = {}) {
-  let out = "";
-  const x = await g.exec(["/bin/bash", "-c", script], { cwd: "/work", user: o.user, env: o.env }, (_k, d) => { out += d; });
-  return { ...(await x.exit), out };
+  let out = "", stdout = "";
+  const x = await g.exec(["/bin/bash", "-c", script], { cwd: "/work", user: o.user, env: o.env }, (k, d) => { out += d; if (k === "stdout") stdout += d; });
+  return { ...(await x.exit), out, stdout };
 }
 
 describe.skipIf(!enabled)(`a machine (${BACKEND})`, () => {
@@ -91,7 +91,8 @@ describe.skipIf(!enabled)(`a machine (${BACKEND})`, () => {
   test("exec streams, runs as work, and closing the connection stops the job", async () => {
     const r = await sh(m.guest(), "id -un; for i in 1 2 3; do echo line $i; done; echo oops >&2; exit 4");
     expect(r).toMatchObject({ code: 4, signal: null });
-    expect(r.out).toContain("work\nline 1\nline 2\nline 3\n");
+    // stdout on its own: how it interleaves with stderr is the scheduler's
+    expect(r.stdout).toBe("work\nline 1\nline 2\nline 3\n");
     const g = m.guest();
     const x = await g.exec(["/bin/bash", "-c", "sleep 300 & sleep 300"], { cwd: "/work", grace: 500 }, () => {});
     expect((await g.jobs()).find(j => j.job === x.job)?.exited).toBeNull();
