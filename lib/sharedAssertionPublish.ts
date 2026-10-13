@@ -12,11 +12,12 @@
 import {existsSync,readFileSync} from 'node:fs';
 import {writeAtomic} from './fsx';
 import {ENTITY_LINK,ENT_ID,norm} from './ids';
-import {assertionSourceReferences,type AssertionEvent,type AssertionSourceReference} from './assertionLog';
-import {projectedSource,vaultRecord} from './vaultReadModel';
-import {liveOf,publishableTo,type Publishable} from './views/scope';
+import {assertionSourceReferences,type AssertionEvent,type AssertionSourceReference,type IdentityAssertion} from './assertionLog';
+import {projectedSource,vaultRecord,withVaultSnapshot} from './vaultReadModel';
+import {identitiesPublishableTo,liveOf,publishableTo,type Publishable,type PublishableIdentities} from './views/scope';
 import {readConnections,sharedRequest,updateConnection,SharedConnectionError,type SharedConnection} from './sharedConnections';
 import {contributions,sourceKey,type Contribution} from './sharedRules';
+import {DEFAULT_CUTOFF} from './sourceCopies';
 
 /** Writes per connection per tick: under the door's 60/min per credential. */
 export const PUBLISH_BUDGET=25;
@@ -25,6 +26,9 @@ const MAX_SOURCES=20;
 
 export interface PublishedAssertion {connection:string;personal_assertion_id:string;shared_assertion_id:string;status:'published'|'retracted';at:string}
 type Body={text:string;sources:string[];confidence:AssertionEvent['confidence']};
+/** An identity as the door takes it (step 7): copy or not of a pair, or the entity a landing is. */
+type IdentityBody={identity:{says:'copy'|'not-copy'}|{says:'is-source';entity:{label:string}};sources:string[]};
+type Wanted={path:'/v1/assertions';body:Body}|{path:'/v1/identities';body:IdentityBody};
 
 const readJson=<T>(path:string):T=>existsSync(path)?JSON.parse(readFileSync(path,'utf8')) as T:{} as T;
 export const publishedPath=(store:string)=>store+'.assertions.json';
@@ -67,7 +71,29 @@ function bodiesOf<S extends string>(root:string,claims:Publishable<S>,sharedId:(
   return out;
 }
 
-const unsupported=new Map<string,number>();
+/** The identities as the server's door takes them: only Publishable ones,
+ * every landing each cites shared there. */
+function identityBodiesOf<S extends string>(claims:PublishableIdentities<S>,sharedId:(ref:AssertionSourceReference)=>string|null):Map<string,IdentityBody>{
+  const out=new Map<string,IdentityBody>();
+  for(const e of claims){
+    const sources=e.sources.map(ref=>sharedId(ref)!);
+    const said=e.identity;
+    // a server takes a member's word: a model's judgment goes only once it clears the cut-off, as a copy
+    if(said.says==='copy'&&(said.score===undefined||said.score>=DEFAULT_CUTOFF))out.set(e.id,{identity:{says:'copy'},sources});
+    else if(said.says==='not-copy')out.set(e.id,{identity:{says:'not-copy'},sources});
+    else if(said.says==='is-source')out.set(e.id,{identity:{says:'is-source',entity:{label:said.entity.label}},sources});
+  }
+  return out;
+}
+
+/** Your identity assertions that stand and cite sources: what a server may be told. */
+function liveIdentities(root:string):IdentityAssertion[]{
+  return withVaultSnapshot(root,db=>(db.query(`SELECT event_json FROM assertion_kinds k WHERE kind = 'identity'
+    AND NOT EXISTS (SELECT 1 FROM revocations r WHERE r.assertion_id = k.id)`).all() as {event_json:string}[])
+    .map(r=>JSON.parse(r.event_json) as IdentityAssertion).filter(e=>e.sources.length>0));
+}
+
+const unsupported=new Map<string,number>(),identitiesUnsupported=new Map<string,number>();
 /** The member's agent delegate, minted once with their person credential. An
  * older door has no route for it (404), and a read-only member may not (403):
  * both simply leave this connection unpublished for a while. */
@@ -91,7 +117,12 @@ export async function publishAssertions(root:string,store:string,c:SharedConnect
   const active=new Map(contributed.filter(x=>x.status==='active').map(x=>[x.source_id,x.insertion_id]));
   const sent=readJson<Record<string,{shared_insertion_id?:string}>>(store+'.receipts.json');
   const shared=sharedAs(c,active,sent);
-  const wanted=active.size?bodiesOf(root,publishableTo(liveOf(vaultRecord(root)),c.id,ref=>shared(ref)!==null),shared):new Map<string,Body>();
+  const wanted=new Map<string,Wanted>();
+  if(active.size){
+    for(const [id,body] of bodiesOf(root,publishableTo(liveOf(vaultRecord(root)),c.id,ref=>shared(ref)!==null),shared))wanted.set(id,{path:'/v1/assertions',body});
+    if((identitiesUnsupported.get(c.id)??0)<=Date.now())
+      for(const [id,body] of identityBodiesOf(identitiesPublishableTo(liveIdentities(root),c.id,ref=>shared(ref)!==null),shared))wanted.set(id,{path:'/v1/identities',body});
+  }
   const stale=published.filter(([,p])=>!wanted.has(p.personal_assertion_id));
   const fresh=[...wanted].filter(([id])=>!record[`${c.id}:${id}`]);
   if(!stale.length&&!fresh.length)return done;
@@ -104,9 +135,15 @@ export async function publishAssertions(root:string,store:string,c:SharedConnect
       catch(e){if(!(e instanceof SharedConnectionError&&e.status===409))throw e;} // already revoked: by its author, or moderated
       save(key,{...p,status:'retracted',at:new Date().toISOString()});done.retracted++;
     }
-    for(const [id,body] of fresh){
+    for(const [id,{path,body}] of fresh){
       if(done.published+done.retracted>=budget)return done;
-      const posted=await sharedRequest<{id:string}>(agent,'/v1/assertions',body);
+      let posted:{id:string};
+      try{posted=await sharedRequest<{id:string}>(agent,path,body);}
+      catch(e){
+        // a server from before identity has no door for it: leave identity be there a while
+        if(path==='/v1/identities'&&e instanceof SharedConnectionError&&e.status===404){identitiesUnsupported.set(c.id,Date.now()+RETRY_UNSUPPORTED_MS);continue;}
+        throw e;
+      }
       save(`${c.id}:${id}`,{connection:c.id,personal_assertion_id:id,shared_assertion_id:posted.id,status:'published',at:new Date().toISOString()});done.published++;
     }
   }catch(e){

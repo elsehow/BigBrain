@@ -91,7 +91,9 @@ whose read-only `/mcp` answers a stranger with a 401 naming where to sign in.
 | `POST /v1/assertions` | write | `{text, sources: [ins_…], confidence?}` → `{id, deduped, seq, author}`; `[[Label]]` links canonicalize to derived entity ids |
 | `GET /v1/assertions?limit&cursor&include_revoked` · `GET /v1/assertions/:id` | read | assertions with `revocation` and `resolved_id` |
 | `POST /v1/assertions/:id/correct` | write, **author** | `{text, sources, confidence?, reason?}` → new assertion + revocation |
-| `POST /v1/assertions/:id/retract` | write, **author** | `{reason}` → revocation |
+| `POST /v1/assertions/:id/retract` | write, **author** | `{reason}` → revocation; an identity's too |
+| `POST /v1/identities` | write | `{identity: {says: "copy"\|"not-copy"}, sources: [a, b]}` or `{identity: {says: "is-source", entity: {label}}, sources: [one]}` → `{id, deduped, seq}`. A member's word on which landings are one work, or which entity a landing is; what cites nothing (an alias) stays at home |
+| `GET /v1/identities` | read | every identity that stands; a member's field draws copies as one work and an entity as the landing it is |
 | `POST /v1/moderation` | write, **owner** | `{assertion_id, reason}` → revocation attributed to the owner |
 | `GET /v1/search?q&limit` | read | term-AND hits over evidence and live assertions |
 | `GET /v1/feed?after&limit` | read | `{entries, next_cursor, has_more, head}`, ≤200 per page |

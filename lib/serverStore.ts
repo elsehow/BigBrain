@@ -21,6 +21,7 @@ import type { SourceInsertion } from "./insertionLog";
 import type { SourceMetadata } from "./insertionLog";
 import { readConnections, SharedConnectionError, sharedRequest, type SharedConnection, type SharedIdentity } from "./sharedConnections";
 import type { AssertionView } from "./sharedVault";
+import type { IdentityAssertion } from "./assertionLog";
 
 /** A server's evidence as its list gives it: no bodies. */
 export type SharedSource = SourceMetadata & { body?: string; submitted_at?: string };
@@ -30,6 +31,8 @@ export interface ServerSnapshot {
   head: number;
   evidence: SharedSource[];
   assertions: AssertionView[];
+  /** Which landings are one work, or an entity (step 7); none from a server that holds none. */
+  identities?: IdentityAssertion[];
 }
 
 export interface ServerStatus {
@@ -110,8 +113,10 @@ export async function followServer(store: string, c: SharedConnection): Promise<
     if (!who.permissions.includes("read")) throw new Error("Read access has been removed.");
     const { head } = await sharedRequest<{ head: number }>(c, "/v1/feed?after=0&limit=1");
     if (before.snapshot?.head !== head) {
-      const [evidence, assertions] = await Promise.all([pages<SharedSource>(c, "evidence"), pages<AssertionView>(c, "assertions")]);
-      write(join(dir, "snapshot.json"), { head, evidence, assertions } satisfies ServerSnapshot);
+      const [evidence, assertions, identities] = await Promise.all([pages<SharedSource>(c, "evidence"), pages<AssertionView>(c, "assertions"),
+        // a server from before identity holds none: its 404 is an empty list
+        pages<IdentityAssertion>(c, "identities").catch((e) => { if (e instanceof SharedConnectionError && e.status === 404) return []; throw e; })]);
+      write(join(dir, "snapshot.json"), { head, evidence, assertions, identities } satisfies ServerSnapshot);
     }
     const snapshot = readServer(store, c.id).snapshot!;
     let fetched = 0;
