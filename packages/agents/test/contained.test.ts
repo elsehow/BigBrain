@@ -78,7 +78,9 @@ describe.skipIf(!enabled)(`a contained desktop (${BACKEND})`, () => {
 
     const events = agents.events("desk-c1");
     const ends = events.filter(e => e.type === "tool.end").map(e => (e as { label: string; ok: boolean }));
-    expect(ends.map(e => e.ok)).toEqual([true, true, true, true]);
+    // each tool's label with its outcome, so a failure says which
+    expect(ends.map(e => `${e.ok ? "ok" : "FAILED"} ${e.label}`)).toEqual(ends.map(e => `ok ${e.label}`));
+    expect(ends.length).toBe(4);
     expect(ends[0]!.label).toBe("Looked at orrery (main, 1 uncommitted)");
     expect(ends[1]!.label).toMatch(/^Copied orrery at [0-9a-f]{7} \(main\)$/);
     expect(events.some(e => e.type === "machine.started")).toBe(true);
