@@ -70,7 +70,8 @@ beforeAll(async () => {
   landScores(root, lens, "rule-two", "model-b", [...ruleOne, ...ruleTwo].map((r) => verdict(r, 0.9)), { at: "2026-09-03T00:00:00.000Z" });
 
   token = clients.token(clients.create({ name: "Apiary agent", kind: "claude-code", lens: lens.id }).id);
-  const port = 20_000 + Math.floor(Math.random() * 20_000);
+  const probe = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: () => new Response() });
+  const port = probe.port!; probe.stop(true);
   url = `http://127.0.0.1:${port}/mcp`;
   api = Bun.spawn([process.execPath, resolve("bin/api.ts")], {
     env: childEnv({ BIGBRAIN_VAULT: root, BIGBRAIN_TOKENS: store, BIGBRAIN_API_PORT: String(port) }), stdout: "pipe", stderr: "pipe",
