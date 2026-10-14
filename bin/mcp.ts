@@ -26,11 +26,19 @@ if (sub === "config") {
 // The Claude Code plugin's headersHelper (#302): the door's header for the
 // plugin's connection, as JSON on stdout. Nothing on failure — Claude Code
 // then reports the connection failed, and the app says where to fix it.
+// Claude Code runs this on every connect and again after a 401, so it never
+// mints: a revoked connection stays revoked (ConnectedClients.ensure), and
+// a plugin with no connection gets none.
 if (sub === "headers") {
   const root = requireVaultRoot(), connection = flagValue(argv, "connection");
   if (connection !== "claude-plugin") { console.error("mcp headers: --connection claude-plugin"); process.exit(2); }
   const clients = new ConnectedClients(root);
-  console.log(JSON.stringify({ Authorization: `Bearer ${clients.token(clients.ensure("Claude Code plugin", "claude-code", connection).id)}` }));
+  try {
+    console.log(JSON.stringify({ Authorization: `Bearer ${clients.token(clients.ensure("Claude Code plugin", "claude-code", connection).id)}` }));
+  } catch (error) {
+    console.error(`mcp headers: ${error instanceof Error ? error.message : String(error)}`);
+    process.exit(1);
+  }
   process.exit(0);
 }
 if (sub === "memory") {

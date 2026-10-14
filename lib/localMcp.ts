@@ -33,6 +33,12 @@ export interface LocalMcpDeps {
 
 const text = (t: string, isError = false): McpToolResult => ({ content: [{ type: "text", text: t }], ...(isError ? { isError: true } : {}) });
 
+/** Reads of the whole vault are for this machine: a request through a
+ * proxy, or a page under a rebound name, carries another Host. */
+function loopbackHost(host: string | null): boolean {
+  return !!host && /^(localhost|127\.0\.0\.1|\[::1\])(?::[0-9]{1,5})?$/i.test(host);
+}
+
 /** A browser page has no business here: the bearer token is the whole
  * authority, but a page that could guess one should still not be let in. */
 function loopbackOrigin(origin: string | null): boolean {
@@ -47,6 +53,7 @@ function loopbackOrigin(origin: string | null): boolean {
 
 /** Answer one `/mcp` request. Returns the credential it served, for the door's log. */
 export async function serveLocalMcp(req: Request, deps: LocalMcpDeps): Promise<{ response: Response; record?: TokenRecord }> {
+  if (!loopbackHost(req.headers.get("host") ?? new URL(req.url).host)) return { response: rpcError(403, -32000, "This door answers only on this machine (127.0.0.1).") };
   if (!loopbackOrigin(req.headers.get("origin"))) return { response: rpcError(403, -32000, "Browser pages cannot use this door.") };
   const auth = req.headers.get("authorization") ?? "";
   const presented = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
@@ -63,7 +70,7 @@ export async function serveLocalMcp(req: Request, deps: LocalMcpDeps): Promise<{
     const message = expiredMessage(lapsed);
     return {
       record: lapsed,
-      response: await serveStatelessMcp(req, { name: "bigbrain", instructions: MCP_INSTRUCTIONS, tools: () => mcpToolList(), call: () => text(message, true) }),
+      response: await serveStatelessMcp(req, { name: "bigbrain", instructions: MCP_INSTRUCTIONS, tools: () => mcpToolList().filter((t) => hasScope(lapsed, "inbox:write") || t.name !== "drop"), call: () => text(message, true) }),
     };
   }
 

@@ -118,6 +118,9 @@ test("no credential, a stranger's, or the wrong scope is refused", async () => {
   const live = clients.create({ name: "Door Codex", kind: "codex" });
   expect((await post({ authorization: `Bearer ${clients.token(live.id)}`, origin: "https://pages.example" })).status).toBe(403);
   expect((await post({ authorization: `Bearer ${clients.token(live.id)}` })).status).toBe(200);
+  // Nor anything through a proxy or under a rebound name: the Host is not this machine's.
+  for (const host of ["bigbrain.example", "rebind.example:4748", "127.0.0.1.example"])
+    expect((await post({ authorization: `Bearer ${clients.token(live.id)}`, host })).status).toBe(403);
   // Stateless: there is no stream to open.
   expect((await fetch(url, { headers: { authorization: `Bearer ${clients.token(live.id)}` } })).status).toBe(405);
 });
@@ -138,4 +141,12 @@ test("a lapsed connection is served, every tool answering where to renew it, and
     expect(result.content[0].text).toContain("Renew it in BigBrain → Settings → Connected agents.");
   }
   expect(readSourceInsertionLog(root)).toHaveLength(before);
+  // A lapsed reader is not offered a drop it never had.
+  const reader = mintToken(store, root, "Lapsed reader", ["vault:read"], { kind: "agent", via: "client" });
+  const listed = await handler(new Request("http://127.0.0.1:4748/mcp", {
+    method: "POST",
+    headers: { authorization: `Bearer ${reader.token}`, "content-type": "application/json", accept: "application/json, text/event-stream" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+  })).then((r) => r.json());
+  expect(listed.result.tools.map((t: { name: string }) => t.name)).toEqual(["load_memory", "search_vault", "read_note"]);
 });

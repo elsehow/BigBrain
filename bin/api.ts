@@ -1,10 +1,13 @@
 /**
  * api.ts — the authenticated HTTP intake service (:4748, localhost-only)
  * for callers that hold a drop token: integrations, the browser extension,
- * and the one door — `/mcp`, where a connected agent reads the vault (#302). The handler lives in lib/api.ts (testable
- * without a socket); this file is just the serve loop.
+ * and the one door — `/mcp`, where a connected agent reads the vault
+ * (#302). The handler lives in lib/api.ts (testable without a socket);
+ * this file is just the serve loop.
  *
- * Never expose 4748 directly; front it with a TLS proxy
+ * Never expose 4748 directly; front it with a TLS proxy. `/mcp` is not for
+ * proxying: it serves whole-vault reads, so it answers only a loopback Host
+ * (lib/localMcp.ts) and a proxied request is refused.
  * Tokens are minted with `bigbrain auth create`.
  */
 

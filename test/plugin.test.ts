@@ -8,6 +8,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { makeApiHandler } from "../lib/api";
 import { ConnectedClients } from "../lib/connectedClients";
+import { listTokens } from "../lib/auth";
 import { nativeVault } from "./support/vault";
 import { buildAgentPlugins } from "../bin/build-agent-plugins";
 
@@ -83,6 +84,29 @@ for (const agent of ["claude", "codex"] as const) {
     result = await run(); expect(result).toEqual({ out: "", err: "", code: 0 });
   });
 }
+
+test("claude: the headersHelper never undoes a revoke, and never mints", async () => {
+  const { root, home, env } = fixture();
+  const store = join(home, "tokens.json"), clients = new ConnectedClients(root, store);
+  const plugin = join(engine, "clients/claude-plugin");
+  const config = JSON.parse(readFileSync(join(plugin, ".mcp.json"), "utf8")).mcpServers.bigbrain;
+  const helper = async () => {
+    const p = Bun.spawn(["sh", "-c", config.headersHelper.replace(/\$\{CLAUDE_PLUGIN_ROOT\}/g, plugin)], { cwd: home, env: { ...env, BIGBRAIN_TOKENS: store, CLAUDE_PLUGIN_ROOT: plugin }, stdout: "pipe", stderr: "pipe" });
+    return { out: await new Response(p.stdout).text(), err: await new Response(p.stderr).text(), code: await p.exited };
+  };
+  const tokens = () => JSON.stringify(listTokens(store));
+  // No plugin connection: nothing is minted for it.
+  let result = await helper();
+  expect(result.out).toBe(""); expect(result.code).not.toBe(0); expect(listTokens(store)).toEqual([]);
+  const { id } = clients.create({ name: "Claude Code plugin", kind: "claude-code", managedBy: "claude-plugin" });
+  expect(JSON.parse((await helper()).out).Authorization).toBe(`Bearer ${clients.token(id)}`);
+  // Disconnect on the plugin's card: Claude Code reruns the helper after the 401, and gets nothing.
+  clients.revoke(id);
+  const before = tokens(), listed = JSON.stringify(clients.list());
+  result = await helper();
+  expect(result.out).toBe(""); expect(result.code).not.toBe(0); expect(result.err).toContain("revoked");
+  expect(tokens()).toBe(before); expect(JSON.stringify(clients.list())).toBe(listed);
+}, 30_000);
 
 test("legacy gardener transport keeps role restrictions separate from public MCP", async () => {
   const { root, env } = fixture();
