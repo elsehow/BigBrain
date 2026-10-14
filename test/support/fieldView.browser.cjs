@@ -42,10 +42,13 @@ const assert = require('node:assert/strict');
     assert.match(await page.locator('.feed.sorted .row.at').innerText(), /Atlas survey/);
 
     // nothing here starts an agent: Shift+Enter and ⌘N are no one's, and the bar has no +
+    const conversations = await page.locator('.strip .tok').count();
     await page.keyboard.press('Shift+Enter');
     await page.keyboard.press('ControlOrMeta+n');
     await page.keyboard.press('n');
-    assert.equal(await page.evaluate(() => window.desktopsCreated ?? 0), 0);
+    await page.waitForTimeout(300);
+    assert.equal(await page.locator('.strip .tok').count(), conversations);
+    assert.equal(await page.locator('.chat').count(), 0);
     assert.equal(await page.locator('.strip .new').count(), 0);
 
     // settings: a panel over the field; Esc closes it and the field has its keys again

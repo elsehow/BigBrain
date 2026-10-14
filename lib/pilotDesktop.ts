@@ -17,13 +17,11 @@ export type DesktopTile = { view: string } | { dir: "row" | "col"; weights: numb
 
 export interface DesktopView {
   id: string;
-  /** "note": a vault note. "url": a page served on this machine's loopback, such as an agent's dev server.
-   * "html": a page the agent wrote, shown in the person's theme (web/ui/src/lib/pageTheme.ts). */
-  kind: "note" | "url" | "html";
-  /** What the view shows: the note's vault path, the page's address, or (html) a key from its title. */
+  /** A vault note: the one kind of view since coding desktops, which also
+   * showed served pages and pages they wrote, went (#304). */
+  kind: "note";
+  /** The note's vault path. */
   path: string;
-  /** html views: the agent's semantic HTML. */
-  html?: string;
   title: string;
   at: string;
 }
@@ -101,12 +99,8 @@ const withoutView = (layout: DesktopTile | undefined, id: string): DesktopTile |
 };
 
 export function openView(d: PilotDesktop, view: Omit<DesktopView, "id">, id: string, opts: { userAsked?: boolean } = {}): PilotDesktop {
-  const already = d.views.find((v) => v.kind === view.kind && v.path === view.path);
-  if (already) {
-    // shown again: a note stays as it is, an html page is updated in place, a served page reloads (its frame is keyed on `at`)
-    if (view.kind === "note" || (view.kind === "html" && view.html === already.html)) return d;
-    return { ...d, views: d.views.map((v) => (v === already ? { ...view, id: v.id } : v)) };
-  }
+  // shown again: a note stays as it is
+  if (d.views.some((v) => v.kind === view.kind && v.path === view.path)) return d;
   if (d.closed?.includes(view.path) && !opts.userAsked)
     throw new DesktopError("The person closed this view. Reopen it only if they ask to see it again (set user_asked).");
   if (d.views.length >= MAX_VIEWS) throw new DesktopError(`At most ${MAX_VIEWS} views are open at once; close one first.`);
@@ -134,7 +128,7 @@ export function arrangeDesktop(d: PilotDesktop, layout: unknown, by: "agent" | "
 
 /** What the app is sent: the views, and the tiling to draw. */
 export const desktopDetail = (d: PilotDesktop) => ({
-  views: d.views.map(({ id, kind, path, title, at, html }) => ({ id, kind, path, title, at, ...(html !== undefined ? { html } : {}) })),
+  views: d.views.map(({ id, kind, path, title, at }) => ({ id, kind, path, title, at })),
   layout: desktopLayout(d) ?? null,
   arrangedBy: d.arrangedBy ?? null,
 });
@@ -146,29 +140,6 @@ export const desktopReference = (d: PilotDesktop | undefined) => ({
   arrangedBy: d?.arrangedBy ?? null,
   closedByPerson: d?.closed ?? [],
 });
-
-/** A page a desktop may embed: http on a loopback address only, so a view can
- * show an agent's dev server and nothing from the wider web. */
-export function loopbackUrl(raw: unknown): string {
-  let url: URL;
-  try { url = new URL(String(raw)); } catch { throw new DesktopError("Give a full address, such as http://127.0.0.1:5173/."); }
-  if (url.protocol !== "http:" || !["127.0.0.1", "localhost"].includes(url.hostname))
-    throw new DesktopError("Only pages served on this machine (http://127.0.0.1 or localhost) can be shown on a desktop.");
-  return url.href;
-}
-
-/** For agents that run servers (coding desktops): show one beside the chat. */
-export const SHOW_PAGE_TOOL = { type: "function", name: "show_page", strict: false,
-  description: "Show a page served on this machine, such as a dev server you started, on your desktop beside this chat. Use it when the person should see the running result. Only loopback addresses (http://127.0.0.1:<port>, localhost) can be shown. Showing a page that is already open reloads it, for example after you restart its server.",
-  parameters: { type: "object", properties: { url: { type: "string", description: "The page's address, e.g. http://127.0.0.1:5173/." }, title: { type: "string", description: "A short label for the view." }, user_asked: { type: "boolean", description: "True only when the person asked to see a page they had closed." } }, required: ["url"], additionalProperties: false } };
-
-/** The most HTML one page may carry. */
-export const MAX_PAGE_HTML = 200_000;
-
-/** For agents that make things to show (coding desktops): a page in the person's own style. */
-export const SHOW_HTML_TOOL = { type: "function", name: "show_html", strict: false,
-  description: "Show a page you wrote on your desktop, beside this chat: a report, a comparison, a table of results, a chart. Write plain semantic HTML only (h1–h3, p, ul/ol, table with th/td, pre/code, figure/figcaption, inline svg for charts). Do NOT write CSS, style attributes or scripts: the page is dressed in the person's BigBrain theme, and scripts don't run. Classes you may use: muted, faint, accent, num (right-aligned figures), grid and card (a grid of cards). Showing a page with the same title again updates it.",
-  parameters: { type: "object", properties: { title: { type: "string", description: "A short title; it names the view." }, html: { type: "string", description: "The page's body: semantic HTML, no CSS or scripts." } }, required: ["title", "html"], additionalProperties: false } };
 
 export const DESKTOP_TOOLS = [
   { type: "function", name: "open_view", strict: false,

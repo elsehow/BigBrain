@@ -1114,8 +1114,6 @@ export const INTEGRATIONS: Record<string, VaultState> = {
 let current: VaultState = FIRST_RUN.noVault!;
 let pilotBackend = { ...DEFAULT_PILOT_BACKEND };
 let agentPermissions: import("../../../../lib/workPermissions").WorkPermissions = { version: 2, folders: [{ path: "~/Projects", access: "write" }] };
-let desktopHosts: string[] = [];
-const DESKTOP_DEFAULT_HOSTS = ["registry.npmjs.org", "pypi.org", "github.com"];
 
 /** Swap the vault out from under a running app. The SWR cache has to go with
  * it, or the first paint of the new state is the old one's data. */
@@ -1340,10 +1338,6 @@ function route(path: string, method: string, body?: string, search?: URLSearchPa
   if (path === "/api/pilot/permissions" && method === "POST") {
     agentPermissions = JSON.parse(body ?? "{}");
     return json({ ...pilotWireState(false, false), permissions: agentPermissions });
-  }
-  if (path === "/api/desktops/network") {
-    if (method === "POST") desktopHosts = (JSON.parse(body ?? "{}") as { hosts: string[] }).hosts;
-    return json({ defaults: DESKTOP_DEFAULT_HOSTS, hosts: desktopHosts });
   }
   if (path === "/api/pilot/enabled" && method === "POST") {
     const { enabled } = JSON.parse(body ?? "{}") as { enabled: boolean };

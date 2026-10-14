@@ -1,5 +1,12 @@
 # Desktops that work on code
 
+> **Retired 2026-10-13 (#304).** Coding desktops are gone: `packages/agents`,
+> `lib/codingDesktops.ts`, `lib/agentHost.ts`, `lib/desktopNetwork.ts`,
+> `lib/webSearch.ts`, `bin/agent.ts` and `/api/desktops` were removed. BigBrain
+> runs no agent with a shell or the web; agents run elsewhere and read the
+> vault through one door (`docs/plans/2026-10-13-lenses-are-the-door.md`).
+> What follows is the design as it stood, kept for reference.
+
 Status: built (packages/agents, #56–#58), and revised after first use (this
 version). The mechanisms marked *measured* were tested on real projects on
 one Mac.

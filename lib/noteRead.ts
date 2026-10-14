@@ -46,7 +46,11 @@ import {
 } from "./sourceFeed";
 import { parseBlobRef, readBlob } from "./blobs";
 import type { PdfText } from "./pdfText";
-import type { ScanReader } from "./scanReader";
+
+/** A host's way to read a scanned PDF's text, with a model that reads PDFs:
+ * absent, a scan is reported as one. No host lends one since coding
+ * desktops went (#304); the hook stays for one that will. */
+export type ScanReader = (pdf: Uint8Array, signal?: AbortSignal) => Promise<string>;
 
 /** The ONLY markdown tree a reader may list or fetch besides memory/: the
  * run journals (§5 read jail). Sources and entities are served from the
@@ -395,7 +399,7 @@ export type AttachmentPayload =
  * jail; a note's own link is the only way in. `ref` is the link's name or its
  * `blob:<sha256>`. Read each time, never stored: a PDF that landed as a stub
  * (or arrived in mail) stays one in the record. A scan, with no text layer,
- * is read by `readScan` when the host lends one (lib/scanReader.ts). */
+ * is read by `readScan` when the host lends one. */
 export async function attachmentPayload(root: string, relRaw: string, ref: string, window: NoteWindow = {}, readScan?: ScanReader): Promise<AttachmentPayload> {
   const p = notePayload(root, relRaw);
   if (p.status !== 200) return p;

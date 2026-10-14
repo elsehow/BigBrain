@@ -1,7 +1,6 @@
 <script lang="ts">
   import ThemeView from "./ThemeView.svelte";
   import AgentAccessSettings from "./AgentAccessSettings.svelte";
-  import DesktopNetworkSettings from "./DesktopNetworkSettings.svelte";
   import GraphSettingsView from "./GraphSettingsView.svelte";
   import ShortcutsView from "./ShortcutsView.svelte";
   import SharingSettings from "./SharingSettings.svelte";
@@ -70,8 +69,6 @@
   <ShortcutsView />
 
   <AgentAccessSettings />
-
-  <DesktopNetworkSettings />
 
   <SharingSettings />
 </SettingsPage>

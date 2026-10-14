@@ -21,7 +21,7 @@ import { modelDescriptor } from "./modelRegistry";
 import { rowsForAgent } from "./agentReads";
 import { pilotModels } from "./modelCatalog";
 import type { PilotState } from "./pilotTypes";
-import type { ScanReader } from "./scanReader";
+import type { ScanReader } from "./noteRead";
 import { noteCreditsOk, noteOutOfCredits, outOfCredits } from "./providerCredits";
 
 /** The env var the key lives under — `.env.example` documents it. */

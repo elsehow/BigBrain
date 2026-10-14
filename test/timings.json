@@ -1,8 +1,6 @@
 {
-  "packages/agents/test/agents.test.ts": 0.6,
   "test/agentChat.test.ts": 0.0,
   "test/agentConnections.test.ts": 0.0,
-  "test/agentHost.test.ts": 0.0,
   "test/agentLog.test.ts": 0.0,
   "test/anthropicQuota.test.ts": 0.0,
   "test/api.test.ts": 0.7,
@@ -27,7 +25,6 @@
   "test/chatgptQuota.test.ts": 0.0,
   "test/ciBrowserRunner.test.ts": 0.4,
   "test/cliflags.test.ts": 0.0,
-  "test/codingDesktops.test.ts": 0.3,
   "test/concurrentGardener.test.ts": 0.5,
   "test/config.test.ts": 0.9,
   "test/configWrite.test.ts": 0.9,

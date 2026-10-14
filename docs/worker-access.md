@@ -2,8 +2,9 @@
 > no longer launch or authorize workers, and Pilot no longer runs commands:
 > `run_command`, `request_access` and the Codex-backed OS command sandbox
 > described under "Pilot local work" are gone. See
-> [retired project workers](project-workers.md), [current model roles](pilot-providers.md),
-> and [coding desktops](design/coding-desktops.md) for where agents run commands now.
+> [retired project workers](project-workers.md) and [current model roles](pilot-providers.md).
+> Coding desktops, which ran commands after these, went too (#304): BigBrain
+> runs no agent with a shell (`docs/plans/2026-10-13-lenses-are-the-door.md`).
 
 # Worker access
 

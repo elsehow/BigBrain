@@ -11,8 +11,8 @@ export interface FolderAccess { path: string; access: FileAccess }
 export interface RemovedFolder { path: string; reason: string }
 export interface WorkPermissions { version: 2; folders: FolderAccess[]; legacyCowboy?: true; removed?: RemovedFolder[] }
 const KEY = "BIGBRAIN_PILOT_AGENT_PERMISSIONS";
-/** Home-relative credential stores: Pilot never reads them, no folder grant may
- * contain them, and coding desktops' commands never read them (lib/desktopNetwork.ts). */
+/** Home-relative credential stores: Pilot never reads them, and no folder grant may
+ * contain them. */
 const CREDENTIAL_PATHS = [".codex", ".claude", ".ssh", ".aws", ".pi", ".config/bigbrain", ".config/gh", ".config/gcloud", ".netrc", ".git-credentials", ".npmrc", ".pypirc",
   ".docker", ".kube", ".gnupg", ".azure", "Library/Keychains", "Library/Cookies", ".zsh_history", ".zsh_sessions", ".bash_history", ".sh_history", ".local/share/fish/fish_history",
   ".config/op", ".vault-token", ".terraform.d", ".config/hub", ".config/doctl", ".local/share/keyrings", ".password-store", ".config/rclone", ".s3cfg", ".boto",
