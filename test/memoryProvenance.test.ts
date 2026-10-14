@@ -106,7 +106,8 @@ describe("stamping", () => {
     const tree = readFileSync(join(root, "memory/MEMORY.md"), "utf8");
     expect(tree).toContain(`[[${outside.id}]] <!-- from: [{"kind":"email","from":"Dana Okafor \\u003cdana@example.invalid\\u003e"`);
     expect(tree).toContain(`- Still 3:1. [[${own.id}]]\n`);
-    const journal = readdirSync(join(root, "journal/memory")).filter(f => f.endsWith(".json"));
+    // run ids lead with their time: sorted, the last is the newest (readdirSync promises no order)
+    const journal = readdirSync(join(root, "journal/memory")).filter(f => f.endsWith(".json")).sort();
     expect(JSON.parse(readFileSync(join(root, "journal/memory", journal.at(-1)!), "utf8")).stamped).toBe(2);
   });
 });
