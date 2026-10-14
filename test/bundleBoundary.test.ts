@@ -20,7 +20,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 
 const ROOT = join(import.meta.dir, "..");
@@ -80,6 +80,46 @@ describe("the engine does not import what the bundle strips", () => {
       }
     }
     expect(shipped).toContain("lib");
+    expect(offenders).toEqual([]);
+  });
+
+  test("nothing the app runs reaches a file the bundle excludes", () => {
+    // The test above checks top-level trees; build-resources.sh also strips
+    // subtrees inside the ones it copies. 0.10.0's first build died on start:
+    // the local door's lib/mcpHttp.ts took one helper from lib/sharedOAuth.ts,
+    // which drew in lib/sharedPages.ts and its fonts under
+    // clients/browser-extension/. So walk the real import graph from every
+    // entry point the app can run, the way bun resolves it.
+    const script = readFileSync(join(ROOT, "desktop", "build-resources.sh"), "utf8");
+    const excluded = [...script.matchAll(/--exclude '?([^'\s]+)'?/g)].map((m) => m[1]!).filter((e) => !e.includes("*"));
+    const stripped = (rel: string) => excluded.some((e) => `/${rel}/`.includes(`/${e}/`));
+    // The shared-vault server and its owner interface run from a checkout
+    // on the operator's machine (deploy/shared-vault/README.md), never from
+    // the app, and serve the extension's fonts on purpose.
+    const operatorOnly = new Set(["bin/shared.ts", "bin/shared-owner.ts"]);
+    const entries = [
+      join(ROOT, "web", "server.ts"),
+      ...readdirSync(join(ROOT, "bin")).filter((n) => n.endsWith(".ts") && !operatorOnly.has(`bin/${n}`)).map((n) => join(ROOT, "bin", n)),
+      ...readdirSync(join(ROOT, "integrations")).map((d) => join(ROOT, "integrations", d, "run.ts")),
+    ].filter((f) => existsSync(f));
+    const isFile = (p: string) => existsSync(p) && statSync(p).isFile();
+    const transpiler = new Bun.Transpiler({ loader: "ts" });
+    const seen = new Set<string>();
+    const offenders: string[] = [];
+    for (const todo = [...entries]; todo.length; ) {
+      const file = todo.pop()!;
+      if (seen.has(file) || !file.endsWith(".ts")) continue;
+      seen.add(file);
+      for (const { path: spec } of transpiler.scanImports(readFileSync(file, "utf8").replace(/^#!.*/, ""))) {
+        if (!spec.startsWith(".")) continue;
+        const target = resolve(dirname(file), spec);
+        const to = [target, `${target}.ts`, join(target, "index.ts")].find(isFile) ?? target;
+        if (stripped(relative(ROOT, to))) offenders.push(`${relative(ROOT, file)} → ${spec}`);
+        else todo.push(to);
+      }
+    }
+    expect(excluded).toContain("browser-extension");
+    expect(seen.has(join(ROOT, "lib", "localMcp.ts"))).toBe(true);
     expect(offenders).toEqual([]);
   });
 

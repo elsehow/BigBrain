@@ -13,7 +13,7 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
-import { readCapped } from "./sharedOAuth";
+import { readCapped } from "./readCapped";
 
 /** JSON-RPC requests are small; a body this big is not one. */
 export const MAX_MCP_BODY_BYTES = 1024 * 1024;
