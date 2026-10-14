@@ -149,10 +149,11 @@ const assert = require('node:assert/strict');
     // "Looks OK" clears the held review, in place
     await panel.getByRole('button', { name: 'Looks OK' }).click();
     await page.waitForFunction(() => !/paused until you review/i.test(document.querySelector('section.hud.lens')?.textContent ?? ''));
-    assert.equal(await panel.getByRole('button', { name: 'Looks OK' }).count(), 0);
+    await panel.getByRole('button', { name: 'Looks OK' }).waitFor({ state: 'detached' });
     await page.keyboard.press('Escape');
     await panel.waitFor({ state: 'detached' });
-    assert.equal(await page.locator('.v2-lens.on').count(), 0);
+    // the scene marks the cube on or off at its next frame
+    await page.waitForFunction(() => !document.querySelector('.v2-lens.on'));
     // "Edit the lens" opens it in Settings; closing Settings comes back to the lens
     await page.locator('.v2-lens', { hasText: 'Seed library' }).click();
     const seed = page.getByRole('region', { name: 'Lens: Seed library' });
