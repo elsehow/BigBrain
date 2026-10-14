@@ -7,7 +7,7 @@
  * exactly as they always did. */
 import { stageMemoryStamp } from "./support/memoryStamp";
 import { afterEach, describe, expect, test } from "bun:test";
-import { readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { appendAssertionEvent, assertionEntityId, createAssertionEvent, type AssertionEvent } from "../lib/assertionLog";
@@ -106,8 +106,8 @@ describe("stamping", () => {
     const tree = readFileSync(join(root, "memory/MEMORY.md"), "utf8");
     expect(tree).toContain(`[[${outside.id}]] <!-- from: [{"kind":"email","from":"Dana Okafor \\u003cdana@example.invalid\\u003e"`);
     expect(tree).toContain(`- Still 3:1. [[${own.id}]]\n`);
-    const journal = readdirSync(join(root, "journal/memory")).filter(f => f.endsWith(".json"));
-    expect(JSON.parse(readFileSync(join(root, "journal/memory", journal.at(-1)!), "utf8")).stamped).toBe(2);
+    // the run's own journal, by its id: the staged stamp journals beside it (#308)
+    expect(JSON.parse(readFileSync(join(root, "journal/memory", `${res.run}.json`), "utf8")).stamped).toBe(2);
   });
 });
 
