@@ -1,7 +1,7 @@
 /** lensScope.ts — what a lens serves an agent that holds a credential bound
  * to it (docs/plans/2026-10-13-lenses-are-the-door.md §3, #303).
  *
- * Its members (lib/views/lens.ts), with two cuts:
+ * Its members (lib/views/lens.ts), with one cut:
  *
  *   - Additions nobody made are held. While the rule the lens is scored
  *     under is not the one its owner last saw (`calibration`) — a model
@@ -9,10 +9,10 @@
  *     review holds it, a note is served only if that earlier rule had it in,
  *     or the owner's own word (a pin, a rating) does. A model's scoring
  *     decides what the agent reads, so a change to it waits for the owner.
- *   - Agents' words do not widen it. A note an agent dropped (agent voice,
- *     lib/voice.ts) is served only if the owner pinned or rated it in: what
- *     an agent writes through a lens never becomes what that lens serves on
- *     the model's say-so.
+ *
+ * A note an agent dropped is an ordinary note: in if the rule has it in,
+ * and read fenced as agent voice (lib/agentReads.ts) like any other. A drop
+ * through a lens joins it only that way, never by coming through it.
  *
  * An assertion is in only if every source it cites is in. Memory never is.
  */
@@ -42,15 +42,7 @@ export function lensServedOf(snapshot: Snapshot, lens: ScopedLens): Set<string> 
   // A lens never scored before takes its first rule as the one its owner saw (lib/lensSync.ts reviewLens).
   const changed = !!lens.review?.hold || (!!members.rule && !!lens.calibration.identity && members.rule !== lens.calibration.identity);
   const seen = changed ? lensMembersOf(snapshot, lens, notes, lens.calibration.identity).in : members.in;
-  const served = new Set([...members.in].filter((id) => owned.has(id) || seen.has(id)));
-  const latest = new Map(notes.map((n) => [n.source_id as string, n.insertion_id as string]));
-  const voice = snapshot.db.query("SELECT json_extract(event_json, '$.envelope.from_kind') AS k FROM source_documents WHERE insertion_id = ?");
-  for (const id of served) {
-    if (owned.has(id)) continue;
-    const insertion = latest.get(id);
-    if (insertion && (voice.get(insertion) as { k: unknown } | null)?.k === "agent") served.delete(id);
-  }
-  return served;
+  return new Set([...members.in].filter((id) => owned.has(id) || seen.has(id)));
 }
 
 /** What every read through a lens-bound credential answers inside. */

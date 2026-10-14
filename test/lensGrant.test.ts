@@ -223,19 +223,24 @@ test("memory, journals and sessions are never in a lens", async () => {
     expect(await read(path)).toEqual({ isError: true, text: `${path} is not in this lens` });
 });
 
-test("a drop through the lens lands attributed and untrusted, and does not widen the lens", async () => {
+test("a drop through the lens lands attributed, joins only if the rule has it in, and reads as agent voice", async () => {
   const before = readSourceInsertionLog(root).length;
   const dropped = await call("drop", { title: "Hive inspection", body: "Queen sighted in the second hive." });
   expect(dropped.isError).toBe(false);
   const landed = readSourceInsertionLog(root).at(-1)!;
   expect(readSourceInsertionLog(root)).toHaveLength(before + 1);
   expect(landed.envelope).toMatchObject({ from: "Apiary agent", from_kind: "agent", source: "mcp" });
+  // Coming through the lens does not put it in.
   expect((await read(JSON.parse(dropped.text).path)).isError).toBe(true);
-  // Even scored in by the rule the owner saw, an agent's words stay out until the owner pins them.
-  landScores(root, lens, "rule-one", "model-a", [{ insertion_id: landed.id, source_id: landed.source_id, input: "synthetic", score: 0.95 } as never], { at: "2026-09-04T00:00:00.000Z" });
+  // An ordinary note: scored out, it stays out; scored in by the rule the owner saw, it is in, fenced as an agent's words.
+  const score = (s: number, at: string) => landScores(root, lens, "rule-one", "model-a", [{ insertion_id: landed.id, source_id: landed.source_id, input: "synthetic", score: s } as never], { at });
+  score(0.2, "2026-09-04T00:00:00.000Z");
   expect((await read(JSON.parse(dropped.text).path)).isError).toBe(true);
-  sayOnLens(root, lens, { pins: [...pinned, landed.source_id], exclusions: [], ratings: [] });
-  expect((await read(JSON.parse(dropped.text).path)).isError).toBe(false);
+  score(0.95, "2026-09-05T00:00:00.000Z");
+  const note = await read(JSON.parse(dropped.text).path);
+  expect(note.isError).toBe(false);
+  expect(JSON.parse(note.text).provenance).toMatchObject({ trusted: false });
+  expect(JSON.parse(note.text).markdown).toContain("<untrusted-data");
 });
 
 test("revoking the lens's connection closes it, and a deleted lens grants nothing", async () => {
