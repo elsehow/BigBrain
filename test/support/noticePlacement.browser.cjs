@@ -98,7 +98,7 @@ const overlaps = page => page.evaluate(() => {
       assert.equal(await page.locator('[data-notice-id="connection:expired"]').count(), 1, 'the notice is still up');
       await page.getByRole('button', { name: 'Close settings', exact: true }).click({ timeout: 5000 });
       await page.locator('aside.panel').waitFor({ state: 'detached' });
-      // the field, and a source opened beside its chat: the desktop's view starts below the notices
+      // the field, and a conversation opened with a view beside its chat: the desktop's view starts below the notices
       await page.goto(scene);
       await page.locator('[data-notice-id="connection:expired"]').waitFor();
       await page.locator('.feed.sorted .row').nth(2).waitFor();
@@ -108,9 +108,14 @@ const overlaps = page => page.evaluate(() => {
       await clear('Search');
       await page.keyboard.press('Escape');
       await page.getByRole('dialog', { name: 'Search by name' }).waitFor({ state: 'detached' });
+      // a source opened from the feed is read alone, below the notices
       await page.locator('.feed.sorted .row').nth(1).evaluate(row => row.click());
-      await page.getByText('Not kept until you send').waitFor();
       await page.getByRole('button', { name: 'Close Atlas survey update', exact: true }).waitFor();
+      await clear('Reading');
+      await page.keyboard.press('Escape');
+      await page.locator('aside.side.reader').waitFor({ state: 'detached' });
+      await page.locator('.strip .tok', { hasText: 'Atlas planning' }).evaluate(tok => tok.click());
+      await page.getByRole('button', { name: 'Close Shared design review', exact: true }).waitFor();
       await clear('Desktop');
       // the chat's agent picker scrolls within the room the notices leave it: its last choice is in reach
       await page.locator('.chat .agent').click({ timeout: 5000 });
@@ -143,7 +148,7 @@ const overlaps = page => page.evaluate(() => {
       if (width === 1280 && scheme === 'light') {
         // a tall stack (three captures more) stops short of the feed, the key hints and Feedback
         await page.keyboard.press('Escape');
-        await page.getByText('Not kept until you send').waitFor({ state: 'detached' });
+        await page.locator('.chat').waitFor({ state: 'detached' });
         await page.evaluate(() => {
           const files = new DataTransfer();
           for (const name of ['alpha-notes.txt', 'beta-sketch.txt', 'gamma-ledger.txt']) files.items.add(new File(['Sample text for the notice preview.'], name, { type: 'text/plain' }));

@@ -1,6 +1,6 @@
-<!-- A Desktop in the chrome: its cube from the field (lib/v2/wireMotion.ts),
-     flat, in glass with a hairline in the text's colour. While it works it
-     turns on the Desktop's own clock, so in step with its cube in the field.
+<!-- A lens in the chrome: its cube from the field (lib/v2/wireMotion.ts),
+     flat, in glass with a hairline in the text's colour. While its notes are
+     scored it turns on the lens's own clock, so in step with its cube in the field.
      The glass covers what's behind it, so it's mixed over --cube-ground:
      whatever the cube sits on. -->
 <script lang="ts">

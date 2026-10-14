@@ -3,17 +3,17 @@
   // read as it lands, each assertion with its author. The canvas is
   // lib/v2/scene.ts (three.js, loaded on demand); everything with words
   // is here. Keys: / search by name, j/k walk the feed (Enter opens a row's
-  // source as a draft desktop: kept once you message it, gone on Esc), Shift+Enter starts a pilot on what's in hand ("Re: …"), ⌘N (or n) a blank
-  // one the pilot names itself, \ shows or hides the desktop's views, Esc back out.
-  // Pilots are the real agents: /api/pilot/chat sessions, placed over their
-  // context, and their chat opens here as a flat column over the field.
+  // source to read, Esc closes it), \ shows or hides a desktop's views, Esc back out.
+  // Each lens stands in the field as a cube among what it holds; a click
+  // filters the field to it and opens what it holds. Sessions already
+  // started (/api/pilot/chat) wait in the bar; nothing here starts one.
   import { onMount, tick, untrack } from "svelte";
   import { api } from "../lib/api";
   import { app, goto, gotoLens } from "../lib/store.svelte";
   import { reloadSharedConnections, sharedSettings } from "../lib/sharedSettings.svelte";
   import { selectedWorkspace } from "../lib/vaultScope";
   import type { CopyWhy, FoldGroup, GraphData, NoteResult, SourceOrigin } from "../lib/types";
-  import { barPilots, buildField, foldOffer, latestPerFamily, neighbours, placePilots, searchFound, searchNames, sourceItems, twinsOf, type Field, type PilotSummary, type V2Feed, type V2FeedRow } from "../lib/v2/model";
+  import { barPilots, buildField, foldOffer, latestPerFamily, neighbours, placeLenses, searchFound, searchNames, sourceItems, twinsOf, type Field, type PilotSummary, type V2Feed, type V2FeedRow } from "../lib/v2/model";
   import { md, sanitizeHtml } from "../lib/markdown";
   import { Readability } from "@mozilla/readability";
   import { openExternal } from "../lib/native";
@@ -23,17 +23,16 @@
   import type { V2Scene } from "../lib/v2/scene";
   import { plainText as plain, refreshSortedPages, SORTED_PAGE, type V2SortedRow } from "../../../../lib/views/v2Feed";
   import type { DesktopTile, DesktopView } from "../../../../lib/pilotDesktop";
-  import { DEFAULT_PILOT_BACKEND } from "../../../../lib/pilotBackendTypes";
-  import DesktopCube from "./DesktopCube.svelte";
+  import LensCube from "./LensCube.svelte";
   import PilotMentionComposer from "./PilotMentionComposer.svelte";
   import ShortcutsSheet from "./ShortcutsSheet.svelte";
   import { keyText, registerShortcuts, RANK } from "../lib/shortcuts.svelte";
   import { keyboardHints } from "../lib/keyboardHints.svelte";
   import { graphSources } from "../lib/graphSources.svelte";
-  import { lensRequest, type LensSummary, type ServerRef } from "../lib/lenses.svelte";
+  import { lensRequest, reviewWords, type LensDetail, type LensSummary, type ServerRef } from "../lib/lenses.svelte";
   import { serializeMentions, type MentionItem } from "../../../../lib/pilotMentions";
   import { mentionRecents, mentionSearch } from "../lib/mentionSources";
-  import { viewsBehind, type Rendered } from "../lib/viewStamps";
+  import { recordMoved, viewsBehind, type Rendered, type ViewStamps } from "../lib/viewStamps";
   import { applicationCursor, subscribeApplication, updatePump } from "../lib/applicationUpdates";
 
   /** The workbench hands in fabricated data; the app fetches the vault's.
@@ -46,7 +45,8 @@
   let hudEl: HTMLElement | undefined = $state();
   let feedEl: HTMLElement | undefined = $state();
   let searchEl: HTMLElement | undefined = $state();
-  let lensesEl: HTMLElement | undefined = $state();
+  let vaultsEl: HTMLElement | undefined = $state();
+  let lensEl: HTMLElement | undefined = $state();
   let qEl: HTMLInputElement | undefined = $state();
   let sidebarEl: HTMLElement | undefined = $state();
   /** The chat's width, when you've dragged the split (null: the default
@@ -120,13 +120,9 @@
   /** Coding desktops (lib/codingDesktops.ts) have `d-` ids and live at /api/desktops;
    * Pilot conversations keep their own routes. One switch, so the rest of the view is shared. */
   const coding = (id: string | null | undefined): boolean => !!id && id.startsWith("d-");
-  /** A draft desktop: a feed item opened as a desktop (its source beside an
-   * empty chat), held only here. Your first message makes it a real coding
-   * desktop, in the bar from then on; Esc before that and it's gone. */
-  const drafting = (id: string | null | undefined): boolean => !!id && id.startsWith("draft:");
-  let draft: { row: V2SortedRow; path: string; model?: string; titled?: boolean } | null = null;
-  /** The Pilot model from Settings › Models, as last read: what a draft desktop will start on. */
-  let pilotModel = DEFAULT_PILOT_BACKEND.model;
+  /** A source opened to read: its row, and the view it's read in, held only
+   * here. Esc goes back to the feed, on the row it came from. */
+  let reading: { row: V2SortedRow; view: DesktopView } | null = $state(null);
   let pilotsAll: PilotSummary[] = $state([]);
   let openPilot: string | null = $state(null);
   let detail: PilotDetail | null = $state(null);
@@ -141,6 +137,8 @@
   let hidden: Record<string, boolean> = $state({});
   let desktopViews: DesktopView[] = $derived.by(() => detail?.desktop?.views ?? []);
   let showDesktop = $derived(!!openPilot && desktopViews.length > 0 && !hidden[openPilot]);
+  /** Every view drawn: an open desktop's, or the source being read. */
+  let shownViews: DesktopView[] = $derived.by(() => (reading ? [reading.view] : desktopViews));
   /** A note view's text; a source (a saved email, article, meeting…) also
    * carries how it came in, and Quick's summary of it to read first. */
   /** `page`: the host the source's page was read from, when it read better than what was saved. */
@@ -156,7 +154,7 @@
   let remoteCheck: Promise<boolean> = Promise.resolve(true);
   const checkRemote = () => { remoteCheck = data ? Promise.resolve(false) : api.config().then((c) => (remoteOk = c.security?.remote_content ?? true), () => remoteOk); };
   $effect(() => {
-    for (const v of desktopViews) if (v.kind === "note" && !notes[v.path]) {
+    for (const v of shownViews) if (v.kind === "note" && !notes[v.path]) {
       notes[v.path] = {};
       Promise.all([api.note(v.path), remoteCheck]).then(([r]) => {
         // only a source the engine says a person or a feed sent in reaches out unasked
@@ -266,8 +264,8 @@
     load.parentElement!.replaceWith(img);
     return true;
   }
-  /** The source in front, whose original ⌘O opens: a draft desktop's, or the panel's. */
-  const original = (): string | undefined => data ? undefined : draft?.path ?? src?.row.path;
+  /** The source in front, whose original ⌘O opens: the one being read, or the panel's. */
+  const original = (): string | undefined => data ? undefined : reading?.view.path ?? src?.row.path;
   /** ⌘O: the open source's origin, handed to the OS (lib/origin.ts): its page
    * in the browser, a dropped file in the app that reads it, a text-only drop
    * as a Markdown copy. Field draws none of them itself. */
@@ -295,13 +293,8 @@
   }
 
   async function closeView(view: string): Promise<void> {
+    if (reading?.view.id === view) return closeReader();
     if (!openPilot) return;
-    if (drafting(openPilot) && detail?.desktop) {
-      const views = detail.desktop.views.filter((v) => v.id !== view);
-      detail = { ...detail, desktop: { views, layout: views[0] ? { view: views[0].id } : null, arrangedBy: null } };
-      void tick().then(() => scene?.shift(shiftFor()));
-      return;
-    }
     try {
       if (coding(openPilot)) await desktopReq("/view", { id: openPilot, action: "close", view });
       else await pilotReq("/desktop", { id: openPilot, action: "close", view });
@@ -331,7 +324,6 @@
     const id = openPilot, title = renameText.trim();
     renaming = false;
     if (!id || !title || title === detail?.title) return;
-    if (drafting(id) && detail && draft) { detail = { ...detail, title }; draft.titled = true; return; }
     try {
       // the engine's rename marks the name as a person's (Quick stops re-naming);
       // an older engine without it still takes the title through /context
@@ -353,7 +345,6 @@
     if (!openPilot) return;
     const [adapter, provider] = agent.id.split("/");
     const reasoning = model.reasoning?.includes("medium") ? "medium" : model.reasoning?.[0];
-    if (drafting(openPilot) && detail && draft) { draft.model = `${provider}/${model.id}`; detail = { ...detail, model: model.id }; pickerOpen = false; return; }
     try {
       if (coding(openPilot)) await desktopReq("/model", { id: openPilot, model: `${provider}/${model.id}` });
       else await pilotReq("/backend", { id: openPilot, backend: { adapter, provider, model: model.id, ...(reasoning ? { reasoning } : {}) } });
@@ -416,7 +407,7 @@
   }
   async function loadDetail(): Promise<void> {
     const id = openPilot;
-    if (!id || drafting(id)) return;
+    if (!id) return;
     try {
       const d = await chatReq<PilotDetail>(id, `/session?id=${encodeURIComponent(id)}`);
       seen.set(id, d);
@@ -462,11 +453,6 @@
   });
   let live: string = $derived.by(() => (coding(openPilot) ? liveText : detail?.live ?? ""));
 
-  // the bar's pilots, placed among their context, are what the field draws
-  $effect(() => {
-    const f = field, b = bar;
-    if (f && scene) scene.setPilots(placePilots(f, b));
-  });
   // keep the scroll at the newest message, unless you have scrolled up to
   // read: it follows again once you are back at the bottom
   let following = true;
@@ -478,104 +464,46 @@
   function openPilotChat(id: string): void {
     following = true;
     if (searching) { searching = false; scene?.search(null); }
-    ent = null; entRows = null;
+    ent = null; entRows = null; reading = null;
     openPilot = id; detail = seen.get(id) ?? (pilotsAll.find((p) => p.id === id) as PilotDetail | undefined) ?? null;
     checkRemote();
     for (const [path, n] of Object.entries(notes)) if (n.source) delete notes[path];
     if (detail && !detail.messages) detail = { ...detail, messages: [] };
     scene?.openEntity(null);
-    scene?.focusPilot(id);
     scene?.shift(shiftFor());
     void loadDetail();
     void tick().then(() => composer?.focus(true));
   }
   function closePilot(): void {
-    const wasDraft = drafting(openPilot);
     openPilot = null; detail = null;
-    scene?.focusPilot(null);
     overview();
-    if (wasDraft) {
-      // back to the feed, on the row it came from
-      draft = null; draftText = "";
-      unlight();
-      void tick().then(() => feedEl?.querySelector(".row.at")?.scrollIntoView({ block: "nearest" }));
-    }
   }
-  /** Open a feed row's source as a draft desktop: the source beside an empty chat. */
-  function openDraft(r: V2SortedRow, path: string): void {
+  /** Open a feed row's source to read: the source alone, over the field. */
+  function openReader(r: V2SortedRow, path: string): void {
     if (searching) { searching = false; scene?.search(null); }
+    if (openPilot) { openPilot = null; detail = null; }
     ent = null; entRows = null; closeSource();
-    cursor = r.source; following = true; draftText = "";
-    draft = { row: r, path };
+    cursor = r.source;
     checkRemote(); delete notes[path];
-    const title = r.title ?? r.headline;
-    openPilot = `draft:${r.source}`;
-    detail = { id: openPilot, title, model: pilotModel, phase: "draft", lifecycle: "active", messages: [],
-      desktop: { views: [{ id: "v-source", kind: "note", path, title, at: r.added }], layout: { view: "v-source" }, arrangedBy: null } };
+    reading = { row: r, view: { id: "v-source", kind: "note", path, title: r.title ?? r.headline, at: r.added } };
     scene?.hover(null);
-    scene?.focusPilot(null);
     scene?.shift(shiftFor());
-    void tick().then(() => { scene?.shift(shiftFor()); composer?.focus(true); });
-    const held = draft;
-    void pilotReq<{ model: string }>("/backend").then((b) => {
-      pilotModel = b.model;
-      if (draft === held && !held.model && detail) detail = { ...detail, model: b.model };
-    }, () => {});
+  }
+  /** Back from reading: to the feed, on the row it came from. */
+  function closeReader(): void {
+    reading = null;
+    unlight();
+    scene?.shift(shiftFor());
+    void tick().then(() => feedEl?.querySelector(".row.at")?.scrollIntoView({ block: "nearest" }));
   }
   /** A message you just sent, as the transcript will carry it (under its inputId). */
   const sent = (inputId: string, text: string) => ({ id: inputId, role: "user" as const, text, at: new Date().toISOString() });
-  /** The first message keeps a draft desktop: made for real, with its views, and the message sent. */
-  async function keepDraft(text: string, inputId: string): Promise<void> {
-    const id = openPilot, d = detail, held = draft;
-    if (!id || !d || !held) return;
-    detail = { ...d, phase: "working", messages: [sent(inputId, text)] };
-    try {
-      const made = await desktopReq<{ id: string }>("/create", {
-        ...(held.titled ? { title: d.title } : {}), ...(held.model ? { model: held.model } : {}),
-        context: [{ path: held.path, title: held.row.title ?? held.row.headline }],
-        views: (d.desktop?.views ?? []).map((v) => ({ path: v.path, title: v.title })),
-      });
-      await desktopReq("/send", { id: made.id, text, inputId });
-      if (draft === held) draft = null;
-      await refreshPilots();
-      if (openPilot !== id) return; // you left while it was made: it waits in the bar
-      if (hidden[id]) hidden[made.id] = true;
-      openPilot = made.id; detail = { ...detail!, id: made.id };
-      scene?.focusPilot(made.id);
-      void loadDetail();
-    } catch (e) {
-      if (openPilot === id) { detail = d; draftText = text; }
-      flash(`Couldn’t start the desktop: ${errText(e)}`);
-    }
-  }
-  /** A new session: on `context` (note paths), titled now if `title` is given,
-   * else named by the pilot itself once it starts (the engine's own rule). */
-  async function createPilot(context: string[], title?: string, labels: string[] = []): Promise<void> {
-    try {
-      const made = await desktopReq<{ id: string }>("/create", { ...(title ? { title } : {}), context: context.map((path, k) => ({ path, title: labels[k] ?? path })) });
-      await refreshPilots();
-      openPilotChat(made.id);
-      return;
-    } catch (e) {
-      if ((e as { status?: number }).status !== 404) { flash(`Couldn’t start a desktop: ${errText(e)}`); return; }
-    }
-    const id = `pilot-${crypto.randomUUID().replaceAll("-", "")}`;
-    try {
-      const made = await pilotReq<PilotDetail>("/create", { id, context });
-      if (title) await pilotReq("/context", { id, nodes: context, title, expectedRevision: made.viewRevision ?? 0 });
-      await refreshPilots();
-      openPilotChat(id);
-    } catch (e) {
-      flash(`Couldn’t start a pilot: ${errText(e)}`);
-    }
-  }
   async function sendDraft(): Promise<void> {
     following = true;
     const id = openPilot, text = draftText.trim();
     if (!id || !text) return;
     draftText = "";
     const inputId = `in-${crypto.randomUUID()}`;
-    if (drafting(id)) return keepDraft(text, inputId);
     // shown now, not after the engine has the agent up: the transcript carries it under the
     // same id (lib/codingDesktops.ts), so the reload below replaces it in place
     const before = detail;
@@ -684,7 +612,7 @@
   let rows = $derived.by(() => (!writing ? [] : claim ? claim.rows : ent != null && entRows ? entRows.slice(-6) : writing.feed.slice(-6)));
   /** `same`: what it may be the same thing as, said where F and X answer it. */
   let hud = $derived.by((): { eyebrow: string; name: string; status: string; writing?: boolean; same?: string; claim?: boolean } | null => {
-    if (!field || !writing || searching || openPilot) return null;
+    if (!field || !writing || searching || openPilot || reading) return null;
     const titled = (r: V2SortedRow) => ({ eyebrow: [r.via, when(r.added)].filter(Boolean).join(" · "), name: r.title ?? r.headline });
     if (src) return { ...titled(src.row), status: src.text ?? "", writing: src.text === "" };
     if (claim) return { eyebrow: [when(claim.row.at), claim.row.by].join(" · "), name: claim.row.text, status: "", claim: true };
@@ -742,15 +670,15 @@
     const camera = fresh ? undefined : scene?.camera();
     scene?.dispose();
     scene = createV2Scene(host, field, {
-      blockers: () => [hudEl, feedEl, searching ? searchEl : undefined, chatEl, sidebarEl, lensesEl].filter((e): e is HTMLElement => !!e).map((e) => e.getBoundingClientRect()).filter((r) => r.height > 0),
+      blockers: () => [hudEl, lensEl, feedEl, searching ? searchEl : undefined, chatEl, sidebarEl, vaultsEl].filter((e): e is HTMLElement => !!e).map((e) => e.getBoundingClientRect()).filter((r) => r.height > 0),
       onPick,
-      onPickPilot: (id) => (openPilot === id ? closePilot() : openPilotChat(id)),
+      onPickLens: (id) => void toggleLens(id),
       onHover: relateTie,
       onPickSource,
       sources: () => graphSources.show,
       onDragEnd: redrawIfIdle,
     }, camera);
-    scene.setPilots(placePilots(field, bar));
+    drawLenses();
     applyLens();
     sceneRev++;
   }
@@ -855,9 +783,10 @@
 
   /** A click in the field: open what's under it; empty space backs out. */
   function onPick(i: number | null): void {
-    if (i == null) { if (openPilot) closePilot(); else if ((ent != null || src || claim) && !searching) overview(); return; }
+    if (i == null) { if (openPilot) closePilot(); else if (reading) closeReader(); else if ((ent != null || src || claim) && !searching) overview(); return; }
     if (searching) { searching = false; scene?.search(null); }
-    if (openPilot) { openPilot = null; detail = null; scene?.focusPilot(null); }
+    if (openPilot) { openPilot = null; detail = null; }
+    if (reading) reading = null;
     if (i !== ent) openNode(i);
   }
   /** A node picked (clicked, or chosen in search): an entity that is a
@@ -877,15 +806,16 @@
    * way, as search's are. */
   function openSourceAt(paths: string[], id: string, label: string, entities: string[]): void {
     if (searching) { searching = false; scene?.search(null); }
-    if (openPilot) { openPilot = null; detail = null; scene?.focusPilot(null); }
+    if (openPilot) { openPilot = null; detail = null; }
+    if (reading) reading = null;
     openSource(paths.map((p) => sorted.find((r) => r.path === p)).find((r) => r)
       ?? { source: id, section: "know", headline: label, due: null, added: "", entities, title: label, path: paths[0] });
   }
   /** Slide the field's centre clear of the panels: right of a left column, left of the sidebar. */
   const shiftFor = () => {
     const chatW = (chatWidth ?? Math.min(1000, Math.max(520, innerWidth * 0.44))) + GUTTER; // .v2's --chat-w, plus a gutter
-    const left = searching ? Math.min(600, innerWidth * 0.4) : openPilot ? chatW : ent != null || src || claim || cursor ? Math.min(380, innerWidth * 0.26) : 0;
-    if (openPilot && !showDesktop && !searching) return 0; // the chat stands alone, centred
+    const left = searching ? Math.min(600, innerWidth * 0.4) : openPilot ? chatW : ent != null || src || claim || cursor || lensOn ? Math.min(380, innerWidth * 0.26) : 0;
+    if ((openPilot && !showDesktop || reading) && !searching) return 0; // the chat, or the source read, stands alone, centred
     const right = showDesktop ? innerWidth - chatW - GUTTER : 0;
     return (left - right) / 2;
   };
@@ -901,45 +831,107 @@
     scene?.shift(shiftFor());
   }
 
-  // ── lenses and servers: a lens filters your field; a server is its own ─
-  type LensRow = { id: string; name: string; kind: "lens" | "server" };
-  let lensRows: LensRow[] = $state([]);
+  // ── vaults and lenses: a server's field is its own; a lens filters yours ─
+  // The gear lists the vaults: yours (Personal) and the servers you have
+  // joined. Lenses stand in your field as cubes (placeLenses): a click turns
+  // one on, filtering the field to it and opening what it holds. A server's
+  // field draws no lenses yet: whether it should draw those shared with it
+  // is open (docs/plans/2026-10-13-lenses-are-the-door.md).
+  let servers: ServerRef[] = $state([]);
+  let lenses: (LensSummary & { entities: string[] })[] = $state([]);
   let lensOn: string | null = $state(null);
-  let lensIds: string[] = [];
+  /** The lens that is on, as /api/lenses/lens has it: rule, members, review. */
+  let lensDetail: LensDetail | null = $state(null);
   /** The server whose own field is drawn in place of yours: what everyone who reads it sees. */
-  let serverOn: string | null = null;
+  let serverOn: string | null = $state(null);
   /** A field's graph and its stamp: a server's own (unstamped), or yours. */
   const graphOf = async (server: string | null, current = false): Promise<{ data: GraphData; stamp: string }> =>
     server ? { data: await api.serverGraph(server), stamp: "" } : api.graph(current);
   const shownGraph = (current = false) => graphOf(serverOn, current);
+  /** The lenses and servers, and each lens's entities: where its cube stands. */
   async function loadLensRows(): Promise<void> {
     const r = await lensRequest<{ lenses: LensSummary[]; servers: ServerRef[] }>("").catch(() => null);
-    if (r) lensRows = [...r.lenses.map((l): LensRow => ({ id: l.id, name: l.name, kind: "lens" })), ...r.servers.map((s): LensRow => ({ id: s.id, name: s.name, kind: "server" }))];
-  }
-  /** The chosen lens, as the field's filter. */
-  const applyLens = () => scene?.filter(lensOn && !serverOn && field ? indicesOf(lensIds) : null);
-  async function toggleLens(v: LensRow): Promise<void> {
-    if (!field) return;
-    const on = lensOn === v.id ? null : v.id, server = on && v.kind === "server" ? on : null;
-    lensOn = on; lensIds = [];
-    const before = serverOn;
-    if (server !== before) {
-      // another field altogether: the server's own, or yours again
-      const pushed = app.views?.views;
-      const g = await graphOf(server).catch((e) => { flash(`Couldn’t open ${v.name}: ${errText(e)}`); return null; });
-      if (lensOn !== on) return;
-      if (!g) { lensOn = before; applyLens(); return; }
-      serverOn = server;
-      fetchedGraph(g.stamp, pushed);
-      closeSource(); ent = null; entRows = null; graphStale = false; heldGraph = null;
-      await drawField(g.data, true);
-    }
-    if (on && !server) {
-      const ids = (await lensRequest<{ entities: string[] }>(`entities?id=${on}`).catch(() => ({ entities: [] }))).entities;
-      if (lensOn !== on) return;
-      lensIds = ids;
-    }
+    if (!r) return;
+    servers = r.servers;
+    const had = new Map(lenses.map((l) => [l.id, l.entities]));
+    lenses = await Promise.all(r.lenses.map(async (l) => ({ ...l,
+      entities: await lensRequest<{ entities: string[] }>(`entities?id=${l.id}`).then((e) => e.entities, () => had.get(l.id) ?? []) })));
+    if (lensOn && !lenses.some((l) => l.id === lensOn)) letGoLens();
+    else if (lensOn) void loadLensDetail(lensOn);
+    drawLenses();
     applyLens();
+  }
+  /** Lenses are read again when the record or the vault's files move: a
+   * scoring pass landing, a lens saved, shared or deleted. */
+  let lensStamps: ViewStamps | null = null;
+  $effect(() => {
+    const next = app.views;
+    if (!next || data) return;
+    untrack(() => { if (recordMoved(lensStamps, next)) void loadLensRows(); lensStamps = next; });
+  });
+  function drawLenses(): void {
+    if (!field || !scene) return;
+    scene.setLenses(serverOn ? [] : placeLenses(field, lenses.map((l) => ({ id: l.id, name: l.name, working: !!l.pending && !l.error, entities: l.entities }))));
+    scene.focusLens(serverOn ? null : lensOn);
+  }
+  /** The lens that is on, as the field's filter. */
+  const applyLens = () => scene?.filter(lensOn && !serverOn && field ? indicesOf(lenses.find((l) => l.id === lensOn)?.entities ?? []) : null);
+  async function loadLensDetail(id: string): Promise<void> {
+    const d = await lensRequest<LensDetail>(`lens?id=${id}`).catch((e) => { flash(`Couldn’t open the lens: ${errText(e)}`); return null; });
+    if (lensOn === id) lensDetail = d;
+  }
+  /** A cube clicked: its lens on (filtering the field, its panel open), or, on already, off. */
+  async function toggleLens(id: string): Promise<void> {
+    if (!field || serverOn) return;
+    if (lensOn === id) { letGoLens(); return; }
+    if (searching) closeSearch();
+    if (openPilot) closePilot();
+    if (reading) reading = null;
+    if (ent != null || src || claim) { ent = null; entRows = null; closeSource(); scene?.openEntity(null); }
+    cursor = null;
+    lensOn = id; lensDetail = null;
+    scene?.focusLens(id);
+    applyLens();
+    scene?.shift(shiftFor());
+    await loadLensDetail(id);
+  }
+  function letGoLens(): void {
+    lensOn = null; lensDetail = null;
+    scene?.focusLens(null);
+    applyLens();
+    scene?.overview();
+    scene?.shift(shiftFor());
+  }
+  /** "Looks OK" on a held review: what the lens is scored with now is what you have seen. */
+  let reviewing = $state(false);
+  async function reviewOk(id: string): Promise<void> {
+    reviewing = true;
+    try { lensDetail = await lensRequest<LensDetail>("review-ok", { id }); void loadLensRows(); }
+    catch (e) { flash(`Couldn’t clear the review: ${errText(e)}`); }
+    finally { reviewing = false; }
+  }
+  /** A note in the lens, opened to read; the feed's walk stays where it was. */
+  function openLensNote(n: LensDetail["notes"][number]): void {
+    if (data) return;
+    const walk = cursor;
+    openReader(sorted.find((r) => r.path === n.path) ?? { source: n.id, section: "know", headline: n.title, due: null, added: n.date, entities: [], title: n.title, path: n.path }, n.path);
+    cursor = walk;
+  }
+  /** The gear's list: your own field (null), or a server's. Only the last
+   * choice lands, however the fetches finish. */
+  let vaultAsked = 0;
+  async function chooseVault(server: string | null): Promise<void> {
+    const asked = ++vaultAsked;
+    if (!field || server === serverOn) return;
+    const name = server ? servers.find((s) => s.id === server)?.name ?? "the server" : "your vault";
+    const pushed = app.views?.views;
+    const g = await graphOf(server).catch((e) => { flash(`Couldn’t open ${name}: ${errText(e)}`); return null; });
+    if (!g || asked !== vaultAsked) return;
+    serverOn = server;
+    lensOn = null; lensDetail = null;
+    fetchedGraph(g.stamp, pushed);
+    closeSource(); ent = null; entRows = null; reading = null; graphStale = false; heldGraph = null;
+    await drawField(g.data, true);
   }
 
   // ── walking the feed ──────────────────────────────────────────────────
@@ -951,10 +943,10 @@
   /** The feed row under the pointer: set as the pointer moves, not on enter,
    * so a row the walk scrolls under a resting pointer isn't taken for one pointed at. */
   let rowOver: V2SortedRow | null = $state(null);
-  /** The source in hand — a draft's, an opened one, the row under the
-   * pointer, else the walk's — drawn in the field while it's held. */
+  /** The source in hand — the one being read, an opened one, the row under
+   * the pointer, else the walk's — drawn in the field while it's held. */
   const sourceInHand = $derived.by((): V2SortedRow | null => {
-    if (drafting(openPilot)) return draft?.row ?? null;
+    if (reading) return reading.row;
     if (openPilot || ent != null) return null;
     if (searching) return recentRow;
     return src?.row ?? rowOver ?? cursorRow();
@@ -1001,7 +993,7 @@
     if (r.lens && r.section === "needs-you") return gotoLens(r.lens); // a review opens its lens
     // what a lens shared: its entities, one selection; clicked again, it lets go
     if (r.lens && src?.row.source === r.source) { overview(); unlight(); cursor = null; return; }
-    if (r.path && !data) return openDraft(r, r.path);
+    if (r.path && !data) return openReader(r, r.path);
     if (ent != null) { ent = null; entRows = null; }
     claim = null;
     cursor = r.source;
@@ -1049,21 +1041,6 @@
     } catch { return undefined; }
   }
 
-  /** What Shift+Enter starts a pilot on: the active search result, else the
-   * feed row in hand (its source), else the opened thing. */
-  function inHand(): { path: string; label: string } | null {
-    const r = searching ? recentRow : ent == null ? cursorRow() : null;
-    if (r?.path) return { path: r.path, label: r.title ?? r.headline };
-    const i = searching ? activeNode() : ent;
-    const n = i == null ? null : field?.nodes[i];
-    return n?.path ? { path: n.path, label: n.label } : null;
-  }
-  /** A pilot on the thing in hand, as the app's lists start one, titled "Re: …". */
-  async function startPilot(): Promise<void> {
-    const n = inHand();
-    if (!n) { flash(`Open something first — ${keyText("start")} starts a Desktop on it.`); return; }
-    await createPilot([n.path], `Re: ${n.label}`, [n.label]);
-  }
   let noticeTimer: ReturnType<typeof setTimeout> | undefined;
   const errText = (e: unknown): string => (e instanceof Error ? e.message : String(e));
   const foldLabel = (id: string) => folds.flatMap((g) => g.members).find((m) => m.id === id)?.label
@@ -1360,8 +1337,10 @@
     getSelection()?.removeAllRanges();
     if (pickerOpen) pickerOpen = false;
     else if (openPilot) closePilot();
+    else if (reading) closeReader();
     else if (ent != null || src || claim) { overview(); unlight(); }
     else if (cursor) leaveFeed();
+    else if (lensOn) letGoLens();
     else return false;
     return true;
   }
@@ -1377,18 +1356,16 @@
         { id: "search", label: "Search", keys: [{ key: "/" }], when: () => !!field, run: openSearch },
         { id: "feed", label: "Step through the feed", keys: [{ key: ["j", "k"] }], when: () => !!field, run: (e) => stepFeed(e.key === "j" ? 1 : -1) },
         { id: "open", label: "Open the selected row", keys: [{ key: "Enter", shift: false }], when: () => !!cursor && ent == null && !!cursorRow(), run: () => openSource(cursorRow()!) },
-        { id: "start", label: "Start a Desktop on what’s open", keys: [{ key: "Enter", shift: true }], when: () => !!field, run: () => void startPilot() },
         { id: "desktops", label: "Open or close a Desktop", keys: [{ key: ["1", "2", "3", "4", "5", "6", "7", "8", "9"], label: "1–9" }], run: (e) => {
           const p = bar[Number(e.key) - 1];
           if (!p) return false;
           if (openPilot === p.id) closePilot(); else openPilotChat(p.id);
         } },
-        { id: "new", label: "New Desktop", keys: [{ key: "n", mod: true, shift: false }, { key: "n" }], when: () => !!field, run: () => void createPilot([]) },
         { id: "views", label: "Show or hide the Desktop’s views", keys: [{ key: "\\" }], when: () => !!openPilot, run: toggleDesktop },
         { id: "original", label: "Open the original source", keys: [{ key: "o", mod: true, shift: false }], when: () => !!original(), run: () => void openOriginal(original()!) },
         { id: "back", label: "Back", keys: [{ key: "Escape", shift: false }], run: back },
         // from the message box too, where an open Desktop's keys usually are
-        { id: "archive", label: "Archive the Desktop", keys: [{ key: "Escape", shift: true, typing: true }], when: () => !!openPilot && !drafting(openPilot), run: () => void archiveDesktop() },
+        { id: "archive", label: "Archive the Desktop", keys: [{ key: "Escape", shift: true, typing: true }], when: () => !!openPilot, run: () => void archiveDesktop() },
         // ⌘, (Ctrl+, elsewhere): the same view the app's gear opens
         { id: "settings", label: "Settings", keys: [{ key: ",", mod: true }], run: openSettings },
         { id: "shortcuts", label: "Shortcuts", keys: [{ key: "?" }], run: () => { shortcutsOpen = true; } },
@@ -1397,12 +1374,11 @@
       registerShortcuts({ title: "Search", rank: RANK.input, when: () => !paused && searching, input: () => qEl, shortcuts: [
         { id: "search-move", label: "Move through results", keys: [{ key: ["ArrowUp", "ArrowDown"] }], run: (e) => setActive(active + (e.key === "ArrowDown" ? 1 : -1)) },
         { id: "search-open", label: "Open the result", keys: [{ key: "Enter", shift: false }], run: () => commit() },
-        { id: "search-start", label: "Start a Desktop on the result", keys: [{ key: "Enter", shift: true }], run: () => void startPilot() },
         { id: "search-close", label: "Close search", keys: [{ key: "Escape" }], run: closeSearch },
       ] }),
       // an Esc the composer's @ menu let through leaves the composer
       registerShortcuts({ title: "Message box", rank: RANK.input, when: () => !paused, input: () => composerEl, shortcuts: [
-        { id: "composer-leave", label: "Leave the message box", keys: [{ key: "Escape", shift: false }], run: () => { if (drafting(openPilot) && !draftText.trim()) closePilot(); else composer?.blur(); } },
+        { id: "composer-leave", label: "Leave the message box", keys: [{ key: "Escape", shift: false }], run: () => composer?.blur() },
       ] }),
     ];
     return () => offs.forEach((off) => off());
@@ -1411,7 +1387,7 @@
 
 {#snippet tile(t: DesktopTile)}
   {#if "view" in t}
-    {@const v = desktopViews.find((x) => x.id === t.view)}
+    {@const v = shownViews.find((x) => x.id === t.view)}
     {#if v}
       {@const srcMeta = v.kind === "note" ? notes[v.path]?.source : undefined}
       <article class="view" aria-label={v.title}>
@@ -1459,20 +1435,18 @@
   <div class="stage" bind:this={host}></div>
 
   {#if field}
-    <nav class="strip" aria-label="Pilots">
+    <nav class="strip" aria-label="Conversations">
       <!-- the task's full name is the token: no model squeezed in beside it -->
       {#each bar as p, k (p.id)}
         <span class="tokwrap">
           <button type="button" class="tok" class:on={openPilot === p.id} class:working={p.phase === "working"} aria-pressed={openPilot === p.id}
             title={`${p.title} · ${p.model} · ${PHASE[p.phase]} (${k + 1})`} onclick={() => (openPilot === p.id ? closePilot() : openPilotChat(p.id))}>
-            <DesktopCube id={p.id} working={p.phase === "working"} />
             <span class="k">{k + 1}</span><span class="t">{p.title}</span>
           </button>
           <button type="button" class="tokx" class:on={openPilot === p.id} onclick={() => void closeDesktop(p.id)}
             aria-label={`Close ${p.title}`} title="Close this desktop: its processes stop; its conversation is kept">×</button>
         </span>
       {/each}
-      <button type="button" class="new" onclick={() => void createPilot([])} title={`New Desktop ${keyText("new") && `(${keyText("new")})`}`}>+ <span class="k keyboard-hint">{keyText("new")}</span></button>
       <button type="button" class="find" onclick={openSearch}>Search <span class="k keyboard-hint">{keyText("search")}</span></button>
       <span class="gearwrap">
         <button type="button" class="gear" onclick={openSettings} aria-label="Settings">
@@ -1481,11 +1455,12 @@
             <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.08a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.08a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
           </svg>
         </button>
-        {#if lensRows.length}
-          <div class="lenses" bind:this={lensesEl} role="group" aria-label="Lenses and servers">
-            {#each lensRows as v, k (v.kind + v.id)}
-              {#if v.kind === "server" && lensRows[k - 1]?.kind !== "server"}<span class="lenshead">Servers</span>{/if}
-              <button type="button" class="lensrow" class:on={lensOn === v.id} aria-pressed={lensOn === v.id} onclick={() => void toggleLens(v)}>{v.name}</button>
+        {#if servers.length}
+          <div class="vaults" bind:this={vaultsEl} role="group" aria-label="Vaults">
+            <button type="button" class="vaultrow" class:on={!serverOn} aria-pressed={!serverOn} onclick={() => void chooseVault(null)}>Personal</button>
+            <span class="vaulthead">Servers</span>
+            {#each servers as v (v.id)}
+              <button type="button" class="vaultrow" class:on={serverOn === v.id} aria-pressed={serverOn === v.id} onclick={() => void chooseVault(v.id)}>{v.name}</button>
             {/each}
           </div>
         {/if}
@@ -1519,6 +1494,38 @@
         </div>
       {/if}
     </header>
+  {/if}
+
+  {#if lensDetail && !hud && !searching && !openPilot && !reading}
+    {@const l = lensDetail}
+    <section class="hud lens" bind:this={lensEl} aria-label={`Lens: ${l.name}`}>
+      <span class="eyebrow"><LensCube id={l.id} working={!!l.pending && !l.error} size={13} />{["Lens", `${l.members} ${l.members === 1 ? "note" : "notes"}`, l.pending ? `${l.pending} waiting` : "", l.servers.length ? `shared with ${l.servers.map((s) => s.name).join(", ")}` : ""].filter(Boolean).join(" · ")}</span>
+      <h1>{l.name}</h1>
+      {#if l.text.trim()}<p class="rule">{l.text}</p>{/if}
+      {#if l.error}<p class="err">{l.error}</p>{/if}
+      {#if l.review}
+        <div class="same" role="group" aria-label="Review">
+          <span class="same-head">{l.review.hold ? "Held for review" : "Changed"}</span>
+          <p class="same-why">{reviewWords(l.review, l.servers)}{l.review.joins.length || l.review.leaves.length ? ` ${[l.review.joins.length && `${l.review.joins.length} would join`, l.review.leaves.length && `${l.review.leaves.length} would leave`].filter(Boolean).join(", ")}.` : ""}</p>
+          {#each l.review.joins as n (n.id)}<div class="cand"><span class="cand-name">+ {n.title}</span></div>{/each}
+          {#each l.review.leaves as n (n.id)}<div class="cand"><span class="cand-name">− {n.title}</span></div>{/each}
+          <span class="acts">
+            <button type="button" disabled={reviewing} onclick={() => void reviewOk(l.id)}>Looks OK</button>
+            <button type="button" onclick={() => gotoLens(l.id)}>Edit the lens</button>
+          </span>
+        </div>
+      {/if}
+      {#if l.notes.length}
+        <ul class="members" aria-label="In this lens">
+          {#each l.notes as n (n.id)}
+            <li><button type="button" onclick={() => openLensNote(n)} title={n.title}><span class="t">{n.title}</span><span class="d">{n.date}</span></button></li>
+          {/each}
+        </ul>
+      {:else}
+        <p>Nothing in it yet.</p>
+      {/if}
+      {#if !l.review}<span class="acts"><button type="button" onclick={() => gotoLens(l.id)}>Edit the lens</button></span>{/if}
+    </section>
   {/if}
 
   {#if searching && field}
@@ -1562,7 +1569,7 @@
     </div>
   {/if}
 
-  {#if sorted.length && ent == null && !openPilot}
+  {#if sorted.length && ent == null && !openPilot && !reading}
     <div class="feed sorted" class:walking={cursor} bind:this={feedEl} onscroll={onFeedScroll} aria-label="Your feed">
       {#each sortedShown as r (r.source)}
         <div class="row s-{r.section}" class:at={r.source === cursor} class:open={r.source === src?.row.source} role="button" tabindex="-1"
@@ -1575,7 +1582,7 @@
         </div>
       {/each}
     </div>
-  {:else if rows.length && !openPilot}
+  {:else if rows.length && !openPilot && !reading}
     <div class="feed" bind:this={feedEl} onscroll={onFeedScroll} aria-label="Latest assertions">
       {#each rows as r (r.id)}
         <div class="row" class:open={r.id === claim?.row.id} role="button" tabindex="-1"
@@ -1658,7 +1665,7 @@
             </span>
           </div>
         {/if}
-        {#if !detail.messages.length && detail.phase === "draft"}<p class="activity">{coding(detail.id) || drafting(detail.id) ? "Ask it anything: it can read your vault and work on your projects." : "Ask it anything — it can read your vault."}</p>{/if}
+        {#if !detail.messages.length && detail.phase === "draft"}<p class="activity">{coding(detail.id) ? "Ask it anything: it can read your vault and work on your projects." : "Ask it anything — it can read your vault."}</p>{/if}
       </div></div>
       <div class="dock" style:--gutter={`${gutter}px`}><div class="composer col">
         <div class="input" bind:this={composerEl} onfocusin={() => { if (!mentionRecentItems.length && !mentionRecentLoading) loadMentionRecents(); }}>
@@ -1672,8 +1679,7 @@
         <div class="row">
           <span class="k">{[hint("composer-send", coding(detail.id) && detail.phase === "working" ? "Steer" : "Send"), hint("composer-newline", "New line"), hint("composer-leave", "Back")].filter(Boolean).join(" · ")}</span>
           {#if detail.phase === "working"}<button type="button" class="find" onclick={() => void stopPilot()}>Stop</button>{/if}
-          {#if drafting(detail.id)}<span class="k">{["Not kept until you send", original() && hint("original", "Open original")].filter(Boolean).join(" · ")}</span>
-          {:else if coding(detail.id)}<button type="button" class="find" onclick={() => void archiveDesktop()} title={`Stop its processes; its files and conversation stay ${keyText("archive") && `(${keyText("archive")})`}`}>Archive</button>{/if}
+          {#if coding(detail.id)}<button type="button" class="find" onclick={() => void archiveDesktop()} title={`Stop its processes; its files and conversation stay ${keyText("archive") && `(${keyText("archive")})`}`}>Archive</button>{/if}
         </div>
       </div></div>
     </section>
@@ -1706,13 +1712,18 @@
     <aside class="side" bind:this={sidebarEl} aria-label="Desktop">
       {@render tile(detail.desktop.layout)}
     </aside>
+  {:else if reading}
+    <aside class="side reader" bind:this={sidebarEl} aria-label="Reading">
+      {@render tile({ view: reading.view.id })}
+      {#if original()}<p class="k">{[hint("original", "Open original"), hint("back", "Back")].filter(Boolean).join(" · ")}</p>{/if}
+    </aside>
   {/if}
 
   {#if keyboardHints.show}<button type="button" class="hints" onclick={() => (shortcutsOpen = true)} aria-haspopup="dialog"><kbd>{keyText("shortcuts")}</kbd> Shortcuts</button>{/if}
   <ShortcutsSheet bind:open={shortcutsOpen} />
   {#if notice}<p class="notice" role="status">{notice}</p>{/if}
   {#if error}<p class="error">The v2 view couldn’t load: {error}</p>{/if}
-  {#if field && !field.nodes.length && !openPilot}
+  {#if field && !field.nodes.length && !openPilot && !reading}
     <!-- a new vault: nothing drawn yet, so say how things arrive -->
     <div class="empty">
       <h1>Nothing here yet</h1>
@@ -1751,11 +1762,11 @@
     text-shadow: 0 0 3px var(--bg), 0 0 8px var(--bg), 0 0 16px var(--bg); }
   .stage :global(.v2-node .t) { font: 400 11px/1.2 var(--font-mono); letter-spacing: -0.01em; color: var(--v2-muted); }
   .stage :global(.v2-node:hover .t) { color: var(--fg); }
-  /* Desktop names in the sans, a size up from the mono names of the field */
-  .stage :global(.v2-pilot) { font: 500 12px/1 var(--font-app); color: var(--v2-muted); }
-  .stage :global(.v2-pilot:hover) { color: var(--fg); }
+  /* lens names in the sans, a size up from the mono names of the field */
+  .stage :global(.v2-lens) { font: 500 12px/1 var(--font-app); color: var(--v2-muted); }
+  .stage :global(.v2-lens:hover), .stage :global(.v2-lens.on) { color: var(--fg); }
   .stage :global(.v2-source) { pointer-events: none; }
-  .stage :global(.v2-pilot.working) { color: color-mix(in srgb, var(--activity) 80%, var(--fg)); }
+  .stage :global(.v2-lens.working) { color: color-mix(in srgb, var(--activity) 80%, var(--fg)); }
   .stage :global(.v2-node.memory .t) { font: 500 12px/1.2 var(--font-app); color: var(--fg); }
   .stage :global(.v2-node .q), .stage :global(.v2-node .c) { display: none; }
   .stage :global(.v2-node.full .c:not(:empty)) { display: block; margin-bottom: 6px; font: 600 9px/1 var(--font-mono); letter-spacing: .14em; text-transform: uppercase; color: var(--v2-faint); }
@@ -1770,23 +1781,19 @@
 
   .strip { position: absolute; top: 18px; left: var(--app-gutter, 34px); right: var(--app-gutter, 34px); display: flex; gap: 4px; min-width: 0; z-index: 2; }
   .strip > :global(*) { flex: 0 1 auto; min-width: 0; }
-  .strip .find, .strip .gear, .strip .new { flex: none; }
+  .strip .find, .strip .gear { flex: none; }
   .find { display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 11px; border: 0; border-radius: 999px;
     background: color-mix(in srgb, var(--bg) 70%, transparent); color: var(--fg); font: 500 13px/1 var(--font-app); cursor: pointer; }
   .find:hover { background: color-mix(in srgb, var(--fg) 7%, var(--bg)); }
   .k { font: 500 10px/1 var(--font-mono); color: var(--v2-faint); }
   .find { margin-left: auto; color: var(--v2-muted); }
-  .tok, .new { display: inline-flex; align-items: center; gap: 7px; height: 30px; max-width: 40ch; padding: 0 12px; border: 0; border-radius: 999px;
+  .tok { display: inline-flex; align-items: center; gap: 7px; height: 30px; max-width: 40ch; padding: 0 12px; border: 0; border-radius: 999px;
     background: color-mix(in srgb, var(--bg) 70%, transparent); color: var(--fg); font: 500 13px/1 var(--font-app); cursor: pointer; }
   .tok .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  /* the cube's glass sits on the token's own ground */
-  .tok { --cube-ground: var(--bg); }
-  .tok:hover { --cube-ground: color-mix(in srgb, var(--fg) 7%, var(--bg)); }
-  .tok.on { --cube-ground: var(--fg); }
-  .tok:hover, .new:hover { background: color-mix(in srgb, var(--fg) 7%, var(--bg)); }
+  .tok:hover { background: color-mix(in srgb, var(--fg) 7%, var(--bg)); }
   /* the × sits over the token's right end, shown on hover or keyboard focus */
   .tokwrap { position: relative; display: inline-flex; }
-  /* a narrow bar shortens the names rather than drawing them over + and Search */
+  /* a narrow bar shortens the names rather than drawing them over Search */
   .tokwrap > .tok { min-width: 0; }
   .tokx { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); width: 20px; height: 20px; padding: 0; border: 0; border-radius: 999px;
     background: color-mix(in srgb, var(--fg) 7%, var(--bg)); color: var(--v2-muted); font: 400 14px/1 var(--font-app); cursor: pointer; opacity: 0; transition: opacity .12s; }
@@ -1796,17 +1803,16 @@
   .tokx.on:hover { color: var(--bg); }
   .tok.on { background: var(--fg); color: var(--bg); }
   .tok.on .k { color: color-mix(in srgb, var(--bg) 65%, var(--fg)); }
-  .new { color: var(--v2-muted); }
   .find.lit { color: var(--fg); }
-  /* the lenses and servers show while the pointer is on the gear or on them */
+  /* the vaults show while the pointer is on the gear or on them */
   .strip .gearwrap { flex: none; position: relative; display: inline-flex; }
-  .lenses { position: absolute; top: 100%; right: 0; width: max-content; display: none; flex-direction: column; align-items: flex-end; gap: 2px; padding-top: 6px; }
-  .gearwrap:hover .lenses, .gearwrap:has(:focus-visible) .lenses { display: flex; }
-  .lenshead { padding: 10px 11px 4px; font: var(--type-eyebrow); text-transform: uppercase; letter-spacing: 1px; color: var(--v2-faint); }
-  .lensrow { display: inline-flex; align-items: center; white-space: nowrap; height: 28px; padding: 0 11px; border: 0; border-radius: 999px;
+  .vaults { position: absolute; top: 100%; right: 0; width: max-content; display: none; flex-direction: column; align-items: flex-end; gap: 2px; padding-top: 6px; }
+  .gearwrap:hover .vaults, .gearwrap:has(:focus-visible) .vaults { display: flex; }
+  .vaulthead { padding: 10px 11px 4px; font: var(--type-eyebrow); text-transform: uppercase; letter-spacing: 1px; color: var(--v2-faint); }
+  .vaultrow { display: inline-flex; align-items: center; white-space: nowrap; height: 28px; padding: 0 11px; border: 0; border-radius: 999px;
     background: color-mix(in srgb, var(--bg) 70%, transparent); color: var(--v2-muted); font: 500 13px/1 var(--font-app); cursor: pointer; }
-  .lensrow:hover { color: var(--fg); background: color-mix(in srgb, var(--fg) 7%, var(--bg)); }
-  .lensrow.on { background: var(--fg); color: var(--bg); }
+  .vaultrow:hover { color: var(--fg); background: color-mix(in srgb, var(--fg) 7%, var(--bg)); }
+  .vaultrow.on { background: var(--fg); color: var(--bg); }
   /* What sits under the top bar leaves the notification stack its corner
      (NotificationStack.svelte): it starts at --under-bar, --notice-lane keeps
      the chat (--chat-at) and the empty state left of the stack's column, and
@@ -1904,6 +1910,9 @@
   .side { position: absolute; top: max(var(--under-bar), var(--notice-foot, 0px)); bottom: 26px; right: var(--app-gutter, 34px); left: calc(var(--chat-at) + 3 * var(--app-gutter, 34px)); z-index: 1;
     display: flex; flex-direction: column; gap: 8px; }
   .side > .ws-split, .side > .view { flex: 1; min-height: 0; }
+  /* a source read: alone, centred where a chat on its own stands */
+  .side.reader { left: calc((100% - var(--notice-lane, 0px)) / 2); right: auto; width: var(--chat-at); transform: translateX(-50%); }
+  .side.reader > .k { margin: 0; font: 400 11px/1 var(--font-app); color: var(--v2-faint); text-align: center; }
   .ws-split { display: flex; gap: 10px; min-width: 0; min-height: 0; }
   .ws-split.ws-row { flex-direction: row; } .ws-split.ws-col { flex-direction: column; }
   .ws-cell { flex-basis: 0; min-width: 0; min-height: 0; display: flex; }
@@ -2003,6 +2012,20 @@
     background: var(--bg); color: var(--fg); font: 500 12.5px/1 var(--font-app); cursor: pointer; text-shadow: none; }
   .acts button:hover { background: color-mix(in srgb, var(--fg) 6%, var(--bg)); }
   .same .busy { font: 400 12.5px/1.6 var(--font-app); color: var(--v2-muted); }
+  /* a lens that is on: what it holds, beside the field it filters */
+  /* above the feed at its tallest (.feed.sorted: 156px, from 26px up) */
+  .hud.lens { bottom: calc(26px + 156px + 18px); pointer-events: none; }
+  .hud.lens .eyebrow { display: inline-flex; align-items: center; gap: 8px; }
+  .hud.lens .rule { font-size: 14px; color: var(--v2-muted); }
+  .hud.lens .err { font-size: 13px; color: var(--v2-muted); }
+  /* a list over the field: on its own ground, so dots and ties don't run through it */
+  .hud.lens .members { flex: 0 1 auto; min-height: 0; max-height: none; overflow-y: auto; margin: 2px 0 0 -8px; padding: 2px 0; border-radius: 9px;
+    background: color-mix(in srgb, var(--bg) 88%, transparent); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); pointer-events: auto; text-shadow: none; }
+  .hud.lens .members li { display: block; padding: 0; }
+  .hud.lens .members button { display: flex; align-items: baseline; gap: 10px; width: 100%; padding: 5px 8px; border: 0; border-radius: 7px; background: none; color: var(--fg); text-align: left; cursor: pointer; }
+  .hud.lens .members button:hover { background: color-mix(in srgb, var(--fg) 7%, var(--bg)); }
+  .hud.lens .members .t { flex: 1; min-width: 0; font: 400 13.5px/1.35 var(--font-app); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .hud.lens .members .d { flex: none; font: 400 11px/1 var(--font-mono); color: var(--v2-faint); }
 
   .search { position: absolute; top: var(--under-bar); left: calc(var(--app-gutter, 34px) - 8px); width: min(480px, calc(100% - 32px)); z-index: 2;
     border-radius: 11px; background: var(--bg); box-shadow: 0 0 0 1px var(--rule); overflow: hidden; animation: v2fade .14s ease-out; }

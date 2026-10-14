@@ -85,7 +85,10 @@ export async function installGraphFixture() {
     { id: 'sample-question', role: 'user', text: 'What connects these project notes?', at: sample.created },
     { id: 'sample-answer', role: 'assistant', text: 'The [[sources/shared-design-review.md|Shared design review]] connects the Atlas update and project notebook. It captures the decisions behind the planned expansion.', at: sample.created },
   ];
+  // one view beside its chat, so Field draws a desktop's split
+  sample.desktop = { views: [{ id: 'v-review', kind: 'note', path: 'sources/shared-design-review.md', title: 'Shared design review', at: sample.created }] };
   const older = structuredClone(sample);
+  delete older.desktop;
   older.id = 'pilot-22222222222222222222222222222222'; older.title = 'Earlier project review';
   older.created = new Date(Date.parse(sample.created) - 86400000).toISOString();
   older.updated = older.created; older.lastActivityAt = new Date(Date.now() - 11 * 60 * 60 * 1000).toISOString(); older.lifecycle = 'dormant';

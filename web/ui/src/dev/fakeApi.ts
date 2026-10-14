@@ -1181,6 +1181,8 @@ function serveLenses(path: string, search?: URLSearchParams): Response | null {
     return json({ id: "preview", busy: false, done: GARDEN.notes.length, total: GARDEN.notes.length, failed: 0, rows });
   }
   if (path === "/api/lenses/mode") return json({ mode: "yeehaw" });
+  // "Looks OK": the held lens (the only one with a review) is scored as it stands
+  if (path === "/api/lenses/review-ok") { delete (LENSES[0] as { review?: unknown }).review; return json(LENSES[0]); }
   return json(find(null));
 }
 function serveServers(path: string, search?: URLSearchParams): Response | null {

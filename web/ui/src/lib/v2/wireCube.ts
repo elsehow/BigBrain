@@ -1,4 +1,4 @@
-// A Desktop in the field: the Wire mark, the logo's two-by-two cube, in glass
+// A lens in the field: the Wire mark, the logo's two-by-two cube, in glass
 // with a hairline outline. Its motion is bigbrain.cool's: a half of the cube
 // turns a half turn (TURN_MS, eased), holds HOLD_MS, and the next move begins.
 //
