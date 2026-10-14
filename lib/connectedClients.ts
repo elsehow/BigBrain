@@ -4,6 +4,11 @@ import { dirname, join } from "node:path";
 import { listTokens, mintToken, revokeToken, renewToken, tokenStorePath, verifyToken, touchLastUsed, hasScope, tokenExpired, noteExpiredUse, clearExpiredUse, expiredMessage, listedInConnectedClients } from "./auth";
 import { writeAtomic } from "./fsx";
 import { mcpServerEntry } from "./mcpRegister";
+import { apiPort } from "./env";
+import { DOOR_SENTENCE } from "./doorPresentation";
+/** The one door: MCP over the local API. */
+export const doorUrl=(port=apiPort())=>`http://127.0.0.1:${port}/mcp`;
+const quote=(s:string)=>/^[a-zA-Z0-9_@%+=:,./-]+$/.test(s)?s:"'"+s.replaceAll("'", "'\\''")+"'";
 export const CLIENT_KINDS = ["claude-code", "codex", "generic"] as const;
 export type ClientKind = typeof CLIENT_KINDS[number];
 interface Credential { id: string; kind: ClientKind; token: string; managedBy?: string; replaces?: string }
@@ -52,16 +57,28 @@ export class ConnectedClients {
     if ((verified.ok ? verified.record : verified.expired)?.id !== id) throw new Error("Client connection was revoked. Reconnect in Connected Clients.");
     return c.token;
   }
+  /** How an agent reaches the vault through the one door (#302): the local
+   * API's `/mcp`, with this connection's credential in the header. It holds
+   * the secret, so it is shown only when asked for, and only in the app. */
   setup(id:string) {
+    const token=this.token(id), c=this.credential(id), url=doorUrl(), bearer=`Bearer ${token}`;
+    const claude=`claude mcp remove --scope user bigbrain\nclaude mcp add --scope user --transport http bigbrain ${url} --header ${quote("Authorization: "+bearer)}`;
+    // The Codex CLI takes a bearer token only from an environment variable; its config file takes the header itself.
+    const codex=`[mcp_servers.bigbrain]\nurl = "${url}"\nhttp_headers = { Authorization = "${bearer}" }`;
+    const after=" BigBrain has to be running for the agent to reach the vault. This setup holds the connection’s secret: give it only to that agent.";
+    return {id,kind:c.kind,url,sentence:DOOR_SENTENCE,configuration:{mcpServers:{bigbrain:{type:"http",url,headers:{Authorization:bearer}}}},
+      command:c.kind==="claude-code" ? claude : c.kind==="codex" ? codex : null,claude,codex,
+      instructions:(c.kind==="claude-code" ? "Run this in a terminal, then restart Claude Code. It replaces your user-level bigbrain entry; a missing-entry message from the first line is harmless."
+        : c.kind==="codex" ? "Add this to ~/.codex/config.toml in place of any [mcp_servers.bigbrain] there, then restart Codex."
+        : "Add this configuration in your MCP client, then restart that client.")+after};
+  }
+  /** The stdio server's entry for this connection: for clients that launch
+   * a process (`bigbrain mcp config`, `register`, Codex set up from the app)
+   * until the door replaces it. No secret: the process reads the credential. */
+  stdio(id:string) {
     this.token(id);
-    const c=this.credential(id), entry=mcpServerEntry(this.root);
-    entry.args=[...(entry.args ?? []),"--client",id];
-    const quote=(s:string)=>/^[a-zA-Z0-9_@%+=:,./-]+$/.test(s)?s:"'"+s.replaceAll("'", "'\\''")+"'";
-    const envArgs=Object.entries(entry.env ?? {}).flatMap(([k,v])=>["--env",`${k}=${v}`]);
-    const argv=c.kind==="claude-code" ? ["claude","mcp","add","--scope","user",...envArgs,"--transport","stdio","bigbrain","--",entry.command,...entry.args]
-      : c.kind==="codex" ? ["codex","mcp","add","bigbrain",...envArgs,"--",entry.command,...entry.args] : null;
-    return {id,kind:c.kind,configuration:{mcpServers:{bigbrain:entry}},command:argv ? (c.kind==="claude-code" ? "claude mcp remove --scope user bigbrain\n" : "") + argv.map(quote).join(" ") : null,
-      instructions:(c.kind==="generic" ? "Add this configuration in your MCP client, then restart that client." : `Run the setup in a terminal, then restart ${c.kind==="codex" ? "Codex" : "Claude Code"} (restarting BigBrain is not enough).`) + (c.kind==="claude-code" ? " This replaces the existing user-level bigbrain entry; a missing-entry message on the first command is harmless." : "") + " No secret is embedded; this setup works on this computer."};
+    const entry=mcpServerEntry(this.root);entry.args=[...(entry.args ?? []),"--client",id];
+    return {mcpServers:{bigbrain:entry}};
   }
   /** Keep the old plugin authorized until its named replacement actually authenticates. */
   replace(id:string) {

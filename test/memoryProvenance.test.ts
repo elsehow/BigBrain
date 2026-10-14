@@ -99,6 +99,8 @@ describe("stamping", () => {
     events(root);
     spawnSync("git", ["add", "-A"], { cwd: root }); spawnSync("git", ["commit", "-q", "-m", "events"], { cwd: root });
     stageMemoryStamp(root, { protocolVersion: MEMORY_PROTOCOL_VERSION });
+    const journals = () => readdirSync(join(root, "journal/memory")).filter(f => f.endsWith(".json"));
+    const staged = new Set(journals());
     const res = await runMemory({ root, force: true,
       manifest: testManifest(root, { memory: { adapter: "pi", provider: "anthropic", model: "claude-m", interval: "3h", intervalMs: 1 } }),
       loadPi: fakeMemoryPi(() => { writeFileSync(join(root, "memory/MEMORY.md"), TREE); return { result: "```report\nok\n```\n" }; }) });
@@ -106,8 +108,10 @@ describe("stamping", () => {
     const tree = readFileSync(join(root, "memory/MEMORY.md"), "utf8");
     expect(tree).toContain(`[[${outside.id}]] <!-- from: [{"kind":"email","from":"Dana Okafor \\u003cdana@example.invalid\\u003e"`);
     expect(tree).toContain(`- Still 3:1. [[${own.id}]]\n`);
-    const journal = readdirSync(join(root, "journal/memory")).filter(f => f.endsWith(".json"));
-    expect(JSON.parse(readFileSync(join(root, "journal/memory", journal.at(-1)!), "utf8")).stamped).toBe(2);
+    // the run's own journal, not the staged stamp's: readdirSync promises no order
+    const ran = journals().filter(f => !staged.has(f));
+    expect(ran).toHaveLength(1);
+    expect(JSON.parse(readFileSync(join(root, "journal/memory", ran[0]!), "utf8")).stamped).toBe(2);
   });
 });
 
