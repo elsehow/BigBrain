@@ -7,7 +7,7 @@
  *
  * Never expose 4748 directly; front it with a TLS proxy. `/mcp` is not for
  * proxying: it serves whole-vault reads, so it answers only a loopback Host
- * (lib/localMcp.ts) and a proxied request is refused.
+ * and refuses a request that carries a forwarding header (lib/localMcp.ts).
  * Tokens are minted with `bigbrain auth create`.
  */
 

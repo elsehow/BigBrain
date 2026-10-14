@@ -26,7 +26,9 @@ beforeAll(async () => {
   });
   store = join(root, ".tokens");
   clients = new ConnectedClients(root, store);
-  const port = 20_000 + Math.floor(Math.random() * 20_000);
+  // A port the system just handed out, not a guess that another run may hold.
+  const probe = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: () => new Response() });
+  const port = probe.port!; probe.stop(true);
   url = `http://127.0.0.1:${port}/mcp`;
   api = Bun.spawn([process.execPath, resolve("bin/api.ts")], {
     env: childEnv({ BIGBRAIN_VAULT: root, BIGBRAIN_TOKENS: store, BIGBRAIN_API_PORT: String(port) }),
@@ -121,6 +123,9 @@ test("no credential, a stranger's, or the wrong scope is refused", async () => {
   // Nor anything through a proxy or under a rebound name: the Host is not this machine's.
   for (const host of ["bigbrain.example", "rebind.example:4748", "127.0.0.1.example"])
     expect((await post({ authorization: `Bearer ${clients.token(live.id)}`, host })).status).toBe(403);
+  // A proxy that rewrites Host to the loopback upstream still says it forwarded the request.
+  for (const header of ["forwarded", "x-forwarded-for", "x-forwarded-host", "x-real-ip"])
+    expect((await post({ authorization: `Bearer ${clients.token(live.id)}`, host: "127.0.0.1:4748", [header]: "203.0.113.7" })).status).toBe(403);
   // Stateless: there is no stream to open.
   expect((await fetch(url, { headers: { authorization: `Bearer ${clients.token(live.id)}` } })).status).toBe(405);
 });

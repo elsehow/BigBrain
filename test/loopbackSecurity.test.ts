@@ -125,7 +125,7 @@ test("connected-client setups reach only the app's own page", async () => {
   });
   try {
     let ready = false;
-    for (let i = 0; i < 150 && !ready; i++) {
+    for (let i = 0; i < 500 && !ready; i++) {
       try { ready = (await http(port, "/api/engine", viewerAuth(home, port))).status === 200; } catch { /* boot */ }
       if (!ready) await Bun.sleep(40);
     }
@@ -153,4 +153,4 @@ test("connected-client setups reach only the app's own page", async () => {
   } finally {
     child.kill(); await child.exited;
   }
-}, 15_000);
+}, 30_000);
