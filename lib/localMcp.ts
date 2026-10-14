@@ -77,7 +77,7 @@ export async function serveLocalMcp(req: Request, deps: LocalMcpDeps): Promise<{
     const message = expiredMessage(lapsed);
     return {
       record: lapsed,
-      response: await serveStatelessMcp(req, { name: "bigbrain", instructions: MCP_INSTRUCTIONS, tools: () => mcpToolList().filter((t) => hasScope(lapsed, "inbox:write") || t.name !== "drop"), call: () => text(message, true) }),
+      response: await serveStatelessMcp(req, { name: "bigbrain", instructions: MCP_INSTRUCTIONS, tools: () => mcpToolList().filter((t) => (hasScope(lapsed, "inbox:write") || t.name !== "drop") && (!boundLens(lapsed) || t.name !== "load_memory")), call: () => text(message, true) }),
     };
   }
 

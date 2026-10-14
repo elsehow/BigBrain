@@ -258,4 +258,17 @@ test("revoking the lens's connection closes it, and a deleted lens grants nothin
   const orphan = clients.token(clients.create({ name: "Orphan", kind: "generic", lens: gone.id }).id);
   rmSync(join(root, "lenses", `${gone.id}.json`));
   expect((await list(orphan)).status).toBe(403);
+  // A lapsed lens connection is offered only the lens's reads, each answering where to renew it.
+  const lapsedToken = clients.token(clients.create({ name: "Lapsed apiary agent", kind: "codex", lens: lens.id }).id);
+  const later = makeApiHandler({ root, storePath: store, now: () => new Date(Date.now() + 31 * 86_400_000), log: () => {} });
+  const lapsed = await later(new Request("http://127.0.0.1:4748/mcp", { method: "POST",
+    headers: { authorization: `Bearer ${lapsedToken}`, "content-type": "application/json", accept: "application/json, text/event-stream" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }) })).then((r) => r.json());
+  expect(lapsed.result.tools.map((t: { name: string }) => t.name)).toEqual(["search_vault", "read_note", "drop"]);
+  // A revoked lens connection that a plugin's headersHelper asks for is not re-minted (#307 review).
+  const plugin = clients.create({ name: "Claude Code plugin", kind: "claude-code", managedBy: "claude-plugin", lens: lens.id });
+  clients.revoke(plugin.id);
+  const before = JSON.stringify(listTokens(store));
+  expect(() => clients.token(clients.ensure("Claude Code plugin", "claude-code", "claude-plugin").id)).toThrow("revoked");
+  expect(JSON.stringify(listTokens(store))).toBe(before);
 });
