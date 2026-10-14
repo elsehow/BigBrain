@@ -814,13 +814,16 @@
     openReader(sorted.find((r) => r.path === n.path) ?? { source: n.id, section: "know", headline: n.title, due: null, added: n.date, entities: [], title: n.title, path: n.path }, n.path);
     cursor = walk;
   }
-  /** The gear's list: your own field (null), or a server's. */
+  /** The gear's list: your own field (null), or a server's. Only the last
+   * choice lands, however the fetches finish. */
+  let vaultAsked = 0;
   async function chooseVault(server: string | null): Promise<void> {
+    const asked = ++vaultAsked;
     if (!field || server === serverOn) return;
     const name = server ? servers.find((s) => s.id === server)?.name ?? "the server" : "your vault";
     const pushed = app.views?.views;
     const g = await graphOf(server).catch((e) => { flash(`Couldn’t open ${name}: ${errText(e)}`); return null; });
-    if (!g) return;
+    if (!g || asked !== vaultAsked) return;
     serverOn = server;
     lensOn = null; lensDetail = null;
     fetchedGraph(g.stamp, pushed);
