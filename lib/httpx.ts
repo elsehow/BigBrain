@@ -72,9 +72,8 @@ export const CSP = [
   "connect-src 'self' ipc: http://ipc.localhost https://api.openai.com",
   "worker-src 'self' blob:",
   "object-src 'none'",
-  // A desktop view can show a page served on this machine, such as an
-  // agent's dev server (lib/pilotDesktop.ts, loopbackUrl); nothing else.
-  "frame-src http://127.0.0.1:* http://localhost:*",
+  // nothing is framed: coding desktops' served pages went (#304)
+  "frame-src 'none'",
   "base-uri 'self'",
   "form-action 'self'",
   "frame-ancestors 'none'",
@@ -89,9 +88,6 @@ export function armor(res: ServerResponse): void {
   res.setHeader("x-content-type-options", "nosniff");
   res.setHeader("referrer-policy", "no-referrer");
 }
-
-/** The theme stylesheet, served to agents' own pages on other loopback ports. */
-export const THEME_SHEET = "/api/desktops/theme.css";
 
 /** The browser half of the viewer's and setup door's boundary; the launch's
  * session (lib/viewerSession.ts) is checked right after it. Loopback binding
@@ -111,13 +107,6 @@ export function allowLoopbackRequest(req: IncomingMessage, res: ServerResponse):
     return refuse(403, "Use a loopback address to access the app.");
 
   const site = req.headers["sec-fetch-site"];
-  // The one thing other pages on this machine may load: the theme sheet that
-  // agents' served pages link (lib/codingDesktopRoutes.ts). From a loopback
-  // page only, never a website: one on another port (same-site), or one under
-  // the other loopback name, where the viewer frames them (web/ui
-  // loopbackFrame.ts), which a website cannot claim as its referrer.
-  if ((site === "same-site" || (site === "cross-site" && loopbackReferrer(req.headers.referer))) &&
-    ["GET", "HEAD"].includes(req.method ?? "GET") && req.url?.split("?")[0] === THEME_SHEET) return true;
   if (site !== undefined && site !== "same-origin" && site !== "none")
     return refuse(403, "The app's own origin is required.");
   const origin = req.headers.origin;
@@ -137,15 +126,6 @@ export function allowLoopbackRequest(req: IncomingMessage, res: ServerResponse):
     if (type !== "application/json") return refuse(415, "Use application/json for app requests.");
   }
   return true;
-}
-
-function loopbackReferrer(referer: string | undefined): boolean {
-  try {
-    const from = new URL(referer ?? "");
-    return from.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(from.hostname);
-  } catch {
-    return false;
-  }
 }
 
 /** Reply with a body already serialized. API responses are live vault

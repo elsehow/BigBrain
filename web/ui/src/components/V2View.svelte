@@ -18,8 +18,6 @@
   import { Readability } from "@mozilla/readability";
   import { openExternal } from "../lib/native";
   import { openOrigin, originHint, originLabel } from "../lib/origin";
-  import { pageDoc, themeSheet, themeVars } from "../lib/pageTheme";
-  import { otherLoopback } from "../lib/loopbackFrame";
   import type { V2Scene } from "../lib/v2/scene";
   import { plainText as plain, refreshSortedPages, SORTED_PAGE, type V2SortedRow } from "../../../../lib/views/v2Feed";
   import type { DesktopTile, DesktopView } from "../../../../lib/pilotDesktop";
@@ -109,17 +107,7 @@
 
   // ── pilots ──────────────────────────────────────────────────────────────
   type PilotDetail = PilotSummary & { messages: Array<{ id: string; role: "user" | "assistant" | "activity"; text: string; at: string; ok?: boolean }>; error?: string; viewRevision?: number;
-    desktop?: { views: DesktopView[]; layout: DesktopTile | null; arrangedBy: "agent" | "human" | null };
-    /** Coding desktops: each fork's work, and the servers it runs. */
-    changes?: Array<{ project: string; branch: string; commits: number; dirty: number; stat: string }>;
-    servers?: Array<{ port: number; command?: string }>;
-    /** Coding desktops holding untrusted material: what it was, and the last command its shell refused. */
-    taint?: { sources: Array<{ via: string; title: string }>; refused?: { command: string } };
-    /** Coding desktops: a host the agent asked its commands may reach, until the person answers. */
-    hostRequest?: { host: string; reason: string; untrusted: boolean } };
-  /** Coding desktops (lib/codingDesktops.ts) have `d-` ids and live at /api/desktops;
-   * Pilot conversations keep their own routes. One switch, so the rest of the view is shared. */
-  const coding = (id: string | null | undefined): boolean => !!id && id.startsWith("d-");
+    desktop?: { views: DesktopView[]; layout: DesktopTile | null; arrangedBy: "agent" | "human" | null } };
   /** A source opened to read: its row, and the view it's read in, held only
    * here. Esc goes back to the feed, on the row it came from. */
   let reading: { row: V2SortedRow; view: DesktopView } | null = $state(null);
@@ -296,8 +284,7 @@
     if (reading?.view.id === view) return closeReader();
     if (!openPilot) return;
     try {
-      if (coding(openPilot)) await desktopReq("/view", { id: openPilot, action: "close", view });
-      else await pilotReq("/desktop", { id: openPilot, action: "close", view });
+      await pilotReq("/desktop", { id: openPilot, action: "close", view });
       await loadDetail(); void tick().then(() => scene?.shift(shiftFor()));
     }
     catch (e) { flash(`Couldn’t close the view: ${errText(e)}`); }
@@ -327,11 +314,8 @@
     try {
       // the engine's rename marks the name as a person's (Quick stops re-naming);
       // an older engine without it still takes the title through /context
-      if (coding(id)) await desktopReq("/rename", { id, title });
-      else {
-        try { await pilotReq("/rename", { id, title }); }
-        catch { await pilotReq("/context", { id, nodes: detail?.context ?? [], title, expectedRevision: detail?.viewRevision ?? 0 }); }
-      }
+      try { await pilotReq("/rename", { id, title }); }
+      catch { await pilotReq("/context", { id, nodes: detail?.context ?? [], title, expectedRevision: detail?.viewRevision ?? 0 }); }
       await loadDetail(); await refreshPilots();
     } catch (e) { flash(`Couldn’t rename: ${errText(e)}`); }
   }
@@ -346,8 +330,7 @@
     const [adapter, provider] = agent.id.split("/");
     const reasoning = model.reasoning?.includes("medium") ? "medium" : model.reasoning?.[0];
     try {
-      if (coding(openPilot)) await desktopReq("/model", { id: openPilot, model: `${provider}/${model.id}` });
-      else await pilotReq("/backend", { id: openPilot, backend: { adapter, provider, model: model.id, ...(reasoning ? { reasoning } : {}) } });
+      await pilotReq("/backend", { id: openPilot, backend: { adapter, provider, model: model.id, ...(reasoning ? { reasoning } : {}) } });
       pickerOpen = false;
       await loadDetail(); await refreshPilots();
     } catch (e) { flash(`Couldn’t change the agent: ${errText(e)}`); }
@@ -393,65 +376,22 @@
     return r.json() as Promise<T>;
   }
   const pilotReq = <T,>(path: string, body?: unknown) => request<T>("/api/pilot/chat", path, body);
-  const desktopReq = <T,>(path: string, body?: unknown) => request<T>("/api/desktops", path, body);
-  /** A route both kinds of desktop share (/session, /stop), on the right one for `id`. */
-  const chatReq = <T,>(id: string | null, path: string, body?: unknown) => request<T>(coding(id) ? "/api/desktops" : "/api/pilot/chat", path, body);
   async function refreshPilots(): Promise<void> {
     if (data) return;
-    // either list can be missing (an older engine has no /api/desktops): keep the last of each
-    const [pilots, desktops] = await Promise.all([
-      pilotReq<{ sessions: PilotSummary[] }>("").then((r) => r.sessions, () => null),
-      desktopReq<{ desktops: PilotSummary[] }>("").then((r) => r.desktops, () => null),
-    ]);
-    pilotsAll = [...(pilots ?? pilotsAll.filter((p) => !coding(p.id))), ...(desktops ?? pilotsAll.filter((p) => coding(p.id)))];
+    // a list that fails to come keeps the last one
+    const pilots = await pilotReq<{ sessions: PilotSummary[] }>("").then((r) => r.sessions, () => null);
+    if (pilots) pilotsAll = pilots;
   }
   async function loadDetail(): Promise<void> {
     const id = openPilot;
     if (!id) return;
     try {
-      const d = await chatReq<PilotDetail>(id, `/session?id=${encodeURIComponent(id)}`);
+      const d = await pilotReq<PilotDetail>(`/session?id=${encodeURIComponent(id)}`);
       seen.set(id, d);
       if (openPilot === id) detail = d;
     } catch (e) { if (openPilot === id) flash(errText(e)); }
   }
-  /** The theme pages are dressed in, read off this view's root, and read again when the theme or
-   * light/dark changes. Posted to the engine for pages agents serve themselves (bigbrain.css). */
-  let rootEl: HTMLDivElement | undefined = $state();
-  let themeTick = $state(0);
-  let pageVars: string = $derived.by(() => { void themeTick; return rootEl ? themeVars(rootEl) : ""; });
-  $effect(() => {
-    const dark = matchMedia("(prefers-color-scheme: dark)");
-    const bump = () => { themeTick++; };
-    dark.addEventListener("change", bump);
-    const watch = new MutationObserver(bump);
-    watch.observe(document.documentElement, { attributes: true, attributeFilter: ["class", "style", "data-theme"] });
-    return () => { dark.removeEventListener("change", bump); watch.disconnect(); };
-  });
-  $effect(() => { if (pageVars && !data) void desktopReq("/theme", { css: themeSheet(pageVars) }).catch(() => {}); });
-
-  /** A coding desktop's live stream: text as it's written, and a refresh when anything else happens. */
-  let liveText = $state("");
-  /** The step the agent is on right now ("Running git worktree list…"), from the stream. */
-  let runningLabel = $state("");
-  $effect(() => {
-    const id = openPilot;
-    if (!id || !coding(id) || data) return;
-    liveText = ""; runningLabel = "";
-    const es = new EventSource(`/api/desktops/events?id=${encodeURIComponent(id)}&since=${Number.MAX_SAFE_INTEGER}`);
-    let pending: ReturnType<typeof setTimeout> | undefined;
-    const refresh = () => { clearTimeout(pending); pending = setTimeout(() => { void loadDetail(); void refreshPilots(); }, 120); };
-    es.onmessage = (m) => {
-      const e = JSON.parse(m.data) as { type: string; text?: string; label?: string };
-      if (e.type === "message.delta") { liveText += e.text ?? ""; return; }
-      if (e.type === "tool.start") runningLabel = `${e.label ?? "Working"}…`;
-      if (e.type === "tool.end" || e.type === "status") runningLabel = "";
-      if (e.type === "message.done") liveText = "";
-      refresh();
-    };
-    es.addEventListener("record", refresh);
-    return () => { es.close(); clearTimeout(pending); };
-  });
-  let live: string = $derived.by(() => (coding(openPilot) ? liveText : detail?.live ?? ""));
+  let live: string = $derived.by(() => detail?.live ?? "");
 
   // keep the scroll at the newest message, unless you have scrolled up to
   // read: it follows again once you are back at the bottom
@@ -505,65 +445,23 @@
     draftText = "";
     const inputId = `in-${crypto.randomUUID()}`;
     // shown now, not after the engine has the agent up: the transcript carries it under the
-    // same id (lib/codingDesktops.ts), so the reload below replaces it in place
+    // same id, so the reload below replaces it in place
     const before = detail;
     if (detail?.id === id) detail = { ...detail, messages: [...detail.messages, sent(inputId, text)] };
     try {
-      // a coding desktop's agent is steered by what you say while it works
-      if (coding(id)) await desktopReq(detail?.phase === "working" ? "/steer" : "/send", { id, text, inputId });
-      else await pilotReq("/send", { id, text, inputId });
+      await pilotReq("/send", { id, text, inputId });
       await loadDetail();
     }
     catch (e) { if (openPilot === id) { detail = before; draftText = text; } flash(`Couldn’t send: ${errText(e)}`); }
   }
   async function stopPilot(): Promise<void> {
     if (!openPilot) return;
-    try { await chatReq(openPilot, "/stop", { id: openPilot }); await loadDetail(); } catch (e) { flash(errText(e)); }
+    try { await pilotReq("/stop", { id: openPilot }); await loadDetail(); } catch (e) { flash(errText(e)); }
   }
-  /** What Land would bring home, shown before anything is pushed: the commits and their diff. */
-  type Review = { project: string; branch: string; head: string; commits: Array<{ hash: string; subject: string }>; stat: string; patch: string; cut: boolean };
-  let review: Review | null = $state(null);
-  $effect(() => { void openPilot; review = null; });
-  async function reviewProject(project: string): Promise<void> {
-    try { review = await desktopReq<Review>(`/diff?id=${encodeURIComponent(openPilot ?? "")}&project=${encodeURIComponent(project)}`); }
-    catch (e) { flash(errText(e)); }
-  }
-  /** Bring the reviewed commits home, and only those: a PR when the project is on GitHub, else a branch in your copy. */
-  async function landProject(r: Review): Promise<void> {
-    try {
-      const landed = await desktopReq<{ how: "pr" | "branch"; branch: string; url?: string }>("/land", { id: openPilot, project: r.project, head: r.head });
-      flash(landed.how === "pr" ? `Opened a pull request: ${landed.url}` : `Brought ${landed.branch} home to ${r.project}. Merge it there when you're ready.`);
-      review = null;
-      await loadDetail();
-    } catch (e) { flash(errText(e)); }
-  }
-  let discarding: string | null = $state(null);
-  async function discardProject(project: string): Promise<void> {
-    if (discarding !== project) { discarding = project; flash(`Click Discard again to delete this desktop's copy of ${project}.`); return; }
-    discarding = null;
-    try { await desktopReq("/discard", { id: openPilot, project }); await loadDetail(); } catch (e) { flash(errText(e)); }
-  }
-  /** Why a desktop's shell is off, in words: what it started from, then what it read. */
-  function taintText(t: NonNullable<PilotDetail["taint"]>): string {
-    const started = t.sources.filter((s) => s.via === "start").map((s) => s.title);
-    const read = [...new Set(t.sources.filter((s) => s.via !== "start").map((s) => s.title))];
-    return [started.length && `started from ${started.join(", ")}`, read.length && `read ${read.join(", ")}`].filter(Boolean).join(" and ");
-  }
-  /** The person's word that this desktop may use its shell despite what it read; only here, never the agent's. */
-  async function allowShell(): Promise<void> {
-    try { await desktopReq("/allow-shell", { id: openPilot }); await loadDetail(); } catch (e) { flash(errText(e)); }
-  }
-  /** The person's answer to a host the agent asked for; the engine passes it on as their message. */
-  let answeringHost = $state(false);
-  async function answerHost(answer: "desktop" | "all" | "no"): Promise<void> {
-    answeringHost = true;
-    try { await desktopReq("/answer-host", { id: openPilot, answer }); await loadDetail(); } catch (e) { flash(errText(e)); }
-    finally { answeringHost = false; }
-  }
-  /** The bar's ×: archive a desktop, whichever kind. It leaves the bar; its conversation is kept. */
+  /** The bar's ×: archive a conversation. It leaves the bar; what was said is kept. */
   async function closeDesktop(id: string): Promise<void> {
     try {
-      if (coding(id)) await desktopReq("/archive", { id }); else await pilotReq("/deactivate", { id });
+      await pilotReq("/deactivate", { id });
       if (openPilot === id) closePilot();
       await refreshPilots();
     } catch (e) { flash(`Couldn’t close it: ${errText(e)}`); }
@@ -585,8 +483,7 @@
   async function openNote(path: string): Promise<void> {
     if (!openPilot || data) return;
     try {
-      if (coding(openPilot)) await desktopReq("/view", { id: openPilot, action: "open", path });
-      else await pilotReq("/desktop", { id: openPilot, action: "open", path });
+      await pilotReq("/desktop", { id: openPilot, action: "open", path });
       hidden[openPilot] = false;
       await loadDetail(); void tick().then(() => scene?.shift(shiftFor()));
     }
@@ -768,13 +665,13 @@
   onMount(() => { if (!data && !selectedWorkspace) void reloadSharedConnections().catch(() => {}); });
   onMount(() => {
     void load();
-    // Pilots and desktops re-read when the engine says one changed (`event:
+    // Conversations re-read when the engine says one changed (`event:
     // application`), never on a clock; a connection's snapshot, and a
-    // reconnect's, re-read both. A working Pilot saves as it streams, so its
+    // reconnect's, re-read them. A working Pilot saves as it streams, so its
     // text arrives the same way.
     if (!applicationCursor.connected) void refreshPilots();
     const pump = updatePump(async ({ snapshot, entities }) => {
-      if (snapshot || entities.some((e) => e.kind === "pilot" || e.kind === "desktop")) await refreshPilots();
+      if (snapshot || entities.some((e) => e.kind === "pilot")) await refreshPilots();
       if (openPilot && (snapshot || entities.some((e) => e.id === openPilot))) await loadDetail();
     });
     const unsubscribe = subscribeApplication((update) => void pump.push(update));
@@ -1331,7 +1228,7 @@
   };
 
   /** Esc in the field: let go of any selection, then back out of the
-   * innermost thing open — the agent picker, the Desktop, the entity or
+   * innermost thing open — the agent picker, a conversation, the entity or
    * source, the feed walk. False when there was nothing to back out of. */
   function back(): boolean {
     getSelection()?.removeAllRanges();
@@ -1356,16 +1253,16 @@
         { id: "search", label: "Search", keys: [{ key: "/" }], when: () => !!field, run: openSearch },
         { id: "feed", label: "Step through the feed", keys: [{ key: ["j", "k"] }], when: () => !!field, run: (e) => stepFeed(e.key === "j" ? 1 : -1) },
         { id: "open", label: "Open the selected row", keys: [{ key: "Enter", shift: false }], when: () => !!cursor && ent == null && !!cursorRow(), run: () => openSource(cursorRow()!) },
-        { id: "desktops", label: "Open or close a Desktop", keys: [{ key: ["1", "2", "3", "4", "5", "6", "7", "8", "9"], label: "1–9" }], run: (e) => {
+        { id: "desktops", label: "Open or close a conversation", keys: [{ key: ["1", "2", "3", "4", "5", "6", "7", "8", "9"], label: "1–9" }], run: (e) => {
           const p = bar[Number(e.key) - 1];
           if (!p) return false;
           if (openPilot === p.id) closePilot(); else openPilotChat(p.id);
         } },
-        { id: "views", label: "Show or hide the Desktop’s views", keys: [{ key: "\\" }], when: () => !!openPilot, run: toggleDesktop },
+        { id: "views", label: "Show or hide the conversation’s views", keys: [{ key: "\\" }], when: () => !!openPilot, run: toggleDesktop },
         { id: "original", label: "Open the original source", keys: [{ key: "o", mod: true, shift: false }], when: () => !!original(), run: () => void openOriginal(original()!) },
         { id: "back", label: "Back", keys: [{ key: "Escape", shift: false }], run: back },
-        // from the message box too, where an open Desktop's keys usually are
-        { id: "archive", label: "Archive the Desktop", keys: [{ key: "Escape", shift: true, typing: true }], when: () => !!openPilot, run: () => void archiveDesktop() },
+        // from the message box too, where an open conversation's keys usually are
+        { id: "archive", label: "Archive the conversation", keys: [{ key: "Escape", shift: true, typing: true }], when: () => !!openPilot, run: () => void archiveDesktop() },
         // ⌘, (Ctrl+, elsewhere): the same view the app's gear opens
         { id: "settings", label: "Settings", keys: [{ key: ",", mod: true }], run: openSettings },
         { id: "shortcuts", label: "Shortcuts", keys: [{ key: "?" }], run: () => { shortcutsOpen = true; } },
@@ -1389,35 +1286,24 @@
   {#if "view" in t}
     {@const v = shownViews.find((x) => x.id === t.view)}
     {#if v}
-      {@const srcMeta = v.kind === "note" ? notes[v.path]?.source : undefined}
+      {@const srcMeta = notes[v.path]?.source}
       <article class="view" aria-label={v.title}>
-        <header><span class="vt">{v.title}</span>{#if v.kind === "url"}<a class="vp" href={otherLoopback(v.path)} target="_blank" rel="noopener" title="Open in a browser">{v.path} ↗</a>{:else if srcMeta}<span class="vp" title={v.path}>{srcMeta.via[0]!.toUpperCase() + srcMeta.via.slice(1)}{srcMeta.date ? ` · ${when(srcMeta.date)}` : ""}{srcMeta.page ? ` · read from ${srcMeta.page}` : ""}</span>{:else if v.kind === "note"}<span class="vp">{v.path}</span>{:else}<span class="vp"></span>{/if}
+        <header><span class="vt">{v.title}</span>{#if srcMeta}<span class="vp" title={v.path}>{srcMeta.via[0]!.toUpperCase() + srcMeta.via.slice(1)}{srcMeta.date ? ` · ${when(srcMeta.date)}` : ""}{srcMeta.page ? ` · read from ${srcMeta.page}` : ""}</span>{:else}<span class="vp">{v.path}</span>{/if}
           <button type="button" class="px" onclick={() => void closeView(v.id)} aria-label={`Close ${v.title}`} title="Close — the agent leaves it closed">×</button></header>
-        {#if v.kind === "html"}
-          <!-- the agent's page, in this person's theme; scripts don't run -->
-          <iframe class="vpage vhtml" sandbox="" title={v.title} srcdoc={pageDoc(v.html ?? "", pageVars)}></iframe>
-        {:else if v.kind === "url"}
-          <!-- a page on this machine (the engine's CSP allows nothing else), under
-               the other loopback name so it is sent none of the viewer's cookies. Its own
-               referrer policy: WebKit would otherwise hand it the viewer's no-referrer, and
-               its theme-sheet requests, cross-site with no Referer, are refused (lib/httpx.ts) -->
-          {#key v.at}<iframe class="vpage" src={otherLoopback(v.path)} title={v.title} referrerpolicy="strict-origin-when-cross-origin" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"></iframe>{/key}
-        {:else}
-          <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-          <div class="vbody" onclick={(e) => loadHeld(e) || citation(e)}>
-            {#if srcMeta}
-              <div class="vsum">{#if srcMeta.summary}{srcMeta.summary}{:else}<span class="spin" aria-label="Writing a summary"></span>{/if}</div>
-              {#if srcMeta.header.length}<dl class="vhead">{#each srcMeta.header as [k, val] (k)}<dt>{k}</dt><dd>{val}</dd>{/each}</dl>{/if}
-              {#if srcMeta.copies}<dl class="vhead vorig"><dt>Copies</dt><dd>{#each srcMeta.copies as c, k (k)}<span>{c.title}{c.why ? ` (${COPY_WHY[c.why]})` : ""} <button type="button" onclick={act(() => decideCopies(v.path, c.path, false))}>Not the same</button></span>{/each}</dd></dl>{/if}
-              {#if srcMeta.proposals}<div class="same vsame" role="group" aria-label="Same document?"><span class="same-head">Same document?</span>{#each srcMeta.proposals as p, k (k)}<div class="cand"><span class="cand-name">{p.title}</span><span class="acts"><button type="button" onclick={act(() => decideCopies(v.path, p.path, true))}>Same</button><button type="button" onclick={act(() => decideCopies(v.path, p.path, false))}>Different</button></span></div>{/each}</div>{/if}
-              {#if srcMeta.origins}<dl class="vhead vorig"><dt>Originals</dt><dd>{#each srcMeta.origins as o, k (k)}<button type="button" title={originHint(o)} onclick={act(() => openOne(o))}>{originLabel(o)}</button>{/each}</dd></dl>{/if}
-            {/if}
-            {#if srcMeta}<div class="vsrc">{@html srcMeta.html}</div>
-            {:else if notes[v.path]?.content != null}{@html render(notes[v.path]!.content!)}
-            {:else if notes[v.path]?.error}<p class="activity err">{notes[v.path]!.error}</p>
-            {:else}<p class="activity">Opening…</p>{/if}
-          </div>
-        {/if}
+        <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+        <div class="vbody" onclick={(e) => loadHeld(e) || citation(e)}>
+          {#if srcMeta}
+            <div class="vsum">{#if srcMeta.summary}{srcMeta.summary}{:else}<span class="spin" aria-label="Writing a summary"></span>{/if}</div>
+            {#if srcMeta.header.length}<dl class="vhead">{#each srcMeta.header as [k, val] (k)}<dt>{k}</dt><dd>{val}</dd>{/each}</dl>{/if}
+            {#if srcMeta.copies}<dl class="vhead vorig"><dt>Copies</dt><dd>{#each srcMeta.copies as c, k (k)}<span>{c.title}{c.why ? ` (${COPY_WHY[c.why]})` : ""} <button type="button" onclick={act(() => decideCopies(v.path, c.path, false))}>Not the same</button></span>{/each}</dd></dl>{/if}
+            {#if srcMeta.proposals}<div class="same vsame" role="group" aria-label="Same document?"><span class="same-head">Same document?</span>{#each srcMeta.proposals as p, k (k)}<div class="cand"><span class="cand-name">{p.title}</span><span class="acts"><button type="button" onclick={act(() => decideCopies(v.path, p.path, true))}>Same</button><button type="button" onclick={act(() => decideCopies(v.path, p.path, false))}>Different</button></span></div>{/each}</div>{/if}
+            {#if srcMeta.origins}<dl class="vhead vorig"><dt>Originals</dt><dd>{#each srcMeta.origins as o, k (k)}<button type="button" title={originHint(o)} onclick={act(() => openOne(o))}>{originLabel(o)}</button>{/each}</dd></dl>{/if}
+          {/if}
+          {#if srcMeta}<div class="vsrc">{@html srcMeta.html}</div>
+          {:else if notes[v.path]?.content != null}{@html render(notes[v.path]!.content!)}
+          {:else if notes[v.path]?.error}<p class="activity err">{notes[v.path]!.error}</p>
+          {:else}<p class="activity">Opening…</p>{/if}
+        </div>
       </article>
     {/if}
   {:else}
@@ -1431,7 +1317,7 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" />
 </svelte:head>
 
-<div class="v2" bind:this={rootEl} style:--chat-w={chatWidth ? `${chatWidth}px` : null}>
+<div class="v2" style:--chat-w={chatWidth ? `${chatWidth}px` : null}>
   <div class="stage" bind:this={host}></div>
 
   {#if field}
@@ -1444,7 +1330,7 @@
             <span class="k">{k + 1}</span><span class="t">{p.title}</span>
           </button>
           <button type="button" class="tokx" class:on={openPilot === p.id} onclick={() => void closeDesktop(p.id)}
-            aria-label={`Close ${p.title}`} title="Close this desktop: its processes stop; its conversation is kept">×</button>
+            aria-label={`Close ${p.title}`} title="Close this conversation: it leaves the bar, and what was said is kept">×</button>
         </span>
       {/each}
       <button type="button" class="find" onclick={openSearch}>Search <span class="k keyboard-hint">{keyText("search")}</span></button>
@@ -1615,25 +1501,6 @@
           {#if desktopViews.length}<button type="button" class="find" class:lit={showDesktop} onclick={toggleDesktop} title={`Show or hide this desktop's views ${keyText("views") && `(${keyText("views")})`}`}>{desktopViews.length} {desktopViews.length === 1 ? "view" : "views"} <span class="k keyboard-hint">{keyText("views")}</span></button>{/if}
         </div>
         {#if detail.contextNodes?.length}<p class="ctx">{detail.contextNodes.map((n) => n.title ?? n.id).join(" · ")}</p>{/if}
-        {#if detail.changes?.length}
-          <div class="forks">
-            {#each detail.changes as c (c.project)}
-              <span class="fork"><b>{c.project}</b> {c.commits} commit{c.commits === 1 ? "" : "s"}{c.dirty ? ` · ${c.dirty} uncommitted` : ""}
-                <button type="button" class="find" onclick={() => void reviewProject(c.project)} disabled={!c.commits || c.dirty > 0}
-                  title={c.dirty ? "Commit the changes first; landing moves commits" : c.commits ? "Review its commits, then land them: a pull request when the project is on GitHub, otherwise a branch in your copy" : "Nothing committed yet"}>Land…</button>
-                <button type="button" class="find" class:lit={discarding === c.project} onclick={() => void discardProject(c.project)} title="Delete this desktop's copy">Discard</button></span>
-            {/each}
-          </div>
-        {/if}
-        {#if review && detail.changes?.some((c) => c.project === review?.project)}
-          <div class="review" aria-label={`Changes to land in ${review.project}`}>
-            <p><b>{review.project}</b> · {review.commits.length} commit{review.commits.length === 1 ? "" : "s"} on {review.branch}</p>
-            <ul>{#each review.commits as c (c.hash)}<li><code>{c.hash}</code> {c.subject}</li>{/each}</ul>
-            <pre>{review.patch}{review.cut ? "\n… (the rest is cut here; read it in the worktree)" : ""}</pre>
-            <span><button type="button" class="find" onclick={() => review && void landProject(review)}>Land these commits</button>
-              <button type="button" class="find" onclick={() => { review = null; }}>Cancel</button></span>
-          </div>
-        {/if}
       </header>
       <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
       <div class="msgs" bind:this={msgsEl} onscroll={onMsgsScroll} onclick={citation}><div class="col">
@@ -1642,30 +1509,9 @@
           {:else}<div class="msg {m.role}"><div class="body">{@html render(m.text)}</div></div>{/if}
         {/each}
         {#if live}<div class="msg assistant live"><div class="body">{@html render(live)}</div></div>{/if}
-        {#if detail.phase === "working" && !live}<p class="activity">{(coding(detail.id) && runningLabel) || detail.activity || "Working…"}</p>{/if}
+        {#if detail.phase === "working" && !live}<p class="activity">{detail.activity || "Working…"}</p>{/if}
         {#if detail.error}<p class="activity err">{detail.error}</p>{/if}
-        {#if detail.taint?.refused}
-          <div class="ask" role="group" aria-label="The shell is off for this desktop">
-            <p class="ask-head">The shell is off for this desktop</p>
-            <p>It {taintText(detail.taint)}, so its commands wait for you. Allowed, they run in a sandbox: they change only its own copies of your projects and reach only allowlisted hosts.</p>
-            <code>{detail.taint.refused.command}</code>
-            <span><button type="button" class="allow" onclick={() => void allowShell()}>Allow shell</button></span>
-          </div>
-        {/if}
-        {#if detail.hostRequest}
-          <div class="ask" role="group" aria-label="This desktop asks to reach a site">
-            <p class="ask-head">This desktop asks to reach a site</p>
-            <code>{detail.hostRequest.host}</code>
-            {#if detail.hostRequest.reason}<p>In its words: {detail.hostRequest.reason}</p>{/if}
-            <p>{detail.hostRequest.untrusted ? "It has read content from outside you, so allow only a site you know. " : ""}Allowed, its commands can reach this site; nothing else changes.</p>
-            <span class="ask-actions">
-              <button type="button" class="allow" disabled={answeringHost} onclick={() => void answerHost("desktop")}>Allow for this desktop</button>
-              <button type="button" class="find" disabled={answeringHost} onclick={() => void answerHost("all")}>Allow for all desktops</button>
-              <button type="button" class="find" disabled={answeringHost} onclick={() => void answerHost("no")}>Don’t allow</button>
-            </span>
-          </div>
-        {/if}
-        {#if !detail.messages.length && detail.phase === "draft"}<p class="activity">{coding(detail.id) ? "Ask it anything: it can read your vault and work on your projects." : "Ask it anything — it can read your vault."}</p>{/if}
+        {#if !detail.messages.length && detail.phase === "draft"}<p class="activity">Ask it anything — it can read your vault.</p>{/if}
       </div></div>
       <div class="dock" style:--gutter={`${gutter}px`}><div class="composer col">
         <div class="input" bind:this={composerEl} onfocusin={() => { if (!mentionRecentItems.length && !mentionRecentLoading) loadMentionRecents(); }}>
@@ -1677,9 +1523,8 @@
           {/key}
         </div>
         <div class="row">
-          <span class="k">{[hint("composer-send", coding(detail.id) && detail.phase === "working" ? "Steer" : "Send"), hint("composer-newline", "New line"), hint("composer-leave", "Back")].filter(Boolean).join(" · ")}</span>
+          <span class="k">{[hint("composer-send", "Send"), hint("composer-newline", "New line"), hint("composer-leave", "Back")].filter(Boolean).join(" · ")}</span>
           {#if detail.phase === "working"}<button type="button" class="find" onclick={() => void stopPilot()}>Stop</button>{/if}
-          {#if coding(detail.id)}<button type="button" class="find" onclick={() => void archiveDesktop()} title={`Stop its processes; its files and conversation stay ${keyText("archive") && `(${keyText("archive")})`}`}>Archive</button>{/if}
         </div>
       </div></div>
     </section>
@@ -1950,37 +1795,10 @@
   .vsrc :global(pre) { overflow-x: auto; padding: 12px 14px; border-radius: 8px; background: color-mix(in srgb, var(--fg) 5%, var(--bg)); font: 400 13px/1.5 var(--font-mono); }
   .vsrc :global(table) { border-collapse: collapse; font-size: 0.92em; } .vsrc :global(td), .vsrc :global(th) { padding: 4px 10px; border-bottom: 1px solid var(--rule); text-align: left; }
   .vsrc :global(hr) { border: 0; border-top: 1px solid var(--rule); margin: 1.6em 0; }
-  .vpage { flex: 1; min-height: 0; width: 100%; border: 0; background: #fff; }
-  .vpage.vhtml { background: var(--bg); }
   .act { margin: -12px 0; font: 400 12px/1.5 var(--font-mono); color: var(--v2-faint); }
   .act::before { content: "· "; }
   .act.bad { color: color-mix(in srgb, var(--activity) 80%, var(--fg)); }
   .act.bad::before { content: "× "; }
-  .forks { display: flex; flex-wrap: wrap; gap: 6px 16px; font: 400 12px/1.6 var(--font-mono); color: var(--v2-muted); }
-  .fork { display: inline-flex; align-items: baseline; gap: 8px; }
-  .fork b { font-weight: 500; color: var(--fg); }
-  .fork .find { font-size: 12px; }
-  .fork .find:disabled { opacity: .45; cursor: default; }
-  .ask { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 14px 16px; border-radius: 16px;
-    background: color-mix(in srgb, var(--fg) 9%, var(--bg)); font: 400 13px/1.55 var(--font-app); color: var(--v2-muted); }
-  .ask p { margin: 0; }
-  .ask .ask-head { font-weight: 550; color: var(--fg); }
-  .ask code { display: block; align-self: stretch; max-height: 4.8em; overflow: auto; padding: 8px 10px; border-radius: 8px;
-    background: color-mix(in srgb, var(--bg) 60%, transparent); font: 400 12px/1.5 var(--font-mono); color: var(--fg); overflow-wrap: anywhere; white-space: pre-wrap; }
-  .allow { height: 30px; padding: 0 14px; border: 0; border-radius: 999px; background: var(--fg); color: var(--bg); font: 500 13px/1 var(--font-app); cursor: pointer; }
-  .allow:hover { background: color-mix(in srgb, var(--fg) 86%, var(--bg)); }
-  .ask-actions { display: flex; flex-wrap: wrap; gap: 6px; }
-  .ask-actions .find { margin-left: 0; background: transparent; }
-  .ask-actions .find:hover { background: color-mix(in srgb, var(--bg) 60%, transparent); }
-  .ask-actions button:disabled { opacity: .45; cursor: default; }
-  .review { display: flex; flex-direction: column; gap: 6px; font: 400 12px/1.6 var(--font-mono); color: var(--v2-muted); }
-  .review p, .review ul { margin: 0; padding: 0; list-style: none; }
-  .review li { display: flex; gap: 10px; padding: 0; cursor: default; }
-  .review li code { flex: none; color: var(--fg); }
-  .review b { font-weight: 500; color: var(--fg); }
-  .review pre { margin: 0; max-height: 40vh; overflow: auto; padding: 10px 12px; border-radius: 8px; background: color-mix(in srgb, var(--fg) 5%, var(--bg)); font: 400 11.5px/1.5 var(--font-mono); color: var(--fg); white-space: pre; }
-  .review span { display: inline-flex; gap: 16px; }
-  .review .find { height: 24px; font-size: 12px; }
   .vbody :global(> :first-child) { margin-top: 0; } .vbody :global(p) { margin: 0 0 0.85em; }
   .vbody :global(ul), .vbody :global(ol) { margin: 0 0 0.85em; padding-left: 1.5em; } .vbody :global(li + li) { margin-top: 0.3em; }
   .vbody :global(h1), .vbody :global(h2), .vbody :global(h3), .vbody :global(h4) { margin: 1.2em 0 0.45em; font: 600 calc(var(--chat-fs) * 1.08)/1.35 var(--font-app); }

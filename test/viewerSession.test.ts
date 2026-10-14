@@ -10,7 +10,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { createServer, request, type IncomingHttpHeaders } from "node:http";
 import { existsSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { allowLoopbackRequest, armor, json, THEME_SHEET, type Route } from "../lib/httpx";
+import { allowLoopbackRequest, armor, json, type Route } from "../lib/httpx";
 import { newViewerSecret, SESSION_PATH, viewerGate, viewerLink } from "../lib/viewerSession";
 import { feedbackRoutes } from "../lib/feedback";
 import { setupRoutes, setupState } from "../lib/firstRun";
@@ -162,11 +162,9 @@ describe("the gate", () => {
     expect(readdirSync(join(links, "viewer-links")).length).toBe(1);
   });
 
-  test("the theme sheet agents' pages link is the one other public path", async () => {
+  test("the theme sheet coding desktops' pages linked is gated like everything else", async () => {
     await ready;
-    expect((await http(port, THEME_SHEET, { "sec-fetch-site": "same-site" }))!.status).toBe(200);
-    expect(gated(await http(port, THEME_SHEET, { "content-type": "application/json" }, "POST", "{}"))).toBe(true);
-    expect(gated(await http(port, `${THEME_SHEET}x`))).toBe(true);
+    expect(gated(await http(port, "/api/desktops/theme.css"))).toBe(true);
   });
 });
 
@@ -198,7 +196,6 @@ describe("the real servers", () => {
       const asks: Ask[] = [...ROUTES.map(ask), ...extra.flatMap((p): Ask[] => [[p, "GET", {}, undefined], [p, "POST", { "content-type": "application/json" }, "{}"]])];
       expect(ROUTES.length).toBeGreaterThan(40);
       for (const [path, method, headers, body] of asks) {
-        if (path === THEME_SHEET && method === "GET") continue; // public, above
         const refused = await http(port, path, headers, method, body);
         if (!gated(refused)) throw new Error(`${method} ${path} answered ${refused?.status} without the session`);
       }

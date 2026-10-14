@@ -1,15 +1,13 @@
 /**
  * Vault credentials stay in the vault's .env. Engine processes start without
  * bun's .env autoload (NO_ENV_FILE) and give their children named variables
- * only, so a key reaches no job, git, client CLI or agent command by
- * inheritance. Every key and password here is invented.
+ * only, so a key reaches no job, git or client CLI by inheritance. Every
+ * key and password here is invented.
  */
 import { afterEach, describe, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { hostAgents } from "../lib/agentHost";
-import { offMacLauncher } from "./support/launcher";
 import { ENGINE_ROOT } from "../lib/engine";
 import { CREDENTIAL_ENV, ENGINE_ENV, engineProcessEnv, gitProcessEnv, handoffProcessEnv, NO_ENV_FILE } from "../lib/env";
 import { dropAutoloadedEnv, vaultEnvSettings } from "../lib/envFile";
@@ -17,7 +15,6 @@ import { optionalJevKey } from "../lib/jevSettings";
 import { runClientCli } from "../lib/localClients";
 import { refreshPlugin } from "../lib/pluginState";
 import { apiKeyPresent, jobEnv } from "../lib/preflight";
-import { workspace } from "../packages/agents/src";
 import { gitVault, mdVault } from "./support/vault";
 
 const SECRET = "sk-invented-not-a-key";
@@ -176,24 +173,6 @@ describe("what children inherit", () => {
     expect(r.outcome).toBe("failed");
     expect(readFileSync(join(dir, "claude-env.txt"), "utf8")).toContain("HOME=");
     expect(readFileSync(join(dir, "claude-env.txt"), "utf8")).not.toContain(SECRET);
-  });
-
-  test("a desktop agent's commands carry none of the vault's names, whatever the login shell exports", async () => {
-    const root = vault(), dir = scratch();
-    const env = { PATH: process.env.PATH, HOME: dir, OPENAI_API_KEY: SECRET, VAULT_ONLY_TOKEN: SECRET, TYPESAFE_API_KEY: SECRET, LATER_TOKEN: "invented-later", PROJECT_SETTING: "kept" };
-    const agents = hostAgents(root, workspace(dir), { env, launcher: offMacLauncher });
-    // its own git, cp and gh get git's environment, never this process's
-    const own = await autoloaded(() => agents.ws.env?.());
-    expect(own).toMatchObject({ HOME: process.env.HOME! });
-    expect(JSON.stringify(own)).not.toContain(SECRET);
-    const first = await agents.harbor.run("desk-env", "env", dir);
-    expect(first.status).toBe("exited");
-    expect(first.output).toContain("PROJECT_SETTING=kept");
-    expect(first.output).toContain("LATER_TOKEN=invented-later");
-    expect(first.output).not.toContain(SECRET);
-    // a key saved after the desktop opened is withheld from its next command
-    writeFileSync(join(root, ".env"), `${DOTENV}LATER_TOKEN='another-invented'\n`);
-    expect((await agents.harbor.run("desk-env", "env", dir)).output).not.toContain("LATER_TOKEN");
   });
 });
 

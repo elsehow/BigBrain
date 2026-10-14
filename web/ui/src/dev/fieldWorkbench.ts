@@ -1,24 +1,20 @@
 // Dev/test only: the base with Field on top, over a fabricated vault (every
 // name here is invented). The rest of the engine is fakeApi's, through the
 // graph fixture; this answers what only Field asks: the entity graph, the
-// record, the sorted feed and the coding desktops. `?empty` is a new vault;
+// record and the sorted feed. `?empty` is a new vault;
 // `?view=field` keeps the browser suite's `?view=classic` off it; `?update`
 // shows the update banner, `?credits` a provider out of usage credits beside it,
-// `?working` a Desktop at work (its cube turning). `?reading` puts the
-// Desktops among what they concern: one reads its way across the field, a
-// note every few seconds (entities and sources, one of them older than the
-// sorted feed), so its place can be watched moving; one concerns both sides
-// of the field (some entities twice, which count once); one has nothing
-// placeable yet. It also has an entity that is really a source (a paper
-// taken for its own subject), drawn as one node that opens the paper. `?twins` gives three entities one name (Wren Hollis, kept for
+// `?working` a conversation at work. `?reading` gives the conversations
+// context as they read (one reads its way across the field, a note every few
+// seconds; one concerns both sides; one has nothing placeable yet). It also
+// has an entity that is really a source (a paper taken for its own subject),
+// drawn as one node that opens the paper. `?twins` gives three entities one name (Wren Hollis, kept for
 // its ties; Wren-Hollis; wren hollis) and a three-way fold proposal (Kestrel
 // Books, the pick; Kestrel Bookshop; Kestrel Books Ltd), for Merge?'s Accept and
 // Reject; an accept here takes the merged ones off the field, as the engine's
 // alias would. `?churn` changes the graph every few seconds, with a change ping,
 // as tend filing in the background does: the field is redrawn under you.
-// `?hostRequest` has a coding desktop whose agent asks to reach a site, and
-// the chat's card until you answer; `?hostRequest=untrusted`, one that read
-// content from outside you. `?claims` has no sorted feed, so the latest
+// `?claims` has no sorted feed, so the latest
 // assertions show: the gardener's named by the model its run was on, claims
 // longer than a row, one mentioning nothing in the field; click one.
 import { mount } from "svelte";
@@ -75,11 +71,6 @@ if (new URLSearchParams(location.search).has("churn")) {
   setInterval(() => { graph = { ...graph, hash: `${graph.hash.split("~")[0]}~${++n}` }; window.dispatchEvent(new CustomEvent("workbench-change", { detail: { graph: graph.hash } })); }, 4000);
 }
 const at = (min: number) => new Date(Date.UTC(2026, 9, 5, 9, min)).toISOString();
-const hostScene = new URLSearchParams(location.search).has("hostRequest");
-const hostUntrusted = new URLSearchParams(location.search).get("hostRequest") === "untrusted";
-let hostAnswer = "";
-const HOST_DESK = { id: "d-0000beef", kind: "coding", title: "Tide calculator", titleSource: "human", model: "claude-opus-5-5", phase: "answered",
-  lifecycle: "active", created: at(20), updated: at(22), lastActivityAt: at(22), contextNodes: [] };
 const claimsScene = new URLSearchParams(location.search).has("claims");
 const CLAIMS: Array<[by: string, author: string | null, model: boolean, text: string, entities: string[]]> = [
   ["claude-sonnet-5-5", "gardener", true, "Kit Brennan said the orrery repair needs a new brass escapement before the spring exhibition, and asked Briar Lowe to source one.", ["ent_2", "ent_0", "ent_3"]],
@@ -213,28 +204,6 @@ const fake = window.fetch;
     { id: "claude", label: "Claude Code", ready: true, models: ["opus", "sonnet", "haiku", "fable"].map((id) => ({ id, label: id, reasoning: ["low", "medium", "high"] })) },
     { id: "codex", label: "Codex", ready: true, models: [{ id: "gpt-5.6-terra", label: "Terra" }, { id: "gpt-example", label: "Example Codex model" }] },
   ] });
-  if (url.pathname === "/api/desktops") return json({ desktops: hostScene ? [HOST_DESK] : [] });
-  // `?hostRequest`: a coding desktop whose agent asks to reach a site, until you answer
-  if (hostScene && url.pathname === "/api/desktops/session") return json({ ...HOST_DESK, seq: 4, changes: [], servers: [],
-    messages: [
-      { id: "in-1", role: "user", text: "Add this month's tide tables to the calculator.", at: at(20) },
-      { id: "a2", role: "activity", text: "Ran python3 fetch_tides.py", at: at(21), ok: true },
-      { id: "a3", role: "activity", text: "Asked to reach data.tides.example", at: at(22), ok: true },
-      { id: "m4", role: "assistant", text: "The sandbox refused data.tides.example, where the tables are published. I've asked you to allow it.", at: at(22) },
-      ...hostAnswer ? [{ id: "in-5", role: "user", text: hostAnswer, at: at(23) }] : [],
-    ],
-    ...hostAnswer ? {} : { hostRequest: { host: "data.tides.example", reason: "The script downloads this month's tide tables from it.", untrusted: hostUntrusted } } });
-  if (hostScene && url.pathname === "/api/desktops/answer-host") {
-    const { answer } = JSON.parse(String(init?.body ?? "{}")) as { answer: string };
-    hostAnswer = answer === "no" ? "Didn't allow data.tides.example." : `Allowed data.tides.example for ${answer === "all" ? "every desktop" : "this desktop"}.`;
-    return json(HOST_DESK);
-  }
-  // a new desktop is counted (the browser suite reads it), not started
-  if (url.pathname === "/api/desktops/create") {
-    const w = window as unknown as { desktopsCreated?: number };
-    w.desktopsCreated = (w.desktopsCreated ?? 0) + 1;
-    return json({ error: "The workbench starts no desktops." }, 501);
-  }
   if (reading && url.pathname === "/api/pilot/chat" && !init?.body) {
     const body = await (await fake(input, init)).json() as { sessions: Array<{ title: string; context?: string[]; contextNodes?: unknown[]; phase?: string }> };
     for (const s of body.sessions) {

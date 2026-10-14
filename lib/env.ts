@@ -69,16 +69,6 @@ export const supervisorPidEnv = (): number | undefined => {
  * is not installed over the developer's own. */
 export const isDev = (): boolean => Boolean(str("BIGBRAIN_DEV"));
 
-// ── coding desktops (packages/agents) ────────────────────────────────────────
-
-/** The workspace desktops' agents work in: projects/ and desktops/. Absent:
- * the package's default, ~/bigbrain. */
-export const agentWorkspace = (): string | undefined => str("BIGBRAIN_WORKSPACE");
-
-/** Dev only: a module whose default export hosts a scripted agent
- * (test/support/scriptedAgentHost.ts), for looking at v2 without a model. */
-export const agentScript = (): string | undefined => (isDev() ? str("BIGBRAIN_AGENT_SCRIPT") : undefined);
-
 /** Which role the caller runs as — the write guard's signal that a session
  * is the gardener rather than an interactive human. */
 export const role = (): string | undefined => str("BIGBRAIN_ROLE");
@@ -151,7 +141,7 @@ export const NO_ENV_FILE = "--no-env-file";
 export const ENGINE_ENV = [
   "BIGBRAIN_VAULT", "BIGBRAIN_SHARED_VAULT", "BIGBRAIN_PILOT_CONTEXT_ROOT", "BIGBRAIN_PILOT_DEV_PORT", "BIGBRAIN_PILOT_UI_PORT",
   "PORT", "BIGBRAIN_WEB_PORT", "BIGBRAIN_API_PORT", "BIGBRAIN_SHARED_PORT",
-  "BIGBRAIN_DESKTOP", "BIGBRAIN_SUPERVISOR_PID", "BIGBRAIN_DEV", "BIGBRAIN_WORKSPACE", "BIGBRAIN_AGENT_SCRIPT",
+  "BIGBRAIN_DESKTOP", "BIGBRAIN_SUPERVISOR_PID", "BIGBRAIN_DEV",
   "BIGBRAIN_ROLE", "BIGBRAIN_WORK_ID", "BIGBRAIN_OWNER_EMAIL",
   "BIGBRAIN_TOKENS", "BIGBRAIN_CLIENT_TOKENS", "BIGBRAIN_READ_LOG", "BIGBRAIN_ARRIVALS", "BIGBRAIN_VAULT_POINTER", "BIGBRAIN_SHARED_MEMBERS", "BIGBRAIN_SHARED_PUBLIC_URL", "BIGBRAIN_SHARED_GOOGLE_CLIENT_ID",
   "BIGBRAIN_ASSERTION_DB", "BIGBRAIN_NO_RETRIEVAL_LOG", "BIGBRAIN_TEST_JOBS",

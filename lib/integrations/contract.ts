@@ -8,8 +8,7 @@
  * used to be spelled out by name is derived from these declarations: the
  * managed set and account policies (lib/integrationAccess.ts), capabilities,
  * the MCP and Pilot tool lists and the one call path (lib/integrationTools.ts),
- * the provenance a read carries, and the notice a coding desktop shows when a
- * read taints it (lib/codingDesktops.ts).
+ * and the provenance a read carries.
  *
  * Nothing an integration imports at load may reach back to the registry
  * (lib/integrationAccess.ts, lib/integrationTools.ts, this directory's index):
@@ -69,7 +68,7 @@ export interface IntegrationTool {
   /** The JSON Schema clients see, derived from `input`. */
   inputSchema: Record<string, unknown>;
   access: "read" | "write";
-  /** What it brings in from outside, as a coding desktop's taint notice names it ("your inbox"). Its results carry the integration's origin. */
+  /** What it brings in from outside, in words ("your inbox"). Its results carry the integration's origin. */
   reads?: string;
   /** Runs with arguments `input` has validated. */
   run(ctx: ToolContext, args: Record<string, unknown>): Promise<unknown>;

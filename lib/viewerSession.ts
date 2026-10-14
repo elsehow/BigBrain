@@ -33,7 +33,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { join } from "node:path";
 import { configDir } from "./engine";
 import { writeAtomic } from "./fsx";
-import { json, send, THEME_SHEET } from "./httpx";
+import { json, send } from "./httpx";
 
 export const SESSION_PATH = "/api/session";
 const LINK_TTL_MS = 60_000;
@@ -140,15 +140,13 @@ function refuse(req: IncomingMessage, res: ServerResponse): false {
 /**
  * The gate, in front of every route after allowLoopbackRequest: true when
  * the request may go on, else it has been answered. Public, in full: the
- * bootstrap, and the theme sheet that agents' pages on other loopback ports
- * link (colours and fonts; those pages carry no session).
+ * bootstrap.
  */
 export function viewerGate(secret: string, port: number, now: () => number = Date.now, dir = configDir()): (req: IncomingMessage, res: ServerResponse) => boolean {
   const name = cookieName(port);
   return (req, res) => {
     const url = new URL(req.url ?? "/", "http://127.0.0.1");
     const method = (req.method ?? "GET").toUpperCase();
-    if (url.pathname === THEME_SHEET && (method === "GET" || method === "HEAD")) return true;
     if (url.pathname === SESSION_PATH && method === "GET") {
       const q = url.searchParams;
       const ok = q.has("k") ? same(q.get("k")!, secret) : redeemLink(secret, q, port, now(), dir);

@@ -25,8 +25,8 @@ job (`bin/arrivals.ts`) tries again every minute, landing it once Jev answers.
 Every arrival is queued first (`lib/arrivals.ts`), so an unscreened item
 does sit on disk until Jev answers. The queue is kept where no agent can read
 it: outside the vault, in owner-only files under
-`~/.config/bigbrain/arrivals/`, which Pilot and coding desktops are denied
-like a credential store. An arrival leaves the queue once it is screened. What
+`~/.config/bigbrain/arrivals/`, which Pilot is denied like a credential
+store. An arrival leaves the queue once it is screened. What
 became of it (landed, staged, withheld), never its content, is kept for a
 week, so a sender can be told and a resend is not screened twice.
 

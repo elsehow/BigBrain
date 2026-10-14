@@ -4,7 +4,7 @@ import { Queued } from "./door";
 import { landDrop } from "./landItem";
 import { attachmentPayload, memoryRead, notePayload, type AttachmentPayload, type NotePayload } from "./noteRead";
 import { recordUse, type RetrievalVia } from "./retrieval";
-import type { ScanReader } from "./scanReader";
+import type { ScanReader } from "./noteRead";
 import { clampLimit, recordScan, scanSurface, type SearchFilters } from "./searchCore";
 import { fmBody, fmRaw, fmSerialize } from "./wire";
 import { openStaged } from "./stage";
@@ -28,7 +28,7 @@ export interface VaultToolContext {
   /** Host-selected: the model a background job runs (lib/run/sessionJob.ts),
    * which what it writes names. Never accepted from tool arguments. */
   model?: string;
-  /** Host-lent: reads a scanned PDF attachment with the host's model (lib/scanReader.ts). */
+  /** Host-lent: reads a scanned PDF attachment with the host's model (noteRead's ScanReader). */
   readScan?: ScanReader;
 }
 

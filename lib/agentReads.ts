@@ -1,8 +1,8 @@
 /** agentReads.ts — vault and live content as an agent receives it.
  *
  * The one helper every door that hands an agent vault or integration content
- * goes through: MCP clients (lib/mcp.ts), Pilot and the coding desktops'
- * host tools (lib/pilot.ts), and project workers (bin/workMcp.ts), by way of
+ * goes through: MCP clients (lib/mcp.ts), Pilot (lib/pilot.ts), and
+ * project workers (bin/workMcp.ts), by way of
  * lib/vaultTools.ts and lib/integrationTools.ts. The gardener and the memory
  * pass read the record raw. Each item gains a `provenance`
  * (lib/provenance.ts); untrusted text has sign-in material withheld

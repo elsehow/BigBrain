@@ -64,7 +64,7 @@ describe("the engine does not import what the bundle strips", () => {
 
   test("every relative import in shipped code lands in a tree the bundle copies", () => {
     // build-resources.sh copies an explicit list of top-level trees. A new
-    // tree the engine imports (packages/, #58) resolves in the checkout and
+    // tree the engine imports (as packages/ once was, #58) resolves in the checkout and
     // is missing from the app, which then fails on its first start.
     const script = readFileSync(join(ROOT, "desktop", "build-resources.sh"), "utf8");
     const shipped = /\nfor d in ([^;]+); do/.exec(script)![1]!.trim().split(/\s+/);

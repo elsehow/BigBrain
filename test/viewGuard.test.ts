@@ -69,9 +69,6 @@ const NOT_STAGES = [
   "lib/jevSettingsApi.ts",
   // Pilot's sessions: the agent the person talks to
   "lib/pilotBackend.ts",
-  // the agents' tools: reading a scan, searching the web
-  "lib/scanReader.ts",
-  "lib/webSearch.ts",
 ];
 /** The model runners, and the names each exports that call a model. */
 const RUNNERS: Record<string, string[]> = {
@@ -79,7 +76,6 @@ const RUNNERS: Record<string, string[]> = {
   "lib/run/agent": ["runAgent"],
   "lib/run/sessionJob": ["runSessionJob"],
   "lib/run/sessionFactory": ["createModelSession"],
-  "lib/askModel": ["askModel"],
   // Jev (TypeSafe's SystemOne) is a model too (R10)
   "lib/sharedJev": ["askJev", "evaluateJev"],
 };
