@@ -1,12 +1,9 @@
 {
   "mcpServers": {
     "bigbrain": {
-      "command": "sh",
-      "args": [
-        "${CLAUDE_PLUGIN_ROOT}/scripts/local.sh",
-        "--connection",
-        "claude-plugin"
-      ]
+      "type": "http",
+      "url": "http://127.0.0.1:${BIGBRAIN_API_PORT:-4748}/mcp",
+      "headersHelper": "sh \"${CLAUDE_PLUGIN_ROOT}/scripts/local.sh\" headers --connection claude-plugin"
     }
   }
 }

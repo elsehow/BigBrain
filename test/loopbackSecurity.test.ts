@@ -4,6 +4,8 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { allowLoopbackRequest, armor, json } from "../lib/httpx";
+import { listTokens } from "../lib/auth";
+import { ConnectedClients } from "../lib/connectedClients";
 import { nativeVault, NATIVE_YAML } from "./support/vault";
 import { viewerAuth, viewerHome } from "./support/viewerSession";
 
@@ -104,3 +106,48 @@ describe("production HTTP entrypoints enforce the boundary", () => {
     }
   }, 15_000);
 });
+
+// A connection's setup holds its secret (#302): the routes that answer with it
+// answer only the app's own page, never a website or a rebound name.
+test("connected-client setups reach only the app's own page", async () => {
+  const root = nativeVault({ files: { "vault.yaml": NATIVE_YAML } }), home = viewerHome();
+  roots.push(root, home);
+  const store = join(home, "tokens.json"), clients = new ConnectedClients(root, store);
+  const { id } = clients.create({ name: "Claude Code", kind: "claude-code" });
+  const probe = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: () => new Response() });
+  const port = probe.port!; probe.stop(true);
+  const child = Bun.spawn([process.execPath, "web/server.ts"], {
+    env: { ...process.env, HOME: home, BIGBRAIN_VAULT: root, BIGBRAIN_TOKENS: store, BIGBRAIN_WEB_PORT: String(port), BIGBRAIN_SUPERVISOR_PID: "", BIGBRAIN_DEV: "1" },
+    stdin: "pipe", stdout: "ignore", stderr: "ignore",
+  });
+  try {
+    let ready = false;
+    for (let i = 0; i < 500 && !ready; i++) {
+      try { ready = (await http(port, "/api/engine", viewerAuth(home, port))).status === 200; } catch { /* boot */ }
+      if (!ready) await Bun.sleep(40);
+    }
+    expect(ready).toBe(true);
+    const host = `127.0.0.1:${port}`, session = viewerAuth(home, port), typed = { "content-type": "application/json" };
+    const before = JSON.stringify(listTokens(store));
+    for (const body of [JSON.stringify({ action: "setup", id }), JSON.stringify({ action: "create", name: "Website", kind: "generic" })]) {
+      for (const headers of [
+        { ...session, ...typed, origin: "https://attacker.example" },
+        { ...session, ...typed, host: "rebind.example" },
+        { ...session, ...typed, host: "rebind.example", origin: "http://rebind.example" },
+        { ...session, ...typed, "sec-fetch-site": "cross-site" },
+        { ...typed, host, origin: `http://${host}` },
+      ]) {
+        const answer = await http(port, "/api/connected-clients", headers, "POST", body);
+        expect(answer.status).toBeGreaterThanOrEqual(400);
+        expect(answer.body).not.toContain("bb_");
+      }
+    }
+    expect(JSON.stringify(listTokens(store))).toBe(before);
+    // The app's own page, with its session, gets the setup.
+    const own = await http(port, "/api/connected-clients", { ...session, ...typed, origin: `http://${host}`, "sec-fetch-site": "same-origin" }, "POST", JSON.stringify({ action: "setup", id }));
+    expect(own.status).toBe(200);
+    expect(own.body).toContain(clients.token(id));
+  } finally {
+    child.kill(); await child.exited;
+  }
+}, 30_000);

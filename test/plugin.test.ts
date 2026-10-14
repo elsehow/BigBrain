@@ -5,7 +5,10 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { makeApiHandler } from "../lib/api";
 import { ConnectedClients } from "../lib/connectedClients";
+import { listTokens } from "../lib/auth";
 import { nativeVault } from "./support/vault";
 import { buildAgentPlugins } from "../bin/build-agent-plugins";
 
@@ -36,10 +39,19 @@ for (const agent of ["claude", "codex"] as const) {
     // The current directory contains another vault; the plugin must use the selected one.
     const other = nativeVault({ files: { "memory/MEMORY.md": "WRONG VAULT" } }); dirs.push(other);
     const config = JSON.parse(readFileSync(join(plugin, ".mcp.json"), "utf8")).mcpServers.bigbrain;
-    const args = config.args.map((a: string) => a.replace(/\$\{(?:CLAUDE_PLUGIN_ROOT|PLUGIN_ROOT)\}/g, plugin));
+    const expand = (a: string) => a.replace(/\$\{(?:CLAUDE_PLUGIN_ROOT|PLUGIN_ROOT)\}/g, plugin);
     const client = new Client({ name: `${agent}-fixture`, version: "1" });
+    // Claude Code's plugin reaches the door: the local API's /mcp, its header from the helper as Claude Code runs it.
+    const door = agent === "claude" ? Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: makeApiHandler({ root, storePath: store, log: () => {} }) }) : undefined;
     try {
-      await client.connect(new StdioClientTransport({ command: config.command, args, env, cwd: config.cwd ? resolve(plugin, config.cwd) : other, stderr: "pipe" }));
+      if (door) {
+        expect(config).toMatchObject({ type: "http", url: "http://127.0.0.1:${BIGBRAIN_API_PORT:-4748}/mcp" });
+        const helper = Bun.spawn(["sh", "-c", expand(config.headersHelper)], { cwd: other, env: { ...env, CLAUDE_PLUGIN_ROOT: plugin }, stdout: "pipe", stderr: "pipe" });
+        const headers = JSON.parse(await new Response(helper.stdout).text());
+        expect(Object.keys(headers)).toEqual(["Authorization"]);
+        await client.connect(new StreamableHTTPClientTransport(new URL(config.url.replace("${BIGBRAIN_API_PORT:-4748}", String(door.port))), { requestInit: { headers } }));
+      } else
+      await client.connect(new StdioClientTransport({ command: config.command, args: config.args.map(expand), env, cwd: config.cwd ? resolve(plugin, config.cwd) : other, stderr: "pipe" }));
       expect((await client.listTools()).tools.map(t => t.name)).toEqual(["load_memory", "search_vault", "read_note", "drop"]);
       const memory = await client.callTool({ name: "load_memory", arguments: {} });
       expect(JSON.stringify(memory)).toContain("telescopes");
@@ -55,7 +67,7 @@ for (const agent of ["claude", "codex"] as const) {
       expect((await client.callTool({ name: "submit", arguments: { items: [] } })).isError).toBe(true);
       expect((await client.callTool({ name: "read_note", arguments: { path: "../vault.yaml" } })).isError).toBe(true);
       expect(home).not.toBe(root);
-    } finally { await client.close(); }
+    } finally { await client.close(); door?.stop(true); }
   });
   test(`${agent}: startup preload is local, bounded, fenced, and silent on failure`, async () => {
     const { root, home, env } = fixture();
@@ -72,6 +84,29 @@ for (const agent of ["claude", "codex"] as const) {
     result = await run(); expect(result).toEqual({ out: "", err: "", code: 0 });
   });
 }
+
+test("claude: the headersHelper never undoes a revoke, and never mints", async () => {
+  const { root, home, env } = fixture();
+  const store = join(home, "tokens.json"), clients = new ConnectedClients(root, store);
+  const plugin = join(engine, "clients/claude-plugin");
+  const config = JSON.parse(readFileSync(join(plugin, ".mcp.json"), "utf8")).mcpServers.bigbrain;
+  const helper = async () => {
+    const p = Bun.spawn(["sh", "-c", config.headersHelper.replace(/\$\{CLAUDE_PLUGIN_ROOT\}/g, plugin)], { cwd: home, env: { ...env, BIGBRAIN_TOKENS: store, CLAUDE_PLUGIN_ROOT: plugin }, stdout: "pipe", stderr: "pipe" });
+    return { out: await new Response(p.stdout).text(), err: await new Response(p.stderr).text(), code: await p.exited };
+  };
+  const tokens = () => JSON.stringify(listTokens(store));
+  // No plugin connection: nothing is minted for it.
+  let result = await helper();
+  expect(result.out).toBe(""); expect(result.code).not.toBe(0); expect(listTokens(store)).toEqual([]);
+  const { id } = clients.create({ name: "Claude Code plugin", kind: "claude-code", managedBy: "claude-plugin" });
+  expect(JSON.parse((await helper()).out).Authorization).toBe(`Bearer ${clients.token(id)}`);
+  // Disconnect on the plugin's card: Claude Code reruns the helper after the 401, and gets nothing.
+  clients.revoke(id);
+  const before = tokens(), listed = JSON.stringify(clients.list());
+  result = await helper();
+  expect(result.out).toBe(""); expect(result.code).not.toBe(0); expect(result.err).toContain("revoked");
+  expect(tokens()).toBe(before); expect(JSON.stringify(clients.list())).toBe(listed);
+}, 30_000);
 
 test("legacy gardener transport keeps role restrictions separate from public MCP", async () => {
   const { root, env } = fixture();

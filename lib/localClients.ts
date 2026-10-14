@@ -24,7 +24,6 @@ export class LocalClients {
     const executable=this.deps.which(choice.command);
     if(!executable)throw Error(`Install ${choice.name} first.`);
     const setup=this.clients.create({name:choice.name+' on this computer',kind:choice.kind as ClientKind,managedBy});
-    const entry=setup.configuration.mcpServers.bigbrain;
     // Do not replace a plugin, another vault, or a manually configured "bigbrain" entry.
     const server='bigbrain-'+createHash('sha256').update(this.clients.root).digest('hex').slice(0,12);
     // Claude refuses to add over an existing entry. Reconnect replaces only
@@ -33,9 +32,12 @@ export class LocalClients {
       try{this.deps.run(executable,['mcp','remove',server,...(choice.kind==='claude-code'?['--scope','user']:[])]);}
       catch{/* It may already have been removed. The add below must still succeed. */}
     }
+    // Claude Code reaches the vault through the door (#302). The Codex CLI
+    // cannot write a header, so Codex keeps the stdio server for now.
+    const entry=this.clients.stdio(setup.id).mcpServers.bigbrain;
     const env=Object.entries(entry.env).flatMap(([k,v])=>['--env',`${k}=${v}`]);
     const args=choice.kind==='claude-code'
-      ? ['mcp','add','--scope','user',...env,'--transport','stdio',server,'--',entry.command,...entry.args]
+      ? ['mcp','add','--scope','user','--transport','http',server,setup.url,'--header',`Authorization: Bearer ${this.clients.token(setup.id)}`]
       : ['mcp','add',server,...env,'--',entry.command,...entry.args];
     try{this.deps.run(executable,args);}
     catch{this.clients.revoke(setup.id);throw Error(`Could not configure ${choice.name}. Retry, or use manual setup in Connected Clients.`);}
