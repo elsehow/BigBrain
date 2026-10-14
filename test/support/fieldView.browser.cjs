@@ -143,9 +143,24 @@ const assert = require('node:assert/strict');
     await reader.waitFor();
     await page.keyboard.press('Escape');
     await panel.waitFor();
+    // "Looks OK" clears the held review, in place
+    await panel.getByRole('button', { name: 'Looks OK' }).click();
+    await page.waitForFunction(() => !/paused until you review/i.test(document.querySelector('section.hud.lens')?.textContent ?? ''));
+    assert.equal(await panel.getByRole('button', { name: 'Looks OK' }).count(), 0);
     await page.keyboard.press('Escape');
     await panel.waitFor({ state: 'detached' });
     assert.equal(await page.locator('.v2-lens.on').count(), 0);
+    // "Edit the lens" opens it in Settings; closing Settings comes back to the lens
+    await page.locator('.v2-lens', { hasText: 'Seed library' }).click();
+    const seed = page.getByRole('region', { name: 'Lens: Seed library' });
+    await seed.getByRole('button', { name: 'Edit the lens' }).click();
+    await page.waitForFunction(() => location.hash === '#/lenses/lens_00000000000b');
+    await page.locator('aside.panel').waitFor();
+    await page.keyboard.press('Escape');
+    await page.locator('aside.panel').waitFor({ state: 'detached' });
+    await seed.waitFor();
+    await page.keyboard.press('Escape');
+    await seed.waitFor({ state: 'detached' });
     // a server's field is its own: no lenses drawn over it (yet)
     await page.locator('.gear').hover();
     await vaults.getByRole('button', { name: 'Garden club' }).click();
