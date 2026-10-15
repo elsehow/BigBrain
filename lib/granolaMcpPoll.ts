@@ -19,7 +19,10 @@ const decode=(s:string)=>s.replace(/&(#x[0-9a-f]+|#\d+|amp|lt|gt|quot|apos);/gi,
 export interface McpMeeting {id:string;title:string;date:string;url:string}
 /** Parse only vendor-generated opening tags. Meeting text remains opaque data. */
 export function granolaMeetingList(result:CallToolResult):McpMeeting[]{
- const value=text(result),header=value.match(/^<meetings_data\b[^>]*\bcount="(\d+)"[^>]*>/);
+ const value=text(result);
+ // A range with no meetings comes back as one self-closing tag.
+ if(/^<meetings_data\b[^>]*\bcount="0"[^>]*\/>$/.test(value))return [];
+ const header=value.match(/^<meetings_data\b[^>]*\bcount="(\d+)"[^>]*>/);
  if(!header||!value.endsWith('</meetings_data>'))throw new PollError('Granola meeting-list format changed; no cursor was advanced.','format');
  const meetings:McpMeeting[]=[];
  for(const match of value.matchAll(/<meeting\b((?:"[^"]*"|'[^']*'|[^'">])*)>/g)){
