@@ -22,6 +22,7 @@ import {
   type ChangeKind, type GraphEvidenceRow, type ProjectionView,
 } from "./assertionProjection";
 import type { ObserveConnection } from "./markdownGraph";
+import { engineIdentity } from "./engine";
 import { sha256hex } from "./hash";
 import { EMPTY_GRAPH } from "./graphCache";
 import { background } from "./readModelBackground";
@@ -31,7 +32,12 @@ import { fieldOf } from "./views/graph";
 import { liveOf } from "./views/scope";
 import { diffGraph, type GraphDelta } from "./views/graphDelta";
 
-const NAME = "graph";
+/** Saved under this engine's build (its BUNDLE stamp; a checkout has none): a
+ * view another build saved is never read, however current its revision. What
+ * a build draws changes with the engine, and an upgrade that served the last
+ * engine's saved picture showed the old layout until the next commit. */
+const BUILD = engineIdentity().bundle;
+export const GRAPH_VIEW = `graph@${BUILD ? sha256hex(BUILD).slice(0, 12) : "checkout"}`;
 /** What the graph does not read. */
 const IGNORES: readonly ChangeKind[] = ["journal", "fold_reject", "folds", "inclusion"];
 /** A burst of commits saves once: the view in memory serves meanwhile. */
@@ -87,14 +93,14 @@ function cancelSave(root: string): void {
 }
 function scheduleSave(root: string, view: ProjectionView): void {
   cancelSave(root);
-  const timer = setTimeout(() => { saves.delete(root); saveProjectionView(root, NAME, view); }, SAVE_AFTER_MS);
+  const timer = setTimeout(() => { saves.delete(root); saveProjectionView(root, GRAPH_VIEW, view); }, SAVE_AFTER_MS);
   timer.unref?.();
   saves.set(root, timer);
 }
 
 /** The current view, from memory, else as saved last session. */
 function current(root: string): Held | undefined {
-  if (!held.has(root)) held.set(root, projectionView(root, NAME) ?? null);
+  if (!held.has(root)) held.set(root, projectionView(root, GRAPH_VIEW) ?? null);
   return held.get(root) ?? undefined;
 }
 
@@ -212,7 +218,7 @@ export function graphStamp(root: string): string {
 export function saveGraphView(root: string): void {
   cancelSave(root);
   const view = held.get(root);
-  if (view) saveProjectionView(root, NAME, view);
+  if (view) saveProjectionView(root, GRAPH_VIEW, view);
 }
 
 /** Tests and a vault switch: forget what this process holds for `root`. */
