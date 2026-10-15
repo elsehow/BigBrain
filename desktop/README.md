@@ -88,10 +88,10 @@ launchd treated a missed `StartInterval` — never once per missed interval.
 ## Icons
 
 `desktop/icon/app-icon.svg` (the brand cube on Apple's 1024/824 rounded
-plate) and `desktop/icon/tray-template.svg` (the cube as a macOS template
-image — alpha only, in the brand's own monochrome)
-are the sources; `sh icons.sh` (`bun run icons`) renders both into
-`src-tauri/icons/` with `tauri icon`. The mark itself is
+plate) and `desktop/icon/tray-template.svg` (the wire mark — bigbrain.cool's
+two-by-two cube in outline — as a macOS template image, alpha only, drawn
+pixel-aligned at 18pt@2x) are the sources; `sh icons.sh` (`bun run
+icons`) renders both into `src-tauri/icons/` with `tauri icon`. The app icon's mark is
 `web/ui/src/assets/logo.svg`, geometry untouched — the same geometry
 `web/ui/src/lib/logomark.ts` now derives it from, which is also where
 the mark's motion lives (`bun run logomark:render` cuts it as video;

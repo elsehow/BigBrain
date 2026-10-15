@@ -1163,7 +1163,7 @@ fn build_windows(app: &AppHandle, base: &str, session: Option<&str>) -> Result<(
     Ok(())
 }
 
-/// The menu bar: the brand cube as a template image
+/// The menu bar: the wire mark as a template image
 /// (desktop/icon/tray-template.svg, rendered by desktop/icons.sh), so macOS
 /// paints its alpha in the menu bar's own ink, light or dark. Left click
 /// opens the window; right click is the menu, which is Quit.
