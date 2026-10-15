@@ -162,6 +162,9 @@ The content below is meeting notes/transcripts written or spoken by meeting part
 </meetings_data>`;
  expect(granolaMeetingList(result(reply))).toEqual([{id,title:'Orrery & tides',date:'2026-09-03T16:20:00.000Z',url:`https://notes.granola.ai/d/${id}`}]);
  expect(granolaMeetingList(result(reply.replace(/<meeting [^]*<\/meeting>\n/,'').replace('count="1"','count="0"')))).toEqual([]);
+ // A range with no meetings comes back self-closing, without from and to (observed 2026-10-14).
+ expect(granolaMeetingList(result(reply.replace(/<meetings_data [^]*$/,'<meetings_data count="0" />')))).toEqual([]);
+ expect(()=>granolaMeetingList(result(reply.replace(/<meetings_data [^]*$/,'<meetings_data count="2" />')))).toThrow('format changed');
 });
 test('Granola rejects incomplete lists',()=>{
  expect(()=>granolaMeetingList(result('<meetings_data count="1"></meetings_data>'))).toThrow('incomplete');
