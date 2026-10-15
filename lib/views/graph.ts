@@ -18,7 +18,7 @@ import { userIdentityDeclarationsFromEvents } from "../userIdentityPolicy";
 import { resolveDocumentLinks, noteLinkResolver, type ConnectionAt, type ConnectionEvidence, type ObserveConnection } from "../markdownGraph";
 import { isUserNode } from "../userNote";
 import { vaultRecordOf, type VaultRecord } from "../vaultReadModel";
-import { edgeKey, withSeats } from "./layout";
+import { edgeKey, withLayout } from "./layout";
 import type { Drawable } from "./scope";
 import type { Snapshot } from "./view";
 
@@ -313,7 +313,7 @@ function sourceNode(source: SourceMetadata, degree: number): GraphNode {
   };
 }
 
-/** The field: the graph of `scope`, seated (lib/views/layout.ts). A source
+/** The field: the graph of `scope`, laid out (lib/views/layout.ts). A source
  * arrives when it landed, whatever later cites it, so a claim never moves a
  * seat taken before it; any other node or edge arrives with the first
  * assertion that draws it, a document's link with the document, and a note
@@ -335,5 +335,5 @@ export function fieldOf(record: VaultRecord, scope: Drawable, observe?: ObserveC
     const landed = source && sourceMoment(source);
     if (landed) arrivals.set(node.id, landed); else if (!arrivals.has(node.id)) arrivals.set(node.id, LAST);
   }
-  return withSeats(graph, arrivals);
+  return withLayout(graph, arrivals);
 }

@@ -20,7 +20,7 @@ import {sha256hex} from './hash';
 import {existsSync,readFileSync} from 'node:fs';
 import {join} from 'node:path';
 import {SHARED_AST_CITE,parseEntityId} from './ids';
-import {edgeKey,seatLayout,type Positions} from './views/layout';
+import {edgeKey,fieldLayout,type Positions} from './views/layout';
 import {memoryTreeFiles} from './memoryTree';
 import type {RecentEntry} from './viewTypes';
 import {entityAliasResolver} from './assertionKinds';
@@ -76,12 +76,13 @@ function views(filter: string[] = []){return readConnections(connectionStorePath
 function localSources(root:string){return new Map(readSourceInsertionLog(root,{strict:true}).map(s=>['origin:'+sourceKey(s),s]));}
 /** Each memory topic's citations of joined vaults' claims, by path. */
 function sharedCitations(root:string){const cited=new Map<string,[string,string][]>();if(!existsSync(join(root,'memory')))return cited;for(const f of memoryTreeFiles(root))cited.set(`memory/${f}`,[...readFileSync(join(root,'memory',f),'utf8').matchAll(SHARED_AST_CITE)].map(m=>[m[1]!,m[2]!]));return cited;}
-/** The union seated: your nodes where your field seats them, every other
- * node seated around them by when it arrived on its server. */
+/** The union laid out: your nodes where your field put them, every other
+ * node seated around them by when it arrived on its server, and settled
+ * among them. */
 function seatedAround(graph:Graph,arrivals:ReadonlyMap<string,string>):Graph{
  const fixed:Positions={};
  for(const n of graph.nodes)if(Number.isFinite(n.x)&&Number.isFinite(n.y))fixed[n.id]=[n.x!,n.y!];
- const at=seatLayout(graph,arrivals,fixed);
+ const at=fieldLayout(graph,arrivals,fixed);
  return {...graph,nodes:graph.nodes.map(n=>({...n,x:at[n.id]![0],y:at[n.id]![1]}))};
 }
 export async function unionGraph(root:string,graph:Graph,filter:string[] = []):Promise<Graph>{
@@ -100,7 +101,7 @@ export async function unionGraph(root:string,graph:Graph,filter:string[] = []):P
  const resolveEntity=entityAliasResolver(root),entityAt=new Map<string,typeof nodes[number]>(nodes.filter(n=>n.entity).map(n=>[n.id,n]));
  const pair=(a:string,b:string)=>a<b?a+'\0'+b:b+'\0'+a,edgeAt=new Map(edges.map(e=>[pair(e.source,e.target),e])),madeBy=new Map<string,string>();
  // When each server's part arrived: server by server in the order of their
- // ids, each by its own clock (lib/views/layout.ts seatLayout).
+ // ids, each by its own clock (lib/views/layout.ts fieldLayout).
  const arrivals=new Map<string,string>();
  for(const [k,{c,view}] of views(filter).entries()){
  const ids=new Map<string,string>(),when=(key:string)=>`${String(k).padStart(4,'0')}\u0000${view.arrivals.get(key)??''}`;

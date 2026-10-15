@@ -1,10 +1,11 @@
 /** graphDelta.ts — what changed between two pictures of the field
  * (docs/plans/2026-10-11-field-of-assertions.md, step 8). A commit touches a
- * few assertions, and each assertion draws a fixed set of nodes and edges,
- * whose seats never move what was seated before them (lib/views/layout.ts):
+ * few assertions, and each assertion draws a fixed set of nodes and edges:
  * so a viewer that holds the last picture needs only what changed, not the
- * whole field again. Pure, and safe for the browser bundle: the viewer
- * applies what the server diffs.
+ * whole field again. The layout settles the whole field (lib/views/layout.ts),
+ * so a change that adds or moves a tie moves most nodes a little, and their
+ * new places ride along; the edges and every unmoved node stay behind. Pure,
+ * and safe for the browser bundle: the viewer applies what the server diffs.
  */
 import type { Graph, GraphEdge, GraphNode } from "../graph";
 

@@ -137,11 +137,13 @@ read (`docs/plans/2026-10-10-change-log.md`). Run journals the viewer reads
 The graph is a view kept by its maintainer
 ([`maintainedGraph.ts`](../lib/maintainedGraph.ts)): rebuilt in a worker when
 a kind it reads is committed, saved with its revision, and served as bytes
-whose hash is the response's ETag. Its layout seats each node by when it
-arrived ([`views/layout.ts`](../lib/views/layout.ts)): a seat depends only on
-the seats before it, so a change adds seats and never moves one, and the same
-record draws the same picture on any machine. Your field with joined servers
-beside it keeps your seats and seats the servers' nodes around them. The viewer's live stream pushes each view's
+whose hash is the response's ETag. Its layout ([`views/layout.ts`](../lib/views/layout.ts))
+seats each node by when it arrived, beside what it arrived linked to, then
+settles the seats into the shape of the ties: a fixed-count force layout, so
+connected things sit together and a change shifts the picture a little rather
+than redrawing it, and the same record draws the same picture on any machine.
+Your field with joined servers beside it keeps your places and settles the
+servers' nodes around them. The viewer's live stream pushes each view's
 stamp ([`viewStamps.ts`](../lib/viewStamps.ts), `event: views`) when a change
 settles and when a view lands; a tab fetches only a view whose stamp moved, and
 never polls. The viewer hears commits from any process through `PRAGMA

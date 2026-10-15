@@ -11,7 +11,7 @@ import { DEFAULT_CUTOFF } from './sourceCopies';
 import type { AssertionView } from './sharedVault';
 import { followServer, onServerChange, readServer, serverBody } from './serverStore';
 import { serverMatches, viewOf } from './sharedReadUnion';
-import { edgeKey, seatLayout } from './views/layout';
+import { edgeKey, fieldLayout } from './views/layout';
 import type { Graph, GraphNode, GraphEdge } from './graph';
 import type { ConnectionEvidence } from './markdownGraph';
 import { sha256hex } from './hash';
@@ -57,7 +57,7 @@ export function sharedProjection(sources: SharedSource[], views: AssertionView[]
   // Edges as a vault's own graph draws them (lib/assertionGraph.ts): each
   // entity to each source its claim cites, entities named together to each
   // other, a repeat a heavier thread. `arrivals`: when each node and edge
-  // first appeared on the server, by its clock (lib/views/layout.ts seatLayout).
+  // first appeared on the server, by its clock (lib/views/layout.ts fieldLayout).
   // `connections`: the claim behind each tie, as a vault's graph observes them (lib/noteBriefing.ts reads them).
   const edges: GraphEdge[] = [], edgeAt = new Map<string, GraphEdge>(), degree = new Map<string, number>(), arrivals = new Map<string, string>();
   const connections: Array<{ from: string; to: string; evidence: ConnectionEvidence }> = [];
@@ -106,7 +106,7 @@ const fields = new Map<string, Graph>();
 export function serverField(view: ReturnType<typeof sharedProjection>, you?: Graph['userNote']): Graph {
   let field = fields.get(view.graph.hash);
   if (!field) {
-    const at = seatLayout(view.graph, view.arrivals);
+    const at = fieldLayout(view.graph, view.arrivals);
     field = { ...view.graph, nodes: view.graph.nodes.map(n => ({ ...n, x: at[n.id]![0], y: at[n.id]![1] })) };
     if (fields.size >= 8) fields.delete(fields.keys().next().value!);
     fields.set(view.graph.hash, field);

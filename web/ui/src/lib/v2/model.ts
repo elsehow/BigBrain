@@ -105,12 +105,15 @@ export function buildField(graph: GraphData): Field {
 
   // Sources keep their own place in the engine's layout, re-spaced as the
   // entities were: a source's distance takes the rank it would have among
-  // theirs. One the layout didn't place sits over what it mentions.
+  // theirs, and one past every entity keeps its share of the furthest's
+  // distance, out to half again (the layout rings the field with what is
+  // tied to nothing, lib/views/layout.ts). One the layout didn't place sits
+  // over what it mentions.
   const sortedR = order.map(([r]) => r);
   const spaceAt = (r: number): number => {
     if (!sortedR.length) return 0;
     let lo = 0, hi = sortedR.length - 1;
-    if (r >= sortedR[hi]!) return 15 * Math.min(1.15, r / (sortedR[hi]! || 1));
+    if (r >= sortedR[hi]!) return 15 * Math.min(1.5, r / (sortedR[hi]! || 1));
     while (hi - lo > 1) { const m = (lo + hi) >> 1; if (sortedR[m]! <= r) lo = m; else hi = m; }
     return spacedAt(lo + Math.max(0, (r - sortedR[lo]!) / ((sortedR[hi]! - sortedR[lo]!) || 1)));
   };
