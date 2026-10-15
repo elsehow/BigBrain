@@ -1339,7 +1339,8 @@ export function projectionView(root: string, name: string): ProjectionView | und
 
 /** Save a view with the revision it reflects. Derived and disposable like the
  * rest: a projection that cannot take it (another schema, read-only) keeps
- * the viewer serving from memory and building again next start. Under the
+ * the viewer serving from memory and building again next start. A view named
+ * `<view>@<build>` replaces what any other build saved of it. Under the
  * lock like every writer: a commit between a locked transaction's read and
  * its write fails it ("database is locked"). */
 export function saveProjectionView(root: string, name: string, view: ProjectionView): void {
@@ -1348,6 +1349,8 @@ export function saveProjectionView(root: string, name: string, view: ProjectionV
       const db = new Database(assertionDbPath(root));
       try {
         db.run("PRAGMA busy_timeout = 5000");
+        const family = name.split("@")[0]!;
+        db.query("DELETE FROM views WHERE (name = ? OR name GLOB ?) AND name != ?").run(family, `${family}@*`, name);
         db.query("INSERT OR REPLACE INTO views(name, revision, hash, body) VALUES (?, ?, ?, ?)").run(name, view.revision, view.hash, view.body);
       } finally { db.close(); }
     });

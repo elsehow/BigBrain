@@ -1,10 +1,11 @@
 import { afterEach, expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { mdVault, insertion } from "./support/vault";
 import { appendSourceInsertionEvent, insertionEventRel } from "../lib/insertionLog";
-import { projectNotes, projectSourceInsertion, recoverAssertionProjection } from "../lib/assertionProjection";
-import { forgetGraphView, freshGraph, graphNow } from "../lib/maintainedGraph";
+import { assertionDbPath, projectionView, projectNotes, projectSourceInsertion, recoverAssertionProjection } from "../lib/assertionProjection";
+import { forgetGraphView, freshGraph, GRAPH_VIEW, graphNow, saveGraphView } from "../lib/maintainedGraph";
 import { graphEvidence } from "../lib/vaultReadModel";
 
 const roots: string[] = [];
@@ -59,3 +60,22 @@ for (const [mode, read] of [["sync", graphNow], ["async", async (root: string) =
     expect(await read(root)).toBe(removed); // An unchanged projection reuses the graph.
   });
 }
+
+test("a view another engine build saved is never served, and this build's save drops it", () => {
+  const { root } = fixture();
+  const built = graphNow(root);
+  saveGraphView(root);
+  forgetGraphView(root);
+  // what an older engine saved at the same revision: the legacy name, and another build's
+  const ours = projectionView(root, GRAPH_VIEW)!;
+  const db = new Database(assertionDbPath(root));
+  for (const name of ["graph", "graph@0123456789ab"])
+    db.query("INSERT INTO views(name, revision, hash, body) VALUES (?, ?, ?, ?)").run(name, ours.revision, "stale", JSON.stringify({ ...built, nodes: [] }));
+  db.query("DELETE FROM views WHERE name = ?").run(GRAPH_VIEW);
+  db.close();
+  expect(graphNow(root).nodes).toEqual(built.nodes);
+  saveGraphView(root);
+  expect(projectionView(root, "graph")).toBeUndefined();
+  expect(projectionView(root, "graph@0123456789ab")).toBeUndefined();
+  expect(projectionView(root, GRAPH_VIEW)?.hash).toBe(ours.hash);
+});
