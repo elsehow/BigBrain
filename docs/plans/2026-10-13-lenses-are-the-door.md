@@ -2,6 +2,8 @@
 
 2026-10-13. Decided in conversation. Replaces the contained-desktops plan
 (#274, never merged) and closes the stack built on it (#274–#298).
+(Superseded 2026-10-15 for §1 and §3: lenses and servers are one Portal;
+`2026-10-15-portals.md`. §2, the door, stands.)
 
 ## The sentence
 
