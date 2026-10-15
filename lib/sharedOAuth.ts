@@ -65,6 +65,7 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { writeAtomic } from "./fsx";
+import { readCapped } from "./readCapped";
 import { createAppLink, sharedVaultIdentity, identifyBySharedInvite } from "./sharedInvites";
 import { SharedMemberBusyError } from "./sharedMemberLock";
 import { bindMemberIdentity, listMembers, mintCredential, revokeCredential, SharedMemberError, type SharedMember } from "./sharedMembers";
@@ -157,28 +158,6 @@ const oauthError = (status: number, error: string, description: string, headers:
 
 const redirect = (location: string, status = 302): Response =>
   new Response(null, { status, headers: { Location: location, ...BASE_HEADERS } });
-
-/** The body as text, or null when it exceeds `max` — refused on the
- * declared length before reading, and on the bytes actually read. */
-export async function readCapped(req: Request, max: number): Promise<string | null> {
-  const declared = Number(req.headers.get("content-length") ?? "0");
-  if (Number.isFinite(declared) && declared > max) return null;
-  if (!req.body) return "";
-  const reader = req.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.byteLength;
-    if (total > max) {
-      await reader.cancel();
-      return null;
-    }
-    chunks.push(value);
-  }
-  return Buffer.concat(chunks).toString("utf8");
-}
 
 /** A form body's fields — or a reason it is unusable. RFC 6749 §3.1: a
  * parameter sent twice is an invalid request, not a choice. */
