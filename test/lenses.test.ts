@@ -19,7 +19,7 @@ import {readConnections,saveConnection,type SharedConnection} from '../lib/share
 import {contributions,getRule,sendSources} from '../lib/sharedRules';
 import {fitThreshold,legacyLensDir,listLenses,lensError,newLens,previewThreshold,readLens,ruled,setSharingMode,updateLens,writeLens,type Lens} from '../lib/lenses';
 import {readLensState,sayOnLens} from '../lib/lensRecord';
-import {lensNotes,scorePass,READ_LIMIT} from '../lib/stages/inclusion';
+import {lensNotes,noteSummary,scorePass,READ_LIMIT,SUMMARY_READ_LIMIT} from '../lib/stages/inclusion';
 import {feedLensEvents,lensEventHeadline,migrateRules,originOf,passLens,readLensEvents,syncServer,tickLenses,type SharedLens} from '../lib/lensSync';
 import {legacyLenses,migrateLenses,planLensMigration} from '../lib/lensMigrate';
 import {publishedPath,tickPublishing} from '../lib/sharedAssertionPublish';
@@ -120,6 +120,17 @@ describe('previews',()=>{
 });
 
 describe('scorePass',()=>{
+ test('a summary reads at most SUMMARY_READ_LIMIT of a note, and says the rest is not shown',async()=>{
+  const v=vault();
+  v.note('ex-huge','Huge',.1,'y'.repeat(SUMMARY_READ_LIMIT+5000));
+  const note=lensNotes(v.root).find(n=>n.title==='Huge')!;
+  let prompt='';
+  const text=await noteSummary(v.root,v.store,note,async(req)=>{prompt=String(req.prompt);return {text:'A summary of the huge note.'} as never;});
+  expect(text).toBe('A summary of the huge note.');
+  const sent=JSON.parse(prompt).source;
+  expect(sent.body.length).toBe(SUMMARY_READ_LIMIT);
+  expect(sent.omitted).toBe('the last 5004 characters, not shown'); // the fixture appends ' 0.1'
+ });
  test('scores every note, reads a summary for one too big to read, and keeps going past a failure',async()=>{
   const v=vault();
   v.note('ex-small','Small',.9);v.note('ex-big','Big',.1,'x'.repeat(READ_LIMIT+10));

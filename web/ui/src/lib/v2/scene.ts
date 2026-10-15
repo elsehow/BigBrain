@@ -787,14 +787,15 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
     }
 
     // lenses: glide to their place, slowly (one taking in many notes at
-    // once must not wander); one being scored turns as the logo does; the
-    // one on, or pointed at, stands a quarter larger
+    // once must not wander); the one on turns as the logo does while it is
+    // scored, the rest hold still; the one on, or pointed at, stands a
+    // quarter larger
     for (const pl of lenses.values()) {
       const on = focus === pl.d.id, near = on || underLens === pl.d.id;
       pl.cube.root.position.lerp(pl.at, ease(1.6));
       pl.scale += ((near ? 1.25 : focus ? 0.8 : 1) - pl.scale) * ease(10);
       pl.cube.root.scale.setScalar(DESK_PX / 2 * perPx(pl.cube.root.position) * pl.scale);
-      pl.cube.tick(pl.d.working && !reduced ? wireClock(pl.d.id) : 0);
+      pl.cube.tick(on && pl.d.working && !reduced ? wireClock(pl.d.id) : 0);
       pl.vis += ((srch ? THREE.MathUtils.lerp(0.35, 1, searchDim) : focus && !on ? 0.6 : 1) - pl.vis) * k;
       pl.line.opacity = pl.vis;
     }

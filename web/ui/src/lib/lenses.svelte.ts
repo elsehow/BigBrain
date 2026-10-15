@@ -26,8 +26,12 @@ export async function lensRequest<T>(action: string, body?: unknown): Promise<T>
 }
 
 /** The warning on a lens a change grew while shared (D3), as the feed says it. */
+/** What opened a review, as the start of a sentence. */
+export const reviewCause = (review: Pick<LensReviewSummary, "reason">) =>
+  review.reason === "model" ? "A model upgrade" : review.reason === "vault" ? "A vault change" : "A BigBrain update";
+
 export function reviewWords(review: Pick<LensReviewSummary, "reason" | "hold">, servers: ServerRef[]) {
-  const cause = review.reason === "model" ? "A model upgrade" : review.reason === "vault" ? "A vault change" : "A BigBrain update";
+  const cause = reviewCause(review);
   const to = servers.map((s) => s.name).join(", ");
   return review.hold ? `${cause} would cause you to share new items with ${to}. Lens is paused until you review.` : `${cause} has caused you to share new items with ${to}.`;
 }
