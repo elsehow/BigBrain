@@ -134,9 +134,16 @@ const assert = require('node:assert/strict');
     await page.locator('.v2-lens', { hasText: 'Garden logistics' }).click();
     const panel = page.getByRole('region', { name: 'Lens: Garden logistics' });
     await panel.waitFor();
+    // the top line names only who it is shared with; the rule's link reads as its label
+    assert.equal(await panel.locator('.eyebrow').innerText(), 'SHARED WITH GARDEN CLUB');
     assert.match(await panel.innerText(), /Plans, rotas and repairs for the community garden\./);
-    assert.match(await panel.innerText(), /paused until you review/i);
-    assert.equal(await panel.getByRole('list', { name: 'In this lens' }).getByRole('button').count(), 9);
+    assert.doesNotMatch(await panel.innerText(), /\[\[/);
+    assert.match(await panel.innerText(), /This lens is paused\.\s+A model upgrade would cause you to share new items with connected servers\./);
+    assert.deepEqual(await panel.getByRole('group', { name: 'Review' }).getByRole('button').allInnerTexts(), ['Review what’s shared']);
+    const listed = panel.getByRole('list', { name: 'In this lens' });
+    assert.equal(await listed.getByRole('button').count(), 9);
+    const dates = await listed.locator('.d').allInnerTexts();
+    assert.deepEqual(dates, [...dates].sort().reverse(), 'newest first');
     assert.equal(await page.locator('.v2-lens.on').innerText(), 'Garden logistics');
     // the panel sits clear of the feed beneath it
     const [pb, fb] = await Promise.all([panel.boundingBox(), page.locator('.feed.sorted').boundingBox()]);
@@ -146,14 +153,25 @@ const assert = require('node:assert/strict');
     await reader.waitFor();
     await page.keyboard.press('Escape');
     await panel.waitFor();
-    // "Looks OK" clears the held review, in place
-    await panel.getByRole('button', { name: 'Looks OK' }).click();
-    await page.waitForFunction(() => !/paused until you review/i.test(document.querySelector('section.hud.lens')?.textContent ?? ''));
-    await panel.getByRole('button', { name: 'Looks OK' }).waitFor({ state: 'detached' });
+    // "Review what's shared" opens the lens in Settings on what would join and leave
+    await panel.getByRole('button', { name: 'Review what’s shared' }).click();
+    await page.waitForFunction(() => location.hash === '#/lenses/lens_00000000000a');
+    const changed = page.getByRole('dialog', { name: 'What changed' });
+    await changed.waitFor();
+    assert.match(await changed.innerText(), /Joining/);
     await page.keyboard.press('Escape');
+    await changed.waitFor({ state: 'detached' });
+    await page.keyboard.press('Escape');
+    await page.locator('aside.panel').waitFor({ state: 'detached' });
+    await panel.waitFor();
+    // the server's name goes to the server's field
+    await panel.getByRole('button', { name: 'Garden club' }).click();
+    await page.waitForFunction(() => document.querySelectorAll('.v2-lens').length === 0);
     await panel.waitFor({ state: 'detached' });
-    // the scene marks the cube on or off at its next frame
-    await page.waitForFunction(() => !document.querySelector('.v2-lens.on'));
+    await page.locator('.gear').hover();
+    await vaults.getByRole('button', { name: 'Personal' }).click();
+    await page.waitForFunction(() => document.querySelectorAll('.v2-lens').length === 3);
+    await page.mouse.move(700, 600);
     // "Edit the lens" opens it in Settings; closing Settings comes back to the lens
     await page.locator('.v2-lens', { hasText: 'Seed library' }).click();
     const seed = page.getByRole('region', { name: 'Lens: Seed library' });

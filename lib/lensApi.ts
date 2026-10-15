@@ -138,11 +138,13 @@ function summary(root:string,store:string,lens:Lens,state=readLensState(root,len
 }
 function detail(root:string,store:string,lens:Lens){
  const state=readLensState(root,lens),byId=new Map<string,ReturnType<typeof lensNotes>[number]>(lensNotes(root).map(n=>[n.source_id,n]));
- const row=(sid:string)=>{const n=byId.get(sid);return n?[{id:sid,title:n.title,date:(n.insertion.received_at??n.insertion.occurred_at??'').slice(0,10),path:insertionEventRel(n.insertion)}]:[];};
+ const at=(sid:string)=>{const n=byId.get(sid);return n?n.insertion.received_at??n.insertion.occurred_at??'':'';};
+ // newest first
+ const rows=(ids:Iterable<string>)=>[...ids].sort((a,b)=>at(b).localeCompare(at(a))).flatMap(sid=>{const n=byId.get(sid);return n?[{id:sid,title:n.title,date:at(sid).slice(0,10),path:insertionEventRel(n.insertion)}]:[];});
  const changes=lens.review?.at?reviewChanges(store,lens,state):undefined;
  return {...summary(root,store,lens,state),pins:state.hands.pins,exclusions:state.hands.exclusions,summarized:[...state.members.summarized],
-  notes:[...state.members.in].flatMap(row),
-  review:lens.review&&changes?{reason:lens.review.reason,hold:lens.review.hold,at:lens.review.at,joins:changes.joins.flatMap(row),leaves:changes.leaves.flatMap(row)}:undefined};
+  notes:rows(state.members.in),
+  review:lens.review&&changes?{reason:lens.review.reason,hold:lens.review.hold,at:lens.review.at,joins:rows(changes.joins),leaves:rows(changes.leaves)}:undefined};
 }
 
 /** "Looks OK" on a review: what the lens is scored with now is what the owner has seen. */

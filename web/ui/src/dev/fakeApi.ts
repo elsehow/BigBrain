@@ -1157,7 +1157,7 @@ const LENSES = (() => {
   const row = (n: (typeof GARDEN.notes)[number]) => ({ id: n.id, title: n.title, date: n.at.slice(0, 10), path: n.path });
   const garden = GARDEN.notes.slice(0, 9).map(row), more = GARDEN.notes.slice(9, 12).map(row);
   return [
-    { id: "lens_00000000000a", name: "Garden logistics", text: "Plans, rotas and repairs for the community garden.", members: garden.length, servers: [{ id: "garden", name: "Garden club" }],
+    { id: "lens_00000000000a", name: "Garden logistics", text: "Plans, rotas and repairs for [[projection/entities/ent_0000000000000000000000c1.md|the community garden]].", members: garden.length, servers: [{ id: "garden", name: "Garden club" }],
       pins: [garden[2]!.id], exclusions: [GARDEN.notes[20]!.id], summarized: [garden[4]!.id], notes: garden,
       review: { reason: "model", hold: true, joins: more, leaves: [garden[8]!], at: "2026-10-09T18:00:00.000Z" } },
     { id: "lens_00000000000b", name: "Seed library", text: "Seed swaps, saved seed and what grew from it.", members: 4, servers: [], pins: [] as string[], exclusions: [] as string[], summarized: [] as string[], notes: garden.slice(0, 4) },

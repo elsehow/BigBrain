@@ -21,13 +21,12 @@
   import type { V2Scene } from "../lib/v2/scene";
   import { plainText as plain, refreshSortedPages, SORTED_PAGE, type V2SortedRow } from "../../../../lib/views/v2Feed";
   import type { DesktopTile, DesktopView } from "../../../../lib/pilotDesktop";
-  import LensCube from "./LensCube.svelte";
   import PilotMentionComposer from "./PilotMentionComposer.svelte";
   import ShortcutsSheet from "./ShortcutsSheet.svelte";
   import { keyText, registerShortcuts, RANK } from "../lib/shortcuts.svelte";
   import { keyboardHints } from "../lib/keyboardHints.svelte";
   import { graphSources } from "../lib/graphSources.svelte";
-  import { lensRequest, reviewWords, type LensDetail, type LensSummary, type ServerRef } from "../lib/lenses.svelte";
+  import { lensOpening, lensRequest, reviewCause, type LensDetail, type LensSummary, type ServerRef } from "../lib/lenses.svelte";
   import { serializeMentions, type MentionItem } from "../../../../lib/pilotMentions";
   import { mentionRecents, mentionSearch } from "../lib/mentionSources";
   import { recordMoved, viewsBehind, type Rendered, type ViewStamps } from "../lib/viewStamps";
@@ -799,14 +798,8 @@
     scene?.overview();
     scene?.shift(shiftFor());
   }
-  /** "Looks OK" on a held review: what the lens is scored with now is what you have seen. */
-  let reviewing = $state(false);
-  async function reviewOk(id: string): Promise<void> {
-    reviewing = true;
-    try { lensDetail = await lensRequest<LensDetail>("review-ok", { id }); void loadLensRows(); }
-    catch (e) { flash(`Couldn’t clear the review: ${errText(e)}`); }
-    finally { reviewing = false; }
-  }
+  /** A review is decided where its changes can be read: the lens in Settings, its What changed open. */
+  function reviewShared(id: string): void { lensOpening.panel = "changes"; gotoLens(id); }
   /** A note in the lens, opened to read; the feed's walk stays where it was. */
   function openLensNote(n: LensDetail["notes"][number]): void {
     if (data) return;
@@ -1385,20 +1378,17 @@
   {#if lensDetail && !hud && !searching && !openPilot && !reading}
     {@const l = lensDetail}
     <section class="hud lens" bind:this={lensEl} aria-label={`Lens: ${l.name}`}>
-      <span class="eyebrow"><LensCube id={l.id} working={!!l.pending && !l.error} size={13} />{["Lens", `${l.members} ${l.members === 1 ? "note" : "notes"}`, l.pending ? `${l.pending} waiting` : "", l.servers.length ? `shared with ${l.servers.map((s) => s.name).join(", ")}` : ""].filter(Boolean).join(" · ")}</span>
+      {#if l.servers.length}
+        <span class="eyebrow">Shared with {#each l.servers as s, k (s.id)}{k ? ", " : ""}<button type="button" class="server" onclick={() => void chooseVault(s.id)}>{s.name}</button>{/each}</span>
+      {/if}
       <h1>{l.name}</h1>
-      {#if l.text.trim()}<p class="rule">{l.text}</p>{/if}
+      {#if l.text.trim()}<p class="rule">{plain(l.text)}</p>{/if}
       {#if l.error}<p class="err">{l.error}</p>{/if}
       {#if l.review}
         <div class="same" role="group" aria-label="Review">
-          <span class="same-head">{l.review.hold ? "Held for review" : "Changed"}</span>
-          <p class="same-why">{reviewWords(l.review, l.servers)}{l.review.joins.length || l.review.leaves.length ? ` ${[l.review.joins.length && `${l.review.joins.length} would join`, l.review.leaves.length && `${l.review.leaves.length} would leave`].filter(Boolean).join(", ")}.` : ""}</p>
-          {#each l.review.joins as n (n.id)}<div class="cand"><span class="cand-name">+ {n.title}</span></div>{/each}
-          {#each l.review.leaves as n (n.id)}<div class="cand"><span class="cand-name">− {n.title}</span></div>{/each}
-          <span class="acts">
-            <button type="button" disabled={reviewing} onclick={() => void reviewOk(l.id)}>Looks OK</button>
-            <button type="button" onclick={() => gotoLens(l.id)}>Edit the lens</button>
-          </span>
+          <h2>{l.review.hold ? "This lens is paused." : "This lens shared new items."}</h2>
+          <p class="same-why">{reviewCause(l.review)} {l.review.hold ? "would cause" : "has caused"} you to share new items with connected servers.</p>
+          <span class="acts"><button type="button" onclick={() => reviewShared(l.id)}>Review what’s shared</button></span>
         </div>
       {/if}
       {#if l.notes.length}
@@ -1833,7 +1823,10 @@
   /* a lens that is on: what it holds, beside the field it filters */
   /* above the feed at its tallest (.feed.sorted: 156px, from 26px up) */
   .hud.lens { bottom: calc(26px + 156px + 18px); pointer-events: none; }
-  .hud.lens .eyebrow { display: inline-flex; align-items: center; gap: 8px; }
+  .hud.lens .eyebrow { display: block; }
+  .hud.lens .eyebrow .server { display: inline; pointer-events: auto; padding: 0; border: 0; background: none; color: inherit; font: inherit; letter-spacing: inherit; text-transform: inherit; cursor: pointer; }
+  .hud.lens .eyebrow .server:hover { color: var(--fg); text-decoration: underline; text-underline-offset: 3px; }
+  .hud.lens .same h2 { margin: 0; font: 600 15px/1.3 var(--font-app); }
   .hud.lens .rule { font-size: 14px; color: var(--v2-muted); }
   .hud.lens .err { font-size: 13px; color: var(--v2-muted); }
   /* a list over the field: on its own ground, so dots and ties don't run through it */

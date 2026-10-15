@@ -47,7 +47,7 @@ test("lenses over the same entities are pushed apart, and the field never moves"
   expect(JSON.stringify(field.nodes.map((n) => n.p))).toBe(before);
 });
 
-test("a lens still being scored turns; a settled one stands still", () => {
+test("a lens still being scored is working; a settled one is not (the scene turns only the one on)", () => {
   const [busy, still] = placeLenses(field, [{ id: "lens_000000000001", name: "One", working: true, entities: [] }, { id: "lens_000000000002", name: "Two", entities: [] }]);
   expect([busy!.working, still!.working]).toEqual([true, false]);
 });
