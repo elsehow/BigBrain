@@ -2,6 +2,8 @@
 
 Status: plan, 2026-10-09. Mockups: the "BigBrain Lenses" design canvas
 (Settings, Joining a server; superseded screens on its Archive page).
+(Superseded 2026-10-15: a lens and its server are one Portal, and a server
+holds several; `2026-10-15-portals.md`. Phase 2, joining, stands.)
 
 ## The model
 
