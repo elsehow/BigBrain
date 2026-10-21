@@ -9,23 +9,40 @@
  type View={id:string;text:string;revision:number;busy:boolean;ready:boolean;remaining:number;overlap:boolean;judged:number;unresolved:number;failures:string[];sources:number;untried:number;narrowed:boolean;error?:string;items:RuleExample[];picked:RuleExample[];exhausted:boolean};
  let draft=$state(untrack(()=>value)),view=$state<View|null>(null),problem=$state(''),sending=$state(false),editing=$state(false),disposed=false;
  let editTimer:ReturnType<typeof setTimeout>|undefined;
+ let ratings=Promise.resolve(),pendingRatings=$state(0);
  // Each sent edit restarts the review (and its Quick call for search phrases): wait for a real pause.
  const EDIT_PAUSE_MS=1800;
  let generation=0;
  async function request(action:string,body?:unknown){const r=await vaultFetch('/api/inclusion-review/'+action,{method:body===undefined?'GET':'POST',headers:{'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});const data=await r.json();if(!r.ok)throw Error(data.error??'Could not evaluate the rule.');return data;}
- async function follow(result:View,g:number){view=result;while(view?.busy&&!disposed&&g===generation){await new Promise(r=>setTimeout(r,700));if(disposed||g!==generation)return;const next=await request('?id='+encodeURIComponent(result.id));if(g===generation)view=next;}}
- async function start(){if(!draft.trim()||sending)return;const g=++generation;sending=true;problem='';try{await follow(await request('start',{target,text:draft}),g);}catch(e){problem=(e as Error).message;}finally{sending=false;}}
+ async function follow(result:View,g:number){
+  if(disposed||g!==generation)return;view=result;
+  try{while(view?.busy&&!disposed&&g===generation){await new Promise(r=>setTimeout(r,700));if(disposed||g!==generation)return;const next=await request('?id='+encodeURIComponent(result.id));if(!disposed&&g===generation)view=next;}}
+  catch(e){if(!disposed&&g===generation)problem=(e as Error).message;}
+ }
+ async function start(){if(!draft.trim()||sending)return;const g=++generation;sending=true;problem='';try{void follow(await request('start',{target,text:draft}),g);}catch(e){problem=(e as Error).message;}finally{sending=false;}}
  onMount(()=>{if(draft.trim())void start();});
  onDestroy(()=>{disposed=true;generation++;clearTimeout(editTimer);});
  function changed(text:string){if(text===draft)return;draft=text;editing=true;clearTimeout(editTimer);editTimer=setTimeout(()=>void update(),EDIT_PAUSE_MS);}
- async function update(){if(disposed)return;if(sending){editTimer=setTimeout(()=>void update(),200);return;}if(!draft.trim()){editing=false;return;}if(!view){editing=false;await start();return;}
-  const text=draft,g=++generation;sending=true;problem='';try{await follow(await request('edit',{id:view.id,text,revision:view.revision}),g);}catch(e){problem=(e as Error).message;}finally{sending=false;if(text===draft)editing=false;else editTimer=setTimeout(()=>void update(),100);}
+ async function update(){if(disposed)return;if(sending||pendingRatings){editTimer=setTimeout(()=>void update(),200);return;}if(!draft.trim()){editing=false;return;}if(!view){editing=false;await start();return;}
+  const text=draft,g=++generation;sending=true;problem='';try{void follow(await request('edit',{id:view.id,text,revision:view.revision}),g);}catch(e){problem=(e as Error).message;}finally{sending=false;if(text===draft)editing=false;else editTimer=setTimeout(()=>void update(),100);}
  }
- async function judge(source:string,include:boolean){if(!view||sending||editing)return;sending=true;problem='';const g=++generation;try{await follow(await request('rate',{id:view.id,source,include,revision:view.revision}),g);}catch(e){problem=(e as Error).message;}finally{sending=false;}}
- async function pick(source:string){if(!view||sending||editing)return;sending=true;problem='';const g=++generation;try{await follow(await request('pick',{id:view.id,source,revision:view.revision}),g);}catch(e){problem=(e as Error).message;}finally{sending=false;}}
+ // Serialize the short writes, not the model work. Every click uses the revision
+ // acknowledged by the previous write; polling from older writes cannot win.
+ function rate(action:'rate'|'pick',source:string,include?:boolean){
+  if(!view||sending||editing)return Promise.resolve();
+  pendingRatings++;problem='';
+  ratings=ratings.then(async()=>{
+   try{if(disposed||!view)return;const g=++generation;void follow(await request(action,{id:view.id,source,include,revision:view.revision}),g);}
+   catch(e){if(!disposed)problem=(e as Error).message;}
+   finally{pendingRatings--;}
+  });
+  return ratings;
+ }
+ const judge=(source:string,include:boolean)=>rate('rate',source,include);
+ const pick=(source:string)=>rate('pick',source);
  async function findNotes(q:string,signal:AbortSignal){if(!view)return [];const r=await vaultFetch('/api/inclusion-review/sources?id='+encodeURIComponent(view.id)+'&q='+encodeURIComponent(q),{signal});if(!r.ok)throw Error('Note search unavailable');return(await r.json()).items;}
- async function retry(){if(!view)return void start();sending=true;problem='';const g=++generation;try{await follow(await request('retry',{id:view.id}),g);}catch(e){problem=(e as Error).message;}finally{sending=false;}}
- async function done(){if(!view||sending||editing)return;sending=true;problem='';try{await request('finish',{id:view.id});onsave(view.text);}catch(e){problem=(e as Error).message;}finally{sending=false;}}
+ async function retry(){if(sending||pendingRatings)return;if(!view)return void start();sending=true;problem='';const g=++generation;try{void follow(await request('retry',{id:view.id}),g);}catch(e){problem=(e as Error).message;}finally{sending=false;}}
+ async function done(){if(!view||!view.ready||view.busy||sending||editing||pendingRatings)return;sending=true;problem='';try{await request('finish',{id:view.id});onsave(view.text);}catch(e){problem=(e as Error).message;}finally{sending=false;}}
  async function search(q:string,signal:AbortSignal){const r=await vaultFetch('/api/inclusion-review/entities?q='+encodeURIComponent(q),{signal});if(!r.ok)throw Error('Entity search unavailable');return(await r.json()).items;}
  const count=(n:number)=>`${n} ${n===1?'source':'sources'}`;
  // Say why there is nothing to rate: an empty vault, every source already tried, or more left to fetch.
@@ -39,11 +56,11 @@
 </script>
 <div class="editor" role="group" aria-label="Inclusion rule review">
  <div class="rule-input"><PilotMentionComposer ariaLabel="Inclusion rule" value={draft} recents={[]} currentId="inclusion-rule" {search} onchange={parts=>changed(serializeMentions(parts))} onsend={()=>{}} placeholder="Describe what belongs here. Use @ to mention a topic." /></div>
- {#if view}<InclusionRuleReview showExamples={!includesEverything(draft)} items={view.items} picked={view.picked} search={findNotes} onpick={pick} onjudge={judge} ondone={done} ready={view.ready&&!editing&&!sending&&!!draft.trim()} retesting={view.busy||editing||sending} status={includesEverything(draft)?'':status}/>
+ {#if view}<InclusionRuleReview showExamples={!includesEverything(draft)} items={view.items} picked={view.picked} search={findNotes} onpick={pick} onjudge={judge} ondone={done} ready={view.ready&&!view.busy&&!pendingRatings&&!editing&&!sending&&!!draft.trim()} retesting={editing||sending} status={includesEverything(draft)?'':status}/>
  {:else if sending}<p role="status">Finding examples…</p>
  {:else}<button class="settings-add" disabled={!draft.trim()} onclick={start}>Try rule</button>{/if}
- {#if problem||view?.error}<p role="alert">{problem||view?.error}</p><button class="settings-add" disabled={sending} onclick={retry}>Retry</button>{/if}
- {#if view?.exhausted&&!problem&&!view.error&&!view.ready}<button class="settings-add" disabled={sending} onclick={retry}>Refresh examples</button>{/if}
+ {#if problem||view?.error}<p role="alert">{problem||view?.error}</p><button class="settings-add" disabled={sending||pendingRatings>0} onclick={retry}>Retry</button>{/if}
+ {#if view?.exhausted&&!problem&&!view.error&&!view.ready}<button class="settings-add" disabled={sending||pendingRatings>0} onclick={retry}>Refresh examples</button>{/if}
  {#if view?.unresolved}<small>{count(view.unresolved)} could not be evaluated{#if view.failures.length} ({view.failures.join('; ')}){/if}; {view.unresolved===1?'it hasn’t been treated as an exclusion':'they haven’t been treated as exclusions'}.</small>{/if}
  {#if oncancel}<button class="cancel" onclick={oncancel}>Cancel</button>{/if}
 </div>

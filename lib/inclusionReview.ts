@@ -14,7 +14,7 @@ export interface ReviewContext {root:string;store:string;scope:string;text:strin
  /** Search phrases and subject mentions for a rule (lib/stages/ruleQueries.ts); absent, the rule's own words rank. */
  queries?:(text:string,entities:CandidateEntity[])=>Promise<RuleQueries|undefined>}
 type Evaluator=ReturnType<typeof inclusionEvaluator>;
-interface Session {factory:typeof inclusionEvaluator;id:string;context:ReviewContext;policy:InclusionPolicy;evaluator:Evaluator;pool:InclusionSource[];scores:Map<string,number>;failed:Map<string,string>;cards:InclusionSource[];busy:boolean;revision:number;error?:string;at:number;
+interface Session {factory:typeof inclusionEvaluator;id:string;context:ReviewContext;policy:InclusionPolicy;evaluator:Evaluator;pool:InclusionSource[];scores:Map<string,number>;failed:Map<string,string>;cards:InclusionSource[];busy:boolean;refilling?:boolean;revision:number;error?:string;at:number;
  /** Notes the person added by hand: included, and shown with their thumbs up until undone. */
  picked:InclusionSource[];
  /** The rule text the pool was last ranked for with model-derived queries. */
@@ -62,8 +62,19 @@ export function startReview(context:ReviewContext,factory= inclusionEvaluator){
  latest.set(key(context),s.id);sessions.set(s.id,s);persist(s);void refill(s);return reviewState(s);
 }
 async function refill(s:Session){
- if(includesEverything(s.policy.text)){s.cards=[];s.busy=false;s.error=undefined;persist(s);return;}
- const revision=s.revision;s.busy=true;s.error=undefined;
+ s.busy=true;s.error=undefined;
+ // Keep one scoring batch in flight. Ratings remain writable; if they change
+ // the revision, discard the old results and refill using all the latest labels.
+ if(s.refilling)return;
+ s.refilling=true;
+ try{
+  let revision:number;
+  do{revision=s.revision;await fill(s);}while(active(s)&&revision!==s.revision);
+ }finally{s.refilling=false;if(active(s)){s.busy=false;persist(s);}}
+}
+async function fill(s:Session){
+ if(includesEverything(s.policy.text)){s.cards=[];return;}
+ const revision=s.revision;
  const valid=()=>active(s)&&revision===s.revision;
  try{
   // Re-rank once per rule text with the model's search phrases before any paid scoring.
@@ -100,21 +111,20 @@ async function refill(s:Session){
   while(s.cards.length<3&&ordered.length)s.cards.push(ordered.shift()!);
   if(!s.cards.length&&!s.policy.labels.length&&s.failed.size)s.error='Sources could not be evaluated. Retry, or choose a model that can read them in full.';
  }catch(e){if(valid())s.error=e instanceof Error?e.message:'Evaluation failed';}
- finally{if(valid()){s.busy=false;persist(s);}}
 }
-function settled(s:Session,revision:number){if(revision!==s.revision||s.busy)throw Error('Wait for this rule to finish evaluating.');}
+function currentRevision(s:Session,revision:number){if(revision!==s.revision)throw Error('The rule changed in another request. Reload this review.');}
 function label(s:Session,source:InclusionSource,include:boolean){
  s.policy.labels=s.policy.labels.filter(l=>labelKey(l.source)!==labelKey(source));const score=s.scores.get(labelKey(source));s.policy.labels.push({source,include,...(score===undefined?{}:{prediction:{score,identity:s.evaluator.identity}})});s.cards=s.cards.filter(c=>c.id!==source.id);if(!include)s.picked=s.picked.filter(c=>c.id!==source.id);s.evaluator=s.factory(s.context.root,s.context.store,s.policy.text,s.policy.labels);s.scores.clear();s.failed.clear();s.revision++;persist(s);void refill(s);return reviewState(s);
 }
 export function rateReview(s:Session,id:string,include:boolean,revision:number){
- settled(s,revision);
+ currentRevision(s,revision);
  if(typeof include!=='boolean')throw Error('Choose include or exclude.');
  const source=s.cards.find(c=>c.id===id)??s.picked.find(c=>c.id===id);if(!source)throw Error('Choose a currently displayed example.');
  return label(s,source,include);
 }
 /** A note the person wants included, chosen by hand: an include label, like a thumbs up on a suggestion. */
 export function pickReview(s:Session,id:string,revision:number){
- settled(s,revision);
+ currentRevision(s,revision);
  const source=s.context.sources.find(c=>c.id===id);if(!source)throw Error('Choose a note from the list.');
  if(!s.picked.some(c=>c.id===id))s.picked.unshift(source);
  return label(s,source,true);

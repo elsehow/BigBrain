@@ -11,6 +11,38 @@ import {OutOfCredits,outOfCredits} from '../lib/sharedJev';
 function fixture(){const root=mkdtempSync(join(tmpdir(),'rule-review-')),store=join(root,'connections.json');writeFileSync(join(root,'vault.yaml'),'integrations: {}\n');saveJevKey(store,'fabricated-key');return {root,store,scope:sharedRuleScope('fixture'),text:'Sources about the Example project.',sources:[.95,.9,.85,.1,.2,.3,.65,.45].map((score,i)=>({id:String(i),title:'Example source '+i,origin:'Fixture',body:'Complete source '+score})),check:()=>{},save:(_text:string)=>{}};}
 const factory:typeof inclusionEvaluator=(root,store,text,labels)=>({identity:inclusionEvaluator(root,store,text,labels).identity,score:async(source:{body:string})=>Number(source.body.split(' ').at(-1))});
 async function idle(root:string,id:string){for(let i=0;i<100;i++){const s=getReview(root,id);if(!reviewState(s).busy)return s;await Bun.sleep(1);}throw Error('Review did not settle');}
+test('visible examples can be rated while scoring; rapid ratings coalesce without losing labels',async()=>{
+ const c=fixture();let release!:()=>void;const wait=new Promise<void>(r=>release=r);
+ let running=0,peak=0;const scored:number[]=[];
+ const slow:typeof inclusionEvaluator=(root,store,text,labels)=>({identity:inclusionEvaluator(root,store,text,labels).identity,score:async source=>{
+  running++;peak=Math.max(peak,running);scored.push(labels.length);
+  try{if(labels.length)await wait;return Number(source.body.split(' ').at(-1));}finally{running--;}
+ }});
+ try{
+  const s=await idle(c.root,startReview(c,slow).id),cards=reviewState(s).items;
+  rateReview(s,cards[0]!.id,true,s.revision);
+  expect(reviewState(s).busy).toBe(true);
+  expect(()=>finishReview(s)).toThrow();
+  expect(()=>rateReview(s,cards[1]!.id,false,s.revision-1)).toThrow();
+  rateReview(s,cards[1]!.id,false,s.revision);
+  rateReview(s,cards[2]!.id,true,s.revision);
+  expect(()=>rateReview(s,cards[0]!.id,true,s.revision)).toThrow('currently displayed');
+  const picked=c.sources[7]!;
+  pickReview(s,picked.id,s.revision);
+  rateReview(s,picked.id,false,s.revision);
+  expect(reviewState(s).picked).toEqual([]);
+  expect(readInclusionPolicy(c.root,c.store,c.scope,true)!.labels.map(l=>[l.source.id,l.include])).toEqual([
+   [cards[0]!.id,true],[cards[1]!.id,false],[cards[2]!.id,true],[picked.id,false],
+  ]);
+  expect(peak).toBeLessThanOrEqual(3);
+  release();await idle(c.root,s.id);
+  expect(scored).not.toContain(2);expect(scored).not.toContain(3);
+  expect(scored).toContain(4);
+  expect(reviewState(s).ready).toBe(true);
+  expect(reviewState(s).items.every(item=>!cards.some(c=>c.id===item.id)&&item.id!==picked.id)).toBe(true);
+  finishReview(s);expect(readInclusionPolicy(c.root,c.store,c.scope)!.labels).toHaveLength(4);
+ }finally{release();rmSync(c.root,{recursive:true,force:true});}
+});
 test('real review persists judgments, hides scores, scopes policies and enforces provider/rule changes',async()=>{
  const c=fixture();try{
   const initial=startReview(c,factory);let s=await idle(c.root,initial.id);
