@@ -113,7 +113,7 @@ const overlaps = page => page.evaluate(() => {
       await page.getByRole('button', { name: 'Close Atlas survey update', exact: true }).waitFor();
       await clear('Reading');
       await page.keyboard.press('Escape');
-      await page.locator('aside.side.reader').waitFor({ state: 'detached' });
+      await page.getByRole('complementary', { name: 'Reading' }).waitFor({ state: 'detached' });
       await page.locator('.strip .tok', { hasText: 'Atlas planning' }).evaluate(tok => tok.click());
       await page.getByRole('button', { name: 'Close Shared design review', exact: true }).waitFor();
       await clear('Desktop');
