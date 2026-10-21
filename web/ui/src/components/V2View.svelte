@@ -7,7 +7,8 @@
   // Each lens stands in the field as a cube among what it holds; a click
   // filters the field to it and opens what it holds. Sessions already
   // started (/api/pilot/chat) wait in the bar; nothing here starts one.
-  import { onMount, tick, untrack } from "svelte";
+  import { getContext, onMount, tick, untrack } from "svelte";
+  import { SOURCE_STUDY, type SourceStudy, type StudySource } from "../lib/sourceStudy";
   import { api } from "../lib/api";
   import { app, goto, gotoLens } from "../lib/store.svelte";
   import { reloadSharedConnections, sharedSettings } from "../lib/sharedSettings.svelte";
@@ -85,6 +86,15 @@
   let folding = $state(false);
 
   let ent: number | null = $state(null);
+  const sourceStudy = getContext<SourceStudy | undefined>(SOURCE_STUDY);
+  let sourceReturn: { id: string; title: string } | null = $state(null);
+  const conceptSources = $derived.by(() => ent != null && field ? sourceStudy?.sources[field.nodes[ent]!.id] ?? [] : []);
+  function readConceptSource(source: StudySource): void {
+    if (ent == null || !field) return;
+    const node = field.nodes[ent]!;
+    openReader({ source: source.path, title: source.title, headline: source.excerpt, section: "know", added: "", due: null, entities: [node.id], path: source.path }, source.path);
+    sourceReturn = { id: node.id, title: node.label };
+  }
   let entRows: V2FeedRow[] | null = $state(null);
   /** The sorted feed (lib/stages/feed.ts), when the vault has one: the pages
    * loaded so far, newest first, and the key of the page before them. */
@@ -417,8 +427,9 @@
     openPilot = null; detail = null;
     overview();
   }
-  /** Open a feed row's source to read: the source alone, over the field. */
+  /** Read a source in the left column, leaving its field visible beside it. */
   function openReader(r: V2SortedRow, path: string): void {
+    sourceReturn = null;
     if (searching) { searching = false; scene?.search(null); }
     if (openPilot) { openPilot = null; detail = null; }
     ent = null; entRows = null; closeSource();
@@ -431,6 +442,11 @@
   /** Back from reading: to the feed, on the row it came from. */
   function closeReader(): void {
     reading = null;
+    if (sourceReturn && field) {
+      const index = field.byId.get(sourceReturn.id);
+      sourceReturn = null;
+      if (index != null) { cursor = null; void openEntity(index); return; }
+    }
     unlight();
     scene?.shift(shiftFor());
     void tick().then(() => feedEl?.querySelector(".row.at")?.scrollIntoView({ block: "nearest" }));
@@ -548,6 +564,8 @@
       refreshSorted();
       if (!data) { void loadFolds(); void loadLensRows(); }
       await drawField(g.data);
+      const initial = sourceStudy && field?.byId.get(sourceStudy.initialEntity);
+      if (initial != null) await openEntity(initial);
     } catch (e) {
       error = errText(e);
     } finally {
@@ -710,8 +728,8 @@
   /** Slide the field's centre clear of the panels: right of a left column, left of the sidebar. */
   const shiftFor = () => {
     const chatW = (chatWidth ?? Math.min(1000, Math.max(520, innerWidth * 0.44))) + GUTTER; // .v2's --chat-w, plus a gutter
-    const left = searching ? Math.min(600, innerWidth * 0.4) : openPilot ? chatW : ent != null || src || claim || cursor || lensOn ? Math.min(380, innerWidth * 0.26) : 0;
-    if ((openPilot && !showDesktop || reading) && !searching) return 0; // the chat, or the source read, stands alone, centred
+    const left = searching ? Math.min(600, innerWidth * 0.4) : openPilot ? chatW : reading ? Math.min(460, innerWidth - 2 * GUTTER) + GUTTER : ent != null || src || claim || cursor || lensOn ? Math.min(380, innerWidth * 0.26) : 0;
+    if (openPilot && !showDesktop && !searching) return 0; // a chat on its own stands centred
     const right = showDesktop ? innerWidth - chatW - GUTTER : 0;
     return (left - right) / 2;
   };
@@ -1275,6 +1293,27 @@
   });
 </script>
 
+{#snippet noteBody(v: DesktopView, standalone = false)}
+  {@const srcMeta = notes[v.path]?.source}
+  {@const content = notes[v.path]?.content}
+  {@const heading = standalone && content?.match(/^# ([^\n]+)\n+/)}
+  {@const body = heading && heading[1]?.trim() === v.title.trim() ? content!.slice(heading[0].length) : content}
+  <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+  <div class="vbody" onclick={(e) => loadHeld(e) || citation(e)}>
+    {#if srcMeta}
+      <div class="vsum">{#if srcMeta.summary}{srcMeta.summary}{:else}<span class="spin" aria-label="Writing a summary"></span>{/if}</div>
+      {#if srcMeta.header.length}<dl class="vhead">{#each srcMeta.header as [k, val] (k)}<dt>{k}</dt><dd>{val}</dd>{/each}</dl>{/if}
+      {#if srcMeta.copies}<dl class="vhead vorig"><dt>Copies</dt><dd>{#each srcMeta.copies as c, k (k)}<span>{c.title}{c.why ? ` (${COPY_WHY[c.why]})` : ""} <button type="button" onclick={act(() => decideCopies(v.path, c.path, false))}>Not the same</button></span>{/each}</dd></dl>{/if}
+      {#if srcMeta.proposals}<div class="same vsame" role="group" aria-label="Same document?"><span class="same-head">Same document?</span>{#each srcMeta.proposals as p, k (k)}<div class="cand"><span class="cand-name">{p.title}</span><span class="acts"><button type="button" onclick={act(() => decideCopies(v.path, p.path, true))}>Same</button><button type="button" onclick={act(() => decideCopies(v.path, p.path, false))}>Different</button></span></div>{/each}</div>{/if}
+      {#if srcMeta.origins}<dl class="vhead vorig"><dt>Originals</dt><dd>{#each srcMeta.origins as o, k (k)}<button type="button" title={originHint(o)} onclick={act(() => openOne(o))}>{originLabel(o)}</button>{/each}</dd></dl>{/if}
+    {/if}
+    {#if srcMeta}<div class="vsrc">{@html srcMeta.html}</div>
+    {:else if body != null}{@html render(body)}
+    {:else if notes[v.path]?.error}<p class="activity err">{notes[v.path]!.error}</p>
+    {:else}<p class="activity">Opening…</p>{/if}
+  </div>
+{/snippet}
+
 {#snippet tile(t: DesktopTile)}
   {#if "view" in t}
     {@const v = shownViews.find((x) => x.id === t.view)}
@@ -1283,20 +1322,7 @@
       <article class="view" aria-label={v.title}>
         <header><span class="vt">{v.title}</span>{#if srcMeta}<span class="vp" title={v.path}>{srcMeta.via[0]!.toUpperCase() + srcMeta.via.slice(1)}{srcMeta.date ? ` · ${when(srcMeta.date)}` : ""}{srcMeta.page ? ` · read from ${srcMeta.page}` : ""}</span>{:else}<span class="vp">{v.path}</span>{/if}
           <button type="button" class="px" onclick={() => void closeView(v.id)} aria-label={`Close ${v.title}`} title="Close — the agent leaves it closed">×</button></header>
-        <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-        <div class="vbody" onclick={(e) => loadHeld(e) || citation(e)}>
-          {#if srcMeta}
-            <div class="vsum">{#if srcMeta.summary}{srcMeta.summary}{:else}<span class="spin" aria-label="Writing a summary"></span>{/if}</div>
-            {#if srcMeta.header.length}<dl class="vhead">{#each srcMeta.header as [k, val] (k)}<dt>{k}</dt><dd>{val}</dd>{/each}</dl>{/if}
-            {#if srcMeta.copies}<dl class="vhead vorig"><dt>Copies</dt><dd>{#each srcMeta.copies as c, k (k)}<span>{c.title}{c.why ? ` (${COPY_WHY[c.why]})` : ""} <button type="button" onclick={act(() => decideCopies(v.path, c.path, false))}>Not the same</button></span>{/each}</dd></dl>{/if}
-            {#if srcMeta.proposals}<div class="same vsame" role="group" aria-label="Same document?"><span class="same-head">Same document?</span>{#each srcMeta.proposals as p, k (k)}<div class="cand"><span class="cand-name">{p.title}</span><span class="acts"><button type="button" onclick={act(() => decideCopies(v.path, p.path, true))}>Same</button><button type="button" onclick={act(() => decideCopies(v.path, p.path, false))}>Different</button></span></div>{/each}</div>{/if}
-            {#if srcMeta.origins}<dl class="vhead vorig"><dt>Originals</dt><dd>{#each srcMeta.origins as o, k (k)}<button type="button" title={originHint(o)} onclick={act(() => openOne(o))}>{originLabel(o)}</button>{/each}</dd></dl>{/if}
-          {/if}
-          {#if srcMeta}<div class="vsrc">{@html srcMeta.html}</div>
-          {:else if notes[v.path]?.content != null}{@html render(notes[v.path]!.content!)}
-          {:else if notes[v.path]?.error}<p class="activity err">{notes[v.path]!.error}</p>
-          {:else}<p class="activity">Opening…</p>{/if}
-        </div>
+        {@render noteBody(v)}
       </article>
     {/if}
   {:else}
@@ -1353,6 +1379,18 @@
       <h1>{hud.name}</h1>
       {#if hud.writing}<p><span class="spin" aria-label="Writing a summary"></span></p>{:else if hud.status}<p>{hud.status}</p>{/if}
       {#if hud.same}<p>{hud.same}</p>{/if}
+      {#if conceptSources.length}
+        <section class="concept-sources" aria-label={`Sources for ${hud.name}`}>
+          <h2>Sources <span>{conceptSources.length}</span></h2>
+          {#each conceptSources as source (source.path)}
+            <button type="button" onclick={() => readConceptSource(source)} aria-label={`Read ${source.title}`}>
+              <span class="source-title">{source.title}<span aria-hidden="true">↗</span></span>
+              <span class="source-meta">{source.meta}</span>
+              <span class="source-excerpt">{source.excerpt}</span>
+            </button>
+          {/each}
+        </section>
+      {/if}
       {#if ent != null && offer}
         <!-- the merge, the same on every page it touches -->
         <div class="same" role="group" aria-label="Merge?">
@@ -1548,8 +1586,17 @@
       {@render tile(detail.desktop.layout)}
     </aside>
   {:else if reading}
-    <aside class="side reader" bind:this={sidebarEl} aria-label="Reading">
-      {@render tile({ view: reading.view.id })}
+    {@const sourceMeta = notes[reading.view.path]?.source}
+    <aside class="source-reader" bind:this={sidebarEl} aria-label="Reading">
+      <div class="source-nav">
+        <button class="source-back" type="button" onclick={closeReader}>← {sourceReturn ? `Back to ${sourceReturn.title}` : 'Back to field'}</button>
+        <button class="source-close" type="button" onclick={closeReader} aria-label={`Close ${reading.view.title}`}>×</button>
+      </div>
+      <header class="source-heading">
+        <span class="eyebrow">{sourceMeta ? sourceMeta.via : 'Source'}{sourceMeta?.date ? ` · ${when(sourceMeta.date)}` : ''}</span>
+        <h1>{reading.view.title}</h1>
+      </header>
+      {@render noteBody(reading.view, true)}
       {#if original()}<p class="k">{[hint("original", "Open original"), hint("back", "Back")].filter(Boolean).join(" · ")}</p>{/if}
     </aside>
   {/if}
@@ -1589,7 +1636,7 @@
        (WebKit, the desktop app's, needs the prefix.) */
     -webkit-user-select: none; user-select: none;
   }
-  .chat, .side, .hud, .v2 :global(input), .v2 :global(textarea) { -webkit-user-select: text; user-select: text; }
+  .chat, .side, .source-reader, .hud, .v2 :global(input), .v2 :global(textarea) { -webkit-user-select: text; user-select: text; }
   .stage { position: absolute; inset: 0; }
   .stage :global(.v2-canvas) { display: block; width: 100%; height: 100%; touch-action: none; }
   .stage :global(.v2-labels) { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
@@ -1745,9 +1792,17 @@
   .side { position: absolute; top: max(var(--under-bar), var(--notice-foot, 0px)); bottom: 26px; right: var(--app-gutter, 34px); left: calc(var(--chat-at) + 3 * var(--app-gutter, 34px)); z-index: 1;
     display: flex; flex-direction: column; gap: 8px; }
   .side > .ws-split, .side > .view { flex: 1; min-height: 0; }
-  /* a source read: alone, centred where a chat on its own stands */
-  .side.reader { left: calc((100% - var(--notice-lane, 0px)) / 2); right: auto; width: var(--chat-at); transform: translateX(-50%); }
-  .side.reader > .k { margin: 0; font: 400 11px/1 var(--font-app); color: var(--v2-faint); text-align: center; }
+  /* Source reading uses the same left edge as a concept's details. Its
+     text scrolls within this column; no centred document frame remains. */
+  .source-reader { --chat-fs:15px; position:absolute; top:calc(var(--under-bar) + 10px); bottom:34px; left:var(--app-gutter, 34px); width:min(460px, calc(100% - 2 * var(--app-gutter, 34px))); z-index:1; display:flex; flex-direction:column; gap:18px; background:var(--bg); }
+  .source-reader::after { content:""; position:absolute; top:0; bottom:0; left:100%; width:32px; pointer-events:none; background:linear-gradient(to right, var(--bg), transparent); }
+  .source-nav { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+  .source-heading { display:flex; flex-direction:column; gap:12px; padding-right:12px; }
+  .source-heading h1 { font-size:28px; line-height:1.16; overflow-wrap:anywhere; }
+  .source-close { border:0; padding:4px 8px; background:none; color:var(--v2-muted); font:400 20px/1 var(--font-app); cursor:pointer; }
+  .source-close:hover { color:var(--fg); }
+  .source-reader > .vbody { padding:0 12px 20px 0; }
+  .source-reader > .k { margin:0; font:400 11px/1.4 var(--font-app); color:var(--v2-muted); }
   .ws-split { display: flex; gap: 10px; min-width: 0; min-height: 0; }
   .ws-split.ws-row { flex-direction: row; } .ws-split.ws-col { flex-direction: column; }
   .ws-cell { flex-basis: 0; min-width: 0; min-height: 0; display: flex; }
@@ -1809,6 +1864,17 @@
   .hud.claim { width: min(620px, calc(100% - 32px)); }
   .hud.claim h1 { font-size: clamp(20px, 1.7vw, 25px); line-height: 1.28; letter-spacing: -0.015em; }
   .hud p { margin: 0; max-width: 44ch; font: 400 14.5px/1.5 var(--font-app); color: color-mix(in srgb, var(--fg) 80%, var(--bg)); }
+  .concept-sources { pointer-events:auto; margin-top:16px; max-width:390px; padding:0 12px 0 0; background:var(--bg); text-shadow:none; }
+  .concept-sources h2 { margin:0 0 4px; font:500 14px/1.4 var(--font-app); }
+  .concept-sources h2 > span { margin-left:6px; font:400 11px/1 var(--font-mono); color:var(--v2-muted); }
+  .concept-sources button { display:flex; flex-direction:column; gap:5px; width:100%; padding:15px 0; border:0; border-bottom:1px solid var(--rule); background:transparent; color:var(--fg); text-align:left; cursor:pointer; }
+  .concept-sources button:hover .source-title { text-decoration:underline; text-underline-offset:3px; }
+  .source-title { display:flex; justify-content:space-between; gap:12px; width:100%; font:500 14px/1.4 var(--font-app); }
+  .source-title > span { color:var(--v2-muted); }
+  .source-meta { font:400 11px/1.4 var(--font-mono); color:var(--v2-muted); }
+  .source-excerpt { margin-top:3px; font:400 13px/1.5 var(--font-app); color:var(--v2-muted); }
+  .source-back { align-self:flex-start; flex:none; padding:6px 0; border:0; background:var(--bg); color:var(--v2-muted); font:400 13px/1.4 var(--font-app); cursor:pointer; }
+  .source-back:hover { color:var(--fg); }
   .same { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; padding-left: 12px; border-left: 2px solid var(--rule); }
   .same-head { font: 600 10px/1 var(--font-app); letter-spacing: 0.24em; text-transform: uppercase; color: var(--v2-muted); }
   .hud .same-why { font-size: 13.5px; color: var(--v2-muted); }

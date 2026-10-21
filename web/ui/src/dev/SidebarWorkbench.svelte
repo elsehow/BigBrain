@@ -2,7 +2,8 @@
   import { pilotScenarios } from "./applicationScenarios";
   import { onMount } from "svelte";
   import { update } from "../lib/update.svelte";
-  import Base from '../components/Base.svelte';
+  import AppShell from '../components/AppShell.svelte';
+  import { sourceStudy } from './sourceStudyFixture';
   import { onboardingPreviewKey } from './onboardingFixture';
   const params = new URLSearchParams(location.search);
   const scenario = params.get("scenario");
@@ -47,9 +48,10 @@
   }
 </script>
 <!-- the production base and Field (its first run and vault gates included) -->
-<Base />
+<AppShell sourceStudy={params.has('conceptSources') && !live ? sourceStudy : undefined} />
 {#if params.has('gmail')}<aside class="gmail-preview">Sample setup · Use sample@example.com and abcd efgh ijkl mnop. No credentials are saved.</aside>{/if}
-<nav class="sidebar-study-switch" class:onboarding aria-label="Workbench previews">
+<nav class="sidebar-study-switch" class:onboarding class:source-study={params.has('conceptSources')} aria-label="Workbench previews">
+  {#if params.has('conceptSources')}<span>Sources study · Sample vault</span>{:else}
   {#if scenario}<label>Application scenario <select aria-label="Application scenario" value={scenario} onchange={chooseScenario}>{#each traces as trace}<option value={trace.id}>{trace.title}</option>{/each}</select></label><span>Read-only · seed {traces[0].seed}</span>{/if}
   {#if onboarding}<span>Onboarding preview · Analytics and connections simulated</span><button onclick={restartOnboarding}>Restart preview</button>
   {:else}
@@ -60,6 +62,7 @@
   <a href={`?vault=${live ? 'live' : 'sample'}${baseline ? '' : '&layout=original'}`}>{baseline ? 'Sidebar study' : 'Original layout'}</a>
   {/if}
   {#if feedbackPreview}<label>Send is simulated <select aria-label="Simulated feedback outcome" bind:value={feedbackMode} onchange={changeFeedbackMode}><option value="success">Success</option><option value="failure">Failure</option></select></label>{/if}
+  {/if}
 </nav>
 
 <style>
@@ -70,4 +73,5 @@
 @media(min-width:800px) { .sidebar-study-switch { max-width:calc(100vw - 580px); } }
 .sidebar-study-switch.onboarding { top:auto; bottom:36px; right:140px; max-width:calc(100% - 156px); flex-wrap:wrap; background:var(--bg); border:1px solid var(--rule); padding:8px; }
 .sidebar-study-switch button { background:var(--bg); color:inherit; border:1px solid var(--rule); padding:4px 8px; font:inherit; cursor:pointer; }
+.sidebar-study-switch.source-study { top:auto; bottom:34px; right:34px; pointer-events:none; }
 </style>

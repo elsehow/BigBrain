@@ -25,7 +25,7 @@ const assert = require('node:assert/strict');
     assert.match(await page.locator('.feed.sorted .row.at').innerText(), /Atlas survey/);
     // Enter opens the source to read: the source alone, no message box
     await page.keyboard.press('Enter');
-    const reader = page.locator('aside.side.reader');
+    const reader = page.getByRole('complementary', { name: 'Reading' });
     await reader.waitFor();
     assert.equal(await page.getByRole('textbox', { name: 'Message' }).count(), 0, 'reading a source starts no conversation');
     // ⌘O hands the source's origin to the OS: a page goes to the browser (a new tab here).

@@ -7,6 +7,10 @@ import { watchSystemTheme, setChoice, type BuiltIn } from '../lib/theme';
 
 import { installGraphFixture } from './graphFixture';
 if (new URLSearchParams(location.search).has('onboarding') || new URLSearchParams(location.search).get('vault') !== 'live') await installGraphFixture();
+if (new URLSearchParams(location.search).has('conceptSources') && new URLSearchParams(location.search).get('vault') !== 'live') {
+  const { installSourceStudy } = await import('./sourceStudyFixture');
+  await installSourceStudy();
+}
 
 if(new URLSearchParams(location.search).has('gmail')) {
   const {installGmailScene}=await import('./gmailScene');installGmailScene();
