@@ -152,3 +152,29 @@ test('transcript contract copies provider attendees and exact speech, excluding 
  expect(()=>granolaMcpContent('granola',{},meeting,notes('A'))).toThrow('transcript access');
  expect(()=>granolaMcpContent('granola',{},meeting,notes('A'),result(JSON.stringify({id:meeting.id,transcript:''})))).toThrow('unavailable');
 });
+
+test('the MCP poller follows paged meeting lists and joins a transcript\'s pages exactly (2026-10-20 format)',async()=>{
+ const root=vault(),later={...meeting,id:'22222222-2222-4222-8222-222222222222',date:'2026-09-24T14:00:00Z'};
+ const turns=['Microphone: The first turn.\n\n','System audio: The second turn.\n\n','Microphone: The last turn.'];
+ const offsets=[0,turns[0]!.length,turns[0]!.length+turns[1]!.length];
+ let broken=false;const listed:unknown[]=[],read:unknown[]=[];
+ const tag=(m:typeof meeting)=>`<meeting id="${m.id}" title="${m.title}" date="${m.date}" url="${m.url}"></meeting>`;
+ const run:NonNullable<Parameters<typeof pollGranolaMcp>[2]>['run']=async fn=>fn({callTool:async({name,arguments:args}:{name:string;arguments:any})=>{
+  if(name==='list_meetings'){listed.push(args.cursor);return args.cursor
+   ?result(`<meetings_data count="1">${tag(later)}</meetings_data>\n\n<pagination has_more="false" total_count="2" remaining_count="0" />`)
+   :result(`<meetings_data count="1">${tag(meeting)}</meetings_data>\n\n<pagination has_more="true" total_count="2" remaining_count="1" next_cursor="page-2" />`);}
+  if(name==='get_meetings')return result(`<meeting id="${args.meeting_ids[0]}"><summary>Discarded</summary></meeting>`);
+  read.push(args.offset);
+  // The fixture's pages are one turn each; `offset` counts characters, as Granola's does.
+  const at=args.offset??0,i=offsets.indexOf(at),end=at+turns[i]!.length,more=i<turns.length-1;
+  return result(JSON.stringify({id:args.meeting_id,transcript:turns[i],...(more||at?{offset:broken&&i===1?at+1:at,total_chars:turns.join('').length}:{}),...(more?{truncated:true,next_offset:end}:{truncated:false})}));
+ }} as Client,['list_meetings','get_meetings','get_meeting_transcript'].map(name=>({name,inputSchema:{type:'object' as const}})));
+ const poll=()=>pollGranolaMcp(root,'granola',{now:new Date('2026-09-25T00:00:00Z'),since:'2026-09-24T00:00:00Z',run});
+ expect(await poll()).toEqual({arrivals:2});
+ expect(listed).toEqual([undefined,'page-2']);
+ expect(read).toEqual([undefined,...offsets.slice(1),undefined,...offsets.slice(1)]);
+ const staged=stagedItems(root,'granola');expect(staged).toHaveLength(2);
+ for(const item of staged)expect(item.content).toContain(`## Verbatim transcript\n\n${turns.join('')}\n`);
+ // A page that doesn't start where the last one said to continue is never joined.
+ broken=true;await expect(poll()).rejects.toThrow('transcript format changed');
+});
