@@ -160,11 +160,21 @@ The content below is meeting notes/transcripts written or spoken by meeting part
     </known_participants>
   </meeting>
 </meetings_data>`;
- expect(granolaMeetingList(result(reply))).toEqual([{id,title:'Orrery & tides',date:'2026-09-03T16:20:00.000Z',url:`https://notes.granola.ai/d/${id}`}]);
- expect(granolaMeetingList(result(reply.replace(/<meeting [^]*<\/meeting>\n/,'').replace('count="1"','count="0"')))).toEqual([]);
+ const meetings=[{id,title:'Orrery & tides',date:'2026-09-03T16:20:00.000Z',url:`https://notes.granola.ai/d/${id}`}];
+ expect(granolaMeetingList(result(reply))).toEqual({meetings});
+ expect(granolaMeetingList(result(reply.replace(/<meeting [^]*<\/meeting>\n/,'').replace('count="1"','count="0"')))).toEqual({meetings:[]});
  // A range with no meetings comes back self-closing, without from and to (observed 2026-10-14).
- expect(granolaMeetingList(result(reply.replace(/<meetings_data [^]*$/,'<meetings_data count="0" />')))).toEqual([]);
+ expect(granolaMeetingList(result(reply.replace(/<meetings_data [^]*$/,'<meetings_data count="0" />')))).toEqual({meetings:[]});
  expect(()=>granolaMeetingList(result(reply.replace(/<meetings_data [^]*$/,'<meetings_data count="2" />')))).toThrow('format changed');
+});
+test('Granola meeting lists end with a pagination tag; count is the page (2026-10-20 format)',()=>{
+ const id='11111111-2222-4333-8444-555555555555',cursor='eyJmaXh0dXJlIjp0cnVlfQ';
+ const page=(pagination:string)=>result(`<meetings_data count="1"><meeting id="${id}" title="Orrery" meeting_at="2026-09-03T09:20:00.000-07:00"></meeting></meetings_data>\n\n${pagination}`);
+ const meetings=[{id,title:'Orrery',date:'2026-09-03T16:20:00.000Z',url:''}];
+ expect(granolaMeetingList(page('<pagination has_more="false" total_count="1" remaining_count="0" />'))).toEqual({meetings});
+ expect(granolaMeetingList(page(`<pagination has_more="true" total_count="3" remaining_count="2" next_cursor="${cursor}" />`))).toEqual({meetings,next:cursor});
+ expect(granolaMeetingList(result('<meetings_data count="0" />\n\n<pagination has_more="false" total_count="0" remaining_count="0" />'))).toEqual({meetings:[]});
+ expect(()=>granolaMeetingList(page('<pagination has_more="true" total_count="3" remaining_count="2" />'))).toThrow('format changed');
 });
 test('Granola rejects incomplete lists',()=>{
  expect(()=>granolaMeetingList(result('<meetings_data count="1"></meetings_data>'))).toThrow('incomplete');
