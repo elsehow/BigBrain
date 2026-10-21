@@ -14,7 +14,7 @@ import {lensNotes} from './stages/inclusion';
 import {originOf} from './lensSync';
 import {tickPublishing} from './sharedAssertionPublish';
 import {pages} from './sharedReadUnion';
-import {followJoined,readServer} from './serverStore';
+import {followJoined,followServer,readServer} from './serverStore';
 import type {SourceInsertion} from './insertionLog';
 export async function sharedSettingsApi(req:IncomingMessage,res:ServerResponse,root:string) {
  const url=new URL(req.url??'/','http://localhost');if(!url.pathname.startsWith('/api/shared-settings'))return false;
@@ -69,7 +69,9 @@ export async function sharedSettingsApi(req:IncomingMessage,res:ServerResponse,r
      const {members,hands}=readLensState(root,lens);
      if(members.in.has(note.source_id))sayOnLens(root,lens,{pins:hands.pins.filter(p=>p!==note.source_id),exclusions:[...new Set([...hands.exclusions,note.source_id])],ratings:hands.ratings});
     }
-    json(res,200,await sharedRequest(c,`/v1/contributions/${body.id}/withdraw`,{request_id:body.request_id,version:body.version}));
+    const said=await sharedRequest(c,`/v1/contributions/${body.id}/withdraw`,{request_id:body.request_id,version:body.version});
+    await followServer(store,c); // gone from your copy before you read it
+    json(res,200,said);
     void tickPublishing(root,store,c.id); // retract claims that cited a withdrawn source now, not on the next tick
    }else json(res,404,{error:'Not found'});
   }else json(res,405,{error:'Method not allowed'});
