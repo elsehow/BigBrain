@@ -139,7 +139,7 @@
   /** A note view's text; a source (a saved email, article, meeting…) also
    * carries how it came in, and Quick's summary of it to read first. */
   /** `page`: the host the source's page was read from, when it read better than what was saved. */
-  type SourceMeta = { via: string; date?: string; header: Array<[string, string]>; summary?: string; summaryFailed?: boolean; html: string; page?: string;
+  type SourceMeta = { via: string; date?: string; header: Array<[string, string]>; summary?: string; summaryDone?: boolean; summaryFailed?: boolean; html: string; page?: string;
     /** Every original the document's copies hold, when there is more than one (lib/sourceCopies.ts). */
     origins?: (SourceOrigin & { path: string })[];
     /** The document's other copies, and what it might also be (lib/sourceCopyReview.ts). */
@@ -162,17 +162,31 @@
         if (meta && r.copies?.length) meta.copies = r.copies;
         if (meta && r.proposals?.length) meta.proposals = r.proposals;
         if (notes[v.path]!.source && !data) {
-          const note = notes[v.path]!;
-          void briefing(v.path, text => {
-            if (notes[v.path] === note && note.source) note.source = { ...note.source, summary: text };
-          }).then(ok => {
-            if (!ok && notes[v.path] === note && note.source) note.source = { ...note.source, summary: undefined, summaryFailed: true };
-          });
           const origin = (r as { origin?: { url?: string } }).origin?.url;
           if (remoteOk && !held && origin && notes[v.path]!.source!.via !== "email") void readPage(v.path, origin, notes[v.path]!.content ?? "");
         }
       }).catch((e) => { notes[v.path] = { error: errText(e) }; });
     }
+  });
+  // A stable key keeps streamed text updates from restarting these subscriptions.
+  const sourcePaths = $derived(shownViews.filter(v => v.kind === "note" && notes[v.path]?.source).map(v => v.kind === "note" ? v.path : "").join("\0"));
+  $effect(() => {
+    const paths = sourcePaths.split("\0").filter(Boolean);
+    const scope = serverOn ? { server: serverOn } : lensOn ? { lens: lensOn } : undefined;
+    const controller = new AbortController();
+    untrack(() => {
+      for (const path of paths) {
+        const note = notes[path];
+        if (data || !note?.source || note.source.summaryDone || note.source.summaryFailed) continue;
+        void readBriefing(path, text => {
+          if (!controller.signal.aborted && notes[path] === note && note.source) note.source = { ...note.source, summary: text };
+        }, scope, controller.signal, "source").then(ok => {
+          if (!controller.signal.aborted && notes[path] === note && note.source)
+            note.source = { ...note.source, summaryDone: ok, summaryFailed: !ok, ...(!ok ? { summary: undefined } : {}) };
+        });
+      }
+    });
+    return () => controller.abort();
   });
   const HEADER = /^(From|To|Cc|Date|Inbox|Subject|Attendees):\s*(.*)$/;
   /** A source note reads as the source: its title and mail headers lifted out of the body.
@@ -1009,8 +1023,8 @@
   /** Quick's briefing on a note — the summary the app shows when you select it.
    * Cached by the engine per note and evidence; a fresh one streams as it's written.
    * With a lens or a server on, it reads only that lens's or server's evidence. */
-  function briefing(path: string, onText: (text: string) => void): Promise<boolean> {
-    return readBriefing(path, onText, serverOn ? { server: serverOn } : lensOn ? { lens: lensOn } : undefined);
+  function briefing(path: string, onText: (text: string) => void, signal?: AbortSignal): Promise<boolean> {
+    return readBriefing(path, onText, serverOn ? { server: serverOn } : lensOn ? { lens: lensOn } : undefined, signal);
   }
   /** How a hovered tie relates to the opened entity, in Quick's words beside
    * the tie's name. It is asked for once the pointer settles, so passing over
@@ -1018,8 +1032,12 @@
   const relations = new Map<string, string>();
   let relateTimer: ReturnType<typeof setTimeout> | undefined;
   let relating: number | null = null;
+  let relateAbort: AbortController | undefined;
+  $effect(() => () => { clearTimeout(sayTimer); clearTimeout(relateTimer); sayAbort?.abort(); relateAbort?.abort(); });
   function relateTie(j: number | null): void {
     clearTimeout(relateTimer);
+    relateAbort?.abort();
+    const request = relateAbort = new AbortController();
     const i = ent, focus = i == null ? undefined : field?.nodes[i]?.path, hovered = j == null ? undefined : field?.nodes[j]?.path;
     if (data || i == null || j == null || j === i || !focus || !hovered || !neighbours(field!, i).includes(j)) {
       if (relating != null) { relating = null; scene?.relate(null); }
@@ -1030,20 +1048,28 @@
     const known = relations.get(pair);
     if (known) { scene?.relate(j, known); return; }
     scene?.relate(null);
-    const still = () => ent === i && relating === j;
+    const still = () => !request.signal.aborted && ent === i && relating === j;
     relateTimer = setTimeout(() => {
       if (!still()) return;
       scene?.relate(j, "");
-      void fetch("/api/note/relation", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ focus, hovered }) })
+      void fetch("/api/note/relation", { method: "POST", signal: request.signal, headers: { "content-type": "application/json" }, body: JSON.stringify({ focus, hovered }) })
         .then(async (r) => { const body = await r.json() as { relation?: { text: string } }; if (!r.ok || !body.relation) throw new Error(); return plain(body.relation.text); })
         .then((text) => { relations.set(pair, text); if (still()) scene?.relate(j, text); })
         // no relation to give: the tie keeps its plain name
         .catch(() => { if (still()) scene?.relate(null); });
     }, 300);
   }
+  let entityRequest: { index: number; controller: AbortController } | undefined;
+  $effect(() => {
+    const selected = ent;
+    return () => { if (entityRequest?.index === selected) entityRequest.controller.abort(); };
+  });
   async function openEntity(i: number): Promise<void> {
     if (!field || !writing) return;
     closeSource();
+    entityRequest?.controller.abort();
+    const request = new AbortController();
+    entityRequest = { index: i, controller: request };
     ent = i; entRows = null;
     scene?.openEntity(i, neighbours(field, i));
     scene?.shift(shiftFor());
@@ -1056,8 +1082,8 @@
     const first = n.memory && path ? await memorySummary(path) : undefined;
     if (ent !== i) return;
     scene?.openEntity(i, ties, first ?? (path ? "" : undefined));
-    if (path) void briefing(path, (text) => { if (ent === i) scene?.openEntity(i, ties, text); })
-      .then((ok) => { if (!ok && !first && ent === i) scene?.openEntity(i, ties); });
+    if (path) void briefing(path, (text) => { if (ent === i && !request.signal.aborted) scene?.openEntity(i, ties, text); }, request.signal)
+      .then((ok) => { if (!ok && !first && ent === i && !request.signal.aborted) scene?.openEntity(i, ties); });
     if (n.memory) {
       // a memory topic is a note, not an entity: its feed is about what it cites
       const cites = new Set(neighbours(field, i, 24).map((j) => field!.nodes[j]!.id));
@@ -1136,6 +1162,7 @@
   }
   function stopFind(): void {
     clearTimeout(findTimer);
+    clearTimeout(sayTimer); sayAbort?.abort();
     findAbort?.abort();
     finding = false;
   }
@@ -1188,18 +1215,21 @@
     sayActive();
   }
   let sayTimer: ReturnType<typeof setTimeout> | undefined;
+  let sayAbort: AbortController | undefined;
   /** The active match's summary, as a clicked node has it: a spinner, then
    * Quick's words as they arrive. It starts once the arrow keys settle, so
    * passing over a match doesn't ask for one. The camera holds still. */
   function sayActive(): void {
     clearTimeout(sayTimer);
+    sayAbort?.abort();
+    const request = sayAbort = new AbortController();
     const i = activeNode();
     if (i == null) return;
     const path = data ? undefined : field!.nodes[i]!.path;
-    const show = (text?: string) => { if (searching && activeNode() === i) scene?.search({ matches: lit(), active: i, text, move: "none" }); };
+    const show = (text?: string) => { if (!request.signal.aborted && searching && activeNode() === i) scene?.search({ matches: lit(), active: i, text, move: "none" }); };
     if (!path) return show();
     show("");
-    sayTimer = setTimeout(() => void briefing(path, show).then((ok) => { if (!ok) show(); }), 350);
+    sayTimer = setTimeout(() => void briefing(path, show, request.signal).then((ok) => { if (!ok) show(); }), 350);
   }
   function commit(k = active): void {
     const m = itemAt(k), i = nodeOf(k);

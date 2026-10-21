@@ -40,7 +40,13 @@ export interface NoteBriefing {
 export type BriefingScope = { lens: string } | { server: string };
 /** `today`: the day an unread briefing is read on, given by the door that
  * asked: an input, so the memo is keyed by it and the stage reads no clock. */
-export type NoteBriefingRequest = string | (GraphViewState & { purpose?: "unread"; scope?: BriefingScope; today?: string });
+export type NoteBriefingRequest = string | (GraphViewState & { purpose?: "unread" | "source"; scope?: BriefingScope; today?: string });
+
+/** A source's identity is about its own text, independent of a changing graph. */
+export function sourceSummaryInput(items: BriefingItem[]): NoteBriefingInput {
+  if (items.length !== 1 || items[0]!.kind !== "source") throw new Error("Choose one source for a source summary.");
+  return { items, excluded: [], relationships: [], links: [] };
+}
 /** A scope that reads only these claims: no memory passages, no links between notes. */
 export const claimsOnly = (claims: ReadonlySet<string>) => (e: ConnectionEvidence) => !!e.assertion && !e.path && claims.has(e.assertion);
 
@@ -93,6 +99,7 @@ export function briefingInput({ graph, connections, item }: BriefingRecord, requ
   const state = canonicalGraphView(graph.nodes, typeof request === "string" ? { selected: [request], excluded: [] } : request);
   const items = state.selected.map(item).filter(item => !isUserNode(item, graph.userNote));
   if (!items.length) throw new Error("Choose at least one note for a briefing.");
+  if (typeof request !== "string" && request.purpose === "source") return sourceSummaryInput(items);
   const selected = new Set(items.map(item => item.id));
   const links: BriefingConnection[] = contextConnections(graph, [...selected], state.excluded, Object.fromEntries(items.map(item => [item.id, item.text]))).flatMap(({ node, selected }) =>
     node.path && !isUserNode(node, graph.userNote) ? [{ id: node.id, path: node.path, title: node.title,
@@ -293,8 +300,9 @@ export function noteBriefingRoutes(root: string, generate = createNoteBriefingSe
         const view: GraphViewState | undefined = typeof body?.path === "string" ? { selected: [body.path], excluded: [] }
           : keys(body?.selected) && body.selected.length > 0 && keys(body.excluded ?? []) ? { selected: body.selected, excluded: body.excluded ?? [] } : undefined;
         if (!view || scope === null) return json(res, 400, { error: "Choose one or more notes for a briefing." });
-        const request: NoteBriefingRequest = typeof body.path === "string" && !scope ? body.path
-          : { ...view, ...(body.purpose === "unread" ? { purpose: "unread" as const, today: new Date().toISOString().slice(0, 10) } : {}), ...(scope ? { scope } : {}) };
+        const purpose = body.purpose === "unread" || body.purpose === "source" ? body.purpose : undefined;
+        const request: NoteBriefingRequest = typeof body.path === "string" && !scope && !purpose ? body.path
+          : { ...view, ...(purpose ? { purpose } : {}), ...(purpose === "unread" ? { today: new Date().toISOString().slice(0, 10) } : {}), ...(scope ? { scope } : {}) };
         streaming = body.stream === true;
         if (streaming) { res.writeHead(200, { "content-type": "application/x-ndjson; charset=utf-8", "cache-control": "no-store" }); res.flushHeaders(); }
         const briefing = await generate(root, request, text => { if (streaming) emit({ type: "preview", text }); }, controller.signal);

@@ -15,9 +15,11 @@ import { runBriefingModel, type BriefingModel } from "./quick";
 
 export function createNoteRelationService(run: BriefingModel = runBriefingModel,
   read: (root: string, focus: string, hovered: string) => NoteRelationInput | Promise<NoteRelationInput> = readNoteRelationInput) {
-  const pending = new Map<string, Promise<NoteRelation>>();
-  return async (root: string, focus: string, hovered: string): Promise<NoteRelation> => {
+  const pending = new Map<string, { promise: Promise<NoteRelation>; controller: AbortController; readers: Set<object> }>();
+  return async function generate(root: string, focus: string, hovered: string, signal?: AbortSignal): Promise<NoteRelation> {
+    signal?.throwIfAborted();
     const input = await read(root, focus, hovered);
+    signal?.throwIfAborted();
     const quick = loadManifest(root).quick;
     const key = sha256hex(JSON.stringify([NOTE_RELATION_SYSTEM, quick.adapter, quick.provider, quick.model, quick.reasoning, input]));
     const file = join(root, ".state", "note-relations", `${key}.json`);
@@ -28,10 +30,11 @@ export function createNoteRelationService(run: BriefingModel = runBriefingModel,
     const jobKey = `${root}:${key}`;
     let job = pending.get(jobKey);
     if (!job) {
-      // A hover that moves on leaves its call running: it fills the cache.
-      job = (async () => {
+      job = { promise: Promise.resolve(null as never), controller: new AbortController(), readers: new Set() };
+      const active = job;
+      job.promise = (async () => {
         const result = await run(root, noteRelationPrompt(input), () => {}, NOTE_RELATION_SYSTEM,
-          { ...NOTE_RELATION_MODEL_OPTIONS, outputSchema: NOTE_RELATION_SCHEMA });
+          { ...NOTE_RELATION_MODEL_OPTIONS, outputSchema: NOTE_RELATION_SCHEMA, queueSignal: active.controller.signal });
         const relation: NoteRelation = { key, model: result.model, generatedAt: new Date().toISOString(),
           text: parseNoteRelation(result.text), ...(result.costUsd !== undefined ? { costUsd: result.costUsd } : {}) };
         writeAtomic(file, JSON.stringify(relation));
@@ -39,7 +42,15 @@ export function createNoteRelationService(run: BriefingModel = runBriefingModel,
       })().finally(() => pending.delete(jobKey));
       pending.set(jobKey, job);
     }
-    return job;
+    const reader = {};
+    job.readers.add(reader);
+    const leave = () => { job!.readers.delete(reader); if (!job!.readers.size) job!.controller.abort(); };
+    signal?.addEventListener("abort", leave, { once: true });
+    try { return await job.promise; }
+    catch (error) {
+      if (!signal?.aborted && error === job.controller.signal.reason) return generate(root, focus, hovered, signal);
+      throw error;
+    } finally { leave(); signal?.removeEventListener("abort", leave); }
   };
 }
 

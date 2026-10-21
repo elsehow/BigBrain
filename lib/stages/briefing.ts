@@ -15,22 +15,26 @@ import { sha256hex } from "../hash";
 import { loadManifest } from "../manifest";
 import {
   briefingPrompt, DESCRIBED_LINKS, NOTE_BRIEFING_MODEL_OPTIONS, NOTE_BRIEFING_SYSTEM, noteBriefingPreview, noteBriefingSchema,
-  parseNoteBriefing, readNoteBriefingInput, type BriefingConnection, type NoteBriefing, type NoteBriefingInput, type NoteBriefingRequest,
+  parseNoteBriefing, readNoteBriefingInput, sourceSummaryInput, type BriefingConnection, type NoteBriefing, type NoteBriefingInput, type NoteBriefingRequest,
 } from "../noteBriefing";
 import { runBriefingModel, type BriefingModel } from "./quick";
 
 /** Moves when the prompt or the answer's shape does: every memo before it is asked again. */
 export const BRIEFING_VERSION = 15;
+export const SOURCE_SUMMARY_TTL_MS = 90 * 24 * 60 * 60_000;
 
 /** Where the memo for an input's key is kept. */
 export const briefingMemoFile = (root: string, key: string): string => join(root, ".state", "note-briefings", `${key}.json`);
 
 export function createNoteBriefingService(run: BriefingModel = runBriefingModel,
   read: (root: string, request: NoteBriefingRequest) => NoteBriefingInput | Promise<NoteBriefingInput> = readNoteBriefingInput) {
-  const pending = new Map<string, { promise: Promise<NoteBriefing>; preview: string; listeners: Set<(text: string) => void> }>();
-  return async (root: string, request: NoteBriefingRequest, onPreview: (text: string) => void = () => {}, signal?: AbortSignal): Promise<NoteBriefing> => {
-    const full = await read(root, request);
+  const pending = new Map<string, { promise: Promise<NoteBriefing>; preview: string; listeners: Set<(text: string) => void>; controller: AbortController }>();
+  return async function generate(root: string, request: NoteBriefingRequest, onPreview: (text: string) => void = () => {}, signal?: AbortSignal): Promise<NoteBriefing> {
+    signal?.throwIfAborted();
     const purpose = typeof request === "string" ? undefined : request.purpose;
+    const record = await read(root, request);
+    signal?.throwIfAborted();
+    const full = purpose === "source" ? sourceSummaryInput(record.items) : record;
     const today = purpose === "unread" && typeof request !== "string" ? request.today : undefined;
     const quick = loadManifest(root).quick;
     // Include the whole connection/evidence set, even passages shortened for
@@ -39,7 +43,9 @@ export function createNoteBriefingService(run: BriefingModel = runBriefingModel,
     const file = briefingMemoFile(root, key);
     try {
       const cached = JSON.parse(readFileSync(file, "utf8"));
-      if (cached.key === key && typeof cached.summary === "string" && Array.isArray(cached.links)) {
+      const age = Date.now() - Date.parse(cached.generatedAt);
+      if (cached.key === key && typeof cached.summary === "string" && Array.isArray(cached.links)
+        && (purpose !== "source" || (age >= 0 && age < SOURCE_SUMMARY_TTL_MS))) {
         // Earlier cache entries stored model order. Reuse their prose while
         // restoring the same deterministic order as a fresh response.
         const order = new Map(full.links.map((link, i) => [link.id, i]));
@@ -50,10 +56,10 @@ export function createNoteBriefingService(run: BriefingModel = runBriefingModel,
     const jobKey = `${root}:${key}`;
     let job = pending.get(jobKey);
     if (!job) {
-      // Navigation leaves earlier generations running to fill the cache. Only
-      // deduplicate identical work; those jobs must not block a new selection.
+      // One model call per input. The shared Quick queue limits all UI work;
+      // a disconnected reader cancels only work that hasn't started yet.
       const { input, prompt } = briefingPrompt(full);
-      job = { promise: Promise.resolve(null as never), preview: "", listeners: new Set() };
+      job = { promise: Promise.resolve(null as never), preview: "", listeners: new Set(), controller: new AbortController() };
       const active = job;
       job.promise = (async () => {
         const result = await run(root, prompt, text => {
@@ -61,7 +67,7 @@ export function createNoteBriefingService(run: BriefingModel = runBriefingModel,
           if (preview === undefined || preview === active.preview) return;
           active.preview = preview;
           for (const listener of active.listeners) listener(preview);
-        }, NOTE_BRIEFING_SYSTEM + (purpose === "unread" ? `\nToday is ${today}. This selection was explicitly opened as unread sources. In the summary, prioritize concrete requests, decisions and dated deadlines that may need the user, then group informational/background items. Distinguish explicit asks from inferred follow-up; unread alone never implies a reply is owed. Do not claim a historical deadline is upcoming. Mention limited evidence when excerpts cannot establish what needs action. Reading these sources does not change their read state.` : ""), { ...NOTE_BRIEFING_MODEL_OPTIONS, outputSchema: noteBriefingSchema(input) });
+        }, NOTE_BRIEFING_SYSTEM + (purpose === "unread" ? `\nToday is ${today}. This selection was explicitly opened as unread sources. In the summary, prioritize concrete requests, decisions and dated deadlines that may need the user, then group informational/background items. Distinguish explicit asks from inferred follow-up; unread alone never implies a reply is owed. Do not claim a historical deadline is upcoming. Mention limited evidence when excerpts cannot establish what needs action. Reading these sources does not change their read state.` : ""), { ...NOTE_BRIEFING_MODEL_OPTIONS, outputSchema: noteBriefingSchema(input), queueSignal: active.controller.signal });
         const described = parseNoteBriefing(result.text, input);
         const briefing: NoteBriefing = { key, model: result.model, generatedAt: new Date().toISOString(),
           summary: described.summary,
@@ -74,13 +80,25 @@ export function createNoteBriefingService(run: BriefingModel = runBriefingModel,
       })().finally(() => pending.delete(jobKey));
       pending.set(jobKey, job);
     }
-    const unsubscribe = () => job!.listeners.delete(onPreview);
+    // A wrapper gives each subscriber its own identity, even when callers
+    // reuse a callback. Only the last departure may remove a queued job.
+    const listener = (text: string) => onPreview(text);
+    const unsubscribe = () => {
+      job!.listeners.delete(listener);
+      if (!job!.listeners.size) job!.controller.abort();
+    };
     if (!signal?.aborted) {
-      job.listeners.add(onPreview);
+      job.listeners.add(listener);
       if (job.preview) onPreview(job.preview);
       signal?.addEventListener("abort", unsubscribe, { once: true });
     }
     try { return await job.promise; }
+    catch (error) {
+      // A reader can rejoin just after the last subscriber cancelled a
+      // queued job. Retry that cancellation; active jobs still share a result.
+      if (!signal?.aborted && error === job.controller.signal.reason) return generate(root, request, onPreview, signal);
+      throw error;
+    }
     finally { unsubscribe(); signal?.removeEventListener("abort", unsubscribe); }
   };
 }

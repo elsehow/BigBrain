@@ -166,7 +166,7 @@ test("input rank is authoritative and invalid, duplicated, omitted or ungrounded
     expect(() => parseNoteBriefing(JSON.stringify({ ...output, links }), input)).toThrow();
 });
 
-test("new selections start while earlier briefings run, including detached readers, and duplicates still share work", async () => {
+test("memo subscribers share running work, including a reader returning after disconnecting", async () => {
   const root = vault();
   let calls = 0;
   const releases: (() => void)[] = [];
@@ -177,6 +177,7 @@ test("new selections start while earlier briefings run, including detached reade
   }, (_root, request) => ({ items: [{ id: String(request), path: String(request), title: "Project", kind: "memory", text: "Project context." }], excluded: [], relationships: [], links: [] }));
   const controller = new AbortController();
   const requests = [generate(root, "memory/0.md", () => {}, controller.signal)];
+  await Promise.resolve(); // the model has started before this reader leaves
   controller.abort(); // Navigating away detaches the reader, but warms the cache.
   for (let i = 1; i < 6; i++) requests.push(generate(root, `memory/${i}.md`));
   requests.push(generate(root, "memory/0.md"));

@@ -84,15 +84,18 @@ export async function readNoteRelationInput(root: string, focus: string, hovered
 export function noteRelationRoutes(root: string, generate = createNoteRelationService()): Route[] {
   return [{ method: "POST", path: "/api/note/relation", handler: ({ req, res }) => {
     void (async () => {
+      const controller = new AbortController();
+      const close = () => controller.abort();
+      res.on("close", close);
       try {
         const body = JSON.parse(await readBody(req, 8_192));
         const key = (value: unknown): value is string => typeof value === "string" && value.length > 0 && value.length <= 2048;
         if (!key(body?.focus) || !key(body?.hovered)) return json(res, 400, { error: "Name the open note and the hovered one." });
-        const relation = await generate(root, body.focus, body.hovered);
+        const relation = await generate(root, body.focus, body.hovered, controller.signal);
         if (!res.destroyed) json(res, 200, { relation });
       } catch (error) {
         if (!res.destroyed) json(res, 400, { error: error instanceof Error ? error.message : "The relation is unavailable. Try again." });
-      }
+      } finally { res.off("close", close); }
     })();
   } }];
 }

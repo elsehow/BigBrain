@@ -17,7 +17,7 @@ export const runBriefingModel: BriefingModel = async (root, prompt, preview, sys
   const result = await runAgent({ root, role: "quick", auth: manifest.auth,
     target: quick,
     capabilities: "none", instructions: system, prompt,
-    timeoutMs: options?.timeoutMs ?? 60_000, signal: options?.signal,
+    timeoutMs: options?.timeoutMs ?? 60_000, signal: options?.signal, queueSignal: options?.queueSignal,
     output: { requireText: true, schema: options?.outputSchema, maxTokensHint: options?.maxOutputTokens ?? 2000,
       maxCharacters: (options?.maxOutputTokens ?? 2000) * 8, maxBudgetUsd: options?.maxBudgetUsd },
     onText: text => { firstTextMs ??= performance.now() - started; preview(text); },
