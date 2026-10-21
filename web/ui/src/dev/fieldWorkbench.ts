@@ -20,7 +20,7 @@
 import { mount } from "svelte";
 import "../design/tokens.css";
 import "../app.css";
-import Base from "../components/Base.svelte";
+import AppShell from "../components/AppShell.svelte";
 import { installGraphFixture } from "./graphFixture";
 import { watchSystemTheme } from "../lib/theme";
 import { update } from "../lib/update.svelte";
@@ -227,4 +227,4 @@ const fake = window.fetch;
 
 watchSystemTheme();
 // unpinned, as the app mounts it: Field unless the address says ?view=classic
-mount(Base, { target: document.getElementById("app")! });
+mount(AppShell, { target: document.getElementById("app")! });
