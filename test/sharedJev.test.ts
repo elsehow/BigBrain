@@ -24,3 +24,14 @@ test('provider size rejection fails without retrying fragments',async()=>{
  await expect(evaluateJev('fake','rule',[],{title:'Example',body:'x'.repeat(200000)},transport)).rejects.toThrow('Jev request failed (413)');
  expect(calls).toBe(1);
 });
+test('Jev cancellation skips pre-aborted calls and interrupts retry backoff',async()=>{
+ const controller=new AbortController();let calls=0;
+ const transport=(async()=>{calls++;return new Response('Try later',{status:429,headers:{'retry-after':'15'}});}) as typeof fetch;
+ const cancelled=evaluateJev('fake','rule',[],{title:'Example',body:'Invented note'},transport,[],controller.signal);
+ await Bun.sleep(0); // the response has entered its fifteen-second retry wait
+ expect(calls).toBe(1);
+ controller.abort();await expect(cancelled).rejects.toMatchObject({name:'AbortError'});
+ expect(calls).toBe(1);
+ await expect(evaluateJev('fake','rule',[],{title:'Example',body:'Invented note'},transport,[],controller.signal)).rejects.toMatchObject({name:'AbortError'});
+ expect(calls).toBe(1);
+},1000);

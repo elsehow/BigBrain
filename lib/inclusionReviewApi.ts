@@ -28,7 +28,7 @@ export async function inclusionReviewApi(req:IncomingMessage,res:ServerResponse,
    const context:ReviewContext={root,store,scope:lensScope(target.id),text:body.text??lens?.text??'',labels:lens&&labelsOf(root,readLensState(root,lens).hands.ratings),sources:notes().map(asSource),
     select:text=>{const keep=ruleCandidateFilter(root,text);return notes().filter(n=>keep(n.insertion)).map(asSource);},check:()=>{},save:()=>{}};
    if(typeof context.text!=='string'||!context.text.trim()||context.text.length>8000)throw Error('Write an inclusion rule first.');
-   context.queries=(text,entities)=>ruleQueries(root,store,text,entities);
+   context.queries=(text,entities,signal)=>ruleQueries(root,store,text,entities,undefined,signal);
    json(res,202,startReview(context));return true;
   }
   const s=getReview(root,body.id);

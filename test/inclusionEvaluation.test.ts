@@ -10,6 +10,7 @@ import {appendSourceInsertionEvent,sourceInsertion} from '../lib/insertionLog';
 import {saveJevKey} from '../lib/jevSettings';
 import {lensNotes,scorePass} from '../lib/stages/inclusion';
 import {CLAIMS_GUIDANCE} from '../lib/sharedJev';
+import {inclusionEvaluator} from '../lib/inclusionEvaluation';
 
 const realFetch=globalThis.fetch;
 afterEach(()=>{globalThis.fetch=realFetch;setSystemTime();});
@@ -42,4 +43,18 @@ test("a note is scored with its claims and the entities they name; new claims sc
   expect(sent.map(b=>b.state.source.title)).toEqual(['Saturday']);
   expect(sent[0]!.state.source.claims).toEqual(['Kit walked the dog along the canal.','Kit lost a glove by the canal.']);
  }finally{rmSync(dir,{recursive:true,force:true});}
+});
+test('an answer arriving after cancellation is not cached as a score',async()=>{
+ const root=mkdtempSync(join(tmpdir(),'score-cancellation-')),store=join(root,'connections.json');
+ try{
+  writeFileSync(join(root,'vault.yaml'),'integrations: {}\n');saveJevKey(store,'fabricated-key');
+  const controller=new AbortController();let calls=0;
+  globalThis.fetch=(async()=>{if(++calls===1)controller.abort();return Response.json({answers:{relevant:{noul:.9}}});}) as typeof fetch;
+  const evaluator=inclusionEvaluator(root,store,'Example rule'),source={id:'example',title:'Example',body:'Invented note'};
+  await expect(evaluator.score(source,undefined,controller.signal)).rejects.toMatchObject({name:'AbortError'});
+  expect(evaluator.peek(source)).toBeUndefined();
+  expect(await evaluator.score(source)).toBe(.9);expect(calls).toBe(2);
+  await expect(evaluator.score(source,undefined,controller.signal)).rejects.toMatchObject({name:'AbortError'});
+  expect(calls).toBe(2);
+ }finally{rmSync(root,{recursive:true,force:true});}
 });
