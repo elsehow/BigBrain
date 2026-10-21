@@ -14,7 +14,7 @@ import {lensNotes} from './stages/inclusion';
 import {originOf} from './lensSync';
 import {tickPublishing} from './sharedAssertionPublish';
 import {pages} from './sharedReadUnion';
-import {readServer} from './serverStore';
+import {followJoined,readServer} from './serverStore';
 import type {SourceInsertion} from './insertionLog';
 export async function sharedSettingsApi(req:IncomingMessage,res:ServerResponse,root:string) {
  const url=new URL(req.url??'/','http://localhost');if(!url.pathname.startsWith('/api/shared-settings'))return false;
@@ -23,7 +23,7 @@ export async function sharedSettingsApi(req:IncomingMessage,res:ServerResponse,r
  try{
   if(url.pathname==='/api/shared-settings') {
    if(req.method==='GET'){json(res,200,{connections:await refreshConnectionNames(store)});return true;}
-   if(req.method==='POST'){const input=JSON.parse(await readBody(req,16384));json(res,201,await connectInvite(store,input.invite));return true;}
+   if(req.method==='POST'){const input=JSON.parse(await readBody(req,16384)),saved=await connectInvite(store,input.invite);followJoined(store,saved.id);json(res,201,saved);return true;}
   }
   if(url.pathname==='/api/shared-settings/entities'&&req.method==='GET'){json(res,200,{items:searchRuleEntities(root,url.searchParams.get('q')??'')});return true;}
   const c=readConnections(store).find(c=>c.id===url.searchParams.get('connection'));if(!c){json(res,404,{error:'Shared connection not found'});return true;}

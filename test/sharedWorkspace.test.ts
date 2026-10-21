@@ -8,7 +8,9 @@ import { allowLoopbackRequest } from '../lib/httpx';
 import { makeSharedApiHandler } from '../lib/sharedVaultApi';
 import { initMemberStore, addMember, mintCredential, revokeCredential } from '../lib/sharedMembers';
 import { saveConnection, endpointURL } from '../lib/sharedConnections';
-import { followServers } from '../lib/serverStore';
+import { followServers, readServer } from '../lib/serverStore';
+import { sharedSettingsApi } from '../lib/sharedSettingsApi';
+import { createMemberInvite } from '../lib/sharedInvites';
 
 test('shared shell adapter isolates records, protects credentials, and respects permissions and revocation', async () => {
   const home = mkdtempSync(join(tmpdir(), 'bb-shared-shell-')), root = join(home, 'vault'), members = join(home,'members.json'), store = join(home,'connections.json');
@@ -60,6 +62,32 @@ test('shared shell adapter isolates records, protects credentials, and respects 
     expect(personalCalls).toBe(0);
     expect((await fetch(base+'/api/graph')).status).toBe(200); expect(personalCalls).toBe(1);
   } finally { local.closeAllConnections(); local.close(); remote.stop(true); }
+});
+
+test('a server joined through either door is followed at once, not on the next tick', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'bb-shared-join-')), root = join(home, 'shared'), personal = join(home, 'personal'), members = join(home,'members.json'), store = join(home,'connections.json');
+  mkdirSync(root); mkdirSync(personal); writeFileSync(join(root,'vault.yaml'), 'shared: true\n');
+  initMemberStore(members, root, {handle:'owner'});
+  writeFileSync(join(root,'.shared-identity.json'), JSON.stringify({id:'example-vault',name:'Example team'}));
+  const remote = Bun.serve({hostname:'127.0.0.1',port:0,fetch:makeSharedApiHandler({root,storePath:members,log:()=>{}})});
+  const invite = () => `http://127.0.0.1:${remote.port}/invite#${createMemberInvite(members,'Example Member','read').secret}`;
+  // the settings page's door reads the store from the environment; the shell's is handed it
+  const old = process.env.BIGBRAIN_SHARED_CONNECTIONS; process.env.BIGBRAIN_SHARED_CONNECTIONS = store;
+  const local = createServer(async (req,res) => { if (await sharedSettingsApi(req,res,personal)) return; if (await sharedWorkspace(req,res,store)) return; res.writeHead(404).end(); });
+  await new Promise<void>(r => local.listen(0,'127.0.0.1',r));
+  const base = `http://127.0.0.1:${(local.address() as {port:number}).port}`;
+  try {
+    for (const door of ['/api/shared-settings','/api/shared-connections']) {
+      const joined = await fetch(base+door,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({invite:invite()})});
+      expect(joined.status).toBe(201);
+      const {id} = await joined.json() as {id:string};
+      for (let i = 0; i < 50 && !readServer(store,id).snapshot; i++) await Bun.sleep(20);
+      expect([door, !!readServer(store,id).snapshot]).toEqual([door, true]);
+    }
+  } finally {
+    local.closeAllConnections(); local.close(); remote.stop(true);
+    if (old === undefined) delete process.env.BIGBRAIN_SHARED_CONNECTIONS; else process.env.BIGBRAIN_SHARED_CONNECTIONS = old;
+  }
 });
 
 test('remote credentials require TLS except on loopback and cannot ride URLs', () => {

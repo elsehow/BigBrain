@@ -143,6 +143,13 @@ export async function followServer(store: string, c: SharedConnection): Promise<
   }
 }
 
+/** A server just joined, by whichever door: its first copy now, not on the
+ * follower's next tick. The viewer hears it land (watchServers). */
+export function followJoined(store: string, id: string): void {
+  const joined = readConnections(store).find((c) => c.id === id);
+  if (joined) void followServer(store, joined);
+}
+
 /** Follow every joined server, and let go of the stores of servers no longer joined. */
 export async function followServers(store: string): Promise<void> {
   const connections = readConnections(store);
