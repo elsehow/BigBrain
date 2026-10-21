@@ -36,6 +36,9 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
   if(await done.isEnabled())break;
   const card=page.locator('article').first();const title=await card.locator('.title').innerText();await card.getByRole('button',{name:(title.startsWith('Include')?'Include: ':'Exclude: ')+title,exact:true}).click();
   await page.waitForFunction(old=>!Array.from(document.querySelectorAll('article .title')).some(e=>e.textContent===old),title);
+  // This fixture seeds scores for one rating. Cards now remain interactive
+  // during scoring; the rapid-rating contract has its own inclusionReview test.
+  await page.waitForFunction(()=>!document.querySelector('.done:disabled'));
  }
  await page.waitForFunction(()=>!document.querySelector('.done:disabled'));await done.click();
  // Before anything is saved, the table shows what the rule takes.

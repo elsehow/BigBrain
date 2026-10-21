@@ -2,29 +2,20 @@
  import {onDestroy} from "svelte";
  export interface RuleExample {id:string;title:string;origin:string;excerpt:string;body:string}
  export interface PickableNote {id:string;title:string;origin:string}
- let {items,onjudge,ondone,ready=true,retesting=false,status="",showExamples=true,picked=[],search,onpick}:{items:RuleExample[];onjudge:(id:string,include:boolean)=>void;ondone:()=>void;ready?:boolean;retesting?:boolean;status?:string;showExamples?:boolean;
+ let {items,onjudge,ondone,ready=true,retesting=false,status="",showExamples=true,picked=[],search,onpick}:{items:RuleExample[];onjudge:(id:string,include:boolean)=>void|Promise<void>;ondone:()=>void;ready?:boolean;retesting?:boolean;status?:string;showExamples?:boolean;
   /** Notes added by hand: shown first, thumbs up already chosen. */
   picked?:RuleExample[];search?:(q:string,signal:AbortSignal)=>Promise<PickableNote[]>;onpick?:(id:string)=>void}=$props();
  let picking=$state(false),query=$state(''),found=$state<PickableNote[]>([]),active=$state(0),searchFailed=$state(false),lookup:AbortController|undefined,lookupTimer:ReturnType<typeof setTimeout>|undefined;
  let opened=$state<RuleExample|null>(null);
- let pending=$state<Record<string,{include:boolean;fading:boolean}>>({});
- const timers=new Map<string,ReturnType<typeof setTimeout>>();
- function judge(id:string,include:boolean){
+ let pending=$state<Record<string,{include:boolean}>>({});
+ async function judge(id:string,include:boolean){
   if(pending[id]||retesting)return;
-  pending={...pending,[id]:{include,fading:false}};
-  timers.set(id,setTimeout(()=>{
-   pending={...pending,[id]:{include,fading:true}};
-   timers.set(id,setTimeout(()=>finish(id),260));
-  },450));
+  pending={...pending,[id]:{include}};
+  try{await onjudge(id,include);}
+  finally{const next={...pending};delete next[id];pending=next;}
  }
- function finish(id:string){
-  const choice=pending[id];if(!choice)return;
-  clearTimeout(timers.get(id));timers.delete(id);
-  const next={...pending};delete next[id];pending=next;
-  if([...items,...picked].some(item=>item.id===id))onjudge(id,choice.include);
- }
- function done(){if(!ready||retesting)return;for(const id of Object.keys(pending))finish(id);ondone();}
- onDestroy(()=>{for(const timer of timers.values())clearTimeout(timer);clearTimeout(lookupTimer);lookup?.abort();});
+ function done(){if(!ready||retesting||Object.keys(pending).length)return;ondone();}
+ onDestroy(()=>{clearTimeout(lookupTimer);lookup?.abort();});
  function find(q:string,delay=150){
   query=q;clearTimeout(lookupTimer);
   lookupTimer=setTimeout(async()=>{lookup?.abort();const controller=new AbortController();lookup=controller;
@@ -47,7 +38,7 @@
  <div class="heading"><span>Include these?</span></div>
  <div class="cards">
  {#each picked as item (item.id)}
-  <article class="picked" class:fading={pending[item.id]?.fading}>
+  <article class="picked">
    <div class="source"><small>{item.origin} · Added by you</small><button class="title" onclick={()=>opened=item}>{item.title}</button><p>{item.excerpt}</p></div>
    <div class="judgments">
     <button aria-label={`Included: ${item.title}`} title="Included" class="chosen" aria-pressed="true" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 10v11H3V10zM7 10l5-7c2 0 3 1 2 4l-1 3h6a2 2 0 0 1 2 2l-2 7a2 2 0 0 1-2 2H7"/></svg></button>
@@ -56,7 +47,7 @@
   </article>
  {/each}
  {#each items.slice(0,3) as item (item.id)}
-  <article class:fading={pending[item.id]?.fading}>
+  <article>
    <div class="source"><small>{item.origin}</small><button class="title" onclick={()=>opened=item}>{item.title}</button><p>{item.excerpt}</p></div>
    <div class="judgments">
     <button aria-label={`Include: ${item.title}`} title="Include" class:chosen={pending[item.id]?.include===true} aria-pressed={pending[item.id]?.include===true} disabled={!!pending[item.id]||retesting} onclick={()=>judge(item.id,true)}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 10v11H3V10zM7 10l5-7c2 0 3 1 2 4l-1 3h6a2 2 0 0 1 2 2l-2 7a2 2 0 0 1-2 2H7"/></svg></button>
@@ -89,11 +80,11 @@
  .review-footer{display:flex;justify-content:space-between;align-items:center;gap:20px;padding-top:4px}.done:disabled{opacity:.3;cursor:default}
  .done{padding:8px 18px;background:var(--text-strong);color:var(--bg);border-color:var(--text-strong)}
  .cards{display:grid;gap:12px}article{display:flex;align-items:center;gap:24px;padding:20px;border:1px solid var(--rule);background:var(--bg)}
- article{transition:opacity 260ms ease;animation:arrive 180ms ease-out}article.fading{opacity:0;pointer-events:none}
+ article{animation:arrive 180ms ease-out}
  @keyframes arrive{from{opacity:0}to{opacity:1}}
  .judgments button.chosen,.judgments button.chosen:hover{background:var(--text-strong);color:var(--bg);border-color:var(--text-strong)}
  .judgments button:disabled{cursor:default}.judgments button:disabled:not(.chosen){opacity:.35}
- @media(prefers-reduced-motion:reduce){article{animation:none;transition:none}article.fading{opacity:1}}
+ @media(prefers-reduced-motion:reduce){article{animation:none}}
  .source{flex:1;min-width:0;display:grid;gap:7px}small{font:var(--type-meta);color:var(--text-muted)}
  .title{text-align:left;padding:0;border:0;font:var(--type-body);line-height:1.4;justify-self:start}.title:hover{text-decoration:underline;text-underline-offset:3px}
  p{margin:0;font:var(--type-meta);line-height:1.6;color:var(--text-note)}
