@@ -7,8 +7,10 @@
   // Each lens stands in the field as a cube among what it holds; a click
   // filters the field to it and opens what it holds. Sessions already
   // started (/api/pilot/chat) wait in the bar; nothing here starts one.
-  import { getContext, onMount, tick, untrack } from "svelte";
-  import { SOURCE_STUDY, type SourceStudy, type StudySource } from "../lib/sourceStudy";
+  import { onMount, tick, untrack } from "svelte";
+  import ConceptSources from "./ConceptSources.svelte";
+  import { readBriefing } from "../lib/noteBriefing";
+  import type { EntitySource } from "../../../../lib/views/entitySources";
   import { api } from "../lib/api";
   import { app, goto, gotoLens } from "../lib/store.svelte";
   import { reloadSharedConnections, sharedSettings } from "../lib/sharedSettings.svelte";
@@ -86,13 +88,11 @@
   let folding = $state(false);
 
   let ent: number | null = $state(null);
-  const sourceStudy = getContext<SourceStudy | undefined>(SOURCE_STUDY);
   let sourceReturn: { id: string; title: string } | null = $state(null);
-  const conceptSources = $derived.by(() => ent != null && field ? sourceStudy?.sources[field.nodes[ent]!.id] ?? [] : []);
-  function readConceptSource(source: StudySource): void {
+  function readConceptSource(source: EntitySource): void {
     if (ent == null || !field) return;
     const node = field.nodes[ent]!;
-    openReader({ source: source.path, title: source.title, headline: source.excerpt, section: "know", added: "", due: null, entities: [node.id], path: source.path }, source.path);
+    openReader({ source: source.id, title: source.title, headline: source.title, section: "know", added: source.added, due: null, entities: [node.id], path: source.path }, source.path);
     sourceReturn = { id: node.id, title: node.label };
   }
   let entRows: V2FeedRow[] | null = $state(null);
@@ -139,7 +139,7 @@
   /** A note view's text; a source (a saved email, article, meeting…) also
    * carries how it came in, and Quick's summary of it to read first. */
   /** `page`: the host the source's page was read from, when it read better than what was saved. */
-  type SourceMeta = { via: string; date?: string; header: Array<[string, string]>; summary?: string; html: string; page?: string;
+  type SourceMeta = { via: string; date?: string; header: Array<[string, string]>; summary?: string; summaryFailed?: boolean; html: string; page?: string;
     /** Every original the document's copies hold, when there is more than one (lib/sourceCopies.ts). */
     origins?: (SourceOrigin & { path: string })[];
     /** The document's other copies, and what it might also be (lib/sourceCopyReview.ts). */
@@ -162,7 +162,12 @@
         if (meta && r.copies?.length) meta.copies = r.copies;
         if (meta && r.proposals?.length) meta.proposals = r.proposals;
         if (notes[v.path]!.source && !data) {
-          void briefing(v.path, (text) => { const n = notes[v.path]; if (n?.source) n.source = { ...n.source, summary: text }; });
+          const note = notes[v.path]!;
+          void briefing(v.path, text => {
+            if (notes[v.path] === note && note.source) note.source = { ...note.source, summary: text };
+          }).then(ok => {
+            if (!ok && notes[v.path] === note && note.source) note.source = { ...note.source, summary: undefined, summaryFailed: true };
+          });
           const origin = (r as { origin?: { url?: string } }).origin?.url;
           if (remoteOk && !held && origin && notes[v.path]!.source!.via !== "email") void readPage(v.path, origin, notes[v.path]!.content ?? "");
         }
@@ -564,8 +569,6 @@
       refreshSorted();
       if (!data) { void loadFolds(); void loadLensRows(); }
       await drawField(g.data);
-      const initial = sourceStudy && field?.byId.get(sourceStudy.initialEntity);
-      if (initial != null) await openEntity(initial);
     } catch (e) {
       error = errText(e);
     } finally {
@@ -1006,29 +1009,8 @@
   /** Quick's briefing on a note — the summary the app shows when you select it.
    * Cached by the engine per note and evidence; a fresh one streams as it's written.
    * With a lens or a server on, it reads only that lens's or server's evidence. */
-  async function briefing(path: string, onText: (text: string) => void): Promise<boolean> {
-    const scope = serverOn ? { server: serverOn } : lensOn ? { lens: lensOn } : undefined;
-    try {
-      const r = await fetch("/api/note/briefing", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ path, stream: true, ...(scope ? { scope } : {}) }) });
-      if (!r.ok || !r.body) return false;
-      const reader = r.body.getReader(), dec = new TextDecoder();
-      let buf = "", done = false;
-      while (!done) {
-        const chunk = await reader.read();
-        done = chunk.done;
-        buf += dec.decode(chunk.value ?? new Uint8Array(), { stream: !done });
-        const lines = buf.split("\n");
-        buf = lines.pop() ?? "";
-        for (const line of lines) {
-          if (!line.trim()) continue;
-          const ev = JSON.parse(line) as { type: string; text?: string; briefing?: { summary: string }; error?: string };
-          if (ev.type === "preview" && ev.text) onText(plain(ev.text));
-          else if (ev.type === "complete" && ev.briefing) { onText(plain(ev.briefing.summary)); return true; }
-          else if (ev.type === "error") return false;
-        }
-      }
-      return false;
-    } catch { return false; }
+  function briefing(path: string, onText: (text: string) => void): Promise<boolean> {
+    return readBriefing(path, onText, serverOn ? { server: serverOn } : lensOn ? { lens: lensOn } : undefined);
   }
   /** How a hovered tie relates to the opened entity, in Quick's words beside
    * the tie's name. It is asked for once the pointer settles, so passing over
@@ -1301,7 +1283,7 @@
   <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
   <div class="vbody" onclick={(e) => loadHeld(e) || citation(e)}>
     {#if srcMeta}
-      <div class="vsum">{#if srcMeta.summary}{srcMeta.summary}{:else}<span class="spin" aria-label="Writing a summary"></span>{/if}</div>
+      <div class="vsum">{#if srcMeta.summary}{srcMeta.summary}{:else if srcMeta.summaryFailed}Summary unavailable{:else}<span class="spin" aria-label="Writing a summary"></span>{/if}</div>
       {#if srcMeta.header.length}<dl class="vhead">{#each srcMeta.header as [k, val] (k)}<dt>{k}</dt><dd>{val}</dd>{/each}</dl>{/if}
       {#if srcMeta.copies}<dl class="vhead vorig"><dt>Copies</dt><dd>{#each srcMeta.copies as c, k (k)}<span>{c.title}{c.why ? ` (${COPY_WHY[c.why]})` : ""} <button type="button" onclick={act(() => decideCopies(v.path, c.path, false))}>Not the same</button></span>{/each}</dd></dl>{/if}
       {#if srcMeta.proposals}<div class="same vsame" role="group" aria-label="Same document?"><span class="same-head">Same document?</span>{#each srcMeta.proposals as p, k (k)}<div class="cand"><span class="cand-name">{p.title}</span><span class="acts"><button type="button" onclick={act(() => decideCopies(v.path, p.path, true))}>Same</button><button type="button" onclick={act(() => decideCopies(v.path, p.path, false))}>Different</button></span></div>{/each}</div>{/if}
@@ -1379,17 +1361,11 @@
       <h1>{hud.name}</h1>
       {#if hud.writing}<p><span class="spin" aria-label="Writing a summary"></span></p>{:else if hud.status}<p>{hud.status}</p>{/if}
       {#if hud.same}<p>{hud.same}</p>{/if}
-      {#if conceptSources.length}
-        <section class="concept-sources" aria-label={`Sources for ${hud.name}`}>
-          <h2>Sources <span>{conceptSources.length}</span></h2>
-          {#each conceptSources as source (source.path)}
-            <button type="button" onclick={() => readConceptSource(source)} aria-label={`Read ${source.title}`}>
-              <span class="source-title">{source.title}<span aria-hidden="true">↗</span></span>
-              <span class="source-meta">{source.meta}</span>
-              <span class="source-excerpt">{source.excerpt}</span>
-            </button>
-          {/each}
-        </section>
+      {#if ent != null && field && !field.nodes[ent]!.memory && !data}
+        {#key field.nodes[ent]!.id}
+          <ConceptSources entity={field.nodes[ent]!.id} title={hud.name}
+            scope={serverOn ? { server: serverOn } : lensOn ? { lens: lensOn } : undefined} onread={readConceptSource} />
+        {/key}
       {/if}
       {#if ent != null && offer}
         <!-- the merge, the same on every page it touches -->
@@ -1864,15 +1840,6 @@
   .hud.claim { width: min(620px, calc(100% - 32px)); }
   .hud.claim h1 { font-size: clamp(20px, 1.7vw, 25px); line-height: 1.28; letter-spacing: -0.015em; }
   .hud p { margin: 0; max-width: 44ch; font: 400 14.5px/1.5 var(--font-app); color: color-mix(in srgb, var(--fg) 80%, var(--bg)); }
-  .concept-sources { pointer-events:auto; margin-top:16px; max-width:390px; padding:0 12px 0 0; background:var(--bg); text-shadow:none; }
-  .concept-sources h2 { margin:0 0 4px; font:500 14px/1.4 var(--font-app); }
-  .concept-sources h2 > span { margin-left:6px; font:400 11px/1 var(--font-mono); color:var(--v2-muted); }
-  .concept-sources button { display:flex; flex-direction:column; gap:5px; width:100%; padding:15px 0; border:0; border-bottom:1px solid var(--rule); background:transparent; color:var(--fg); text-align:left; cursor:pointer; }
-  .concept-sources button:hover .source-title { text-decoration:underline; text-underline-offset:3px; }
-  .source-title { display:flex; justify-content:space-between; gap:12px; width:100%; font:500 14px/1.4 var(--font-app); }
-  .source-title > span { color:var(--v2-muted); }
-  .source-meta { font:400 11px/1.4 var(--font-mono); color:var(--v2-muted); }
-  .source-excerpt { margin-top:3px; font:400 13px/1.5 var(--font-app); color:var(--v2-muted); }
   .source-back { align-self:flex-start; flex:none; padding:6px 0; border:0; background:var(--bg); color:var(--v2-muted); font:400 13px/1.4 var(--font-app); cursor:pointer; }
   .source-back:hover { color:var(--fg); }
   .same { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; padding-left: 12px; border-left: 2px solid var(--rule); }

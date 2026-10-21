@@ -14,7 +14,8 @@ import type { AssertionEvent } from "../assertionLog";
 import { sourceHeadsIn } from "../assertionProjection";
 import { FEED_SECTIONS } from "../feedJournal";
 import { insertionEventRel } from "../insertionLog";
-import { liveAssertionSql } from "../sourceSupersede";
+import { liveAssertionSql, liveSourceSql } from "../sourceSupersede";
+import { sourcesNewestFirst, type EntitySource } from "./entitySources";
 import type { Snapshot } from "./view";
 import { authorName, feedRow, pageKey, type SortedPage, type V2Author, type V2Feed, type V2FeedRow, type V2SortedRow } from "./v2Feed";
 
@@ -71,6 +72,25 @@ export function readEntityFeed({ db }: Snapshot, entityId: string, limit = 6): V
       WHERE entity_id IN (SELECT ? UNION ALL SELECT alias_id FROM entity_aliases WHERE entity_id = ?)) AND ${LIVE}
     ORDER BY a.first_at DESC, a.id DESC LIMIT ?`).all(id, id, limit) as { id: string }[];
   return feedRows(db, latest.reverse());
+}
+
+/** Every distinct source cited by live claims about this entity (including
+ * aliases). A lens supplies its allowed claims, so mixed-scope evidence never
+ * leaks into its list. This is independent of the feed's six recent claims. */
+export function readEntitySources({ db }: Snapshot, entityId: string, claims?: ReadonlySet<string>): EntitySource[] {
+  const id = folding(db)(entityId);
+  const ids = db.query(`SELECT DISTINCT s.insertion_id AS id FROM assertion_entities e
+    JOIN assertions a ON a.id = e.assertion_id
+    JOIN assertion_sources x ON x.assertion_id = a.id
+    JOIN sources s ON s.insertion_id = x.insertion_id
+    WHERE e.entity_id IN (SELECT ?1 UNION ALL SELECT alias_id FROM entity_aliases WHERE entity_id = ?1)
+      AND ${LIVE} AND s.present = 1 AND ${liveSourceSql("s")}
+      AND (?2 = 0 OR a.id IN (SELECT value FROM json_each(?3)))`)
+    .all(id, claims ? 1 : 0, JSON.stringify([...(claims ?? [])])) as { id: string }[];
+  return [...sourceHeadsIn(db, ids.map(r => r.id)).values()].map(s => ({
+    id: s.id, path: insertionEventRel(s), title: s.title,
+    added: s.received_at ?? s.occurred_at ?? "", ...(s.source ? { via: s.source } : {}),
+  })).sort(sourcesNewestFirst);
 }
 
 /** The entities named by live claims citing any of these notes (personal

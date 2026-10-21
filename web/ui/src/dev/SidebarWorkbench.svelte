@@ -3,7 +3,6 @@
   import { onMount } from "svelte";
   import { update } from "../lib/update.svelte";
   import AppShell from '../components/AppShell.svelte';
-  import { sourceStudy } from './sourceStudyFixture';
   import { onboardingPreviewKey } from './onboardingFixture';
   const params = new URLSearchParams(location.search);
   const scenario = params.get("scenario");
@@ -48,7 +47,7 @@
   }
 </script>
 <!-- the production base and Field (its first run and vault gates included) -->
-<AppShell sourceStudy={params.has('conceptSources') && !live ? sourceStudy : undefined} />
+<AppShell />
 {#if params.has('gmail')}<aside class="gmail-preview">Sample setup · Use sample@example.com and abcd efgh ijkl mnop. No credentials are saved.</aside>{/if}
 <nav class="sidebar-study-switch" class:onboarding class:source-study={params.has('conceptSources')} aria-label="Workbench previews">
   {#if params.has('conceptSources')}<span>Sources study · Sample vault</span>{:else}

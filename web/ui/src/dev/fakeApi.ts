@@ -1226,6 +1226,7 @@ function route(path: string, method: string, body?: string, search?: URLSearchPa
       current.telemetry = { ...current.telemetry, enabled: update.enabled, decided: true };
     return json(current.telemetry);
   }
+  if (path === "/api/v2/entity/sources") return json({ sources: [] });
   if (path === "/api/note/briefing") {
     if (current.briefing === "error") return json({ error: "The briefing could not be written. Try again." }, 400);
     if (current.briefing === "loading") return new Response(new ReadableStream({ start() {} }));

@@ -8,7 +8,7 @@ import {makeSharedApiHandler} from '../lib/sharedVaultApi';
 import {saveConnection} from '../lib/sharedConnections';
 import {sourceInsertion,appendSourceInsertionEvent,insertionEventRel} from '../lib/insertionLog';
 import {sourceKey} from '../lib/sharedRules';
-import {serverBriefingRecord,serverGraph,unionGraph,unionRecent,unionNote,sharedEntityClaims} from '../lib/sharedReadUnion';
+import {serverBriefingRecord,serverGraph,unionGraph,unionRecent,unionNote,sharedEntityClaims,sharedEntitySources} from '../lib/sharedReadUnion';
 import {briefingInput} from '../lib/noteBriefing';
 import {followServers,readServer} from '../lib/serverStore';
 import {assertionEntityId} from '../lib/assertionLog';
@@ -88,6 +88,11 @@ test('an entity is one entity in every vault: a joined vault\'s mentions, by nam
  expect(claims.map(a=>a.id).sort()).toEqual([byName.assertion.id,byAlias.assertion.id].sort());
  expect(claims.every(a=>a.vault?.id===c.id&&a.vault.name===c.name)).toBe(true);
  expect(claims.flatMap(a=>a.sources.map(s=>s.path))).toContain(`shared/${c.id}/${notes.id}.md`);
+ const sources=sharedEntitySources(personal,avery.id);
+ expect(sources.map(s=>s.path)).toEqual([`shared/${c.id}/${notes.id}.md`]);
+ expect(sharedEntitySources(personal,avery.id,undefined,['personal'])).toEqual([]);
+ expect(sharedEntitySources(personal,byAlias.assertion.entities[0]!.id,c.id).map(s=>s.path)).toEqual(sources.map(s=>s.path));
+ expect(sources[0]!.added).toBeTruthy();
  }finally{server.stop(true);if(old===undefined)delete process.env.BIGBRAIN_SHARED_CONNECTIONS;else process.env.BIGBRAIN_SHARED_CONNECTIONS=old;}
 });
 test("a server is paged in again only when its change feed moves, and no read asks it anything",async()=>{

@@ -198,6 +198,7 @@ const fake = window.fetch;
   if (url.pathname === "/api/v2") return json({ authors: [], feed });
   if (url.pathname === "/api/v2/sorted")
     return json(pageSortedFeed([...sorted, ...LENS_ROWS].sort(newestFirst), Number(url.searchParams.get("limit")) || SORTED_PAGE, url.searchParams.get("before") ?? undefined));
+  if (url.pathname === "/api/v2/entity/sources") return json({ sources: [] });
   if (url.pathname === "/api/v2/entity") return json({ rows: feed.filter((r) => r.entities.includes(url.searchParams.get("id") ?? "")) });
   // the chat's agent picker: two connected agents, more models than a short window holds
   if (url.pathname === "/api/pilot/chat/models") return json({ agents: [

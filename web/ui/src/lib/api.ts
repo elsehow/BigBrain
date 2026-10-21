@@ -238,6 +238,8 @@ export const api = {
     get<import("../../../../lib/views/v2Feed").SortedPage>(`/api/v2/sorted?limit=${limit}${before ? `&before=${encodeURIComponent(before)}` : ""}`),
   /** One entity's latest assertions, dated by when each claim was first recorded. */
   v2Entity: (id: string) => get<{ rows: import("./v2/model").V2FeedRow[] }>(`/api/v2/entity?id=${encodeURIComponent(id)}`),
+  entitySources: (id: string, scope?: import("../../../../lib/noteBriefing").BriefingScope, signal?: AbortSignal) =>
+    get<{ sources: import("../../../../lib/views/entitySources").EntitySource[] }>(`/api/v2/entity/sources?${new URLSearchParams({ id, ...scope })}`, signal),
   /** The standing fold proposals against today's record, and their stamp. */
   folds: () => stamped<FoldsView>(U.folds(), "x-bigbrain-stamp"),
   /** ACCEPT a fold: every member's label becomes an alias of the canonical. */

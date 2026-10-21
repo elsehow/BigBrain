@@ -64,7 +64,9 @@ import { feedStamp, serveStamped } from "../lib/viewStamps";
 import type { Snapshot } from "../lib/views/view";
 import type { ProjectionView } from "../lib/assertionProjection";
 import { SORTED_PAGE, withRows, type V2Feed, type V2SortedRow } from "../lib/views/v2Feed";
-import { readEntitiesCiting, readEntityFeed, readLensClaims, readSortedPage, readV2Feed } from "../lib/views/v2Read";
+import { readEntitiesCiting, readEntityFeed, readEntitySources, readLensClaims, readSortedPage, readV2Feed } from "../lib/views/v2Read";
+import { sourcesNewestFirst } from "../lib/views/entitySources";
+import { sharedEntitySources } from "../lib/sharedReadUnion";
 import { otherCopies, projectedMarkdownContent, sourceRecordOf, withSnapshot } from "../lib/vaultReadModel";
 import { frozenMessagesForRefs, sortFrozenDesc } from "../lib/frozenQueue";
 import { noteHistoryOf } from "../lib/views/noteHistory";
@@ -488,6 +490,21 @@ function v2Entity({ res, url }: Ctx): void {
   feedJson(res, (snapshot) => ({ rows: readEntityFeed(snapshot, id) }));
 }
 
+function entitySources({ req, res, url }: Ctx): void {
+  const id = url.searchParams.get("id") ?? "";
+  if (!id) return json(res, 400, { error: "Which entity? Pass ?id=." });
+  const server = url.searchParams.get("server"), lensId = url.searchParams.get("lens");
+  if (server && lensId) return json(res, 400, { error: "Choose one scope." });
+  if (server) return json(res, 200, { sources: sharedEntitySources(ROOT, id, server) });
+  const lens = lensId ? readLens(ROOT, lensId) : undefined;
+  if (lensId && !lens) return json(res, 404, { error: "That lens is gone." });
+  const filter = vaultFilter(req.headers["x-bigbrain-vault-filter"]);
+  const personal = includesPersonal(filter) ? withSnapshot(ROOT, snapshot => readEntitySources(snapshot, id,
+    lens ? readLensClaims(snapshot, lensMembersOf(snapshot, lens).in) : undefined)) : [];
+  const shared = lens ? [] : sharedEntitySources(ROOT, id, undefined, filter);
+  json(res, 200, { sources: [...personal, ...shared].sort(sourcesNewestFirst) });
+}
+
 // The sorted feed (lib/stages/feed.ts): what needs the owner, what an agent
 // could do, what is worth knowing. Empty without a feed: block, and the view
 // keeps showing the latest assertions. A page at a time (`limit`, newest
@@ -779,6 +796,7 @@ export const ROUTES: readonly Route[] = [
   { method: "GET", path: "/api/graph/server", handler: serverGraphRoute },
   { method: "GET", path: "/api/v2", handler: v2 },
   { method: "GET", path: "/api/v2/entity", handler: v2Entity },
+  { method: "GET", path: "/api/v2/entity/sources", handler: entitySources },
   { method: "GET", path: "/api/v2/sorted", handler: v2Sorted },
   { method: "GET", path: "/v2", handler: serveV2 },
   { method: "GET", path: "/api/note-log", handler: noteLogRoute },

@@ -28,6 +28,8 @@ import {assertionEntityPath,type ProjectedEntityAssertion,type ProjectedEntityVi
 import {briefingEvidence} from './entityBriefing';
 import {findNode} from './graphIdentity';
 import type {BriefingRecord,NoteBriefingRequest} from './noteBriefing';
+import {assertionSourceReferences} from './assertionLog';
+import {sourcesNewestFirst,type EntitySource} from './views/entitySources';
 const remotePath=(c:SharedConnection,id:string)=>`shared/${c.id}/${id}.md`;
 export {pages} from './serverStore';
 export function vaultFilter(header: string | string[] | undefined): string[] { return typeof header === "string" ? [...new Set(header.split(",").filter(Boolean))] : []; }
@@ -55,6 +57,20 @@ export async function serverGraph(id:string,you?:Graph['userNote']):Promise<Grap
  const c=connected(id);
  const field=serverField(viewOf(c),you);
  return {...field,nodes:field.nodes.map(n=>({...n,path:remotePath(c,n.id.replace(/^source:/,'')),vaults:[c.id]}))};
+}
+/** A concept's cited sources on joined servers. Server focus keeps its own
+ * identities and paths; the union folds names through this vault's aliases. */
+export function sharedEntitySources(root:string,entityId:string,server?:string,filter:string[]=[]):EntitySource[]{
+ const resolve=entityAliasResolver(root),raw=entityId.replace(/^shared:[^:]+:/,'');
+ const selected=server?[{c:connected(server),view:viewOf(connected(server))}]:views(filter);
+ const rows:EntitySource[]=[];
+ for(const {c,view} of selected){
+  const cited=new Set(view.assertions.filter(a=>a.entities.some(e=>(server?e.id:resolve(e).id)===raw))
+   .flatMap(a=>assertionSourceReferences(a).map(r=>r.insertion_id)));
+  for(const s of view.sources)if(cited.has(s.id))rows.push({id:`shared:${c.id}:${s.id}`,path:remotePath(c,s.id),title:s.title,
+   added:s.submitted_at??s.received_at??s.occurred_at??'',via:c.name});
+ }
+ return rows.sort(sourcesNewestFirst);
 }
 /** A briefing on one server's own field (lib/noteBriefing.ts): its claims
  * and notes alone, without you, as serverGraph draws it. A selected note's
