@@ -12,9 +12,9 @@ export interface ReviewContext {root:string;store:string;scope:string;text:strin
  /** Ratings to start from when this scope has none of its own: a saved lens's. */
  labels?:InclusionLabel[];select?:(text:string)=>InclusionSource[];check:()=>void;save:(text:string)=>void;
  /** Search phrases and subject mentions for a rule (lib/stages/ruleQueries.ts); absent, the rule's own words rank. */
- queries?:(text:string,entities:CandidateEntity[])=>Promise<RuleQueries|undefined>}
+ queries?:(text:string,entities:CandidateEntity[],signal?:AbortSignal)=>Promise<RuleQueries|undefined>}
 type Evaluator=ReturnType<typeof inclusionEvaluator>;
-interface Session {factory:typeof inclusionEvaluator;id:string;context:ReviewContext;policy:InclusionPolicy;evaluator:Evaluator;pool:InclusionSource[];scores:Map<string,number>;failed:Map<string,string>;cards:InclusionSource[];busy:boolean;refilling?:boolean;revision:number;error?:string;at:number;
+interface Session {factory:typeof inclusionEvaluator;id:string;context:ReviewContext;policy:InclusionPolicy;evaluator:Evaluator;pool:InclusionSource[];scores:Map<string,number>;failed:Map<string,string>;cards:InclusionSource[];busy:boolean;refilling?:boolean;controller?:AbortController;revision:number;error?:string;at:number;
  /** Notes the person added by hand: included, and shown with their thumbs up until undone. */
  picked:InclusionSource[];
  /** The rule text the pool was last ranked for with model-derived queries. */
@@ -24,6 +24,7 @@ const key=(c:ReviewContext)=>JSON.stringify([c.root,c.store,c.scope]);
 const labelKey=(s:InclusionSource)=>sourceDigest(s);
 function persist(s:Session){writeInclusionPolicy(s.context.root,s.context.store,s.policy,true);}
 function active(s:Session){return latest.get(key(s.context))===s.id;}
+function expire(s:Session){if(active(s))latest.delete(key(s.context));sessions.delete(s.id);s.controller?.abort();}
 // Score plausible matches first: a recency-ordered pool spends every paid call on sources the rule obviously excludes.
 // A stale or unselected mention surfaces when the rule is saved; for ranking, the rule's words suffice.
 function mentionedEntities(root:string,text:string){try{return resolveRuleMentions(root,text);}catch{return [];}}
@@ -52,34 +53,36 @@ export function reviewState(s:Session){
 }
 export function getReview(root:string,id:string){const s=sessions.get(id);if(!s||s.context.root!==root||!active(s))throw Error('This review was replaced or expired. Reopen the rule.');s.context.check();s.at=Date.now();return s;}
 export function startReview(context:ReviewContext,factory= inclusionEvaluator){
- context.check();for(const [id,s] of sessions)if(Date.now()-s.at>3600000)sessions.delete(id);
+ context.check();for(const s of sessions.values())if(Date.now()-s.at>3600000)expire(s);
  const prior=readInclusionPolicy(context.root,context.store,context.scope,true)??readInclusionPolicy(context.root,context.store,context.scope);
  const text=context.text.trim()||prior?.text||'';
  const policy:InclusionPolicy={version:randomUUID(),scope:context.scope,text,labels:prior?.labels??context.labels??[],updated:new Date().toISOString()};
  const evaluator=factory(context.root,context.store,text,policy.labels);
  const pool=candidatePool(context,text);
  const s:Session={factory,id:randomUUID(),context,policy,evaluator,pool,scores:new Map(),failed:new Map(),cards:[],picked:[],busy:true,revision:0,at:Date.now()};
+ const previous=sessions.get(latest.get(key(context))??'');if(previous)expire(previous);
  latest.set(key(context),s.id);sessions.set(s.id,s);persist(s);void refill(s);return reviewState(s);
 }
 async function refill(s:Session){
  s.busy=true;s.error=undefined;
- // Keep one scoring batch in flight. Ratings remain writable; if they change
- // the revision, discard the old results and refill using all the latest labels.
+ // Cancel obsolete provider work, then reuse the worker with the latest labels.
+ // Wait for cancellation to unwind so rapid ratings cannot grow parallel batches.
+ s.controller?.abort();
  if(s.refilling)return;
  s.refilling=true;
  try{
   let revision:number;
-  do{revision=s.revision;await fill(s);}while(active(s)&&revision!==s.revision);
- }finally{s.refilling=false;if(active(s)){s.busy=false;persist(s);}}
+  do{revision=s.revision;s.controller=new AbortController();await fill(s,s.controller.signal);}while(active(s)&&revision!==s.revision);
+ }finally{s.controller=undefined;s.refilling=false;if(active(s)){s.busy=false;persist(s);}}
 }
-async function fill(s:Session){
+async function fill(s:Session,signal:AbortSignal){
  if(includesEverything(s.policy.text)){s.cards=[];return;}
  const revision=s.revision;
- const valid=()=>active(s)&&revision===s.revision;
+ const valid=()=>active(s)&&revision===s.revision&&!signal.aborted;
  try{
   // Re-rank once per rule text with the model's search phrases before any paid scoring.
   if(s.context.queries&&s.queriedFor!==s.policy.text){
-   const text=s.policy.text,q=await s.context.queries(text,mentionedEntities(s.context.root,text));
+   const text=s.policy.text,q=await s.context.queries(text,mentionedEntities(s.context.root,text),signal);
    if(!valid())return;
    if(q)s.pool=rankCandidates(s.context.select?.(text)??s.context.sources,text,q.subjects,q.phrases);
    s.queriedFor=text;
@@ -91,7 +94,7 @@ async function fill(s:Session){
   for(let i=0;i<fresh.length;i+=CONCURRENCY){
    if(!valid())return;
    let broke=false;
-   await Promise.all(fresh.slice(i,i+CONCURRENCY).map(async source=>{const k=labelKey(source);try{const score=await s.evaluator.score(source);if(valid())s.scores.set(k,score);}catch(e){if(e instanceof OutOfCredits)broke=true;else if(valid())s.failed.set(k,failureReason(e));}}));
+   await Promise.all(fresh.slice(i,i+CONCURRENCY).map(async source=>{const k=labelKey(source);try{const score=await s.evaluator.score(source,k,signal);if(valid())s.scores.set(k,score);}catch(e){if(!valid())return;if(e instanceof OutOfCredits)broke=true;else s.failed.set(k,failureReason(e));}}));
    // no credits: no source will score until the account is topped up, so stop and say so
    if(broke){if(valid())s.error=NO_CREDITS;return;}
   }

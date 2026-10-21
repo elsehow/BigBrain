@@ -43,6 +43,62 @@ test('visible examples can be rated while scoring; rapid ratings coalesce withou
   finishReview(s);expect(readInclusionPolicy(c.root,c.store,c.scope)!.labels).toHaveLength(4);
  }finally{release();rmSync(c.root,{recursive:true,force:true});}
 });
+for(const change of ['rating','manual pick','rule edit','replacement review'])test(`a ${change} aborts obsolete provider requests and settles without waiting for their answers`,async()=>{
+ const c=fixture(),originalFetch=globalThis.fetch;
+ const held:{signal:AbortSignal;release:()=>void}[]=[];
+ let running=0,peak=0,hold=true;
+ let s:ReturnType<typeof getReview>|undefined;
+ globalThis.fetch=(async(_url,init)=>{
+  const body=JSON.parse(String(init?.body));running++;peak=Math.max(peak,running);
+  try{
+   // The first rating's requests never answer unless cancelled. The latest
+   // labels can finish normally; use the real evaluator and Jev transport path.
+   if(hold&&body.state.examples?.length===1)await new Promise<void>((resolve,reject)=>{
+    const signal=init!.signal!;const abort=()=>reject(signal.reason);
+    signal.addEventListener('abort',abort,{once:true});
+    held.push({signal,release:()=>{signal.removeEventListener('abort',abort);resolve();}});
+   });
+   return Response.json({answers:{relevant:{noul:.9}}});
+  }finally{running--;}
+ }) as typeof fetch;
+ try{
+  s=await idle(c.root,startReview(c).id);const cards=reviewState(s).items;
+  rateReview(s,cards[0]!.id,true,s.revision);
+  expect(held).toHaveLength(3);
+  hold=false;
+  if(change==='rating')rateReview(s,cards[1]!.id,false,s.revision);
+  else if(change==='manual pick')pickReview(s,c.sources[7]!.id,s.revision);
+  else if(change==='rule edit')editReview(s,'An edited rule.',s.revision);
+  else{const previous=s.id;s=getReview(c.root,startReview(c).id);expect(()=>getReview(c.root,previous)).toThrow('replaced');}
+  expect(held.every(request=>request.signal.aborted)).toBe(true);
+  await idle(c.root,s.id);
+  if(change!=='replacement review')expect(peak).toBeLessThanOrEqual(3);
+  expect(reviewState(s)).toMatchObject({judged:change==='rating'||change==='manual pick'?2:1,ready:true,unresolved:0,failures:[]});
+  expect(reviewState(s).error).toBeUndefined();
+  expect(reviewState(s).items.some(item=>item.id===cards[0]!.id)).toBe(false);
+  if(change==='rule edit')expect(reviewState(s).text).toBe('An edited rule.');
+ }finally{held.forEach(request=>request.release());if(s)await idle(c.root,s.id);globalThis.fetch=originalFetch;rmSync(c.root,{recursive:true,force:true});}
+});
+test('editing during query generation aborts the old query before scoring the new rule',async()=>{
+ const c=fixture();let signal:AbortSignal|undefined,release!:()=>void;
+ const queries:NonNullable<import('../lib/inclusionReview').ReviewContext['queries']>=async(text,_entities,current)=>{
+  if(text!==c.text)return undefined;
+  signal=current;
+  await new Promise<void>((resolve,reject)=>{
+   release=resolve;current!.addEventListener('abort',()=>reject(current!.reason),{once:true});
+  });
+  return undefined;
+ };
+ let s:ReturnType<typeof getReview>|undefined;
+ try{
+  s=getReview(c.root,startReview({...c,queries},factory).id);
+  editReview(s,'New rule',s.revision,factory);
+  expect(signal?.aborted).toBe(true);
+  await idle(c.root,s.id);
+  expect(reviewState(s)).toMatchObject({text:'New rule',busy:false,unresolved:0,failures:[]});
+  expect(reviewState(s).items).toHaveLength(3);expect(reviewState(s).error).toBeUndefined();
+ }finally{release?.();if(s)await idle(c.root,s.id);rmSync(c.root,{recursive:true,force:true});}
+});
 test('real review persists judgments, hides scores, scopes policies and enforces provider/rule changes',async()=>{
  const c=fixture();try{
   const initial=startReview(c,factory);let s=await idle(c.root,initial.id);

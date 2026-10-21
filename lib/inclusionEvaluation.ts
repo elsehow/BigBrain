@@ -25,9 +25,12 @@ export function inclusionEvaluator(root:string,store:string,text:string,given:In
  /** `id` is the note revision (its insertion id), whose claims the evaluator reads with it; `digest` is `sourceDigest(source)` when the caller already has it. */
  /** The score already paid for, without asking: undefined when there is none. */
  const peek=(source:Pick<InclusionSource,'id'|'title'|'body'>,digest=sourceDigest(source))=>{const claims=claimed.get(source.id);return cached(join(directory,sha256hex(identity+digest+(claims?JSON.stringify(claims):''))+'.json'));};
- return {identity,model:JSON.stringify(evaluator.identity),peek,async score(source:Pick<InclusionSource,'id'|'title'|'body'>,digest=sourceDigest(source)){
+ return {identity,model:JSON.stringify(evaluator.identity),peek,async score(source:Pick<InclusionSource,'id'|'title'|'body'>,digest=sourceDigest(source),signal?:AbortSignal){
+  signal?.throwIfAborted();
   // A note's claims are part of what is scored, so new claims score it again; a note without claims keeps the score it had.
   const claims=claimed.get(source.id),path=join(directory,sha256hex(identity+digest+(claims?JSON.stringify(claims):''))+'.json'),known=cached(path);if(known!==undefined)return known;
-  const decision=await ruleEvaluator(root,store,undefined,teachingExamples(labels,source)).evaluate(text,entities,{title:source.title,body:source.body,...claims});writeAtomic(path,JSON.stringify({score:decision.relevant}),0o600);remembered.set(path,decision.relevant);return decision.relevant;
+  const decision=await ruleEvaluator(root,store,undefined,teachingExamples(labels,source)).evaluate(text,entities,{title:source.title,body:source.body,...claims},signal);
+  signal?.throwIfAborted();
+  writeAtomic(path,JSON.stringify({score:decision.relevant}),0o600);remembered.set(path,decision.relevant);return decision.relevant;
  }};
 }
