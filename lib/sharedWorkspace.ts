@@ -9,7 +9,7 @@ import { sourceInsertionMarkdown, insertionFiler } from './sourceFeed';
 import { assertionSourceReferences, type AssertionEvent, type IdentityAssertion } from './assertionLog';
 import { DEFAULT_CUTOFF } from './sourceCopies';
 import type { AssertionView } from './sharedVault';
-import { followServer, onServerChange, readServer, serverBody } from './serverStore';
+import { followJoined, followServer, onServerChange, readServer, serverBody } from './serverStore';
 import { serverMatches, viewOf } from './sharedReadUnion';
 import { edgeKey, fieldLayout } from './views/layout';
 import type { Graph, GraphNode, GraphEdge } from './graph';
@@ -127,8 +127,7 @@ export async function sharedWorkspace(req: IncomingMessage, res: ServerResponse,
       if (req.method === 'GET') json(res, 200, { connections: await refreshConnectionNames(store) });
       else if (req.method === 'POST') {
         const input=JSON.parse(await readBody(req,16384)), saved=input.invite?await connectInvite(store,input.invite):await saveConnection(store,input);
-        // its first copy now, not on the follower's next tick (lib/serverStore.ts)
-        const joined=readConnections(store).find(c=>c.id===saved.id); if(joined)void followServer(store,joined);
+        followJoined(store,saved.id);
         json(res,201,saved);
       }
       else json(res, 405, { error: 'Method not allowed.' });
