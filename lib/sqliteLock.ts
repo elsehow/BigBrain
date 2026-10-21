@@ -15,7 +15,11 @@ import { writeAtomic } from "./fsx";
 /** The lock's file, made private (0600 in a 0700 directory) before SQLite opens it; its journal takes the same mode. */
 function open(path: string): Database {
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-  writeFileSync(path, "", { flag: "a", mode: 0o600 });
+  // Never open/close an existing lock file outside SQLite. On POSIX systems,
+  // closing ANY descriptor for that inode can release this process's locks,
+  // including a transaction held by another SQLite connection here.
+  try { writeFileSync(path, "", { flag: "wx", mode: 0o600 }); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error; }
   return new Database(path);
 }
 
