@@ -3,13 +3,13 @@ import { plainText } from "../../../../lib/views/v2Feed";
 import type { BriefingScope } from "../../../../lib/noteBriefing";
 
 /** The same cached Quick briefing for a source row and its reader. */
-export async function readBriefing(path: string, onText: (text: string) => void, scope?: BriefingScope, signal?: AbortSignal): Promise<boolean> {
+export async function readBriefing(path: string, onText: (text: string) => void, scope?: BriefingScope, signal?: AbortSignal, purpose?: "source"): Promise<boolean> {
   let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
   try {
     const server = /^shared\/([^/]+)\//.exec(path)?.[1];
     const selected = scope ?? (server ? { server } : undefined);
     const response = await vaultFetch("/api/note/briefing", { method: "POST", signal,
-      headers: { "content-type": "application/json" }, body: JSON.stringify({ path, stream: true, ...(selected ? { scope: selected } : {}) }) });
+      headers: { "content-type": "application/json" }, body: JSON.stringify({ path, stream: true, ...(selected ? { scope: selected } : {}), ...(purpose ? { purpose } : {}) }) });
     if (!response.ok || !response.body) return false;
     reader = response.body.getReader();
     const decoder = new TextDecoder();

@@ -13,6 +13,7 @@ import { Check } from "typebox/value";
 import type { TSchema } from "typebox";
 import type { AgentRunResult, RunUsage } from "./model";
 import { withCredits } from "../providerCredits";
+import { quickQueue, withQuickSlot } from "./quickQueue";
 
 /** Wall-clock bound on a background job that sets no timeoutMs of its own. */
 export const BACKGROUND_JOB_TIMEOUT_MS = 60 * 60_000;
@@ -21,7 +22,9 @@ export const BACKGROUND_JOB_TIMEOUT_MS = 60 * 60_000;
  * credits are noted either way (lib/providerCredits.ts): out of credits marks
  * it and throws OutOfCredits; a success clears a mark. */
 export function runSessionJob(opts: ModelRunRequest, loaders: { pi?: () => Promise<PiSDK> } = {}): Promise<AgentRunResult> {
-  return withCredits(opts.root, opts.target.provider, opts.role, () => runJob(opts, loaders));
+  const run = () => withCredits(opts.root, opts.target.provider, opts.role, () => runJob(opts, loaders));
+  const signal = opts.signal && opts.queueSignal ? AbortSignal.any([opts.signal, opts.queueSignal]) : opts.signal ?? opts.queueSignal;
+  return opts.role === "quick" ? quickQueue.run(() => withQuickSlot(opts.root, run, signal), signal) : run();
 }
 async function runJob(opts: ModelRunRequest, loaders: { pi?: () => Promise<PiSDK> }): Promise<AgentRunResult> {
   opts.signal?.throwIfAborted();

@@ -26,6 +26,8 @@ export interface ModelRunRequest {
   output?: OutputRequirements;
   timeoutMs?: number;
   signal?: AbortSignal;
+  /** Cancel while waiting for Quick capacity; running work may finish its cache. */
+  queueSignal?: AbortSignal;
   onTool?: ToolObserver;
   onText?: (text: string) => void;
 }

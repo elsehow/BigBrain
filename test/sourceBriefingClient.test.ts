@@ -26,10 +26,10 @@ test("source summaries stream across split chunks and accept a final line withou
 test("a shared source's summary reads its server, while explicit scope is preserved", async () => {
   const requests: unknown[] = [];
   transport(() => new Response('{"type":"complete","briefing":{"summary":"A source"}}\n'), requests);
-  await readBriefing("shared/example/source.md", () => {});
+  await readBriefing("shared/example/source.md", () => {}, undefined, undefined, "source");
   await readBriefing("shared/example/source.md", () => {}, { server: "focused" });
   expect(requests).toEqual([
-    { path: "shared/example/source.md", stream: true, scope: { server: "example" } },
+    { path: "shared/example/source.md", stream: true, scope: { server: "example" }, purpose: "source" },
     { path: "shared/example/source.md", stream: true, scope: { server: "focused" } },
   ]);
 });

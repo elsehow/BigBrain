@@ -3,4 +3,6 @@
 export interface BriefingClientOptions {
   maxOutputTokens: number; maxBudgetUsd: number; timeoutMs?: number;
   outputSchema?: Record<string, unknown>; signal?: AbortSignal;
+  /** Drop queued work when its last reader leaves, without discarding an active answer. */
+  queueSignal?: AbortSignal;
 }
