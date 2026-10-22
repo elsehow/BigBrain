@@ -59,6 +59,20 @@ describe("logOrder and the shell log", () => {
     expect(shellLogPath("darwin", "/Users/z")).toBe("/Users/z/Library/Logs/cool.bigbrain.desktop/BigBrain.log");
     expect(shellLogPath("linux", "/home/z")).toBe("/home/z/.local/share/cool.bigbrain.desktop/logs/BigBrain.log");
   });
+
+  test("the shell's own word for its log wins: a dev build's is under its own identifier (#329)", () => {
+    const root = nativeVault({ files: { "vault.yaml": NATIVE_YAML } });
+    const log = join(root, "BigBrain Dev.log");
+    writeFileSync(log, "engine: desktop: vault /scratch\n");
+    const was = process.env.BIGBRAIN_SHELL_LOG;
+    process.env.BIGBRAIN_SHELL_LOG = log;
+    try {
+      expect(diagnosticsReport(root).logs.at(-1)).toMatchObject({ name: "shell", path: log, missing: false });
+    } finally {
+      if (was === undefined) delete process.env.BIGBRAIN_SHELL_LOG;
+      else process.env.BIGBRAIN_SHELL_LOG = was;
+    }
+  });
 });
 
 describe("diagnosticsReport + renderBundle", () => {

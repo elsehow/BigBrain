@@ -117,21 +117,36 @@ is required, never a real one — the /verify rule; tend on it still runs
 ```sh
 bun install && (cd web/ui && bun install) # engine root + viewer deps
 cd desktop && bun install                 # @tauri-apps/cli (Rust + Xcode CLT required)
-bunx tauri build --debug                  # → src-tauri/target/debug/bundle/macos/BigBrain.app (+ .dmg)
+bunx tauri build --debug                  # → src-tauri/target/debug/bundle/macos/BigBrain Dev.app (+ .dmg)
 ```
+
+A plain build is **BigBrain Dev** (`cool.bigbrain.desktop.dev`), never the
+release (#329). It is a stranger to the install on the same machine: it
+leaves `~/.local/bin/bigbrain` alone, never updates itself, answers no
+`bigbrain://` link, keeps its own vault pointer (under
+`~/Library/Application Support/cool.bigbrain.desktop.dev/`), and runs only
+on the vault it is named — started without `BIGBRAIN_VAULT` it says so and
+quits. Its log is `~/Library/Logs/cool.bigbrain.desktop.dev/BigBrain Dev.log`.
+Until 2026-10-21 every build was the release: a two-week-old bundle in a
+stale checkout was what a click on BigBrain opened, and it took the real
+vault and the command with it. A bundle stays launchable until it is
+deleted or unregistered (`lsregister -u <path>`), so delete the ones you
+are done with.
 
 `build-resources.sh` (the `beforeBuildCommand`) builds the viewer bundle
 itself — a stale `web/ui/dist` on the build machine cannot ship (it did
 once: 0.1.8 went out with a months-old UI inside a current shell).
 
-A **release** build must also sign the update it becomes food for. The
+A **release** build is the one that adds `src-tauri/tauri.release.conf.json`
+(the release's name and identifier, the `bigbrain://` scheme, the updater's
+artifacts), and it must also sign the update it becomes food for. The
 signing key lives at `~/.config/bigbrain/updater-v2.key` (mode 0600) and is
 encrypted: its passphrase lives in the maintainer's password manager, never
 in a file, a shell profile or an agent's environment.
 
 ```sh
 read -rs TAURI_SIGNING_PRIVATE_KEY_PASSWORD && export TAURI_SIGNING_PRIVATE_KEY_PASSWORD
-TAURI_SIGNING_PRIVATE_KEY=~/.config/bigbrain/updater-v2.key bunx tauri build --bundles app
+TAURI_SIGNING_PRIVATE_KEY=~/.config/bigbrain/updater-v2.key bunx tauri build --bundles app --config src-tauri/tauri.release.conf.json
 bun run site:build -- --app src-tauri/target/release/bundle/macos/BigBrain.app
 # From the repo root: bun run site:deploy (site/README.md). Never upload to /srv/site.
 ```
@@ -242,11 +257,11 @@ vault on other ports:
 
 ```sh
 BIGBRAIN_VAULT=~/some-vault-copy BIGBRAIN_WEB_PORT=4757 BIGBRAIN_API_PORT=4758 \
-  ./src-tauri/target/debug/bundle/macos/BigBrain.app/Contents/MacOS/bigbrain-desktop
+  "./src-tauri/target/debug/bundle/macos/BigBrain Dev.app/Contents/MacOS/bigbrain-desktop"
 ```
 
-To run it on the real vault, quit whatever engine is already on those
-ports first — the app is the only supervisor there is (#645).
+A dev build has no default vault: `BIGBRAIN_VAULT` is required, and it is
+never the real one (the /verify rule).
 
 ## First run
 

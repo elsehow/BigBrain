@@ -29,10 +29,13 @@ agent's; `desktop/README.md` explains why and holds the key-rotation steps):
 
 ```sh
 read -rs TAURI_SIGNING_PRIVATE_KEY_PASSWORD && export TAURI_SIGNING_PRIVATE_KEY_PASSWORD
-(cd desktop && TAURI_SIGNING_PRIVATE_KEY=~/.config/bigbrain/updater-v2.key bunx tauri build --bundles app)
+(cd desktop && TAURI_SIGNING_PRIVATE_KEY=~/.config/bigbrain/updater-v2.key bunx tauri build --bundles app --config src-tauri/tauri.release.conf.json)
 bun run site:build -- --app desktop/src-tauri/target/release/bundle/macos/BigBrain.app
 bun run site:deploy
 ```
+
+`--config src-tauri/tauri.release.conf.json` is what makes it the release:
+without it the build is "BigBrain Dev", which `site:build` refuses (#329).
 
 The key is `updater-v2.key`, encrypted, with its passphrase in the maintainer's
 password manager. The first key, `updater.key`, is retired: every app since the

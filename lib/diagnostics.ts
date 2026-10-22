@@ -9,7 +9,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { intakeHolder, intakeRunning } from "./assertionAgent";
 import { engineIdentity } from "./engine";
-import { handoffProcessEnv } from "./env";
+import { handoffProcessEnv, shellLogOverride } from "./env";
 import { json, send, type Route } from "./httpx";
 import { alive } from "./parentWatch";
 import { loadManifest, type Auth } from "./manifest";
@@ -22,9 +22,11 @@ import { nextFireFile } from "./supervisorClock";
 /** The per-job logs the supervisor appends to (bin/desktop.ts). */
 export const logsDir = (root: string): string => join(root, ".state", "logs");
 
-/** Where tauri-plugin-log writes the shell's own log — the supervisor's
+/** Where tauri-plugin-log writes the release's own log — the supervisor's
  * lines ride in it prefixed `engine:`. The plugin's default log dir per
- * platform, under the app's identifier (desktop/src-tauri/tauri.conf.json). */
+ * platform, under the release's identifier
+ * (desktop/src-tauri/tauri.release.conf.json). The shell names its log in
+ * BIGBRAIN_SHELL_LOG, which wins: a dev build's is under its own (#329). */
 export function shellLogPath(platform: string = process.platform, home: string = homedir()): string {
   const id = "cool.bigbrain.desktop";
   if (platform === "darwin") return join(home, "Library", "Logs", id, "BigBrain.log");
@@ -191,7 +193,7 @@ export function diagnosticsReport(root: string, opts: { lines?: number; shellLog
   }
   const n = opts.lines ?? 200;
   const logs = logOrder(names).map((name) => tailFile(join(dir, `${name}.log`), name, n));
-  logs.push(tailFile(opts.shellLog ?? shellLogPath(), "shell", n));
+  logs.push(tailFile(opts.shellLog ?? shellLogOverride() ?? shellLogPath(), "shell", n));
   let mode: Auth | null = null;
   let curationAgent: "claude" | "codex" | "pi" = "pi";
   let curationProvider: string | undefined;
