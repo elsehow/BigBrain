@@ -14,6 +14,7 @@ const ENGINE = join(import.meta.dir, "..");
 const EXT_SRC = join(ENGINE, "clients", "browser-extension");
 const CUBE_SRC = join(ENGINE, "docs", "design", "mark", "bigbrain-cube.html");
 const DESKTOP_CONF = join(ENGINE, "desktop", "src-tauri", "tauri.conf.json");
+const RELEASE_CONF = join(ENGINE, "desktop", "src-tauri", "tauri.release.conf.json");
 const RELEASES = join(ENGINE, "docs", "releases");
 
 /** The animated mark's three parts, cut from the drop-in page between its
@@ -39,6 +40,14 @@ export function appVersion(conf: string = DESKTOP_CONF): string {
   const v = (JSON.parse(readFileSync(conf, "utf8")) as { version?: unknown }).version;
   if (typeof v !== "string" || !/^\d+(\.\d+)*$/.test(v)) throw new Error(`${conf}: version is not a version: ${String(v)}`);
   return v;
+}
+
+/** The release's bundle identifier, the only one the site ships. The base
+ * config is the dev build's; the release command adds this file (#329). */
+export function releaseIdentifier(conf: string = RELEASE_CONF): string {
+  const id = (JSON.parse(readFileSync(conf, "utf8")) as { identifier?: unknown }).identifier;
+  if (typeof id !== "string" || !id) throw new Error(`${conf}: no identifier`);
+  return id;
 }
 
 /** The updater shows the same prose as the GitHub release. The heading is
@@ -106,7 +115,14 @@ export function cutDownloads(
   version: string,
   opts: { dmg: boolean }
 ): { zip: string; dmg: string | null; sha256: string; tar: string; signature: string } {
-  if (!existsSync(join(app, "Contents", "Info.plist"))) throw new Error(`not an app bundle: ${app}`);
+  const plist = join(app, "Contents", "Info.plist");
+  if (!existsSync(plist)) throw new Error(`not an app bundle: ${app}`);
+  // A dev build is a stranger to the install it would replace: never cut it.
+  const id = /<key>CFBundleIdentifier<\/key>\s*<string>([^<]*)<\/string>/.exec(readFileSync(plist, "utf8"))?.[1];
+  const release = releaseIdentifier();
+  if (id !== release) {
+    throw new Error(`${app} is ${id ? `the build ${id}` : "a bundle with no identifier"}, not the release (${release}): build it with --config src-tauri/tauri.release.conf.json (site/README.md)`);
+  }
   // The updater's food, made by `tauri build` beside the .app when
   // createUpdaterArtifacts is on and TAURI_SIGNING_PRIVATE_KEY points
   // at the key (desktop/README.md). Required, not optional: a release cut

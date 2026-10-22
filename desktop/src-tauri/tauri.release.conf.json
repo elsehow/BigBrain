@@ -1,0 +1,15 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "BigBrain",
+  "identifier": "cool.bigbrain.desktop",
+  "bundle": {
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["bigbrain"]
+      }
+    }
+  }
+}

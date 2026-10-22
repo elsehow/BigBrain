@@ -100,6 +100,11 @@ export const arrivalsOverride = (): string | undefined => str("BIGBRAIN_ARRIVALS
  * tests point it at a scratch file, so no test can move the real one (#604). */
 export const vaultPointerOverride = (): string | undefined => str("BIGBRAIN_VAULT_POINTER");
 
+/** The app shell's own log, named by the shell that writes it: a dev build's
+ * lives under its own identifier (lib/diagnostics.ts shellLogPath is the
+ * release's). */
+export const shellLogOverride = (): string | undefined => str("BIGBRAIN_SHELL_LOG");
+
 /** Override for a shared vault's member store (lib/sharedMembers.ts) —
  * members and their credentials live OUTSIDE the vault, like drop tokens. */
 export const sharedMemberStore = (): string | undefined => str("BIGBRAIN_SHARED_MEMBERS");
@@ -141,7 +146,7 @@ export const NO_ENV_FILE = "--no-env-file";
 export const ENGINE_ENV = [
   "BIGBRAIN_VAULT", "BIGBRAIN_SHARED_VAULT", "BIGBRAIN_PILOT_CONTEXT_ROOT", "BIGBRAIN_PILOT_DEV_PORT", "BIGBRAIN_PILOT_UI_PORT",
   "PORT", "BIGBRAIN_WEB_PORT", "BIGBRAIN_API_PORT", "BIGBRAIN_SHARED_PORT",
-  "BIGBRAIN_DESKTOP", "BIGBRAIN_SUPERVISOR_PID", "BIGBRAIN_DEV",
+  "BIGBRAIN_DESKTOP", "BIGBRAIN_SUPERVISOR_PID", "BIGBRAIN_DEV", "BIGBRAIN_SHELL_LOG",
   "BIGBRAIN_ROLE", "BIGBRAIN_WORK_ID", "BIGBRAIN_OWNER_EMAIL",
   "BIGBRAIN_TOKENS", "BIGBRAIN_CLIENT_TOKENS", "BIGBRAIN_READ_LOG", "BIGBRAIN_ARRIVALS", "BIGBRAIN_VAULT_POINTER", "BIGBRAIN_SHARED_MEMBERS", "BIGBRAIN_SHARED_PUBLIC_URL", "BIGBRAIN_SHARED_GOOGLE_CLIENT_ID",
   "BIGBRAIN_ASSERTION_DB", "BIGBRAIN_NO_RETRIEVAL_LOG", "BIGBRAIN_TEST_JOBS",

@@ -33,6 +33,16 @@
 //! deferred to a checkout behind the command instead, and a checkout whose
 //! viewer had not been rebuilt shadowed a fresh app with an old UI.)
 //!
+//! Which build: only the release is the install (#329). A plain `tauri
+//! build` is "BigBrain Dev", `cool.bigbrain.desktop.dev`; the release command
+//! adds `tauri.release.conf.json` for the real name, the `bigbrain://` link
+//! and the updater's artifacts. A dev build is a stranger to the install on
+//! the same machine: it leaves `bigbrain` alone, never updates itself, keeps
+//! its own vault pointer, and runs only on the vault it is named
+//! (BIGBRAIN_VAULT). Until 2026-10-21 every build was the release: a
+//! two-week-old bundle in a stale checkout was what a click on BigBrain
+//! opened, and it took the real vault and the command with it.
+//!
 //! An engine already answering on the app's ports is attached to only when
 //! it IS this engine WITH A LIVE SUPERVISOR behind it (`GET /api/engine`
 //! names both — a second copy of the app). This engine with no supervisor
@@ -81,23 +91,57 @@ fn home() -> PathBuf {
     env::var("HOME").map(PathBuf::from).unwrap_or_else(|_| PathBuf::from("/"))
 }
 
-/// Where the vault is: `BIGBRAIN_VAULT` if set, else the pointer the CLI
-/// install writes (`~/.config/bigbrain/vault`), else `~/vault`. The supervisor
-/// applies the same rule; passing it explicitly keeps the two in agreement.
-fn vault_root() -> PathBuf {
-    if let Ok(v) = env::var("BIGBRAIN_VAULT") {
-        if !v.trim().is_empty() {
-            return PathBuf::from(v.trim());
-        }
+// ---- which build ------------------------------------------------------------
+
+/// The release's identifier. Only `tauri.release.conf.json` sets it; the
+/// base config is the dev build's. test/desktopIdentity.test.ts holds this
+/// to that file; neither may drift.
+const RELEASE_ID: &str = "cool.bigbrain.desktop";
+
+fn is_release(app: &AppHandle) -> bool {
+    app.config().identifier == RELEASE_ID
+}
+
+/// What a dev build started without a vault says.
+const DEV_NEEDS_A_VAULT: &str = "This is a dev build of BigBrain, and a dev build runs only on the scratch vault it is given: start it with BIGBRAIN_VAULT=<a scratch folder> (desktop/README.md). The BigBrain you use is the release in Applications.";
+
+/// Where the vault is: `named` (BIGBRAIN_VAULT) if set; else, for the
+/// release, the pointer the CLI install writes (`~/.config/bigbrain/vault`),
+/// else `~/vault`. A dev build has no else: finding the person's own vault
+/// by itself is exactly what it must not do. The supervisor applies the same
+/// rule; passing the answer explicitly keeps the two in agreement.
+fn vault_root(release: bool, named: Option<String>, home: &Path) -> Result<PathBuf, String> {
+    if let Some(v) = named.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
+        return Ok(PathBuf::from(v));
     }
-    let home = home();
+    if !release {
+        return Err(DEV_NEEDS_A_VAULT.to_string());
+    }
     if let Ok(s) = fs::read_to_string(home.join(".config/bigbrain").join("vault")) {
         let p = s.trim();
         if !p.is_empty() {
-            return PathBuf::from(p);
+            return Ok(PathBuf::from(p));
         }
     }
-    home.join("vault")
+    Ok(home.join("vault"))
+}
+
+/// The shell's own log, where tauri-plugin-log puts it by default: the
+/// app's log dir, named for the product. Every dialog points here, and the
+/// engine's diagnostics read it (BIGBRAIN_SHELL_LOG, lib/diagnostics.ts).
+fn shell_log(app: &AppHandle) -> PathBuf {
+    app.path()
+        .app_log_dir()
+        .unwrap_or_else(|_| home().join("Library/Logs").join(&app.config().identifier))
+        .join(format!("{}.log", app.package_info().name))
+}
+
+/// A path as a dialog shows it: under `~` when it is in the home folder.
+fn tilde(path: &Path, home: &Path) -> String {
+    match path.strip_prefix(home) {
+        Ok(rest) => format!("~/{}", rest.display()),
+        Err(_) => path.display().to_string(),
+    }
 }
 
 // ---- which engine ---------------------------------------------------------
@@ -513,7 +557,7 @@ fn supervisor_gone(handle: &AppHandle, started: Instant) {
     }
     handle
         .dialog()
-        .message("The engine stopped right after starting. Its last lines are in ~/Library/Logs/cool.bigbrain.desktop/BigBrain.log.")
+        .message(format!("The engine stopped right after starting. Its last lines are in {}.", tilde(&shell_log(handle), &home())))
         .title("BigBrain's engine stopped")
         .kind(MessageDialogKind::Error)
         .blocking_show();
@@ -535,9 +579,7 @@ fn fatal(handle: &AppHandle, msg: String) -> ! {
     stop_owned_engine(&handle.state::<Engine>(), Duration::from_secs(8));
     handle
         .dialog()
-        .message(format!(
-            "{msg}\n\nThe details are in ~/Library/Logs/cool.bigbrain.desktop/BigBrain.log."
-        ))
+        .message(format!("{msg}\n\nThe details are in {}.", tilde(&shell_log(handle), &home())))
         .title("BigBrain could not start")
         .kind(MessageDialogKind::Error)
         .blocking_show();
@@ -548,18 +590,24 @@ fn fatal(handle: &AppHandle, msg: String) -> ! {
 /// it), stdin a pipe it reads for EOF, stdout/stderr pipes into this log.
 /// `--no-env-file`: cwd is the vault, whose .env holds credentials the engine
 /// reads on demand and must not carry in its environment (lib/env.ts).
-fn start_supervisor(sidecar: &Path, supervisor: &Path, cwd: &Path, vault: &Path, web_port: u16, api_port: u16) -> std::io::Result<Child> {
-    Command::new(sidecar)
-        .arg("--no-env-file")
-        .arg(supervisor)
+fn start_supervisor(boot: &Boot, cwd: &Path) -> std::io::Result<Child> {
+    let mut cmd = Command::new(&boot.sidecar);
+    cmd.arg("--no-env-file")
+        .arg(&boot.supervisor)
         .current_dir(cwd)
-        .env("BIGBRAIN_VAULT", vault)
+        .env("BIGBRAIN_VAULT", &boot.vault)
         .env("BIGBRAIN_DESKTOP", "1")
-        .env("BIGBRAIN_WEB_PORT", web_port.to_string())
-        .env("BIGBRAIN_API_PORT", api_port.to_string())
-        // A pipe, not null: the supervisor treats EOF on its stdin as
-        // "the app is gone" and takes the engine down (bin/desktop.ts).
-        .stdin(Stdio::piped())
+        .env("BIGBRAIN_WEB_PORT", boot.web_port.to_string())
+        .env("BIGBRAIN_API_PORT", boot.api_port.to_string())
+        .env("BIGBRAIN_SHELL_LOG", &boot.shell_log);
+    // A dev build's first run must not move the release's vault pointer
+    // (`bigbrain init` writes it, #604): it gets one of its own.
+    if let Some(pointer) = &boot.pointer {
+        cmd.env("BIGBRAIN_VAULT_POINTER", pointer);
+    }
+    // A pipe, not null: the supervisor treats EOF on its stdin as
+    // "the app is gone" and takes the engine down (bin/desktop.ts).
+    cmd.stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .process_group(0)
@@ -819,8 +867,19 @@ fn updater(app: &AppHandle) -> Result<tauri_plugin_updater::Updater, String> {
     b.build().map_err(|e| e.to_string())
 }
 
+/// Whether this build looks for updates at all: the release does; a dev
+/// build only when BIGBRAIN_UPDATE_URL names a feed to try (desktop/dev.sh).
+/// Left alone, a dev build would find the release's feed, and installing
+/// from it would swap the dev bundle for the release (#329).
+fn updates(app: &AppHandle) -> bool {
+    is_release(app) || env::var_os("BIGBRAIN_UPDATE_URL").is_some()
+}
+
 #[tauri::command]
 async fn update_check(app: AppHandle) -> Result<Option<UpdateInfo>, String> {
+    if !updates(&app) {
+        return Ok(None);
+    }
     match updater(&app)?.check().await {
         Ok(Some(u)) => {
             log::info!("update available: {} (running {})", u.version, u.current_version);
@@ -845,6 +904,9 @@ async fn update_check(app: AppHandle) -> Result<Option<UpdateInfo>, String> {
 /// ports against the new app.
 #[tauri::command]
 async fn update_install(app: AppHandle) -> Result<(), String> {
+    if !updates(&app) {
+        return Err("A dev build does not install updates.".into());
+    }
     let update = updater(&app)?
         .check()
         .await
@@ -873,15 +935,34 @@ struct Boot {
     engine: PathBuf,
     sidecar: PathBuf,
     supervisor: PathBuf,
+    shell_log: PathBuf,
+    /// A dev build's own vault pointer; None for the release, which keeps
+    /// the machine's (and for a dev build already given one).
+    pointer: Option<PathBuf>,
 }
 
-/// Resolve the boot facts and log them. The one failure here is a bundle
-/// with no bun in it, which no amount of retrying fixes.
+/// Resolve the boot facts and log them. The failures here are a bundle with
+/// no bun in it, which no amount of retrying fixes, and a dev build started
+/// without a vault.
 fn plan_boot(app: &AppHandle) -> Result<Boot, String> {
     let web_port = port("BIGBRAIN_WEB_PORT", 4747);
     let api_port = port("BIGBRAIN_API_PORT", 4748);
-    let vault = vault_root();
     let home = home();
+    let release = is_release(app);
+    let info = app.package_info();
+    log::info!("{} {} ({})", info.name, info.version, app.config().identifier);
+    let vault = vault_root(release, env::var("BIGBRAIN_VAULT").ok(), &home)?;
+    let shell_log = shell_log(app);
+    let pointer = if release || env::var_os("BIGBRAIN_VAULT_POINTER").is_some() {
+        None
+    } else {
+        Some(
+            app.path()
+                .app_config_dir()
+                .map_err(|e| format!("this build has no config directory ({e})"))?
+                .join("vault"),
+        )
+    };
     let bundle = app
         .path()
         .resource_dir()
@@ -899,20 +980,25 @@ fn plan_boot(app: &AppHandle) -> Result<Boot, String> {
         return Err(format!("the engine in this app is incomplete: no {}", supervisor.display()));
     }
 
-    // The app owns `bigbrain`: it runs this very engine. (The dev loop runs
-    // a checkout and leaves the person's command alone.)
+    // The release owns `bigbrain`: it runs this very engine. A dev build,
+    // and the dev loop (which runs a checkout), leave the person's command
+    // alone.
     if source == EngineSource::Bundle {
         let link = bigbrain_command(&home);
-        match install_shim(&link, &sidecar, &engine) {
-            Ok(Shim::LeftAlone) => log::info!("{} is not ours and not an install's — left alone", link.display()),
-            Ok(Shim::Replaced(was)) => {
-                log::info!("{} was a CLI install's symlink → {} — now the app's shim", link.display(), was.display())
+        if !release {
+            log::info!("a dev build: {} left alone", link.display());
+        } else {
+            match install_shim(&link, &sidecar, &engine) {
+                Ok(Shim::LeftAlone) => log::info!("{} is not ours and not an install's — left alone", link.display()),
+                Ok(Shim::Replaced(was)) => {
+                    log::info!("{} was a CLI install's symlink → {} — now the app's shim", link.display(), was.display())
+                }
+                Ok(what) => log::info!("{}: {what:?}", link.display()),
+                Err(e) => log::warn!("could not install {}: {e}", link.display()),
             }
-            Ok(what) => log::info!("{}: {what:?}", link.display()),
-            Err(e) => log::warn!("could not install {}: {e}", link.display()),
         }
     }
-    Ok(Boot { web_port, api_port, vault, home, engine, sidecar, supervisor })
+    Ok(Boot { web_port, api_port, vault, home, engine, sidecar, supervisor, shell_log, pointer })
 }
 
 /// How far `start_engine` got: an engine answering on the ports, or a
@@ -973,7 +1059,7 @@ fn start_engine(app: &AppHandle, boot: &Boot) -> Result<Started, String> {
     // instead, and a cwd that does not exist would fail the spawn before
     // it could.
     let cwd = if boot.vault.is_dir() { boot.vault.clone() } else { boot.home.clone() };
-    let mut child = start_supervisor(&boot.sidecar, &boot.supervisor, &cwd, &boot.vault, web_port, api_port)
+    let mut child = start_supervisor(boot, &cwd)
         .map_err(|e| format!("could not start the engine ({}): {e}", boot.sidecar.display()))?;
     let supervisor = child.id();
     log::info!("engine supervisor pid {} (its own process group)", child.id());
@@ -1284,6 +1370,34 @@ mod tests {
         fs::write(at.join("bin/desktop.ts"), "").unwrap();
         fs::write(at.join("bin/cli.ts"), "").unwrap();
         at.to_path_buf()
+    }
+
+    #[test]
+    fn a_named_vault_is_the_vault_for_either_build() {
+        let home = scratch("vault-named");
+        for release in [true, false] {
+            assert_eq!(vault_root(release, Some(" /scratch/v ".into()), &home).unwrap(), PathBuf::from("/scratch/v"));
+        }
+    }
+
+    #[test]
+    fn the_release_finds_the_machines_vault_and_a_dev_build_never_does() {
+        let home = scratch("vault-found");
+        assert_eq!(vault_root(true, None, &home).unwrap(), home.join("vault"));
+        fs::create_dir_all(home.join(".config/bigbrain")).unwrap();
+        fs::write(home.join(".config/bigbrain/vault"), "/Users/z/real-vault\n").unwrap();
+        assert_eq!(vault_root(true, None, &home).unwrap(), PathBuf::from("/Users/z/real-vault"));
+        assert_eq!(vault_root(true, Some("  ".into()), &home).unwrap(), PathBuf::from("/Users/z/real-vault"));
+        for named in [None, Some(String::new()), Some("  ".into())] {
+            assert_eq!(vault_root(false, named, &home).unwrap_err(), DEV_NEEDS_A_VAULT);
+        }
+    }
+
+    #[test]
+    fn a_dialog_shows_a_home_path_under_tilde() {
+        let home = Path::new("/Users/z");
+        assert_eq!(tilde(&home.join("Library/Logs/x/BigBrain Dev.log"), home), "~/Library/Logs/x/BigBrain Dev.log");
+        assert_eq!(tilde(Path::new("/var/log/x.log"), home), "/var/log/x.log");
     }
 
     #[test]

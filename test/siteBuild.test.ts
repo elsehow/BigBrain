@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { SITE_URL, appVersion, buildSite, checkFeedSignature, cubeParts, extensionId, feedName, minisignKeyId, releaseNotes, tarName, zipName } from "../site/build";
+import { SITE_URL, appVersion, buildSite, checkFeedSignature, cubeParts, cutDownloads, extensionId, feedName, minisignKeyId, releaseIdentifier, releaseNotes, tarName, zipName } from "../site/build";
 
 const EXT = join(import.meta.dir, "..", "clients", "browser-extension");
 
@@ -19,12 +19,12 @@ function fakeSig(keyId: string): string {
 }
 
 /** A stand-in bundle: enough shape for ditto, install.sh and `defaults read`. */
-function fakeApp(dir: string, keyId: string = minisignKeyId(PINNED)): string {
+function fakeApp(dir: string, keyId: string = minisignKeyId(PINNED), identifier: string = releaseIdentifier()): string {
   const app = join(dir, "BigBrain.app");
   mkdirSync(join(app, "Contents", "MacOS"), { recursive: true });
   writeFileSync(
     join(app, "Contents", "Info.plist"),
-    `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict><key>CFBundleShortVersionString</key><string>${appVersion()}</string></dict></plist>\n`
+    `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict><key>CFBundleIdentifier</key><string>${identifier}</string><key>CFBundleShortVersionString</key><string>${appVersion()}</string></dict></plist>\n`
   );
   writeFileSync(join(app, "Contents", "MacOS", "bigbrain-desktop"), "#!/bin/sh\necho fake\n", { mode: 0o755 });
   // what `tauri build` leaves beside the .app when createUpdaterArtifacts
@@ -112,6 +112,17 @@ describe("site build", () => {
     expect(readdirSync(out).sort()).toEqual(["email", "plugins"]);
     expect(r.desktop).toBe(false);
     expect(r.sha256).toBeNull();
+  });
+
+  // #329: a plain `tauri build` is the dev build, which must never ship.
+  test("only the release's bundle is cut: a dev build, or one with no identifier, is refused", () => {
+    expect(releaseIdentifier()).toBe("cool.bigbrain.desktop");
+    for (const identifier of ["cool.bigbrain.desktop.dev", ""]) {
+      const dir = mkdtempSync(join(tmpdir(), "bigbrain-site-dev-"));
+      const app = fakeApp(dir, minisignKeyId(PINNED), identifier);
+      expect(() => cutDownloads(app, join(dir, "download"), appVersion(), { dmg: false })).toThrow(/not the release \(cool\.bigbrain\.desktop\)/);
+      expect(existsSync(join(dir, "download"))).toBe(false);
+    }
   });
 
   const mac = process.platform === "darwin";
