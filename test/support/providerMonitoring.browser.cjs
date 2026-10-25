@@ -64,6 +64,6 @@ const assert = require('node:assert/strict');
     await page.getByText('No account quota reading available yet.', { exact: true }).waitFor();
     await chatgpt.getByText('Account quota is not available from this connection.', { exact: true }).waitFor();
     assert.deepEqual(errors, []);
-    console.log('Provider monitoring passed in AppShell: both providers, four roles, partial counts, separate account quota, per-window freshness, same-account ChatGPT quota, mismatched accounts, unavailable/unsupported/empty states, narrow layout.');
+    console.log('Provider monitoring passed in Field: both providers, four roles, partial counts, separate account quota, per-window freshness, same-account ChatGPT quota, mismatched accounts, unavailable/unsupported/empty states, narrow layout.');
   } finally { await browser.close(); }
 })().catch(e => { console.error(e); process.exit(1); });

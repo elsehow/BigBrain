@@ -1,5 +1,5 @@
-// /v2 (v2.html): the base with Field pinned, whatever this device chose.
-// The app at / is the same base, showing the view chosen in Settings.
+// /v2 (v2.html): the same base and Field as the app at /, kept so links to
+// /v2 still land.
 import { mount } from "svelte";
 import Base from "./components/Base.svelte";
 import { watchSystemTheme } from "./lib/theme";
@@ -8,4 +8,4 @@ import "./app.css";
 
 watchSystemTheme();
 
-export default mount(Base, { target: document.getElementById("app")!, props: { view: "field" } });
+export default mount(Base, { target: document.getElementById("app")! });

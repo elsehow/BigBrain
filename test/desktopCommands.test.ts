@@ -79,7 +79,7 @@ describe("the literals the two languages agree on by hand", () => {
     // click (lib/links.ts); the shell's policy is the floor under it, and
     // it must be on the main window.
     expect(LIB_RS.match(/\.on_navigation\(stay_on\(/g)?.length).toBe(1);
-    expect(read("web/ui/src/App.svelte")).toContain("onclick={openExternalLinks}");
+    expect(read("web/ui/src/components/Base.svelte")).toContain("onclick={openExternalLinks}");
   });
 
 

@@ -11,7 +11,6 @@ import { sourceThreadView, invalidateAssertionRecord } from "../lib/assertionEnt
 import { recentSourcePage } from "../lib/sourceFeed";
 import { notePayload, resolveLink } from "../lib/noteRead";
 import { buildAssertionGraph } from "../lib/assertionGraph";
-import { findNode } from "../web/ui/src/lib/neighbourhood";
 
 const email = (n: number, title = "Re: Archive acquisition discussion", envelope: Record<string, unknown> = {}): SourceInsertion => insertion({
   id: `ins_${n.toString(16).padStart(24, "0")}`, title,
@@ -73,7 +72,7 @@ test("feed pages conversations, combined reader preserves all assertions and ori
   expect(node).toBeDefined(); expect(node.degree).toBe(1);
   expect(node.memberPaths).toHaveLength(2);
   expect(graph.edges.find(e => e.source === node.id || e.target === node.id)!.weight).toBe(3);
-  expect(findNode(graph.nodes, insertionEventRel(a))).toBe(findNode(graph.nodes, row.path));
+  expect(node.memberPaths).toContain(insertionEventRel(a));
   const newer = email(3); appendSourceInsertionEvent(root, newer); invalidateAssertionRecord(root);
   expect(recentSourcePage(root, 0, 1).recent[0]).toMatchObject({ path: row.path, threadCount: 3, status: "pending" });
   expect(sourceThreadView(root, row.path)!.members).toHaveLength(3);

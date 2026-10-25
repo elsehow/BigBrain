@@ -50,7 +50,7 @@ async function boot() {
   const theme = new URLSearchParams(location.search).get("theme");
   setChoice(THEMES.find(value => value === theme) ?? (theme === "dark" ? "dusk" : "default"));
   watchSystemTheme();
-  // AppShell owns init(): the route must exist BEFORE mount, not in a parent onMount.
+  // Base owns init(): the route must exist BEFORE mount, not in a parent onMount.
   history.replaceState(null, "", `${location.pathname}${location.search}#/integrations`);
   const [{ mount }, { default: Preview }] = await Promise.all([import("svelte"), import("./IntegrationPreview.svelte")]);
   mount(Preview, { target: document.getElementById("app")! });

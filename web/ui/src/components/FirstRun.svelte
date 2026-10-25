@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { vaultFetch as fetch, switchVaults } from "../lib/vaultScope";
+  import { vaultFetch as fetch } from "../lib/vaultScope";
   import { connectSharedInvite } from "../lib/sharedSettings.svelte";
 
   import { onMount, tick, untrack } from 'svelte';
@@ -29,7 +29,8 @@
     joining=true;problem='';
     try{joined=await connectSharedInvite(invite);invite='';}catch(error){problem=error instanceof Error?error.message:'Could not connect.';}finally{joining=false;}
   }
-  const land=()=>{if(joined)switchVaults([joined.id]);else app.rev++;};
+  // a joined vault is already in the field: the engine reads every connected vault together
+  const land=()=>{app.rev++;};
   const providerReady=$derived(!!setup.chatgpt?.connected||!!setup.anthropic?.connected);
   const privacy=$derived(step===4);
   const nextReady=$derived(step===0?!!setup.vault&&!!(setup.identity||name.trim()):step===1?providerReady:true);

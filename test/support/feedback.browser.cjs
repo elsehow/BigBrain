@@ -1,4 +1,4 @@
-// Synthetic data, production AppShell. CI supplies VIEWER_URL; local preview defaults to 5305.
+// Synthetic data, production base and Field. CI supplies VIEWER_URL; local preview defaults to 5305.
 const { chromium, webkit } = require('./browserHarness.cjs');
 const assert = require('node:assert/strict');
 const { readFileSync } = require('node:fs');
@@ -30,7 +30,7 @@ const base = process.env.FEEDBACK_PREVIEW_URL || process.env.VIEWER_URL || 'http
       });
     }
     await page.goto(`${base}/${production ? 'feedback-built.html' : 'sidebar-workbench.html'}`);
-    await page.locator('.lg-wrap').waitFor();
+    await page.locator('.v2').waitFor();
     await page.evaluate(() => {
       const fake = window.fetch;
       window.feedbackRequests = []; window.feedbackMode = 'offline';
@@ -44,7 +44,7 @@ const base = process.env.FEEDBACK_PREVIEW_URL || process.env.VIEWER_URL || 'http
       };
     });
     const trigger = page.getByRole('button', { name: 'Feedback', exact: true });
-    await page.waitForFunction(() => document.documentElement.dataset.sidebarToolbar === 'false');
+    await page.waitForFunction(() => !document.querySelector('.feedback-trigger')?.classList.contains('visible'));
     await page.waitForFunction(() => getComputedStyle(document.querySelector('.feedback-trigger')).opacity === '0');
     assert.equal(await trigger.evaluate(el => getComputedStyle(el).opacity), '0');
     await page.mouse.move(1090, 790);
@@ -96,6 +96,6 @@ const base = process.env.FEEDBACK_PREVIEW_URL || process.env.VIEWER_URL || 'http
     await page.screenshot({ path: '/tmp/bigbrain-feedback.png' });
     if (production) assert.deepEqual(await page.evaluate(() => window.cspFailures), []);
     assert.deepEqual(errors, []);
-    console.log('PASS: production AppShell feedback, chrome visibility, empty input, offline/failure, draft retention, retry identity, duplicate submit, keyboard/focus, mobile width');
+    console.log('PASS: production base and Field feedback, chrome visibility, empty input, offline/failure, draft retention, retry identity, duplicate submit, keyboard/focus, mobile width');
   } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

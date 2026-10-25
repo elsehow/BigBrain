@@ -48,6 +48,6 @@ const base = process.env.SIDEBAR_PREVIEW_URL || 'http://127.0.0.1:5200';
   await switchPage(page);
   const failed = await page.evaluate(async () => { const { swr, clearSwrCache } = await import('/src/lib/api.ts'); clearSwrCache(); const value = swr.note('memory/index.md'); return { cached: value.cached, error: await value.fresh.then(() => false, () => true) }; });
   assert.equal(failed.cached, undefined); assert.equal(failed.error, true);
-  console.log('Production AppShell: A → B → A, shared-origin tabs, reload, pending IDs, draft preservation, and failed B reads passed.');
+  console.log('production base and Field: A → B → A, shared-origin tabs, reload, pending IDs, draft preservation, and failed B reads passed.');
  } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

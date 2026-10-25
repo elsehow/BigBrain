@@ -1,4 +1,4 @@
-// Production AppShell, fabricated account policy, no provider calls.
+// production base and Field, fabricated account policy, no provider calls.
 const {chromium}=require('./browserHarness.cjs');
 const assert=require('node:assert/strict');
 const base=process.env.SIDEBAR_PREVIEW_URL||'http://127.0.0.1:5219';

@@ -7,7 +7,6 @@ import { scanSurface } from "../lib/searchCore";
 import { handleMcpTool } from "../lib/mcp";
 import { pilotToolCall } from "../lib/pilot";
 import { ENGINE_ROOT } from "../lib/engine";
-import { navigationFor } from "../web/ui/src/lib/pilot";
 
 const roots: string[] = [];
 afterAll(() => roots.forEach(root => rmSync(root, { recursive: true, force: true })));
@@ -41,7 +40,6 @@ test("the gastro OR query finds openable health memory ahead of the old pilot an
   const pilot = await pilotToolCall(root, "search_vault", { queries: alternatives }) as any;
   expect(mcp.hits).toEqual(result.hits);
   expect(pilot).toEqual(mcp);
-  expect(navigationFor("search_vault", { queries: alternatives })).toEqual({ search: q });
   const cli = spawnSync(process.execPath, [join(ENGINE_ROOT, "bin/search.ts"), q, "--json", "--limit", "20"], {
     env: { ...process.env, BIGBRAIN_VAULT: root }, encoding: "utf8",
   });

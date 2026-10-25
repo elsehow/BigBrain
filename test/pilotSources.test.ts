@@ -5,8 +5,7 @@ import { scanSurface } from '../lib/searchCore';
 import { pilotToolCall } from '../lib/pilot';
 import { buildPilotItem } from '../lib/pilotTranscript';
 import { nextWork, type IntakeInputs } from '../lib/work';
-import { recentSourcePage, insertionFiler } from '../lib/sourceFeed';
-import { filerChips, offFilers, filerAllows, hiddenFilerNodeIds } from '../web/ui/src/lib/feed';
+import { recentSourcePage } from '../lib/sourceFeed';
 import { userSide } from '../lib/transcriptProjection';
 const roots: string[] = [];
 afterAll(() => roots.forEach(root => rmSync(root, { recursive: true, force: true })));
@@ -67,22 +66,3 @@ test('existing pilot transcripts garden only recognized user speech, at the same
 });
 
 
-test('Pilot and future agents inherit the same default-off chip for both feed and graph', () => {
-  for (const envelope of [
-    { source: 'pilot', from: 'pilot', from_kind: 'agent' },
-    { source: 'agent-chat', from: 'future-agent', from_kind: 'agent' },
-    { source: 'mcp', from: 'another-agent', from_kind: 'agent' },
-    { source: 'future-agent', from_kind: 'agent' },
-  ]) {
-    const facet = insertionFiler(insertion({ envelope }));
-    const row = { ...facet, source: envelope.source, type: 'source' };
-    const node = { ...facet, source: envelope.source, id: 'source:fixture' };
-    const chips = filerChips([row], [node]);
-    expect(chips).toHaveLength(1); expect(chips[0]?.agent).toBe(true);
-    expect(chips[0]?.label).not.toBe('other');
-    const off = offFilers(chips, {});
-    expect(filerAllows(row, off)).toBe(false);
-    expect(hiddenFilerNodeIds([node], off)).toEqual(new Set(['source:fixture']));
-    expect(offFilers(chips, { [chips[0]!.label]: true }).size).toBe(0);
-  }
-});

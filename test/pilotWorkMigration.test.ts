@@ -8,10 +8,6 @@ import { migratedPilotId, pilotFromWork, repairMigratedArchive } from "../lib/pi
 import { DEFAULT_PILOT_BACKEND } from "../lib/pilotBackendTypes";
 import { readConversation } from "../lib/pilotConversation";
 import { writeAtomic } from "../lib/fsx";
-import { sessionPath } from "../lib/workSessionIdentity";
-import { withPilotChats } from "../web/ui/src/lib/pilotChatGraph";
-import { withPilotSearch } from "../web/ui/src/lib/pilotSearch";
-import { canonicalGraphView } from "../lib/graphView";
 
 const roots: string[] = [];
 afterAll(() => roots.forEach(root => rmSync(root, { recursive: true, force: true })));
@@ -51,30 +47,6 @@ test("legacy migration is durable, idempotent, quiet, and leaves the original hi
   const reopened = new PilotChats(root, { work });
   expect(reopened.list()).toHaveLength(1); expect(reopened.get(id).draft).toBe("A new draft");
   reopened.close();
-});
-
-test("graph and search coalesce old sources and links into one Pilot and keep output nodes", () => {
-  const job = original();
-  job.outputs = [{ id: "output", path: "sources/output", title: "Submitted findings", at, kind: "vault", status: "submitted" }];
-  const s = pilotFromWork(job, DEFAULT_PILOT_BACKEND);
-  const base = { nodes: [
-    { id: "topic", path: "memory/topic", title: "Topic", group: "memory", degree: 1 },
-    { id: "old-source", path: "sources/transcript", title: job.title, group: "source", degree: 1, from: "claude", sessionId: job.thread },
-  ], edges: [{ source: "topic", target: "old-source" }], hash: "base" };
-  // Historical aliases resolve directly through the migrated Pilot.
-  {
-    const graph = base;
-    const view = withPilotChats(graph, [s], null)!;
-    expect(view.nodes.filter(n => n.id === s.id)).toHaveLength(1);
-    expect(view.nodes.filter(n => n.pilotPhase)).toHaveLength(1);
-    expect(view.nodes.some(n => n.id === "output")).toBe(true);
-    expect(view.edges.some(e => [e.source, e.target].includes(s.id) && [e.source, e.target].includes("output"))).toBe(true);
-    for (const alias of [sessionPath(job.id), job.id, "sources/transcript", "old-source"]) {
-      expect(canonicalGraphView(view.nodes, { selected: [alias], excluded: [] }).selected).toEqual([s.id]);
-    }
-  }
-  const hits = [sessionPath(job.id), "sources/transcript"].map(path => ({ dir: "source", title: job.title, snippet: "", from: "claude-code", sessionId: job.thread, note: { path, name: job.title, size: 0, modified: 0 } }));
-  expect(withPilotSearch(hits, [s], "remote-only match").map(h => h.note.path)).toEqual([s.id]);
 });
 
 test("a migrated conversation continues through the selected Pilot backend without replaying its worker", async () => {

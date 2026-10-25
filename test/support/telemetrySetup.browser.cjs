@@ -1,4 +1,4 @@
-// Production AppShell and real initialization; every API and external request is intercepted.
+// production base and Field and real initialization; every API and external request is intercepted.
 const { chromium, webkit } = require('./browserHarness.cjs');
 const assert = require('node:assert/strict');
 const { readFileSync } = require('node:fs');
@@ -56,7 +56,7 @@ const base = process.env.VIEWER_URL || 'http://127.0.0.1:5305';
   const navigate = async target => { await page.waitForLoadState('networkidle'); await page.goto(target); };
   const reload = async () => { await page.waitForLoadState('networkidle'); await page.reload(); };
   const prompt = page.getByRole('heading', { name: 'Help improve BigBrain', exact: true });
-  const absent = async () => { await page.locator('#main').waitFor(); assert.equal(await prompt.count(), 0); };
+  const absent = async () => { await page.locator('.v2').waitFor(); assert.equal(await prompt.count(), 0); };
   await navigate(url);
   await page.getByRole('heading', { name: 'Connect integrations', exact: true }).waitFor();
   await page.waitForLoadState('networkidle');
@@ -162,6 +162,6 @@ const base = process.env.VIEWER_URL || 'http://127.0.0.1:5305';
   await page.getByRole('button', { name: 'Finish →', exact: true }).click(); await absent();
   assert.deepEqual(choices, [true, false, true, false]); assert.deepEqual(errors, []);
   assert(outbound.every(host => host === 'fonts.googleapis.com')); // If attempted, external fonts are blocked too.
-  console.log('PASS: combined built production AppShell; consent ordering/contrast, failures/reloads, existing choices, withdrawal, independent feedback while opted out, draft/retry identity and metadata allowlist; all API mocked, no analytics or feedback delivery.');
+  console.log('PASS: combined built production base and Field; consent ordering/contrast, failures/reloads, existing choices, withdrawal, independent feedback while opted out, draft/retry identity and metadata allowlist; all API mocked, no analytics or feedback delivery.');
  } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

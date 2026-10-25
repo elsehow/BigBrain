@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ActionRefusal, ApplicationActions, actionFailure, actionReceiptView, type ActionRequest } from "../lib/applicationActions";
 import { writeAtomic } from "../lib/fsx";
-import { deliverAction } from "../web/ui/src/lib/actionDelivery";
 const request: ActionRequest = { actor: { kind: "pilot", id: "pilot-fixture" }, request: "input-action", operation: "drop", scope: ["vault"], payload: { content: "Invented source" } };
 const scratch = () => mkdtempSync(join(tmpdir(), "application-actions-"));
 
@@ -101,15 +100,6 @@ test("historical receipts import without execution and batch results retain part
     expect(await new ApplicationActions(root).execute(batch, { authorize() {}, execute() { calls++; return results; } })).toEqual(results);
     expect(calls).toBe(1);
   } finally { rmSync(root, { recursive: true, force: true }); }
-});
-
-test("browser delivery retries network loss with one identity, never a server refusal", async () => {
-  const ids: string[] = [];
-  expect(await deliverAction(async id => { ids.push(id); if (ids.length === 1) throw new TypeError("Network lost"); return "ok"; })).toBe("ok");
-  expect(ids[0]).toBe(ids[1]);
-  let calls = 0;
-  await expect(deliverAction(async () => { calls++; throw new Error("Uncertain outcome"); })).rejects.toThrow("Uncertain");
-  expect(calls).toBe(1);
 });
 
 for (const damage of ["json", "version", "actor", "status", "identity"] as const) test(`damaged ${damage} receipt is isolated for inspection but blocks its exact action after restart`, async () => {

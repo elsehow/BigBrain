@@ -4,7 +4,6 @@ import { PilotChats } from "./support/pilotSession";
 import { PILOT_LIFECYCLE as timing } from "../lib/pilotLifecycleConfig";
 import { landDrop } from "../lib/landItem";
 import { readSourceInsertionLog } from "../lib/insertionLog";
-import { withPilotChats } from "../web/ui/src/lib/pilotChatGraph";
 import { nativeVault } from "./support/vault";
 
 const roots: string[] = [];
@@ -26,9 +25,9 @@ test("dormancy uses semantic activity, with exact discoverable timing boundaries
   expect(f.s.lifecycle).toBe("active"); expect(f.s.lastActivityAt).toBe(activity);
   f.advance(1); await f.chats.sweep(); expect(f.s.lifecycle).toBe("dormant");
   expect(f.s.lastActivityAt).toBe(activity); expect(f.s.updated).not.toBe(activity);
-  expect(withPilotChats({ nodes, edges: [] }, [f.s], null)!.nodes.find(n => n.id === f.s.id)!.pilotPhase).toBe("answered");
+  expect(f.s.phase).toBe("answered");
 });
-test("24-hour ingestion is durable, incremental, and retains context and one graph identity", async () => {
+test("24-hour ingestion is durable, incremental, and retains context", async () => {
   const f = fixture(); await f.answer(); f.advance(timing.ingestAfterMs - 1); await f.chats.sweep();
   expect(readSourceInsertionLog(f.root)).toHaveLength(0);
   f.advance(1); await Promise.all([f.chats.sweep(), f.chats.sweep()]);
@@ -42,11 +41,7 @@ test("24-hour ingestion is durable, incremental, and retains context and one gra
   const latest = f.s.ingestions!.at(-1)!;
   const body = events.find(e => e.id === latest.insertionId)!.body;
   expect(body).toContain("user: Second question"); expect(body).not.toContain("user: First question");
-  const captured = f.s.ingestions!.map(r => ({ id: `source:${r.insertionId}`, path: r.path, title: "Chapter", group: "source", degree: 1, from: "pilot", sessionId: f.s.id }));
-  const graph = withPilotChats({ nodes: [...nodes, ...captured], edges: captured.map(n => ({ source: n.id, target: "arbor" })) }, [f.s], null)!;
-  expect(graph.nodes).toHaveLength(2); expect(graph.nodes.find(n => n.id === f.s.id)!.sourcePaths).toContain(latest.path);
-  expect(graph.edges).toHaveLength(1); expect(graph.nodes.find(n => n.id === f.s.id)!.pilotPhase).toBe("answered");
-  expect(withPilotChats(graph, [f.s], f.s.id)!.nodes.find(n => n.id === f.s.id)!.pilotPhase).toBe("answered");
+  expect(f.s.phase).toBe("answered");
 });
 test("working turns and unsent drafts do not age or ingest", async () => {
   const f = fixture(); await f.answer(); f.s.phase = "working"; f.advance(timing.ingestAfterMs); await f.chats.sweep();
@@ -124,9 +119,6 @@ test("explicit deactivation preserves the session and defeats late composer hear
   f.chats.presence("test-client-one", f.s.id); f.chats.presence("test-client-one", null);
   expect(f.s.lifecycle).toBe("dormant"); expect(f.s.deactivatedAt).toBeTruthy();
   expect(f.s.messages).toEqual(messages); expect(f.s.context).toEqual(context); expect(f.s.draft).toBe("Unsent follow-up");
-  const view = withPilotChats({ nodes, edges: [] }, [f.s], null)!;
-  expect(view.nodes.find(n => n.id === f.s.id)!.group).toBe("source");
-  expect(view.nodes.find(n => n.id === f.s.id)!.pilotPhase).toBe("idle");
   const restored = new PilotChats(f.root, f.options);
   expect(restored.get(f.s.id).lifecycle).toBe("dormant");
   restored.presence("test-client-new", f.s.id);

@@ -1,4 +1,4 @@
-/** Production AppShell with fabricated providers; no vault or model calls. */
+/** production base and Field with fabricated providers; no vault or model calls. */
 const { chromium } = require('./browserHarness.cjs');
 const assert = require('node:assert/strict');
 (async () => {
@@ -8,7 +8,7 @@ const assert = require('node:assert/strict');
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
     async function fixture() {
-      await page.waitForFunction(() => document.documentElement.dataset.sidebarWorkbench === 'closed');
+      await page.locator('.v2').waitFor();
       await page.evaluate(() => {
         const original = window.fetch.bind(window);
         const saved = JSON.parse(localStorage.getItem('fixture-model-choices') || 'null');
@@ -113,6 +113,6 @@ const assert = require('node:assert/strict');
     assert(size.scroll <= size.width, 'settings fit a narrow viewport');
     assert.deepEqual(errors, []);
     await page.screenshot({ path: '/tmp/bigbrain-model-policy.png', fullPage: true });
-    console.log('PASS: production AppShell preserves API identity for all supported roles; Quick budget restriction, billing note, rollback, reasoning reset, persisted selection policies and reload');
+    console.log('PASS: production base and Field preserves API identity for all supported roles; Quick budget restriction, billing note, rollback, reasoning reset, persisted selection policies and reload');
   } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exit(1); });
