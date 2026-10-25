@@ -96,3 +96,13 @@ test('a long transcript that mentions the topic in passing does not outrank a no
  const rows=[source('t','Session log',`${filler}\nwe talked about the baby and childcare once\n${filler}`),source('n','Daycare','Childcare waitlist for the baby.'),source('x','Note','Unrelated short note.'),source('y','Note','Another short note.')];
  expect(rankCandidates(rows,'family concerns',[],['baby','childcare'])[0]!.id).toBe('n');
 });
+test('a source that cannot be scored keeps its reason, and an empty review says how many sources it had',async()=>{
+ const c=fixture();try{
+  const one={...c,sources:[c.sources[0]!]};
+  const failing:typeof inclusionEvaluator=(root,store,text,labels)=>({identity:inclusionEvaluator(root,store,text,labels).identity,score:async()=>{throw Error('Quick model is not connected');}});
+  const s=await idle(c.root,startReview(one,failing).id),view=reviewState(s);
+  expect(view.unresolved).toBe(1);expect(view.failures).toEqual(['Quick model is not connected']);
+  expect(view.sources).toBe(1);expect(view.untried).toBe(0);expect(view.narrowed).toBe(false);expect(view.exhausted).toBe(true);
+  expect(view.error).toContain('could not be evaluated');
+ }finally{rmSync(c.root,{recursive:true,force:true});}
+});
