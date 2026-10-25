@@ -6,6 +6,9 @@ export function jobProfile(role: string, capabilities: JobCapabilities): { role:
   if ((role === "tend" || role === "gardener") && capabilities === "gardener") return { role: "gardener", tools: "gardener" };
   if (role === "memory" && (capabilities === "memory" || capabilities === "none")) return { role: "memory", tools: capabilities };
   if (role === "quick" && capabilities === "none") return { role: "quick", tools: "none" };
+  // The classic chain's feed stage (lib/feedStage.ts) reads only what it is
+  // handed; its model is its own (vault.yaml `feed:`), judged like memory's.
+  if (role === "feed" && capabilities === "none") return { role: "memory", tools: "none" };
   if (role === "probe" && capabilities === "none") return { role: "pilot", tools: "none" };
   throw new Error(`Unsupported job profile: ${role}/${capabilities}`);
 }
