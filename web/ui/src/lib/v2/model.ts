@@ -167,21 +167,38 @@ export function barPilots(sessions: readonly PilotSummary[], keep: string | null
   return open && !seats.includes(open) ? [...seats, open] : seats;
 }
 
-/** Each pilot over its context; one with nothing placeable waits above the
- * middle. Then they're pushed apart so none sits inside another. */
-export function placePilots(field: Field, sessions: readonly PilotSummary[]): FieldPilot[] {
+/** A Desktop stands among what it concerns: the set of entities it has
+ * read or been given, directly or through a source that mentions them
+ * (`sourceEntities`, path → entity ids). Each counts once, however it came
+ * and however often; reading order makes no difference. It stands at their
+ * average, in the nodes' own height band, nudged off any dot it would cover.
+ * One with nothing placeable waits above the middle; then they're pushed
+ * apart so none sits inside another. The field never moves for them. */
+export function placePilots(field: Field, sessions: readonly PilotSummary[], sourceEntities?: ReadonlyMap<string, readonly string[]>): FieldPilot[] {
+  const byPath = new Map(field.nodes.map((n) => [n.path, n.i]));
+  const resolve = (ref: string): number[] => {
+    const i = field.byId.get(ref) ?? byPath.get(ref);
+    if (i != null) return [i];
+    return (sourceEntities?.get(ref) ?? []).map((id) => field.byId.get(id)).filter((x): x is number => x != null);
+  };
   const out: FieldPilot[] = sessions.map((s, k) => {
-    const refs = [...(s.contextNodes ?? []).flatMap((n) => [n.id, n.path ?? ""]), ...(s.context ?? [])];
-    const ctx = [...new Set(refs.map((r) => field.byId.get(r)).filter((x): x is number => x != null))];
-    const c: [number, number, number] = [0, 0, 0];
-    if (ctx.length) for (const i of ctx) for (let d = 0; d < 3; d++) c[d]! += field.nodes[i]!.p[d]! / ctx.length;
-    else { c[0] = (k - (sessions.length - 1) / 2) * 3; c[1] = 4; c[2] = -2; }
-    return { id: s.id, title: s.title, model: s.model, phase: s.phase, ctx, p: [c[0] + 0.4, Math.min(7.2, c[1] + 2.2), c[2] + 0.8] };
+    const refs = [...(s.context ?? []), ...(s.contextNodes ?? []).map((n) => n.path ?? n.id)];
+    const ctx = [...new Set(refs.flatMap(resolve))].sort((a, b) => a - b);
+    if (!ctx.length) return { id: s.id, title: s.title, model: s.model, phase: s.phase, ctx, p: [(k - (sessions.length - 1) / 2) * 3, 6.2, -1.2] };
+    const x: [number, number, number] = [0, 0, 0];
+    for (const i of ctx) for (let d = 0; d < 3; d++) x[d] += field.nodes[i]!.p[d]! / ctx.length;
+    // just above the dots it concerns, then off any dot near enough to cover
+    x[1] += 0.9;
+    for (let pass = 0; pass < 6; pass++) for (const n of field.nodes) {
+      const dx = x[0] - n.p[0], dz = x[2] - n.p[2], d = Math.hypot(dx, dz) || 0.01;
+      if (d < 0.8 && Math.abs(x[1] - n.p[1]) < 1) { x[0] += dx / d * (0.8 - d); x[2] += dz / d * (0.8 - d); }
+    }
+    return { id: s.id, title: s.title, model: s.model, phase: s.phase, ctx, p: x };
   });
   for (let pass = 0; pass < 40; pass++) for (const a of out) for (const b of out) {
     if (a === b) continue;
     const dx = a.p[0] - b.p[0], dz = a.p[2] - b.p[2], d = Math.hypot(dx, dz) || 0.01;
-    if (d < 3.2) { const push = (3.2 - d) / 2 / d; a.p[0] += dx * push; a.p[2] += dz * push; }
+    if (d < 2.4) { const push = (2.4 - d) / 2 / d; a.p[0] += dx * push; a.p[2] += dz * push; }
   }
   return out;
 }

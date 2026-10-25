@@ -485,13 +485,13 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
       g.mat.opacity = GLASS_OPACITY * g.vis;
     }
 
-    // Desktops: glide to their place and grow in; a working one turns as the
-    // logo does; the focused or pointed-at one stands a quarter larger
+    // Desktops: glide to their place, slowly (one taking in many notes at
+    // once must not wander); a working one turns as the logo does; the
+    // focused or pointed-at one stands a quarter larger
     clockT += dt;
     for (const pl of pilots.values()) {
       const on = focus === pl.d.id, near = on || underPilot === pl.d.id;
-      pl.at.set(...pl.d.p);
-      pl.cube.root.position.lerp(pl.at, ease(6));
+      pl.cube.root.position.lerp(pl.at, ease(1.6));
       pl.scale += ((near ? 1.25 : focus ? 0.8 : 1) - pl.scale) * ease(10);
       pl.cube.root.scale.setScalar(DESK_PX / 2 * perPx(pl.cube.root.position) * pl.scale);
       pl.cube.tick(pl.d.phase === "working" && !reduced ? clockT * 1000 + pl.clock : 0);
@@ -606,7 +606,8 @@ export function createV2Scene(host: HTMLElement, field: Field, hooks: SceneHooks
       }
       for (const d of list) {
         const pl = pilots.get(d.id);
-        if (pl) pl.d = d;
+        // re-aim only when its place has really moved, not at every read
+        if (pl) { pl.d = d; if (pl.at.distanceTo(tA.set(...d.p)) > 0.6) pl.at.copy(tA); }
         else { const made = makePilot(d); made.cube.root.position.set(...d.p); pilots.set(d.id, made); }
       }
     },
