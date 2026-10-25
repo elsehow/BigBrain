@@ -2,7 +2,7 @@
 // name here is invented). The rest of the engine is fakeApi's, through the
 // graph fixture; this answers what only Field asks: the entity graph, the
 // record, the sorted feed and the coding desktops. `?empty` is a new vault;
-// `?view=field` shows Field whatever this browser chose.
+// `?view=field` keeps the browser suite's `?view=classic` off it.
 import { mount } from "svelte";
 import "../design/tokens.css";
 import "../app.css";
@@ -44,5 +44,5 @@ const fake = window.fetch;
 }) as typeof fake;
 
 watchSystemTheme();
-// unpinned, so Settings → General can switch views; open it with ?view=field
+// unpinned, as the app mounts it: Field unless the address says ?view=classic
 mount(Base, { target: document.getElementById("app")! });

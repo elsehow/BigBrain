@@ -27,7 +27,8 @@ const assert = require('node:assert/strict');
           }
         })), { headers: response.headers });
       };
-      location.hash = BRIEFINGS.streaming.hash;
+      // The drawer is Classic's, which only ?view=classic reaches (lib/viewChoice.ts).
+      history.replaceState(null, '', '?view=classic#' + BRIEFINGS.streaming.hash);
       await import('/src/main.ts');
     </script>` }));
     await page.goto(base + '/');
