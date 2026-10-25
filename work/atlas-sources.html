@@ -1,0 +1,113 @@
+<div id="atlas-source-study" class="viz-dotted-background">
+  <style>
+    #atlas-source-study { padding: 28px 16px; }
+    #atlas-source-study .bb-panel { --bb-paper: light-dark(#f8f7f3,#20211f); --bb-ink: light-dark(#242824,#e6e8e1); --bb-muted: light-dark(#687068,#a9b1a7); --bb-rule: light-dark(#dedfd7,#3b4038); --bb-hover: light-dark(#eeefe8,#2b3028); --bb-accent: light-dark(#426247,#b8cda9); max-width: 560px; margin: 0 auto; padding: 28px 32px 24px; box-sizing: border-box; border: 1px solid var(--bb-rule); border-radius: 12px; background: var(--bb-paper); color: var(--bb-ink); font: 400 15px/1.55 'IBM Plex Sans',system-ui,sans-serif; min-height: 540px; }
+    #atlas-source-study .bb-panel * { box-sizing: border-box; }
+    #atlas-source-study .bb-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 26px; color: var(--bb-muted); font-size: 12px; }
+    #atlas-source-study .bb-vault { display: inline-flex; align-items: center; gap: 7px; }
+    #atlas-source-study .bb-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--bb-accent); }
+    #atlas-source-study h2 { margin: 0 0 12px; color: var(--bb-ink); font: 500 29px/1.2 'IBM Plex Sans',system-ui,sans-serif; letter-spacing: -.6px; }
+    #atlas-source-study .bb-summary { margin: 0 0 30px; color: var(--bb-muted); font-size: 15px; line-height: 1.6; }
+    #atlas-source-study .bb-heading { display: flex; align-items: baseline; gap: 9px; margin-bottom: 6px; }
+    #atlas-source-study h3 { margin: 0; font: 500 15px/1.4 'IBM Plex Sans',system-ui,sans-serif; color: var(--bb-ink); }
+    #atlas-source-study .bb-count { color: var(--bb-muted); font-size: 12px; }
+    #atlas-source-study .bb-source { display: grid; grid-template-columns: 20px minmax(0,1fr) 16px; gap: 12px; width: 100%; padding: 19px 0; border: 0; border-bottom: 1px solid var(--bb-rule); background: transparent; color: var(--bb-ink); text-align: left; font: inherit; border-radius: 0; }
+    #atlas-source-study .bb-source:hover { background: var(--bb-hover); }
+    #atlas-source-study .bb-source:focus-visible, #atlas-source-study .bb-back:focus-visible { outline: 2px solid var(--bb-accent); outline-offset: 5px; }
+    #atlas-source-study .bb-source-icon { color: var(--bb-muted); padding-top: 4px; }
+    #atlas-source-study .bb-source-text { min-width: 0; }
+    #atlas-source-study .bb-title { display: block; font-weight: 500; line-height: 1.4; margin-bottom: 5px; }
+    #atlas-source-study .bb-meta { display: block; color: var(--bb-muted); font-size: 12px; }
+    #atlas-source-study .bb-excerpt { display: block; margin-top: 9px; color: var(--bb-muted); font-size: 14px; line-height: 1.5; }
+    #atlas-source-study .bb-chevron { color: var(--bb-muted); padding-top: 4px; }
+    #atlas-source-study .bb-footer { color: var(--bb-muted); font-size: 12px; margin-top: 19px; }
+    #atlas-source-study .bb-back { display: inline-flex; align-items: center; gap: 7px; border: 0; padding: 0; background: transparent; color: var(--bb-muted); font: inherit; font-size: 13px; }
+    #atlas-source-study .bb-back:hover { color: var(--bb-ink); }
+    #atlas-source-study .bb-reader-meta { color: var(--bb-muted); font-size: 12px; margin: 0 0 28px; }
+    #atlas-source-study .bb-reader-copy p { margin: 0 0 20px; }
+    #atlas-source-study .bb-reader-copy blockquote { margin: 24px 0; padding-left: 16px; border-left: 2px solid var(--bb-accent); color: var(--bb-muted); }
+    #atlas-source-study .bb-reader-end { padding-top: 18px; border-top: 1px solid var(--bb-rule); margin-top: 28px; }
+    #atlas-source-study .bb-panel [hidden] { display: none !important; }
+    #atlas-source-study .bb-panel.bb-compact .bb-source { padding-top: 13px; padding-bottom: 13px; }
+    @media(max-width: 480px) { #atlas-source-study { padding: 12px 4px; } #atlas-source-study .bb-panel { padding: 23px 20px; min-height: 560px; } #atlas-source-study h2 { font-size: 26px; } }
+  </style>
+  <section class="bb-panel" aria-label="Atlas concept panel">
+    <div id="atlas-concept">
+      <div class="bb-top"><span class="bb-vault"><span class="bb-dot"></span>Test vault</span><span>Concept</span></div>
+      <h2>Atlas</h2>
+      <p class="bb-summary">A volunteer-run neighborhood tool library planning a second location. Maya Chen coordinates the expansion.</p>
+      <div class="bb-heading"><h3>Sources</h3><span class="bb-count">2</span></div>
+      <button type="button" class="bb-source cursor-interaction" data-source="update" aria-label="Read Atlas — September update">
+        <span class="bb-source-icon"><i data-lucide="file-text" aria-hidden="true"></i></span>
+        <span class="bb-source-text"><span class="bb-title">Atlas — September update</span><span class="bb-meta">Saved article · September 2026</span><span class="bb-excerpt">The lease fell through. Atlas is postponing the second location while Maya looks for another space.</span></span>
+        <span class="bb-chevron"><i data-lucide="arrow-up-right" aria-hidden="true"></i></span>
+      </button>
+      <button type="button" class="bb-source cursor-interaction" data-source="review" aria-label="Read Shared design review">
+        <span class="bb-source-icon"><i data-lucide="file-text" aria-hidden="true"></i></span>
+        <span class="bb-source-text"><span class="bb-title">Shared design review</span><span class="bb-meta">Saved document</span><span class="bb-excerpt">The original expansion plan: make borrowing tools easier and bring the library closer to more neighbors.</span></span>
+        <span class="bb-chevron"><i data-lucide="arrow-up-right" aria-hidden="true"></i></span>
+      </button>
+      <div class="bb-footer">Original material connected to Atlas</div>
+    </div>
+    <article id="atlas-reader" hidden aria-live="polite" aria-label="Selected source">
+      <div class="bb-top"><button type="button" class="bb-back cursor-interaction" data-back><i data-lucide="arrow-left" aria-hidden="true"></i>Atlas</button><span>Source</span></div>
+      <h2 id="atlas-reader-title"></h2>
+      <div class="bb-reader-meta" id="atlas-reader-meta"></div>
+      <div class="bb-reader-copy" id="atlas-reader-copy"></div>
+      <div class="bb-reader-end"><button type="button" class="bb-back cursor-interaction" data-back><i data-lucide="arrow-left" aria-hidden="true"></i>Back to Atlas’s sources</button></div>
+    </article>
+  </section>
+  <template id="atlas-update-copy">
+    <p>Our proposed second location is on hold. The lease fell through this month, so we’re returning to the search for a suitable space.</p>
+    <p>Maya Chen is coordinating the next round of visits. We still want a location that is easy to reach and has enough room for tools, repairs, and volunteer-led workshops.</p>
+    <blockquote>The expansion is postponed, but the neighborhood library and its regular borrowing hours continue.</blockquote>
+    <p>We’ll share another update when there is a concrete option to consider.</p>
+  </template>
+  <template id="atlas-review-copy">
+    <p>The expansion should make borrowing a tool feel as straightforward as borrowing a book. A second location would bring Atlas closer to more neighbors.</p>
+    <p>Keep the borrowing desk visible from the entrance. Put frequently used tools within easy reach, and leave a flexible area for repairs and small workshops.</p>
+    <blockquote>A welcoming space and a simple borrowing process matter more than filling every shelf on day one.</blockquote>
+    <p>These decisions connect the Atlas planning notes with the design system. Maya will bring them into the next discussion about a possible location.</p>
+  </template>
+  <script>
+    (() => {
+      const root = document.getElementById('atlas-source-study');
+      const panel = root.querySelector('.bb-panel');
+      const concept = root.querySelector('#atlas-concept');
+      const reader = root.querySelector('#atlas-reader');
+      const title = root.querySelector('#atlas-reader-title');
+      const meta = root.querySelector('#atlas-reader-meta');
+      const copy = root.querySelector('#atlas-reader-copy');
+      const sources = {
+        update: { title: 'Atlas — September update', meta: 'Saved article · September 2026', template: 'atlas-update-copy' },
+        review: { title: 'Shared design review', meta: 'Saved document', template: 'atlas-review-copy' }
+      };
+      let selection = null;
+      function show(id, save = false) {
+        const source = sources[id];
+        selection = source ? id : null;
+        concept.hidden = !!source;
+        reader.hidden = !source;
+        if (source) {
+          title.textContent = source.title;
+          meta.textContent = source.meta;
+          copy.replaceChildren(root.querySelector('#' + source.template).content.cloneNode(true));
+        }
+        if (save && window.openai?.setWidgetState) window.openai.setWidgetState({ modelContent: { concept: 'Atlas', source: source?.title ?? null }, privateContent: { selection } }).catch(() => {});
+      }
+      root.querySelectorAll('[data-source]').forEach(button => button.addEventListener('click', () => { show(button.dataset.source, true); reader.querySelector('[data-back]').focus({ preventScroll: true }); }));
+      root.querySelectorAll('[data-back]').forEach(button => button.addEventListener('click', () => { const previous = selection; show(null, true); root.querySelector('[data-source="' + (previous || 'update') + '"]').focus({ preventScroll: true }); }));
+      show(window.openai?.widgetState?.privateContent?.selection ?? null);
+      window.addEventListener('openai:set_globals', event => {
+        if (event.detail?.globals?.widgetState) show(event.detail.globals.widgetState.privateContent?.selection ?? null);
+      });
+      const options = { excerpts: true, compact: false };
+      const apply = () => { root.querySelectorAll('.bb-excerpt').forEach(el => { el.hidden = !options.excerpts; }); panel.classList.toggle('bb-compact', options.compact); };
+      if (globalThis.Tweak) {
+        const tweak = new Tweak({ container: panel, onChange: apply });
+        tweak.addToggle(options, 'excerpts', { label: 'Show source excerpts' });
+        tweak.addToggle(options, 'compact', { label: 'Compact source list' });
+      }
+    })();
+  </script>
+</div>
