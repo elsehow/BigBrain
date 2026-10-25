@@ -2,13 +2,15 @@
 // name here is invented). The rest of the engine is fakeApi's, through the
 // graph fixture; this answers what only Field asks: the entity graph, the
 // record, the sorted feed and the coding desktops. `?empty` is a new vault;
-// `?view=field` shows Field whatever this browser chose.
+// `?view=field` shows Field whatever this browser chose; `?update` raises
+// the update banner.
 import { mount } from "svelte";
 import "../design/tokens.css";
 import "../app.css";
 import Base from "../components/Base.svelte";
 import { installGraphFixture } from "./graphFixture";
 import { watchSystemTheme } from "../lib/theme";
+import { update } from "../lib/update.svelte";
 
 const empty = new URLSearchParams(location.search).has("empty");
 await installGraphFixture();
@@ -48,5 +50,13 @@ const fake = window.fetch;
 }) as typeof fake;
 
 watchSystemTheme();
+// `?update`: the shell found a newer build (there is no shell here, so the
+// store is written by hand); `?update=failed` is the install going wrong
+const updateParam = new URLSearchParams(location.search).get("update");
+if (updateParam !== null) {
+  update.available = { version: "0.9.0", notes: null };
+  if (updateParam === "failed") { update.phase = "failed"; update.error = "The download's signature did not verify."; }
+  else if (updateParam === "installing") update.phase = "installing";
+}
 // unpinned, so Settings → General can switch views; open it with ?view=field
 mount(Base, { target: document.getElementById("app")! });
